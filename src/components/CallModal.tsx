@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Phone, PhoneOff, Video, VideoOff, Mic, MicOff, 
-  Volume2, VolumeX, Shield, User, Camera, Sparkles,
+  Volume2, VolumeX, Shield, User, Camera, SwitchCamera, Sparkles,
   Maximize2, Minimize2, AlertCircle
 } from 'lucide-react';
 import { doc, setDoc, onSnapshot, updateDoc, collection, addDoc, getDoc } from 'firebase/firestore';
@@ -24,7 +24,7 @@ interface CallModalProps {
   userDisplayName: string;
   db: any; // Firestore instance
   isFirebaseConfigured: boolean;
-  onEndCall: () => void;
+  onEndCall: (duration: number, reason: string) => void;
   onAnswerCall: () => void;
 }
 
@@ -40,6 +40,7 @@ export const CallModal: React.FC<CallModalProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(session.type === 'voice');
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [callDuration, setCallDuration] = useState(0);
   const [micVolume, setMicVolume] = useState(0);
   const [hasMediaError, setHasMediaError] = useState<string | null>(null);
@@ -146,15 +147,16 @@ export const CallModal: React.FC<CallModalProps> = ({
   };
 
   // Capture user mic/camera stream
-  const startLocalStream = async () => {
+  const startLocalStream = async (overrideFacingMode?: 'user' | 'environment') => {
     try {
       setHasMediaError(null);
+      const currentFacingMode = overrideFacingMode || facingMode;
       const constraints: MediaStreamConstraints = {
         audio: true,
         video: session.type === 'video' ? {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: 'user'
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: currentFacingMode
         } : false
       };
 
@@ -163,6 +165,15 @@ export const CallModal: React.FC<CallModalProps> = ({
 
       if (localVideoRef.current && session.type === 'video') {
         localVideoRef.current.srcObject = stream;
+      }
+
+      // If we are switching cameras during a call, update the RTCPeerConnection sender
+      if (overrideFacingMode && peerConnectionRef.current) {
+        const videoTrack = stream.getVideoTracks()[0];
+        const sender = peerConnectionRef.current.getSenders().find(s => s.track?.kind === 'video');
+        if (sender && videoTrack) {
+          sender.replaceTrack(videoTrack);
+        }
       }
 
       // Voice level analyzer hook
@@ -293,7 +304,9 @@ export const CallModal: React.FC<CallModalProps> = ({
     }
 
     // 2. Start capturing local device camera
-    startLocalStream();
+    (async () => {
+      await startLocalStream();
+    })();
 
     // 3. Setup call duration tracker
     let durationTimer: any = null;
@@ -303,13 +316,55 @@ export const CallModal: React.FC<CallModalProps> = ({
       }, 1000);
     }
 
-    // 4. Register WebRTC Firestore signalling (if Firebase is up and running)
     let unsubscribeCallDoc: () => void = () => {};
+    let unsubscribeCandidates: () => void = () => {};
+
     if (isFirebaseConfigured && db && session.id) {
       const callDocRef = doc(db, 'calls', session.id);
       
-      // Auto register signaling callbacks
-      setupPeerConnection(callDocRef);
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+      });
+      peerConnectionRef.current = pc;
+
+      // Add local stream tracks to WebRTC
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => {
+          pc.addTrack(track, localStreamRef.current!);
+        });
+      }
+
+      // Receive remote stream
+      pc.ontrack = (event) => {
+        console.log("Remote track received", event.streams[0]);
+        if (remoteVideoRef.current) {
+          // IMPORTANT: Set srcObject directly to the incoming stream
+          remoteVideoRef.current.srcObject = event.streams[0];
+        }
+      };
+
+      // Ice Candidates exchange
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          const candidateType = session.isIncoming ? 'calleeCandidates' : 'callerCandidates';
+          const candidatesCollection = collection(callDocRef, candidateType);
+          addDoc(candidatesCollection, event.candidate.toJSON()).catch(e => {
+            console.warn("ICE candidate sync warning:", e);
+          });
+        }
+      };
+
+      // Create offer if caller
+      if (!session.isIncoming && session.status === 'dialing') {
+        pc.createOffer().then(offer => {
+          pc.setLocalDescription(offer).then(() => {
+            updateDoc(callDocRef, { offer: { type: offer.type, sdp: offer.sdp } });
+          });
+        });
+      }
 
       unsubscribeCallDoc = onSnapshot(callDocRef, async (snap) => {
         if (!snap.exists()) return;
@@ -317,88 +372,55 @@ export const CallModal: React.FC<CallModalProps> = ({
         
         if (data.status === 'declined' || data.status === 'ended') {
           cleanupCall();
-          onEndCall();
+          onEndCall(callDuration, data.status);
         } else if (data.status === 'connected' && session.status !== 'connected') {
-          // Transition to connected
           onAnswerCall();
         }
-      });
-    }
 
-    // Auto answering simulation for bots/offline/AI tests to ensure call feature ALWAYS works seamlessly!
-    let autoAnswerTimer: any = null;
-    if (session.status === 'dialing' && !session.isIncoming) {
-      autoAnswerTimer = setTimeout(() => {
-        stopAudioTone();
-        onAnswerCall();
-      }, 4500); // Connects after 4.5 seconds of ringing
+        // Handle offer/answer
+        if (session.isIncoming && data.offer && !pc.currentRemoteDescription) {
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await updateDoc(callDocRef, { answer: { type: answer.type, sdp: answer.sdp } });
+          } catch (e) {
+            console.warn("Failed handling offer:", e);
+          }
+        }
+
+        if (!session.isIncoming && data.answer && !pc.currentRemoteDescription) {
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+          } catch (e) {
+            console.warn("Failed handling answer:", e);
+          }
+        }
+      });
+
+      // Subscribe to remote candidates
+      const candidatesToListen = session.isIncoming ? 'callerCandidates' : 'calleeCandidates';
+      const candidatesCollection = collection(callDocRef, candidatesToListen);
+      unsubscribeCandidates = onSnapshot(candidatesCollection, (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            try {
+              const candidate = new RTCIceCandidate(change.doc.data());
+              pc.addIceCandidate(candidate);
+            } catch(e) {}
+          }
+        });
+      });
     }
 
     return () => {
       stopAudioTone();
       clearInterval(durationTimer);
-      clearTimeout(autoAnswerTimer);
       unsubscribeCallDoc();
+      unsubscribeCandidates();
       cleanupCall();
     };
   }, [session.status, session.id]);
-
-  // Setup actual RTCPeerConnection for real WebRTC streaming when another user answers
-  const setupPeerConnection = async (callDocRef: any) => {
-    try {
-      const servers = {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' }
-        ]
-      };
-      
-      const pc = new RTCPeerConnection(servers);
-      peerConnectionRef.current = pc;
-
-      // Add local stream tracks to WebRTC
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => {
-          if (localStreamRef.current) {
-            pc.addTrack(track, localStreamRef.current);
-          }
-        });
-      }
-
-      // Receive remote stream
-      const remoteStream = new MediaStream();
-      pc.ontrack = (event) => {
-        event.streams[0].getTracks().forEach(track => {
-          remoteStream.addTrack(track);
-        });
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = remoteStream;
-        }
-      };
-
-      // Ice Candidates exchange setup
-      pc.onicecandidate = async (event) => {
-        if (event.candidate) {
-          try {
-            // Write candidates to Firestore array
-            const snap = await getDoc(callDocRef);
-            if (snap.exists()) {
-              const data = snap.data() as any;
-              const currentCandidates = (data && data.candidates) || [];
-              await updateDoc(callDocRef, {
-                candidates: [...currentCandidates, event.candidate.toJSON()]
-              });
-            }
-          } catch (e) {
-            console.warn("ICE candidate sync warning:", e);
-          }
-        }
-      };
-
-    } catch (e) {
-      console.warn("PeerConnection initialization ignored:", e);
-    }
-  };
 
   const cleanupCall = () => {
     stopAudioTone();
@@ -416,10 +438,11 @@ export const CallModal: React.FC<CallModalProps> = ({
     }
     try {
       if (audioCtxRef.current) {
-        if (audioCtxRef.current.state !== 'closed') {
-          audioCtxRef.current.close();
-        }
+        const ctx = audioCtxRef.current;
         audioCtxRef.current = null;
+        if (ctx.state !== 'closed') {
+          ctx.close().catch(() => {});
+        }
       }
     } catch (e) {}
   };
@@ -444,6 +467,20 @@ export const CallModal: React.FC<CallModalProps> = ({
     }
   };
 
+  const handleSwitchCamera = async () => {
+    if (session.type !== 'video') return;
+    const nextMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nextMode);
+    
+    // Stop current video track
+    if (localStreamRef.current) {
+      localStreamRef.current.getVideoTracks().forEach(track => track.stop());
+    }
+    
+    // Request new stream
+    await startLocalStream(nextMode);
+  };
+
   // Format Duration seconds
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -466,7 +503,7 @@ export const CallModal: React.FC<CallModalProps> = ({
       }
     }
     
-    onEndCall();
+    onEndCall(callDuration, 'ended');
   };
 
   const handleAcceptIncoming = async () => {
@@ -495,7 +532,7 @@ export const CallModal: React.FC<CallModalProps> = ({
         console.warn("Firestore decline update warning:", e);
       }
     }
-    onEndCall();
+    onEndCall(0, 'declined');
   };
 
   // Avatar renderer helper
@@ -592,7 +629,8 @@ export const CallModal: React.FC<CallModalProps> = ({
                     autoPlay 
                     muted 
                     playsInline 
-                    className="w-full h-full object-cover scale-x-[-1]" 
+                    className="w-full h-full object-cover" 
+                    style={{ transform: 'scaleX(-1)' }}
                   />
                   <div className="absolute bottom-2 left-2 px-1.5 py-0.5 bg-black/60 rounded-md text-[9px] font-bold border border-white/5">
                     You
@@ -702,13 +740,22 @@ export const CallModal: React.FC<CallModalProps> = ({
 
             {/* Video Toggle button (only in video mode) */}
             {session.type === 'video' && (
-              <button 
-                onClick={handleToggleVideo}
-                className={`p-3.5 rounded-full transition-all cursor-pointer ${isVideoOff ? 'bg-rose-600 text-white' : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'}`}
-                title={isVideoOff ? 'Turn Camera On' : 'Turn Camera Off'}
-              >
-                {isVideoOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
-              </button>
+              <>
+                <button 
+                  onClick={handleToggleVideo}
+                  className={`p-3.5 rounded-full transition-all cursor-pointer ${isVideoOff ? 'bg-rose-600 text-white' : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'}`}
+                  title={isVideoOff ? 'Turn Camera On' : 'Turn Camera Off'}
+                >
+                  {isVideoOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
+                </button>
+                <button 
+                  onClick={handleSwitchCamera}
+                  className="p-3.5 rounded-full transition-all cursor-pointer bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white"
+                  title="Switch Camera"
+                >
+                  <SwitchCamera className="h-5 w-5" />
+                </button>
+              </>
             )}
 
             {/* Audio speaker trigger */}

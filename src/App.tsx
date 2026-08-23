@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
+import {  
   MessageSquare, Search, LogOut, Pin, VolumeX, Check, CheckCheck, 
   Send, Paperclip, Smile, Image as ImageIcon, Video, FileText, Mic, 
   ChevronLeft, Info, AlertCircle, AlertTriangle, Plus, User, Moon, Sun, 
@@ -8,35 +8,38 @@ import {
   Grid, Bookmark, Download, Palette, 
   Database, Volume2, Laptop, ChevronRight, Copy, Lock, Bell, ShieldCheck, Mail, Phone,
   MapPin, BarChart2, Play, Pause, StopCircle, UserPlus, ExternalLink,
-  ZoomIn, ZoomOut, RotateCw, Maximize2, MoreVertical, Archive, Clock, Shield, Sparkles, FileDown
+  ZoomIn, ZoomOut, RotateCw, RefreshCw, Maximize2, MoreVertical, Archive, Folder, Clock, Shield, Sparkles, FileDown
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import {  motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
-import { UserData, Chat, Message, PollData } from './types';
-import { SEED_USERS, SEED_CHATS, SEED_MESSAGES } from './data';
-import { isFirebaseConfigured, db, auth } from './firebaseClient';
-import { MessageCard } from './components/MessageCard';
-import { InlineVideoPlayer } from './components/InlineVideoPlayer';
-import { VoiceNotePlayer } from './components/VoiceNotePlayer';
-import { SettingsPage } from './components/SettingsPage';
-import { MediaEditorModal, MediaEditorData } from './components/MediaEditorModal';
-import { ChatThemeModal } from './components/ChatThemeModal';
-import { UnifiedEmojiPicker } from './components/UnifiedEmojiPicker';
-import { LandingPage } from './components/LandingPage';
-import { AuthFlow } from './components/AuthFlow';
-import { PublicProfileView } from './components/PublicProfileView';
-import { getThemeById, DEFAULT_THEME_ID } from './chatThemes';
-import { encryptMessageText, decryptMessageText } from './cryptoUtils';
-import { CallModal, CallSession } from './components/CallModal';
-import { blobToBase64, getSupportedMimeType, generateSyntheticVoiceNote } from './audioUtils';
+import {  UserData, Chat, Message, PollData } from './types';
+import {  SEED_USERS, SEED_CHATS, SEED_MESSAGES } from './data';
+import {  isFirebaseConfigured, db, auth } from './firebaseClient';
+import {  MessageCard } from './components/MessageCard';
+import {  InlineVideoPlayer } from './components/InlineVideoPlayer';
+import {  VoiceNotePlayer } from './components/VoiceNotePlayer';
+import {  SettingsPage } from './components/SettingsPage';
+import {  MediaEditorModal, MediaEditorData } from './components/MediaEditorModal';
+import {  ImageCropperModal } from './components/ImageCropperModal';
+import {  ChatThemeModal } from './components/ChatThemeModal';
+import {  UnifiedEmojiPicker } from './components/UnifiedEmojiPicker';
+import {  LandingPage } from './components/LandingPage';
+import {  AuthFlow } from './components/AuthFlow';
+import {  AccountSetup } from './components/AccountSetup';
+import {  PublicProfileView } from './components/PublicProfileView';
+import { isUserEffectivelyOnline } from './presenceUtils';
+import {  getThemeById, DEFAULT_THEME_ID } from './chatThemes';
+import {  encryptMessageText, decryptMessageText } from './cryptoUtils';
+import {  CallModal, CallSession } from './components/CallModal';
+import {  blobToBase64, getSupportedMimeType, generateSyntheticVoiceNote } from './audioUtils';
 import OneSignal from 'react-onesignal';
-import { 
+import {  
   collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, query, where, getDocs 
 } from 'firebase/firestore';
-import { 
+import {  
   signInWithEmailAndPassword, createUserWithEmailAndPassword, 
   signOut as firebaseSignOut, onAuthStateChanged, 
-  GoogleAuthProvider, GithubAuthProvider, signInWithPopup, sendEmailVerification, sendPasswordResetEmail 
+  GoogleAuthProvider, FacebookAuthProvider, signInWithPopup, sendEmailVerification, sendPasswordResetEmail 
 } from 'firebase/auth';
 
 export default function App() {
@@ -57,11 +60,14 @@ export default function App() {
     initOneSignal();
   }, []);
 
-  // Theme & Layout state - Always use Light mode as the primary default
+  // Theme & Layout state - Supports system prefers-color-scheme for perfect device adaptation
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
     try {
       const saved = localStorage.getItem('zenoa_theme');
-      return saved === 'dark' ? 'dark' : 'light';
+      if (saved === 'dark') return 'dark';
+      if (saved === 'light') return 'light';
+      const systemPrefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      return systemPrefersDark ? 'dark' : 'light';
     } catch {
       return 'light';
     }
@@ -80,6 +86,22 @@ export default function App() {
       // ignore
     }
   }, [themeMode]);
+
+  // Listen for device system theme adjustments
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (e: MediaQueryListEvent) => {
+      try {
+        const hasSaved = localStorage.getItem('zenoa_theme');
+        if (!hasSaved) {
+          setThemeMode(e.matches ? 'dark' : 'light');
+        }
+      } catch {}
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
 
   // --- FIRESTORE SAFETY & DEDUPLICATION HELPERS ---
   const dedupeMessages = (msgs: Message[]): Message[] => {
@@ -186,7 +208,93 @@ export default function App() {
     showToast(`Calling ${activeChat.name}...`);
   };
 
-  const handleEndCall = () => {
+  const handleEndCall = async (duration: number, reason: string) => {
+    if (activeCallSession && activeCallSession.partnerUsername) {
+      const targetChat = chats.find(c => c.type === 'dm' && c.username === activeCallSession.partnerUsername);
+      if (targetChat) {
+        const callTypeLabel = activeCallSession.type === 'video' ? '📹 Video' : '📞 Voice';
+        const isMissed = reason === 'declined' || (reason === 'ended' && duration === 0);
+        let logText = '';
+        
+        if (isMissed) {
+          logText = activeCallSession.isIncoming ? `Missed ${callTypeLabel} Call` : `Unanswered ${callTypeLabel} Call`;
+        } else {
+          const m = Math.floor(duration / 60);
+          const s = duration % 60;
+          const durationStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+          logText = `${callTypeLabel} Call • ${durationStr}`;
+        }
+
+        const newMsgId = 'msg_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 6);
+        const sender = activeCallSession.isIncoming ? activeCallSession.partnerUsername : (userUsername || 'me');
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        const newMsg: Message = {
+          id: newMsgId,
+          chat_id: targetChat.id,
+          text: logText,
+          sender,
+          timestamp,
+          type: 'text',
+          reactions: [],
+          read_by: [],
+          reply_to: undefined,
+          reply_sender: undefined,
+          reply_preview: undefined,
+          forwarded: false,
+          pinned: false,
+          edited: false,
+          deleted_for_everyone: false,
+          deleted_for_me: false,
+          created_at: Date.now()
+        };
+
+        if (isFirebaseConfigured && db && auth) {
+          try {
+            const encryptedPayload = await encryptMessageText(logText, targetChat.id);
+            await setDoc(doc(db, 'messages', newMsgId), {
+              id: newMsgId,
+              chat_id: targetChat.id, 
+              created_at: Date.now(),
+              sender,
+              text: encryptedPayload,
+              type: 'text',
+              timestamp,
+              reactions: [],
+              read_by: [],
+              reply_to: null,
+              reply_sender: null,
+              reply_preview: null,
+              forwarded: false,
+              pinned: false
+            });
+            // Update chat last message
+            await setDoc(doc(db, 'chats', targetChat.id), {
+              last_message: logText,
+              last_time: 'now', 
+              updated_at: Date.now(), 
+              last_message_sender: sender,
+              last_message_status: 'delivered' as const
+            }, { merge: true });
+          } catch (err) {
+            console.warn("Call log delivery notice:", err);
+          }
+        }
+
+        setMessagesByChat(prev => ({
+          ...prev,
+          [targetChat.id]: [...(prev[targetChat.id] || []), newMsg]
+        }));
+        setChats(prev => prev.map(c => c.id === targetChat.id ? { 
+          ...c, 
+          last_message: sender === userUsername ? `You: ${logText}` : logText, 
+          last_time: 'now', 
+          updated_at: Date.now(), 
+          last_message_sender: sender, 
+          last_message_status: 'delivered' as const
+        } : c));
+      }
+    }
     setActiveCallSession(null);
     showToast("Call ended safely");
   };
@@ -208,6 +316,7 @@ export default function App() {
   const [showEditProfileModal, setShowEditProfileModal] = useState<boolean>(false);
   const [showShareProfileModal, setShowShareProfileModal] = useState<boolean>(false);
   const [profileActiveTab, setProfileActiveTab] = useState<'media' | 'saved'>('media');
+  const [currentMediaFolder, setCurrentMediaFolder] = useState<'photos' | 'videos' | 'audio' | 'documents' | null>(null);
   const [publicProfileUsername, setPublicProfileUsername] = useState<string | null>(null);
 
   // Real Working Settings Preferences
@@ -335,6 +444,10 @@ export default function App() {
 
   // Authentication State
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isNewUserSetupPending, setIsNewUserSetupPending] = useState(false);
+  const [isAuthResolving, setIsAuthResolving] = useState<boolean>(true);
+  const [isEmailVerificationPending, setIsEmailVerificationPending] = useState<boolean>(false);
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string>('');
   const [showLandingPage, setShowLandingPage] = useState<boolean>(true);
   const [authFlowInitialMode, setAuthFlowInitialMode] = useState<'login' | 'register'>('login');
 
@@ -392,6 +505,8 @@ export default function App() {
   const [savedDisplayName, setSavedDisplayName] = useState<string>('');
   const [savedUsername, setSavedUsername] = useState<string>('');
   const profilePhotoInputRef = useRef<HTMLInputElement>(null);
+  const [showImageCropper, setShowImageCropper] = useState<boolean>(false);
+  const [cropperSourceImage, setCropperSourceImage] = useState<string>('');
 
   // Onboarding Flow State
   const [onboardingStep, setOnboardingStep] = useState<number>(0);
@@ -400,9 +515,11 @@ export default function App() {
   const [bioInput, setBioInput] = useState<string>('');
 
   // Messenger Database State
-  const [users, setUsers] = useState<Record<string, UserData>>(SEED_USERS);
-  const [chats, setChats] = useState<Chat[]>(SEED_CHATS);
-  const [messagesByChat, setMessagesByChat] = useState<Record<string, Message[]>>(SEED_MESSAGES);
+  const [users, setUsers] = useState<Record<string, UserData>>({});
+  const [chats, setChats] = useState<Chat[]>([]);
+  const chatsRef = useRef<Chat[]>([]);
+  useEffect(() => { chatsRef.current = chats; }, [chats]);
+  const [messagesByChat, setMessagesByChat] = useState<Record<string, Message[]>>({});
   const [activeChatId, setActiveChatId] = useState<string>('');
 
   // Modals, Context Menus & WhatsApp Chat Controls
@@ -417,12 +534,22 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem('zenoa_chat_wallpapers') || '{}'); } catch { return {}; }
   });
 
-  const handleSelectChatTheme = (themeId: string, applyToAll = false) => {
+  const handleSelectChatTheme = async (themeId: string, applyToAll = false) => {
     if (applyToAll) {
       const updated: Record<string, string> = {};
       chats.forEach(c => { updated[c.id] = themeId; });
       setChatWallpapers(updated);
       try { localStorage.setItem('zenoa_chat_wallpapers', JSON.stringify(updated)); } catch {}
+      
+      if (isFirebaseConfigured && db && auth) {
+        try {
+          await Promise.all(chats.map(c => 
+            setDoc(doc(db, 'chats', c.id), {
+              [`themes.${userUsername}`]: themeId
+            }, { merge: true })
+          ));
+        } catch (e) { console.error(e); }
+      }
       showToast('Theme applied to all chats ✨');
     } else if (activeChatId) {
       setChatWallpapers(prev => {
@@ -430,6 +557,14 @@ export default function App() {
         try { localStorage.setItem('zenoa_chat_wallpapers', JSON.stringify(next)); } catch {}
         return next;
       });
+      
+      if (isFirebaseConfigured && db && auth) {
+        try {
+          await setDoc(doc(db, 'chats', activeChatId), {
+            [`themes.${userUsername}`]: themeId
+          }, { merge: true });
+        } catch (e) { console.error(e); }
+      }
       showToast('Wallpaper & theme updated ✨');
     }
   };
@@ -543,6 +678,9 @@ export default function App() {
         setDoc(doc(db, 'messages', m.id), { read_by: newReadBy }, { merge: true }).catch(() => {});
       });
       
+      // Update chat document to mark last message as read
+      setDoc(doc(db, 'chats', activeChatId), { last_message_status: 'read' }, { merge: true }).catch(() => {});
+      
       // Update local state optimistically
       setMessagesByChat(prev => {
         const updated = (prev[activeChatId] || []).map(m => {
@@ -563,6 +701,10 @@ export default function App() {
 
     async function initFirebase() {
       if (!isFirebaseConfigured || !db || !auth) {
+        setUsers(SEED_USERS);
+        setChats(SEED_CHATS);
+        setMessagesByChat(SEED_MESSAGES);
+        setIsAuthResolving(false);
         return;
       }
 
@@ -581,7 +723,7 @@ export default function App() {
                   bio: p.bio || '',
                   avatar_seed: p.avatar_seed || p.username,
                   avatar_url: p.avatar_url || '',
-                  online: p.online || false,
+                  online: isUserEffectivelyOnline(p as any),
                   last_seen: p.last_seen || 'offline',
                   last_seen_timestamp: p.last_seen_timestamp || 0,
                   custom_status: p.custom_status || '',
@@ -601,54 +743,61 @@ export default function App() {
 
         // 2. Live auth listener
         unsubscribeAuth = onAuthStateChanged(auth, async (userObj) => {
-          if (userObj) {
-            // Check if email/password account and not verified
-            const isPasswordProvider = userObj.providerData.some(p => p.providerId === 'password') || userObj.providerData.length === 0;
-            if (!userObj.emailVerified && isPasswordProvider) {
-              await firebaseSignOut(auth);
-              setIsAuthenticated(false);
-              return;
-            }
-            
-            setUserId(userObj.uid);
-            setUserEmail(userObj.email || '');
-
-            // Fetch user profile from Firestore
-            try {
-              const userDocRef = doc(db, 'users', userObj.uid);
-              const userSnap = await getDoc(userDocRef);
-
-              if (userSnap.exists()) {
-                const profile = userSnap.data();
-                const uName = profile.username || '';
-                const dName = profile.display_name || profile.username || '';
-                setUserUsername(uName);
-                setUserDisplayName(dName);
-                setUserBio(profile.bio || '');
-                setUserAvatarSeed(profile.avatar_seed || profile.username || '');
-                setUserAvatarUrl(profile.avatar_url || '');
-                setUserNameChanges(profile.name_change_timestamps || []);
-                setUserUsernameChanges(profile.username_change_timestamps || []);
-                setSavedDisplayName(dName);
-                setSavedUsername(uName);
+          try {
+            if (userObj) {
+              // Check if email/password account and not verified
+              const isPasswordProvider = userObj.providerData.some(p => p.providerId === 'password') || userObj.providerData.length === 0;
+              if (!userObj.emailVerified && isPasswordProvider) {
+                setIsEmailVerificationPending(true);
+                setPendingVerificationEmail(userObj.email || '');
+                setIsAuthenticated(false);
+                return;
+              }
+              
+              setUserId(userObj.uid);
+              setUserEmail(userObj.email || '');
+  
+              // Fetch user profile from Firestore
+              try {
+                const userDocRef = doc(db, 'users', userObj.uid);
+                const userSnap = await getDoc(userDocRef);
+  
+                if (userSnap.exists()) {
+                  const profile = userSnap.data();
+                  const uName = profile.username || '';
+                  const dName = profile.display_name || profile.username || '';
+                  setUserUsername(uName);
+                  setUserDisplayName(dName);
+                  setUserBio(profile.bio || '');
+                  setUserAvatarSeed(profile.avatar_seed || profile.username || '');
+                  setUserAvatarUrl(profile.avatar_url || '');
+                  setUserNameChanges(profile.name_change_timestamps || []);
+                  setUserUsernameChanges(profile.username_change_timestamps || []);
+                  setSavedDisplayName(dName);
+                  setSavedUsername(uName);
+                  setAuthMethod(userObj.providerData[0]?.providerId || 'email');
+                  setIsAuthenticated(true);
+                } else {
+                  setAuthMethod(userObj.providerData[0]?.providerId || 'email');
+                  const defaultUser = userObj.email?.split('@')[0].replace(/[^a-z0-9_]/g, '') || 'user';
+                  setUsernameInput(defaultUser);
+                  setOnboardingStep(1);
+                }
+              } catch (fetchErr: any) {
+                console.warn("User profile fetch fallback:", fetchErr.message);
                 setAuthMethod(userObj.providerData[0]?.providerId || 'email');
                 setIsAuthenticated(true);
-              } else {
-                setAuthMethod(userObj.providerData[0]?.providerId || 'email');
-                const defaultUser = userObj.email?.split('@')[0].replace(/[^a-z0-9_]/g, '') || 'user';
-                setUsernameInput(defaultUser);
-                setOnboardingStep(1);
               }
-            } catch (fetchErr: any) {
-              console.warn("User profile fetch fallback:", fetchErr.message);
-              setAuthMethod(userObj.providerData[0]?.providerId || 'email');
-              setIsAuthenticated(true);
+            } else {
+              setIsAuthenticated(false);
+              setUserUsername('');
+              setChats([]);
+              setMessagesByChat({});
             }
-          } else {
-            setIsAuthenticated(false);
-            setUserUsername('');
-            setChats([]);
-            setMessagesByChat({});
+          } catch (err: any) {
+            console.error("Auth sync handler error:", err);
+          } finally {
+            setIsAuthResolving(false);
           }
         });
 
@@ -664,6 +813,59 @@ export default function App() {
       if (unsubscribeAuth) unsubscribeAuth();
     };
   }, []);
+
+  // Automatic Email Verification Polling (Runs when verification screen is active)
+  useEffect(() => {
+    if (!isFirebaseConfigured || !auth || !isEmailVerificationPending) return;
+
+    let active = true;
+    const interval = setInterval(async () => {
+      try {
+        if (!auth.currentUser) return;
+        await auth.currentUser.reload();
+        if (auth.currentUser.emailVerified && active) {
+          clearInterval(interval);
+          setIsEmailVerificationPending(false);
+          setPendingVerificationEmail('');
+          showToast("Email verified successfully! 🎉");
+          try {
+            confetti();
+          } catch (confettiErr) {}
+          
+          // Log them in fully and fetch or onboard profile!
+          const userObj = auth.currentUser;
+          const userDocRef = doc(db, 'users', userObj.uid);
+          const userSnap = await getDoc(userDocRef);
+
+          setUserId(userObj.uid);
+          setUserEmail(userObj.email || '');
+          setAuthMethod('email');
+
+          if (userSnap.exists()) {
+            const profile = userSnap.data();
+            setUserUsername(profile.username || '');
+            setUserDisplayName(profile.display_name || profile.username || '');
+            setUserBio(profile.bio || '');
+            setUserAvatarSeed(profile.avatar_seed || profile.username || '');
+            setUserAvatarUrl(profile.avatar_url || '');
+            setIsAuthenticated(true);
+          } else {
+            // New user, trigger onboarding step
+            const resolvedUsername = (userObj.email || '').split('@')[0].replace(/[^a-z0-9_]/g, '');
+            setUsernameInput(resolvedUsername);
+            setOnboardingStep(1);
+          }
+        }
+      } catch (e) {
+        console.warn("Email verification reload check ignored:", e);
+      }
+    }, 3000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [isEmailVerificationPending, isFirebaseConfigured, auth, db]);
 
   // Synchronize Chats when authenticated and username is set
   useEffect(() => {
@@ -687,7 +889,7 @@ export default function App() {
             const otherUser = (c.participants || []).find((p: string) => p !== userUsername) || '';
             const uProfile = users[otherUser];
 
-            chatMap.set(c.id, {
+            const chatObj: Chat = {
               id: c.id,
               type: (c.type || 'dm') as 'dm' | 'group',
               name: c.type === 'dm' ? (uProfile?.display_name || otherUser) : (c.name || ''),
@@ -701,12 +903,20 @@ export default function App() {
               pinned: c.pinned || false,
               muted: c.muted || false,
               typing: c.typing || false,
-              online: c.type === 'dm' ? (uProfile?.online || false) : (c.online || false),
+              online: c.type === 'dm' ? isUserEffectivelyOnline(uProfile) : (c.online || false),
               last_seen: c.type === 'dm' ? (uProfile?.last_seen || '') : (c.last_seen || ''),
               activity_type: c.activity_type || 'none',
               custom_status: c.type === 'dm' ? (uProfile?.custom_status || '') : (c.custom_status || ''),
-              updated_at: c.updated_at || Date.now()
-            });
+              updated_at: c.updated_at || Date.now(),
+              cleared_at: c.cleared_at || {},
+              theme: c.themes?.[userUsername],
+              last_message_sender: c.last_message_sender,
+              last_message_status: c.last_message_status
+            };
+            if (chatObj.cleared_at?.[userUsername] && chatObj.cleared_at?.[userUsername] > (chatObj.updated_at || 0)) {
+              chatObj.last_message = 'Chat history cleared';
+            }
+            chatMap.set(c.id, chatObj);
           }
         });
         const fetchedChats = Array.from(chatMap.values());
@@ -720,6 +930,22 @@ export default function App() {
             return a.id > b.id ? -1 : 1;
           });
           setChats(fetchedChats);
+          
+          setChatWallpapers(prev => {
+            const next = { ...prev };
+            let changed = false;
+            fetchedChats.forEach(c => {
+              if (c.theme && c.theme !== next[c.id]) {
+                next[c.id] = c.theme;
+                changed = true;
+              }
+            });
+            if (changed) {
+              try { localStorage.setItem('zenoa_chat_wallpapers', JSON.stringify(next)); } catch {}
+              return next;
+            }
+            return prev;
+          });
         } else {
           setChats([]);
         }
@@ -817,6 +1043,13 @@ export default function App() {
 
         const activeMsgs = decryptedDocs
           .filter((msg): msg is Exclude<typeof msg, null> => msg !== null)
+          .filter((msg) => {
+            const chat = chatsRef.current.find(c => c.id === activeChatId);
+            if (chat && chat.cleared_at && chat.cleared_at[userUsername]) {
+              return (msg.created_at || 0) >= chat.cleared_at[userUsername];
+            }
+            return true;
+          })
           .sort((a, b) => {
             const timeA = a.created_at || 0;
             const timeB = b.created_at || 0;
@@ -841,7 +1074,9 @@ export default function App() {
 
   // Real Presence & User Status Sync Heartbeat
   useEffect(() => {
-    if (isFirebaseConfigured && db && userUsername) {
+    if (!isFirebaseConfigured || !db || !userUsername) return;
+
+    const syncPresence = () => {
       setDoc(doc(db, 'users', userUsername), {
         online: myPresenceStatus !== 'offline',
         activity_status: myPresenceStatus,
@@ -850,8 +1085,15 @@ export default function App() {
         last_seen: 'just now',
         last_seen_timestamp: Date.now()
       }, { merge: true }).catch(err => console.warn("Presence sync notice:", err));
-    }
-  }, [userUsername, myPresenceStatus, myCustomStatus, myActivityType]);
+    };
+
+    syncPresence();
+    
+    // Heartbeat every 30 seconds
+    const interval = setInterval(syncPresence, 30000);
+    
+    return () => clearInterval(interval);
+  }, [userUsername, myPresenceStatus, myCustomStatus, myActivityType, isFirebaseConfigured, db]);
 
   // Live Voice & Video Signaling Listener for Incoming Calls
   useEffect(() => {
@@ -916,7 +1158,7 @@ export default function App() {
   // Online Status Helpers
   const getOnlineStatusText = (user: UserData | undefined) => {
     if (!user) return 'offline';
-    if (user.online === false) {
+    if (!isUserEffectivelyOnline(user)) {
       if (!user.last_seen_timestamp) return user.last_seen || 'offline';
       const diff = Date.now() - user.last_seen_timestamp;
       const mins = Math.floor(diff / 60000);
@@ -943,10 +1185,14 @@ export default function App() {
 
   const isUserEffectivelyOnline = (user: UserData | undefined) => {
     if (!user) return false;
-    if (user.online === false) return false;
+    
+    // Always check timestamp first
     if (user.last_seen_timestamp) {
-      return Date.now() - user.last_seen_timestamp <= 90000;
+      // 60 seconds threshold (60,000 ms)
+      return Date.now() - user.last_seen_timestamp <= 60000;
     }
+    
+    // Fallback to boolean flag
     return user.online;
   };
 
@@ -1185,7 +1431,7 @@ export default function App() {
         if (provider === 'google') {
           authProvider = new GoogleAuthProvider();
         } else {
-          authProvider = new GithubAuthProvider();
+          authProvider = new FacebookAuthProvider();
         }
         const userCredential = await signInWithPopup(auth, authProvider);
         const userObj = userCredential.user;
@@ -1218,6 +1464,7 @@ export default function App() {
           // Profile is missing, trigger onboarding
           const resolvedUsername = (userObj.email || 'user').split('@')[0].replace(/[^a-z0-9_]/g, '');
           setUsernameInput(resolvedUsername);
+          setIsAuthenticated(true);
           setOnboardingStep(1);
         }
       } catch (err: any) {
@@ -1228,7 +1475,7 @@ export default function App() {
     } else {
       setTimeout(() => {
         setIsLoading(false);
-        const name = provider === 'google' ? 'Alex Rivera' : 'GitHub User';
+        const name = provider === 'google' ? 'Alex Rivera' : 'Facebook User';
         const userseed = provider === 'google' ? 'alexrivera' : 'gituser';
         setUserId('u_' + Math.random().toString(36).substring(2, 9));
         setUserEmail(`${userseed}@example.com`);
@@ -1238,12 +1485,24 @@ export default function App() {
         setAuthMethod(provider);
         setIsAuthenticated(true);
         confetti({ particleCount: 80, spread: 60, origin: { y: 0.8 } });
-        showToast(`Signed in successfully via ${provider === 'google' ? 'Google' : 'GitHub'}`);
+        showToast(`Signed in successfully via ${provider === 'google' ? 'Google' : 'Facebook'}`);
       }, 800);
     }
   };
 
   // AuthFlow Helper Handlers
+  const handleForgotPassword = async (email: string): Promise<{ success: boolean; error?: string }> => {
+    if (!isFirebaseConfigured || !auth) {
+      return { success: false, error: 'Auth not configured' };
+    }
+    try {
+      await sendPasswordResetEmail(auth, email);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to send reset email' };
+    }
+  };
+
   const handleAuthFlowLogin = async (identifier: string, pass: string): Promise<{ success: boolean; requiresOtp?: boolean; error?: string }> => {
     let emailToUse = identifier;
 
@@ -1281,21 +1540,19 @@ export default function App() {
         const userCredential = await signInWithEmailAndPassword(auth, emailToUse, pass);
         const userObj = userCredential.user;
 
-        if (!userObj.emailVerified) {
+        const userDocRef = doc(db, 'users', userObj.uid);
+        const userSnap = await getDoc(userDocRef);
+
+        if (!userObj.emailVerified && !userSnap.exists()) {
           try {
             await sendEmailVerification(userObj);
           } catch (vErr) {
             console.warn("Verification resend error:", vErr);
           }
-          await firebaseSignOut(auth);
-          return { 
-            success: false, 
-            error: 'Your email is not verified yet. We have sent a new verification link to your email. Please verify it and try again.' 
-          };
+          setIsEmailVerificationPending(true);
+          setPendingVerificationEmail(userObj.email || emailToUse);
+          return { success: true };
         }
-
-        const userDocRef = doc(db, 'users', userObj.uid);
-        const userSnap = await getDoc(userDocRef);
 
         setUserId(userObj.uid);
         setUserEmail(userObj.email || '');
@@ -1319,7 +1576,15 @@ export default function App() {
         showToast(`Welcome back!`);
         return { success: true };
       } catch (err: any) {
-        return { success: false, error: err.message || 'Invalid username/email or password.' };
+        console.warn("Login auth error:", err);
+        const code = err.code || (err.message && err.message.includes('/') ? err.message : '');
+        if (code.includes('auth/invalid-credential') || code.includes('auth/wrong-password') || code.includes('auth/user-not-found')) {
+          return { success: false, error: 'Incorrect email/username or password. Please check your credentials and try again.' };
+        }
+        if (code.includes('auth/too-many-requests')) {
+          return { success: false, error: 'Too many failed login attempts. This account has been temporarily locked to protect your privacy. Please try again in a few minutes or reset your password.' };
+        }
+        return { success: false, error: 'Sign in failed. Please verify your internet connection and credentials.' };
       }
     } else {
       const resolvedUsername = emailToUse.split('@')[0].replace(/[^a-z0-9_]/g, '');
@@ -1366,12 +1631,24 @@ export default function App() {
           console.warn("Verification email notice:", verifErr);
         }
 
-        // Sign out immediately so they cannot enter without verifying
-        await firebaseSignOut(auth);
+        // Keep them logged in but set verification pending state so the polling effect checks them!
+        setIsEmailVerificationPending(true);
+        setPendingVerificationEmail(data.email);
 
         return { success: true };
       } catch (err: any) {
-        return { success: false, error: err.message || 'Registration failed. Email or username may already be in use.' };
+        console.warn("Registration auth error:", err);
+        const code = err.code || (err.message && err.message.includes('/') ? err.message : '');
+        if (code.includes('auth/email-already-in-use')) {
+          return { success: false, error: 'An account with this email address is already registered. Please sign in instead.' };
+        }
+        if (code.includes('auth/invalid-email')) {
+          return { success: false, error: 'The email address format is invalid. Please verify and try again.' };
+        }
+        if (code.includes('auth/weak-password')) {
+          return { success: false, error: 'The password is too weak. Please ensure your password is at least 6 characters long.' };
+        }
+        return { success: false, error: 'Registration failed. The selected email or username might already be in use.' };
       }
     } else {
       const mockUid = 'u_' + Math.random().toString(36).substring(2, 9);
@@ -1478,7 +1755,7 @@ export default function App() {
     showToast('Profile created successfully! Welcome to Zenoa.');
   };
 
-  // Photo upload and compression helper
+  // Photo upload and WhatsApp-style crop flow
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1488,44 +1765,27 @@ export default function App() {
       return;
     }
 
-    if (file.size > 8 * 1024 * 1024) {
-      showToast('Image size should be under 8MB');
+    if (file.size > 15 * 1024 * 1024) {
+      showToast('Image size should be under 15MB');
       return;
     }
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const img = new window.Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const maxDim = 320;
-        let width = img.width;
-        let height = img.height;
-        if (width > height) {
-          if (width > maxDim) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          }
-        } else {
-          if (height > maxDim) {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressed = canvas.toDataURL('image/jpeg', 0.88);
-          setUserAvatarUrl(compressed);
-          showToast('Profile photo ready! Click "Save Profile Changes" to apply.');
-        }
-      };
-      img.src = event.target?.result as string;
+      const result = event.target?.result as string;
+      if (result) {
+        setCropperSourceImage(result);
+        setShowImageCropper(true);
+      }
     };
     reader.readAsDataURL(file);
     e.target.value = '';
+  };
+
+  const handleCroppedAvatarSave = (croppedDataUrl: string) => {
+    setUserAvatarUrl(croppedDataUrl);
+    setShowImageCropper(false);
+    showToast('Profile picture cropped & set successfully! 📸');
   };
 
   const handleRemovePhoto = () => {
@@ -1688,6 +1948,18 @@ export default function App() {
     setOtpSent(false);
     setErrorMessage('');
     setSuccessMessage('');
+    
+    // Complete session memory wipe
+    setUserId('');
+    setUserEmail('');
+    setUserUsername('');
+    setUserDisplayName('');
+    setUserBio('');
+    setUserAvatarSeed('');
+    setUserAvatarUrl('');
+    setChats([]);
+    setMessagesByChat({});
+    setActiveChatId('');
   };
 
   // Sound effects helper using Web Audio API
@@ -1912,7 +2184,7 @@ export default function App() {
       // Update last message in chat preview
       setChats(prev => prev.map(c => {
         if (c.id === activeChatId) {
-          return { ...c, last_message: `You: ${text}`, last_time: 'now', updated_at: Date.now() };
+          return { ...c, last_message: `You: ${text}`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const };
         }
         return c;
       }));
@@ -1963,7 +2235,7 @@ export default function App() {
             avatar_seed: activeChat.avatar_seed,
             participants: activeChat.participants,
             last_message: text,
-            last_time: 'now', updated_at: Date.now()
+            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
           }, { merge: true });
         } catch (err) {
           console.warn("Message delivery notice:", err);
@@ -1982,7 +2254,7 @@ export default function App() {
             return {
               ...c,
               last_message: `You: ${text}`,
-              last_time: 'now', updated_at: Date.now(),
+              last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
               unread: 0
             };
           }
@@ -2233,7 +2505,7 @@ export default function App() {
           await setDoc(doc(db, 'chats', activeChatId), {
             id: activeChatId,
             last_message: '🎤 Voice Note (' + (durationFormatted || '0:05') + ')',
-            last_time: 'now', updated_at: Date.now()
+            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
           }, { merge: true });
         }
       } catch (err) {
@@ -2242,7 +2514,7 @@ export default function App() {
     }
 
     setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: 🎤 Voice Note (${durationFormatted || '0:05'})`, last_time: 'now', updated_at: Date.now() } : c));
+    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: 🎤 Voice Note (${durationFormatted || '0:05'})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
     
     cancelVoiceRecording();
     setShowAttachMenu(false);
@@ -2319,7 +2591,7 @@ export default function App() {
             participants: activeChat.participants,
             last_message: result.caption ? `[${pendingMediaEditorData.mediaType.toUpperCase()}] ${result.caption}` : `[${pendingMediaEditorData.mediaType.toUpperCase()}]`,
             last_time: 'now',
-            updated_at: Date.now()
+            updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
           }, { merge: true });
         }
       } catch (err) {
@@ -2336,7 +2608,7 @@ export default function App() {
       ...c,
       last_message: `You: ${result.caption ? `[${pendingMediaEditorData.mediaType.toUpperCase()}] ${result.caption}` : `[${pendingMediaEditorData.mediaType.toUpperCase()}]`}`,
       last_time: 'now',
-      updated_at: Date.now()
+      updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
     } : c));
 
     setPendingMediaEditorData(null);
@@ -2458,7 +2730,7 @@ export default function App() {
             await setDoc(doc(db, 'chats', activeChatId), {
               id: activeChatId,
               last_message: '📁 ' + file.name,
-              last_time: 'now', updated_at: Date.now()
+              last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
             }, { merge: true });
           }
         } catch (err) {
@@ -2467,7 +2739,7 @@ export default function App() {
       }
 
       setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-      setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [${file.name}]`, last_time: 'now', updated_at: Date.now() } : c));
+      setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [${file.name}]`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
       setShowAttachMenu(false);
       showToast(`${mediaType.toUpperCase()} uploaded (${mediaUploadQuality.toUpperCase()} Quality)`);
     };
@@ -2518,7 +2790,7 @@ export default function App() {
     }
 
     setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: 📍 Location (${locationTitle})`, last_time: 'now', updated_at: Date.now() } : c));
+    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: 📍 Location (${locationTitle})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
     setShowLocationModal(false);
     setShowAttachMenu(false);
     showToast("Location shared 📍");
@@ -2568,7 +2840,7 @@ export default function App() {
     }
 
     setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: 👤 Contact (${contactName})`, last_time: 'now', updated_at: Date.now() } : c));
+    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: 👤 Contact (${contactName})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
     setShowContactModal(false);
     setShowAttachMenu(false);
     setContactName('');
@@ -2625,7 +2897,7 @@ export default function App() {
     }
 
     setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: 📊 Poll (${pollQuestion})`, last_time: 'now', updated_at: Date.now() } : c));
+    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: 📊 Poll (${pollQuestion})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
     setShowPollModal(false);
     setShowAttachMenu(false);
     setPollQuestion('');
@@ -2803,6 +3075,28 @@ export default function App() {
     showToast('Message deleted for you');
   };
 
+  const canDeleteForEveryone = (msg: Message | null) => {
+    if (!msg) return false;
+    const isMe = msg.sender === 'me' || msg.sender === userUsername;
+    if (!isMe) return false;
+    if (msg.deleted_for_everyone) return false;
+
+    const now = Date.now();
+    const msgAgeMs = now - (msg.created_at || now);
+
+    // Hard limit: 15 minutes
+    const HARD_LIMIT_MS = 15 * 60 * 1000;
+    if (msgAgeMs > HARD_LIMIT_MS) return false;
+
+    // Seen limit: if read by others, allow 2 minutes max since creation (or seen)
+    const isReadByOthers = msg.read_by && msg.read_by.filter(u => u !== msg.sender && u !== 'me' && u !== userUsername).length > 0;
+    if (isReadByOthers && msgAgeMs > 2 * 60 * 1000) {
+      return false;
+    }
+
+    return true;
+  };
+
   const handleDeleteForEveryone = async (targetMsgId?: string | React.MouseEvent) => {
     const msgId = typeof targetMsgId === 'string' ? targetMsgId : deleteMessageId;
     if (!msgId) return;
@@ -2878,15 +3172,18 @@ export default function App() {
   const handleClearChatHistory = (chatId: string) => {
     triggerConfirm({
       title: 'Clear Chat History?',
-      description: 'Are you sure you want to delete all messages in this conversation? This action cannot be undone.',
+      description: 'Are you sure you want to clear this conversation for yourself? The other person will still see the messages.',
       confirmText: 'Clear Messages',
       variant: 'danger',
       onConfirm: async () => {
         setMessagesByChat(prev => ({ ...prev, [chatId]: [] }));
-        setChats(prev => prev.map(c => c.id === chatId ? { ...c, last_message: 'Chat history cleared', last_time: 'now', updated_at: Date.now() } : c));
+        const now = Date.now();
+        setChats(prev => prev.map(c => c.id === chatId ? { ...c, cleared_at: { ...(c.cleared_at || {}), [userUsername]: now } } : c));
         if (isFirebaseConfigured && db && auth) {
           try {
-            await setDoc(doc(db, 'chats', chatId), { last_message: 'Chat history cleared', last_time: 'now', updated_at: Date.now() }, { merge: true });
+            await setDoc(doc(db, 'chats', chatId), {
+              [`cleared_at.${userUsername}`]: now
+            }, { merge: true });
           } catch (e) { console.error(e); }
         }
         showToast('Chat history cleared 🧹');
@@ -2987,7 +3284,7 @@ export default function App() {
                 avatar_seed: targetChat.avatar_seed,
                 participants: targetChat.participants,
                 last_message: originalMsg.text || `[${originalMsg.type}]`,
-                last_time: 'now', updated_at: Date.now()
+                last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
               }, { merge: true });
             }
           } catch (err) {
@@ -3006,7 +3303,7 @@ export default function App() {
             return {
               ...c,
               last_message: `You: ${originalMsg.text || `[${originalMsg.type}]`}`,
-              last_time: 'now', updated_at: Date.now()
+              last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
             };
           }
           return c;
@@ -3037,11 +3334,11 @@ export default function App() {
         participants: [selfName, user.username],
         unread: 0,
         last_message: 'Chat started',
-        last_time: 'now', updated_at: Date.now(),
+        last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
         pinned: false,
         muted: false,
         typing: false,
-        online: user.online,
+        online: isUserEffectivelyOnline(user),
         last_seen: user.last_seen
       };
 
@@ -3056,7 +3353,7 @@ export default function App() {
             participants: [selfName, user.username],
             unread: 0,
             last_message: 'Chat started',
-            last_time: 'now', updated_at: Date.now()
+            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
           }, { merge: true });
         } catch (err) {
           console.error("Error creating chat in Firebase:", err);
@@ -3243,8 +3540,114 @@ export default function App() {
   // Helper calculation for total unreads
   const totalUnreads = chats.reduce((acc, c) => acc + c.unread, 0);
 
+  if (isAuthResolving) {
+    return (
+      <div className={`min-h-[100dvh] w-full flex flex-col items-center justify-center p-6 transition-colors ${themeMode === 'dark' ? 'bg-neutral-950 text-white' : 'bg-neutral-50 text-neutral-800'}`}>
+        <div className="text-center space-y-4 max-w-sm">
+          <div className="flex justify-center">
+            <div className="relative flex items-center justify-center">
+              <div className="absolute h-16 w-16 rounded-full border-4 border-indigo-100 dark:border-indigo-950/40 border-t-indigo-600 dark:border-t-indigo-400 animate-spin" />
+              <div className="h-10 w-10 rounded-2xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-sans font-black text-lg flex items-center justify-center shadow-md">
+                Z
+              </div>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <h3 className="font-sans text-sm font-bold tracking-[0.2em] uppercase text-neutral-500 dark:text-neutral-400">
+              Zenoa
+            </h3>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500 animate-pulse">
+              Reconnecting secure session...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Authentication UI Render
+  if (isAuthenticated && isNewUserSetupPending) {
+    return <AccountSetup themeMode={themeMode} onComplete={() => setIsNewUserSetupPending(false)} />;
+  }
+  
   if (!isAuthenticated) {
+    if (isEmailVerificationPending) {
+      return (
+        <div className={`min-h-[100dvh] w-full flex items-center justify-center p-4 sm:p-6 transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-neutral-100' : 'bg-neutral-50 text-neutral-900'}`}>
+          <div className="w-full max-w-md p-6 sm:p-8 rounded-3xl border shadow-2xl relative z-10 backdrop-blur-xl bg-white/90 dark:bg-neutral-900/90 border-neutral-200/80 dark:border-neutral-800 text-center space-y-6">
+            <div className="flex justify-center animate-bounce">
+              <div className="h-16 w-16 rounded-full bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                <Mail className="h-8 w-8" />
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <h2 className="text-2xl font-bold tracking-tight">Verify Your Email Address</h2>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                We have sent a secure magic verification link to:
+              </p>
+              <div className="inline-block py-1.5 px-3 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-xs font-semibold font-mono text-neutral-800 dark:text-neutral-200">
+                {pendingVerificationEmail}
+              </div>
+            </div>
+
+            <div className="bg-neutral-50 dark:bg-neutral-800/40 p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800/60 text-left space-y-2 text-xs">
+              <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-semibold">
+                <Check className="h-4 w-4" />
+                <span>Verification instructions:</span>
+              </div>
+              <p className="text-neutral-500 dark:text-neutral-400 leading-normal">
+                1. Open your email inbox and click the verification link.<br/>
+                2. Once verified, this page will <strong>automatically detect</strong> it and redirect you instantly!
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 pt-2">
+              <div className="flex items-center justify-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+                <RefreshCw className="h-3 w-3 animate-spin text-indigo-600" />
+                <span>Checking verification status...</span>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      if (auth && auth.currentUser) {
+                        await sendEmailVerification(auth.currentUser);
+                        showToast("Verification link resent! Check your inbox.");
+                      } else {
+                        showToast("Please try again later.");
+                      }
+                    } catch (e: any) {
+                      showToast(e.message || "Failed to resend.");
+                    }
+                  }}
+                  className="flex-1 py-2.5 text-xs font-bold rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+                >
+                  Resend Link
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (isFirebaseConfigured && auth) {
+                      await firebaseSignOut(auth);
+                    }
+                    setIsEmailVerificationPending(false);
+                    setPendingVerificationEmail('');
+                    setAuthFlowInitialMode('login');
+                  }}
+                  className="flex-1 py-2.5 text-xs font-bold rounded-2xl bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors cursor-pointer"
+                >
+                  Cancel & Sign Out
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     if (publicProfileUsername) {
       return (
         <PublicProfileView
@@ -3292,9 +3695,12 @@ export default function App() {
         onRegisterSubmit={handleAuthFlowRegister}
         onVerifyOtpSubmit={handleAuthFlowVerifyOtp}
         onOAuthLogin={handleOAuthLogin}
+        onForgotPassword={handleForgotPassword}
         themeMode={themeMode}
         onToggleTheme={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
         existingUsernames={Object.values(users).map(u => u.username)}
+        isOnboarding={onboardingStep > 0}
+        initialRegStep={onboardingStep}
       />
     );
   }
@@ -3665,14 +4071,27 @@ export default function App() {
                           <span className="text-[10px] text-neutral-400 shrink-0 ml-1">{chat.last_time}</span>
                         </div>
                         <div className="flex justify-between items-center mt-1 min-w-0">
-                          <p className="text-xs text-neutral-400 truncate pr-2 flex-1 min-w-0">
-                            {chat.typing ? (
-                              <span className="text-indigo-500 font-medium animate-pulse">typing...</span>
-                            ) : (
-                              chat.last_message && chat.last_message.length > 32 
-                                ? chat.last_message.slice(0, 32).trim() + '...' 
-                                : (chat.last_message || '')
+                          <p className="text-xs text-neutral-400 truncate pr-2 flex-1 min-w-0 flex items-center gap-1">
+                            {chat.last_message_sender === userUsername && chat.last_message && chat.last_message !== 'Chat history cleared' && (
+                              <span className="shrink-0">
+                                {chat.last_message_status === 'read' ? (
+                                  <CheckCheck className="h-3.5 w-3.5 text-blue-500" />
+                                ) : chat.last_message_status === 'delivered' ? (
+                                  <CheckCheck className="h-3.5 w-3.5 text-neutral-400" />
+                                ) : (
+                                  <Check className="h-3.5 w-3.5 text-neutral-400" />
+                                )}
+                              </span>
                             )}
+                            <span className="truncate">
+                              {chat.typing ? (
+                                <span className="text-indigo-500 font-medium animate-pulse">typing...</span>
+                              ) : (
+                                chat.last_message && chat.last_message.length > 32 
+                                  ? chat.last_message.slice(0, 32).trim() + '...' 
+                                  : (chat.last_message || '')
+                              )}
+                            </span>
                           </p>
                           <div className="flex items-center gap-1">
                             {chat.unread > 0 && (
@@ -3768,7 +4187,6 @@ export default function App() {
                     onChange={e => setMessageSearchQuery(e.target.value)}
                     placeholder="Search in conversation..."
                     className="flex-1 bg-transparent border-none outline-none text-xs"
-                    autoFocus
                   />
                   <button onClick={() => { setShowMsgSearchInChat(false); setMessageSearchQuery(''); }} className="p-1 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-800"><X className="h-3.5 w-3.5" /></button>
                 </div>
@@ -4053,7 +4471,7 @@ export default function App() {
                                 avatar_seed: activeChat.avatar_seed,
                                 participants: activeChat.participants,
                                 last_message: '[GIF]',
-                                last_time: 'now', updated_at: Date.now()
+                                last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
                               }, { merge: true });
                             }
                           } catch (err) {
@@ -4062,7 +4480,7 @@ export default function App() {
                         }
 
                         setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-                        setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [GIF]`, last_time: 'now', updated_at: Date.now() } : c));
+                        setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [GIF]`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
                         setShowUnifiedPicker(false);
                       }}
                       onSelectSticker={async (st) => {
@@ -4103,7 +4521,7 @@ export default function App() {
                                 avatar_seed: activeChat.avatar_seed,
                                 participants: activeChat.participants,
                                 last_message: '[Sticker]',
-                                last_time: 'now', updated_at: Date.now()
+                                last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
                               }, { merge: true });
                             }
                           } catch (err) {
@@ -4112,7 +4530,7 @@ export default function App() {
                         }
 
                         setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-                        setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [Sticker]`, last_time: 'now', updated_at: Date.now() } : c));
+                        setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [Sticker]`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
                         setShowUnifiedPicker(false);
                       }}
                       onClose={() => setShowUnifiedPicker(false)}
@@ -4597,79 +5015,232 @@ export default function App() {
                   <div className="p-4 md:p-6">
                     {(() => {
                       const mediaItems = Object.entries(messagesByChat).flatMap(([chatId, msgs]) =>
-                        msgs.filter(m => ['image', 'video', 'voice', 'document', 'sticker'].includes(m.type) || m.media_url)
+                        msgs.filter(m => (['image', 'video', 'voice', 'document'].includes(m.type) || m.media_url) && m.type !== 'gif')
                           .map(m => ({ ...m, chatId }))
-                      );
+                      ).filter(item => {
+                        // Filter out GIFs explicitly
+                        if (item.type === 'gif') return false;
+                        if (item.media_url && (item.media_url.includes('.gif') || item.media_url.includes('/giphy'))) return false;
+                        if (item.file_name && item.file_name.endsWith('.gif')) return false;
+                        return true;
+                      });
+
+                      const photos = mediaItems.filter(item => item.type === 'image');
+                      const videos = mediaItems.filter(item => item.type === 'video');
+                      const audios = mediaItems.filter(item => item.type === 'voice');
+                      const documents = mediaItems.filter(item => item.type === 'document');
 
                       if (mediaItems.length === 0) {
                         return (
                           <div className="py-16 text-center space-y-3">
                             <div className="h-14 w-14 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mx-auto text-neutral-400">
-                              <ImageIcon className="h-7 w-7" />
+                              <Folder className="h-7 w-7" />
                             </div>
                             <p className="text-sm font-bold text-neutral-700 dark:text-neutral-300">No media attachments yet</p>
                             <p className="text-xs text-neutral-400 max-w-sm mx-auto">
-                              Photos, videos, audio notes, and files you send in chats will be organized here in an Instagram grid.
+                              Photos, videos, audio notes, and documents you send in chats will be organized here automatically in dedicated, secure folders.
                             </p>
                           </div>
                         );
                       }
 
-                      return (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                          {mediaItems.map((item, idx) => (
-                            <div
-                              key={item.id || idx}
-                              onClick={() => {
-                                if (item.media_url || item.audio_url) {
-                                  const url = item.media_url || item.audio_url!;
-                                  const mediaType = item.type === 'video' ? 'video' : item.type === 'voice' ? 'audio' : item.type === 'document' ? 'document' : 'image';
-                                  openInMediaPlayer(mediaType, url, { title: item.file_name || 'Shared Media', senderName: item.sender });
-                                } else {
-                                  setActiveChatId(item.chatId);
-                                  setActiveView('chats');
-                                  setMobileShowChat(true);
-                                }
-                              }}
-                              className="group relative aspect-square rounded-2xl overflow-hidden bg-neutral-100 dark:bg-neutral-800 border border-neutral-200/60 dark:border-neutral-700/60 cursor-pointer shadow-sm hover:shadow-md transition-all hover:scale-[1.02]"
-                            >
-                              {item.media_url ? (
-                                <img
-                                  src={item.media_url}
-                                  alt="Media item"
-                                  className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                />
-                              ) : item.type === 'voice' ? (
-                                <div className="h-full w-full flex flex-col items-center justify-center p-3 bg-gradient-to-br from-indigo-500/10 to-purple-500/10">
-                                  <Mic className="h-8 w-8 text-indigo-500 mb-2" />
-                                  <span className="text-[10px] font-bold text-neutral-500">Voice Note</span>
-                                </div>
-                              ) : item.type === 'document' ? (
-                                <div className="h-full w-full flex flex-col items-center justify-center p-3 bg-gradient-to-br from-blue-500/10 to-cyan-500/10">
-                                  <FileText className="h-8 w-8 text-blue-500 mb-2" />
-                                  <span className="text-[10px] font-bold text-neutral-500 truncate px-2">{item.text || 'Document'}</span>
-                                </div>
-                              ) : (
-                                <div className="h-full w-full flex flex-col items-center justify-center p-3 bg-gradient-to-br from-amber-500/10 to-orange-500/10">
-                                  <Smile className="h-8 w-8 text-amber-500 mb-2" />
-                                  <span className="text-[10px] font-bold text-neutral-500">Sticker</span>
-                                </div>
-                              )}
+                      // Folder selector screen
+                      if (currentMediaFolder === null) {
+                        return (
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between pb-1 border-b border-neutral-100 dark:border-neutral-800">
+                              <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400">Library Folders</span>
+                              <span className="text-[10px] text-neutral-400">{mediaItems.length} items total</span>
+                            </div>
 
-                              {/* Hover overlay with details and jump to chat */}
-                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-3 text-white">
-                                <div className="flex justify-end">
-                                  <span className="text-[9px] bg-black/60 px-2 py-0.5 rounded-full backdrop-blur-sm">
-                                    {item.type.toUpperCase()}
-                                  </span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                              {/* Photos Folder */}
+                              <div
+                                onClick={() => setCurrentMediaFolder('photos')}
+                                className="group p-4 rounded-2xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 hover:border-indigo-500 hover:bg-indigo-550/10 transition-all cursor-pointer flex items-center justify-between text-left"
+                              >
+                                <div className="flex items-center gap-3.5 min-w-0">
+                                  <div className="p-3 bg-indigo-500/10 text-indigo-500 rounded-xl group-hover:scale-110 transition-transform">
+                                    <Camera className="h-5 w-5" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">Photos</p>
+                                    <p className="text-[10px] text-neutral-400">{photos.length} {photos.length === 1 ? 'item' : 'items'}</p>
+                                  </div>
                                 </div>
-                                <div>
-                                  <p className="text-[10px] font-bold truncate">{item.sender === 'me' ? 'You' : item.sender}</p>
-                                  <p className="text-[9px] text-white/80">{item.timestamp}</p>
+                                <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-1 transition-transform" />
+                              </div>
+
+                              {/* Videos Folder */}
+                              <div
+                                onClick={() => setCurrentMediaFolder('videos')}
+                                className="group p-4 rounded-2xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 hover:border-indigo-500 hover:bg-indigo-550/10 transition-all cursor-pointer flex items-center justify-between text-left"
+                              >
+                                <div className="flex items-center gap-3.5 min-w-0">
+                                  <div className="p-3 bg-rose-500/10 text-rose-500 rounded-xl group-hover:scale-110 transition-transform">
+                                    <Video className="h-5 w-5" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors">Videos</p>
+                                    <p className="text-[10px] text-neutral-400">{videos.length} {videos.length === 1 ? 'item' : 'items'}</p>
+                                  </div>
                                 </div>
+                                <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-1 transition-transform" />
+                              </div>
+
+                              {/* Audio Folder */}
+                              <div
+                                onClick={() => setCurrentMediaFolder('audio')}
+                                className="group p-4 rounded-2xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 hover:border-indigo-500 hover:bg-indigo-550/10 transition-all cursor-pointer flex items-center justify-between text-left"
+                              >
+                                <div className="flex items-center gap-3.5 min-w-0">
+                                  <div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-xl group-hover:scale-110 transition-transform">
+                                    <Mic className="h-5 w-5" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">Audio Notes</p>
+                                    <p className="text-[10px] text-neutral-400">{audios.length} {audios.length === 1 ? 'item' : 'items'}</p>
+                                  </div>
+                                </div>
+                                <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-1 transition-transform" />
+                              </div>
+
+                              {/* Documents Folder */}
+                              <div
+                                onClick={() => setCurrentMediaFolder('documents')}
+                                className="group p-4 rounded-2xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 hover:border-indigo-500 hover:bg-indigo-550/10 transition-all cursor-pointer flex items-center justify-between text-left"
+                              >
+                                <div className="flex items-center gap-3.5 min-w-0">
+                                  <div className="p-3 bg-amber-500/10 text-amber-500 rounded-xl group-hover:scale-110 transition-transform">
+                                    <FileText className="h-5 w-5" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">Documents & Files</p>
+                                    <p className="text-[10px] text-neutral-400">{documents.length} {documents.length === 1 ? 'item' : 'items'}</p>
+                                  </div>
+                                </div>
+                                <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-1 transition-transform" />
                               </div>
                             </div>
-                          ))}
+                          </div>
+                        );
+                      }
+
+                      // Folder contents screen
+                      const activeItems = 
+                        currentMediaFolder === 'photos' ? photos :
+                        currentMediaFolder === 'videos' ? videos :
+                        currentMediaFolder === 'audio' ? audios :
+                        documents;
+
+                      const folderTitle = 
+                        currentMediaFolder === 'photos' ? 'Photos Folder' :
+                        currentMediaFolder === 'videos' ? 'Videos Folder' :
+                        currentMediaFolder === 'audio' ? 'Audio Notes Folder' :
+                        'Documents Folder';
+
+                      return (
+                        <div className="space-y-4">
+                          {/* Folder Inner Header */}
+                          <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-neutral-800">
+                            <button
+                              onClick={() => setCurrentMediaFolder(null)}
+                              className="px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 transition-all text-xs font-bold text-neutral-600 dark:text-neutral-300 flex items-center gap-1 cursor-pointer"
+                            >
+                              ← Back to folders
+                            </button>
+                            <span className="text-xs font-bold text-neutral-800 dark:text-neutral-200">{folderTitle} ({activeItems.length})</span>
+                          </div>
+
+                          {activeItems.length === 0 ? (
+                            <div className="py-12 text-center text-neutral-400 text-xs">
+                              This folder is currently empty. Shared files of this type will appear here.
+                            </div>
+                          ) : currentMediaFolder === 'photos' || currentMediaFolder === 'videos' ? (
+                            /* Photos & Videos Grid */
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                              {activeItems.map((item, idx) => (
+                                <div
+                                  key={item.id || idx}
+                                  onClick={() => {
+                                    if (item.media_url || item.audio_url) {
+                                      const url = item.media_url || item.audio_url!;
+                                      const mediaType = item.type === 'video' ? 'video' : item.type === 'voice' ? 'audio' : item.type === 'document' ? 'document' : 'image';
+                                      openInMediaPlayer(mediaType, url, { title: item.file_name || 'Shared Media', senderName: item.sender });
+                                    } else {
+                                      setActiveChatId(item.chatId);
+                                      setActiveView('chats');
+                                      setMobileShowChat(true);
+                                    }
+                                  }}
+                                  className="group relative aspect-square rounded-2xl overflow-hidden bg-neutral-100 dark:bg-neutral-800 border border-neutral-200/60 dark:border-neutral-700/60 cursor-pointer shadow-sm hover:shadow-md transition-all hover:scale-[1.02]"
+                                >
+                                  {item.media_url ? (
+                                    <img
+                                      src={item.media_url}
+                                      alt="Shared item"
+                                      className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  ) : (
+                                    <div className="h-full w-full flex flex-col items-center justify-center bg-neutral-900 text-white">
+                                      <Video className="h-8 w-8 text-neutral-400" />
+                                      <span className="text-[10px] text-neutral-500 mt-2">Play Video</span>
+                                    </div>
+                                  )}
+
+                                  {/* Hover overlay with details */}
+                                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-3 text-white">
+                                    <div className="flex justify-end">
+                                      <span className="text-[9px] bg-black/60 px-2 py-0.5 rounded-full backdrop-blur-sm uppercase">
+                                        {item.type}
+                                      </span>
+                                    </div>
+                                    <div className="text-left">
+                                      <p className="text-[10px] font-bold truncate">@{item.sender}</p>
+                                      <p className="text-[9px] text-white/80">{item.timestamp}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            /* Audio & Documents List */
+                            <div className="space-y-2">
+                              {activeItems.map((item, idx) => (
+                                <div
+                                  key={item.id || idx}
+                                  onClick={() => {
+                                    if (item.media_url || item.audio_url) {
+                                      const url = item.media_url || item.audio_url!;
+                                      const mediaType = item.type === 'video' ? 'video' : item.type === 'voice' ? 'audio' : item.type === 'document' ? 'document' : 'image';
+                                      openInMediaPlayer(mediaType, url, { title: item.file_name || 'Shared Media', senderName: item.sender });
+                                    } else {
+                                      setActiveChatId(item.chatId);
+                                      setActiveView('chats');
+                                      setMobileShowChat(true);
+                                    }
+                                  }}
+                                  className="p-3 rounded-xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/10 hover:border-indigo-550 hover:bg-indigo-50/10 transition-all flex items-center justify-between gap-3 cursor-pointer text-left group"
+                                >
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <div className={`p-2.5 rounded-xl ${currentMediaFolder === 'audio' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}`}>
+                                      {currentMediaFolder === 'audio' ? <Mic className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                                        {item.file_name || item.text || (currentMediaFolder === 'audio' ? 'Voice Recording' : 'Document Attachment')}
+                                      </p>
+                                      <p className="text-[10px] text-neutral-400 mt-0.5">
+                                        Shared by @{item.sender} • {item.timestamp} {item.file_size ? `• ${item.file_size}` : ''}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-1 transition-transform" />
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       );
                     })()}
@@ -5749,7 +6320,7 @@ export default function App() {
                 <span>Delete for Me</span>
               </button>
 
-              {selectedMessageForActions.sender === 'me' && !selectedMessageForActions.deleted_for_everyone && (
+              {canDeleteForEveryone(selectedMessageForActions) && (
                 <button
                   onClick={() => handleDeleteForEveryone(selectedMessageForActions.id)}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer text-left"
@@ -6040,6 +6611,14 @@ export default function App() {
         onClose={() => setPendingMediaEditorData(null)}
         onSend={handleSendEditedMedia}
         renderAvatar={renderAvatar}
+      />
+
+      {/* WHATSAPP-STYLE PROFILE PICTURE CROPPER & ROTATOR MODAL */}
+      <ImageCropperModal
+        isOpen={showImageCropper}
+        srcImage={cropperSourceImage}
+        onClose={() => setShowImageCropper(false)}
+        onCrop={handleCroppedAvatarSave}
       />
 
       {/* WHATSAPP-STYLE THEME & WALLPAPER SELECTOR MODAL */}

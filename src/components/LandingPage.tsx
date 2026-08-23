@@ -3,7 +3,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   ShieldCheck, ArrowRight, Lock, Sun, Moon, ChevronDown, 
   ChevronUp, Send, Check, Terminal, FileText, Key,
-  Cpu, Layers, Zap, Radio, ShieldAlert, Sparkles, Eye, EyeOff
+  Cpu, Layers, Zap, Radio, ShieldAlert, Sparkles, Eye, EyeOff,
+  Video, Phone, WifiOff, Globe, Image as ImageIcon, Flame, 
+  MonitorSmartphone, KeyRound, Mic
 } from 'lucide-react';
 
 interface LandingPageProps {
@@ -62,16 +64,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   const faqs = [
     {
-      q: "What makes Zenoa Messenger unique compared to traditional chat apps?",
-      a: "Zenoa Messenger is built with a zero-knowledge architectural foundation. Messages are encrypted locally on your device via client-side Web Crypto API (AES-256-GCM) prior to network transmission. No plaintext ever touches intermediate database nodes or server logs."
+      q: "What makes Zenoa unique compared to traditional chat apps?",
+      a: "Zenoa is built with a zero-knowledge architectural foundation. Messages, voice notes, and WebRTC video calls are encrypted locally on your device via client-side Web Crypto API (AES-256-GCM) prior to network transmission. No plaintext ever touches intermediate database nodes or server logs."
     },
     {
-      q: "How does the Zero-Knowledge Client-Side Encryption operate?",
-      a: "Your browser or device computes a unique 256-bit AES cryptographic key locally. Payload text is converted into an authenticated ciphertext with a unique initialization vector (IV) and tag before being sent to the cloud relay."
+      q: "Are video and audio calls actually Peer-to-Peer?",
+      a: "Yes. Our High-Definition WebRTC engine establishes direct peer-to-peer connections using secure STUN/TURN relays. Your media stream flows directly between devices, ensuring ultra-low latency and total privacy."
     },
     {
       q: "Is 'Delete for Everyone' absolute and instant?",
-      a: "Yes. Requesting a global delete executes an atomic purge instruction across real-time database documents, local IndexedDB caches, and client state pools across all active chat sessions immediately."
+      a: "Yes. Requesting a global delete executes an atomic purge instruction across real-time cloud databases, local IndexedDB caches, and client state pools across all active chat sessions immediately."
+    },
+    {
+      q: "How does the Offline Resilience feature work?",
+      a: "Zenoa aggressively caches encrypted fragments locally. If you lose connection during a commute or flight, you can still view your entire chat history, compose draft replies, and queue them for instant delivery the moment you regain signal."
     },
     {
       q: "Does Zenoa collect personal metrics or sell user activity?",
@@ -79,7 +85,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     },
     {
       q: "Can I log in using either Email or Username?",
-      a: "Yes. You can sign in using your verified email address or your unique @handle along with your secure password, as well as single-click Google and GitHub authentication options."
+      a: "Yes. You can sign in using your verified email address or your unique @handle along with your secure password, as well as using secure Passwordless Magic Links."
     }
   ];
 
@@ -104,7 +110,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 Zenoa
               </span>
               <span className="text-[9px] uppercase font-bold tracking-widest text-indigo-600 dark:text-indigo-400 mt-1">
-                Messenger
+                Suite
               </span>
             </div>
           </div>
@@ -156,25 +162,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-900 border border-neutral-200/60 dark:border-neutral-800 text-neutral-800 dark:text-neutral-200 text-xs font-bold mb-6 shadow-xs"
           >
             <ShieldCheck className="h-4 w-4 text-emerald-500" />
-            <span>Zero-Knowledge AES-256 Engine • Guaranteed Security</span>
+            <span>Zero-Knowledge AES-256 & WebRTC Engine</span>
           </motion.div>
 
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-neutral-900 dark:text-white tracking-tight max-w-4xl mx-auto leading-[1.15]"
+            className="text-5xl sm:text-6xl lg:text-7xl font-black text-neutral-900 dark:text-white tracking-tight max-w-5xl mx-auto leading-[1.05]"
           >
-            Private Client-Side Messaging Built for Absolute Anonymity
+            The Ultimate Standard for Secure Communication.
           </motion.h1>
 
           <motion.p
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="mt-6 text-sm sm:text-base text-neutral-500 dark:text-neutral-400 max-w-2xl mx-auto leading-relaxed"
+            className="mt-6 text-base sm:text-lg text-neutral-500 dark:text-neutral-400 max-w-2xl mx-auto leading-relaxed"
           >
-            Zenoa Messenger couples 256-bit zero-knowledge cryptographic encryption with premium visual styling, private profile isolation, and instant real-time synchronization.
+            Zenoa couples ultra-low latency P2P video calling and 256-bit zero-knowledge encryption with premium visual design, offline resilience, and absolute data sovereignty.
           </motion.p>
 
           <motion.div
@@ -349,79 +355,145 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* CORE ARCHITECTURAL FEATURES GRID */}
-      <section id="features" className="py-20 border-t border-neutral-200/50 dark:border-neutral-800/60 bg-neutral-100/50 dark:bg-neutral-900/30">
+      {/* CORE ARCHITECTURAL FEATURES & CAPABILITIES */}
+      <section id="features" className="py-24 border-t border-neutral-200/50 dark:border-neutral-800/60 bg-neutral-50 dark:bg-neutral-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <h2 className="text-3xl font-extrabold text-neutral-900 dark:text-white tracking-tight">
-              Architectural Highlights
+          
+          <div className="text-center max-w-3xl mx-auto mb-20">
+            <span className="text-[10px] uppercase font-bold tracking-widest text-indigo-600 dark:text-indigo-400 block mb-3">
+              Platform Capabilities
+            </span>
+            <h2 className="text-4xl md:text-5xl font-black text-neutral-900 dark:text-white tracking-tight mb-6">
+              Engineered for absolute privacy and flawless communication.
             </h2>
-            <p className="mt-3 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
-              Purpose-built capabilities engineered specifically for high-throughput security and custom UI control.
+            <p className="text-sm md:text-base text-neutral-500 dark:text-neutral-400 leading-relaxed">
+              Zenoa is not just another messaging app. It is a comprehensive suite of advanced communication tools built on a foundation of zero-knowledge cryptography, real-time edge synchronization, and uncompromising design.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-            <div className="p-6 rounded-3xl border border-neutral-200/60 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xs">
-              <div className="h-11 w-11 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-4">
-                <Lock className="h-5 w-5" />
+          {/* Bento Grid Layout for Major Features */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 mb-16">
+            
+            {/* Feature 1: WebRTC Calling - Large Block */}
+            <div className="md:col-span-8 group relative overflow-hidden rounded-[2rem] border border-neutral-200/80 dark:border-neutral-800/80 bg-white dark:bg-neutral-900 p-8 md:p-12 transition-all hover:shadow-xl hover:shadow-indigo-500/5">
+              <div className="absolute top-0 right-0 p-8 opacity-10 dark:opacity-5 group-hover:scale-110 transition-transform duration-700">
+                <Video className="w-48 h-48" />
               </div>
-              <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-2">WebCrypto AES-256-GCM</h3>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-                Native Web Cryptography API client-side payload obfuscation guarantees zero plain-text leaks to external servers or network logs.
+              <div className="relative z-10 max-w-lg">
+                <div className="h-12 w-12 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-6">
+                  <Video className="h-6 w-6" />
+                </div>
+                <h3 className="text-2xl font-extrabold text-neutral-900 dark:text-white mb-4">
+                  High-Definition P2P WebRTC Calls
+                </h3>
+                <p className="text-sm text-neutral-500 dark:text-neutral-400 leading-relaxed mb-6">
+                  Experience crystal-clear voice and video calls powered by direct Peer-to-Peer WebRTC connections. With dynamic resolution scaling (up to 720p HD), background noise suppression, and real-time camera switching, your conversations feel natural and completely private.
+                </p>
+                <ul className="space-y-3">
+                  <li className="flex items-center gap-3 text-xs font-medium text-neutral-700 dark:text-neutral-300">
+                    <Check className="h-4 w-4 text-emerald-500" /> End-to-end encrypted media streams
+                  </li>
+                  <li className="flex items-center gap-3 text-xs font-medium text-neutral-700 dark:text-neutral-300">
+                    <Check className="h-4 w-4 text-emerald-500" /> Seamless front/rear camera flipping
+                  </li>
+                  <li className="flex items-center gap-3 text-xs font-medium text-neutral-700 dark:text-neutral-300">
+                    <Check className="h-4 w-4 text-emerald-500" /> Integrated call duration & history logs
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Feature 2: Zero-Knowledge - Small Block */}
+            <div className="md:col-span-4 group relative overflow-hidden rounded-[2rem] border border-neutral-200/80 dark:border-neutral-800/80 bg-white dark:bg-neutral-900 p-8 transition-all hover:shadow-xl hover:shadow-rose-500/5">
+              <div className="h-12 w-12 rounded-2xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center mb-6">
+                <Lock className="h-6 w-6" />
+              </div>
+              <h3 className="text-xl font-extrabold text-neutral-900 dark:text-white mb-3">
+                WebCrypto AES-256-GCM
+              </h3>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                Native client-side payload obfuscation guarantees zero plain-text leaks. Even we cannot read your messages or access your media.
               </p>
             </div>
 
-            <div className="p-6 rounded-3xl border border-neutral-200/60 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xs">
-              <div className="h-11 w-11 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-4">
-                <ShieldCheck className="h-5 w-5" />
+            {/* Feature 3: Cross-Platform Sync - Small Block */}
+            <div className="md:col-span-4 group relative overflow-hidden rounded-[2rem] border border-neutral-200/80 dark:border-neutral-800/80 bg-white dark:bg-neutral-900 p-8 transition-all hover:shadow-xl hover:shadow-sky-500/5">
+              <div className="h-12 w-12 rounded-2xl bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center mb-6">
+                <MonitorSmartphone className="h-6 w-6" />
               </div>
-              <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-2">Atomic Memory Purge</h3>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-                Global "Delete for Everyone" triggers an atomic purge instruction across real-time database documents and local IndexedDB caches.
+              <h3 className="text-xl font-extrabold text-neutral-900 dark:text-white mb-3">
+                Multi-Device Sync
+              </h3>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                Access your encrypted message history flawlessly across mobile, tablet, and desktop browsers with sub-10ms real-time Firestore edge synchronization.
               </p>
             </div>
 
-            <div className="p-6 rounded-3xl border border-neutral-200/60 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xs">
-              <div className="h-11 w-11 rounded-2xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-4">
-                <Layers className="h-5 w-5" />
+            {/* Feature 4: Media & Voice - Large Block */}
+            <div className="md:col-span-8 group relative overflow-hidden rounded-[2rem] border border-neutral-200/80 dark:border-neutral-800/80 bg-white dark:bg-neutral-900 p-8 md:p-12 transition-all hover:shadow-xl hover:shadow-amber-500/5">
+               <div className="absolute bottom-0 right-0 p-8 opacity-10 dark:opacity-5 group-hover:scale-110 transition-transform duration-700">
+                <Mic className="w-48 h-48" />
               </div>
-              <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-2">Organic Vector Canvas</h3>
+              <div className="relative z-10 max-w-lg">
+                <div className="h-12 w-12 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-6">
+                  <ImageIcon className="h-6 w-6" />
+                </div>
+                <h3 className="text-2xl font-extrabold text-neutral-900 dark:text-white mb-4">
+                  Rich Media & Voice Waveforms
+                </h3>
+                <p className="text-sm text-neutral-500 dark:text-neutral-400 leading-relaxed mb-6">
+                  Share high-resolution images, documents, and expressive voice notes effortlessly. Our synthetic voice engine analyzes audio in real-time to generate beautiful, interactive waveforms that you can scrub and preview before sending.
+                </p>
+                <ul className="space-y-3">
+                  <li className="flex items-center gap-3 text-xs font-medium text-neutral-700 dark:text-neutral-300">
+                    <Check className="h-4 w-4 text-emerald-500" /> Drag-and-drop file attachments
+                  </li>
+                  <li className="flex items-center gap-3 text-xs font-medium text-neutral-700 dark:text-neutral-300">
+                    <Check className="h-4 w-4 text-emerald-500" /> Live audio frequency visualization
+                  </li>
+                  <li className="flex items-center gap-3 text-xs font-medium text-neutral-700 dark:text-neutral-300">
+                    <Check className="h-4 w-4 text-emerald-500" /> Automatic media compression & encryption
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Additional Advanced Features Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="p-6 rounded-[1.5rem] border border-neutral-200/60 dark:border-neutral-800 bg-white/50 dark:bg-neutral-900/50 backdrop-blur-sm">
+              <Flame className="h-6 w-6 text-orange-500 mb-4" />
+              <h4 className="text-sm font-bold text-neutral-900 dark:text-white mb-2">Atomic Memory Purge</h4>
               <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-                Subtle mathematical vector wallpaper patterns with soft rose romance themes and customizable light/dark background contrast.
+                Global "Delete for Everyone" triggers an immediate atomic purge across databases and local IndexedDB caches.
+              </p>
+            </div>
+            
+            <div className="p-6 rounded-[1.5rem] border border-neutral-200/60 dark:border-neutral-800 bg-white/50 dark:bg-neutral-900/50 backdrop-blur-sm">
+              <WifiOff className="h-6 w-6 text-neutral-500 mb-4" />
+              <h4 className="text-sm font-bold text-neutral-900 dark:text-white mb-2">Offline Resilience</h4>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                Access your chat history and draft replies even when internet connection drops via aggressive local caching.
               </p>
             </div>
 
-            <div className="p-6 rounded-3xl border border-neutral-200/60 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xs">
-              <div className="h-11 w-11 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-4">
-                <Radio className="h-5 w-5" />
-              </div>
-              <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-2">Synthetic Voice Waveforms</h3>
+            <div className="p-6 rounded-[1.5rem] border border-neutral-200/60 dark:border-neutral-800 bg-white/50 dark:bg-neutral-900/50 backdrop-blur-sm">
+              <KeyRound className="h-6 w-6 text-emerald-500 mb-4" />
+              <h4 className="text-sm font-bold text-neutral-900 dark:text-white mb-2">Passwordless Entry</h4>
               <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-                Microphone audio recorder with real-time waveform visualizers, synthetic voice preview, and pitch controls.
+                Support for secure Magic Link email logins alongside highly-salted traditional credential authentication.
               </p>
             </div>
 
-            <div className="p-6 rounded-3xl border border-neutral-200/60 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xs">
-              <div className="h-11 w-11 rounded-2xl bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center mb-4">
-                <Zap className="h-5 w-5" />
-              </div>
-              <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-2">Sub-10ms Edge Mesh</h3>
+            <div className="p-6 rounded-[1.5rem] border border-neutral-200/60 dark:border-neutral-800 bg-white/50 dark:bg-neutral-900/50 backdrop-blur-sm">
+              <Globe className="h-6 w-6 text-indigo-500 mb-4" />
+              <h4 className="text-sm font-bold text-neutral-900 dark:text-white mb-2">Zero-Telemetry Policy</h4>
               <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-                Reactive Firestore state updates distribute real-time read receipts, delivery ticks, and heartbeat status in milliseconds.
-              </p>
-            </div>
-
-            <div className="p-6 rounded-3xl border border-neutral-200/60 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xs">
-              <div className="h-11 w-11 rounded-2xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center mb-4">
-                <Cpu className="h-5 w-5" />
-              </div>
-              <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-2">Zero-Telemetry Pipeline</h3>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-                Strict zero-log operational standard ensures no third-party tracking pixels, location harvesters, or invasive metrics.
+                Strict operational standard ensures no third-party tracking pixels, location harvesters, or invasive metrics.
               </p>
             </div>
           </div>
+
         </div>
       </section>
 
@@ -495,7 +567,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <h3>Client-Side AES-GCM Zero-Knowledge Protocol</h3>
                 </div>
                 <p className="text-neutral-600 dark:text-neutral-400">
-                  Zenoa Messenger utilizes native client-side browser cryptography (`window.crypto.subtle`). Every plaintext message undergoes authenticated payload encryption prior to network transmission.
+                  Zenoa utilizes native client-side browser cryptography (`window.crypto.subtle`). Every plaintext message undergoes authenticated payload encryption prior to network transmission.
                 </p>
                 <div className="p-4 rounded-2xl bg-neutral-900 text-emerald-400 font-mono text-[11px] overflow-x-auto">
                   <p>// Encrypted Payload Schema</p>
@@ -542,10 +614,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </div>
                 <div className="space-y-2 text-neutral-500 dark:text-neutral-400">
                   <p className="font-bold text-neutral-900 dark:text-white">1. Authorized Usage:</p>
-                  <p>You agree not to utilize Zenoa Messenger for unlawful activities, automated spam dissemination, or network attacks. Account violations subject the user to immediate suspension.</p>
+                  <p>You agree not to utilize Zenoa for unlawful activities, automated spam dissemination, or network attacks. Account violations subject the user to immediate suspension.</p>
 
                   <p className="font-bold text-neutral-900 dark:text-white mt-3">2. User Ownership:</p>
-                  <p>Users maintain complete, unencumbered ownership rights over all messages, media files, and attachments transmitted using Zenoa Messenger.</p>
+                  <p>Users maintain complete, unencumbered ownership rights over all messages, media files, and attachments transmitted using Zenoa.</p>
 
                   <p className="font-bold text-neutral-900 dark:text-white mt-3">3. Infrastructure Standards:</p>
                   <p>Services are provided on a high-availability serverless deployment stack with continuous encryption validation.</p>
@@ -745,7 +817,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 border-t border-neutral-200 dark:border-neutral-900 flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px] text-neutral-400 font-medium">
-          <span>© 2026 Zenoa Messenger Inc. All rights reserved.</span>
+          <span>© 2026 Zenoa Inc. All rights reserved.</span>
           <div className="flex items-center gap-4">
             <span>Version 2.5.0 (Production)</span>
             <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer">Back to Top ↑</button>

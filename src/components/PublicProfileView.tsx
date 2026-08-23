@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebaseClient';
 import { doc, getDoc } from 'firebase/firestore';
+import { isUserEffectivelyOnline } from '../presenceUtils';
 
 interface PublicProfileViewProps {
   username: string;
@@ -31,6 +32,7 @@ interface UserProfileData {
   bio?: string;
   online?: boolean;
   last_seen?: string;
+  last_seen_timestamp?: number;
 }
 
 export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
@@ -63,7 +65,8 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
                 avatar_seed: data.avatar_seed || cleanName,
                 bio: data.bio || data.about || 'Hey there! I am using Zenoa for end-to-end encrypted messaging.',
                 online: data.online ?? true,
-                last_seen: data.last_seen || 'Recently active'
+                last_seen: data.last_seen || 'Recently active',
+                last_seen_timestamp: data.last_seen_timestamp
               });
               setLoading(false);
               return;
@@ -208,7 +211,7 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
                   )}
                 </div>
 
-                {profile?.online && (
+                {isUserEffectivelyOnline({ online: profile?.online, last_seen_timestamp: profile?.last_seen_timestamp }) && (
                   <span className="absolute bottom-1 right-1 h-5 w-5 rounded-full bg-emerald-500 border-4 border-white dark:border-neutral-900 shadow-sm" title="Online now" />
                 )}
               </div>

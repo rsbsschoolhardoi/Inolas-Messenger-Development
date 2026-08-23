@@ -207,16 +207,23 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                     <p className="font-bold truncate text-xs">{msg.file_name || 'Document.pdf'}</p>
                     <p className="text-[10px] opacity-75 font-mono">{msg.file_size || '1.4 MB'}</p>
                   </div>
-                  <a
-                    href={msg.media_url || '#'}
-                    download={msg.file_name || 'Document'}
+                  <button
+                    type="button"
                     onClick={(e) => {
+                      e.stopPropagation();
                       if (!msg.media_url) {
-                        e.preventDefault();
-                        onToast(`Downloading ${msg.file_name || 'document'}...`);
+                        onToast(`File not found`);
+                        return;
                       }
+                      onToast(`Downloading ${msg.file_name || 'document'}... 📥`);
+                      const link = document.createElement('a');
+                      link.href = msg.media_url;
+                      link.download = msg.file_name || 'document';
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
                     }}
-                    className={`p-2 rounded-xl transition-colors shrink-0 ${
+                    className={`p-2 rounded-xl transition-colors shrink-0 cursor-pointer ${
                       isMe 
                         ? 'hover:bg-white/20 text-white' 
                         : 'hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200'
@@ -224,7 +231,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                     title="Download File"
                   >
                     <Download className="h-4 w-4" />
-                  </a>
+                  </button>
                 </div>
               )}
 

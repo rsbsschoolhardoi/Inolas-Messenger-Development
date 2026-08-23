@@ -100,6 +100,10 @@ export interface Chat {
   wallpaper?: string;
   disappearing_messages?: 'off' | '24h' | '7d' | '90d';
   locked?: boolean;
+  cleared_at?: Record<string, number>;
+  theme?: string;
+  last_message_sender?: string;
+  last_message_status?: 'sent' | 'delivered' | 'read';
 }
 
 export interface AuthState {
