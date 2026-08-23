@@ -1,0 +1,49 @@
+{
+  "collections": {
+    "users": {
+      "username": "string",
+      "display_name": "string",
+      "bio": "string",
+      "avatar_seed": "string",
+      "online": "boolean",
+      "last_seen": "string"
+    },
+    "chats": {
+      "id": "string",
+      "type": "string",
+      "name": "string",
+      "username": "string",
+      "avatar_seed": "string",
+      "participants": "array",
+      "unread": "number",
+      "last_message": "string",
+      "last_time": "string",
+      "pinned": "boolean",
+      "muted": "boolean",
+      "typing": "boolean",
+      "online": "boolean",
+      "last_seen": "string"
+    },
+    "messages": {
+      "id": "string",
+      "chat_id": "string",
+      "sender": "string",
+      "text": "string",
+      "type": "string",
+      "media_url": "string",
+      "file_name": "string",
+      "file_size": "string",
+      "timestamp": "string",
+      "reply_to": "string",
+      "reply_preview": "string",
+      "reply_sender": "string",
+      "reactions": "array",
+      "read_by": "array",
+      "forwarded": "boolean",
+      "pinned": "boolean",
+      "edited": "boolean",
+      "deleted_for_everyone": "boolean",
+      "deleted_for_me": "boolean"
+    }
+  }
+}

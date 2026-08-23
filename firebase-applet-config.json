@@ -1,0 +1,12 @@
+{
+  "projectId": "zenoa-inolas",
+  "appId": "1:521203244415:web:54f0a71575305d79e50e4a",
+  "apiKey": "AIzaSyDvRzK3PJcvPVrfh8XXMvUADAKfHxb8-N8",
+  "authDomain": "zenoa-inolas.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "zenoa-inolas.firebasestorage.app",
+  "messagingSenderId": "521203244415",
+  "measurementId": "G-CTTXCTPC22",
+  "oAuthClientId": "",
+  "recaptchaSiteKey": ""
+}
