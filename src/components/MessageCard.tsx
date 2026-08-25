@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Check, CheckCheck, MoreVertical, Maximize2, FileText, 
   MapPin, ExternalLink, Download, UserPlus, BarChart2, 
@@ -9,6 +9,8 @@ import { Message, UserData } from '../types';
 import { InlineVideoPlayer } from './InlineVideoPlayer';
 import { VoiceNotePlayer } from './VoiceNotePlayer';
 import { getThemeById } from '../chatThemes';
+import { getMediaUrlFromDrive } from '../lib/googleDrive';
+import { decryptFile } from '../cryptoUtils';
 
 interface MessageCardProps {
   msg: Message;
@@ -24,6 +26,7 @@ interface MessageCardProps {
   onVotePoll: (msgId: string, optionId: string) => void;
   onOpenMediaPlayer: (type: 'image' | 'video' | 'document' | 'audio', url: string, meta: any) => void;
   onToast: (text: string) => void;
+  driveAccessToken?: string | null;
 }
 
 const EMOJIS = ['❤️', '👍', '🔥', '😂', '🎉', '👏', '😮', '🙏'];
@@ -43,11 +46,53 @@ export const MessageCard: React.FC<MessageCardProps> = ({
   onVotePoll,
   onOpenMediaPlayer,
   onToast,
+  driveAccessToken,
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
+  const [resolvedMediaUrl, setResolvedMediaUrl] = useState<string | null>(null);
+  const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string | null>(null);
+  
   const isRead = msg.read_by && msg.read_by.some(u => u !== (isMe ? 'me' : senderUsername));
   const activeTheme = getThemeById(themeId);
   const isMediaOnly = (msg.type === 'image' || msg.type === 'video') && !msg.text;
+
+  useEffect(() => {
+    const resolveUrl = async (url: string | undefined | null, setter: (val: string | null) => void) => {
+      if (!url) {
+        setter(null);
+        return;
+      }
+
+      if (url.startsWith('drive://') && driveAccessToken) {
+        const fileId = url.replace('drive://', '');
+        try {
+          const resolved = await getMediaUrlFromDrive(driveAccessToken, fileId);
+          setter(resolved);
+        } catch (err) {
+          console.error('Drive media resolution failed:', err);
+        }
+      } else if (url.startsWith('enc:')) {
+        const encryptedUrl = url.replace('enc:', '');
+        try {
+          const response = await fetch(encryptedUrl);
+          const encryptedBlob = await response.blob();
+          const decryptedBlob = await decryptFile(encryptedBlob, msg.chat_id, msg.type === 'image' ? 'image/jpeg' : msg.type === 'video' ? 'video/mp4' : 'application/octet-stream');
+          setter(URL.createObjectURL(decryptedBlob));
+        } catch (err) {
+          console.error('Decryption failed for media:', err);
+          setter(null);
+        }
+      } else {
+        setter(url);
+      }
+    };
+
+    resolveUrl(msg.media_url, setResolvedMediaUrl);
+    resolveUrl(msg.audio_url, setResolvedAudioUrl);
+  }, [msg.media_url, msg.audio_url, driveAccessToken, msg.chat_id, msg.type]);
+
+  const displayMediaUrl = resolvedMediaUrl || msg.media_url;
+  const displayAudioUrl = resolvedAudioUrl || msg.audio_url;
 
   const isSentDark = activeTheme.bubble.isSentDark ?? true;
   const isReceivedDark = activeTheme.bubble.isReceivedDark ?? false;
@@ -115,7 +160,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
           {/* SENDER NAME AT TOP INSIDE CARD */}
           {!isMe && isFirstInGroup && !msg.deleted_for_everyone && (
             <div className="flex items-center gap-1 mb-1 pb-0.5 border-b border-black/5 dark:border-white/5 select-none">
-              <span className={`text-[11px] font-bold ${isReceivedDark ? 'text-indigo-300' : 'text-indigo-600'}`}>
+              <span className={`text-[11px] font-bold ${isReceivedDark ? 'text-indigo-300' : 'text-neutral-900 dark:text-neutral-100'}`}>
                 {senderName}
               </span>
             </div>
@@ -146,9 +191,9 @@ export const MessageCard: React.FC<MessageCardProps> = ({
               )}
 
               {/* PHOTO / IMAGE ATTACHMENT */}
-              {msg.type === 'image' && msg.media_url && (
+              {msg.type === 'image' && displayMediaUrl && (
                 <div 
-                  onClick={() => onOpenMediaPlayer('image', msg.media_url!, {
+                  onClick={() => onOpenMediaPlayer('image', displayMediaUrl!, {
                     title: msg.file_name || 'Photo Attachment',
                     quality: msg.media_quality === 'hd' ? 'HD High' : 'Standard',
                     senderName,
@@ -156,7 +201,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                   className="relative rounded-2xl overflow-hidden max-w-xs mb-1 group/media cursor-pointer border border-neutral-200/50 dark:border-neutral-800/80 shadow-xs hover:shadow-md transition-all"
                 >
                   <img 
-                    src={msg.media_url} 
+                    src={displayMediaUrl} 
                     alt="Photo Attachment" 
                     className="w-full max-h-64 object-cover rounded-xl group-hover/media:scale-102 transition-transform duration-300" 
                     referrerPolicy="no-referrer" 
@@ -176,11 +221,11 @@ export const MessageCard: React.FC<MessageCardProps> = ({
               {msg.type === 'video' && (
                 <div className="my-0.5 max-w-full">
                   <InlineVideoPlayer
-                    src={msg.media_url || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4'}
+                    src={displayMediaUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4'}
                     fileName={msg.file_name || 'Shared Video'}
                     isMe={isMe}
                     onExpand={() => {
-                      onOpenMediaPlayer('video', msg.media_url || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', {
+                      onOpenMediaPlayer('video', displayMediaUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', {
                         title: msg.file_name || 'Shared Video',
                         quality: msg.media_quality === 'hd' ? 'HD 1080p' : 'Standard',
                         senderName,
@@ -193,7 +238,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
               {/* VOICE NOTE & AUDIO ATTACHMENT WITH WAVEFORM & SOUND */}
               {msg.type === 'voice' && (
                 <VoiceNotePlayer
-                  audioUrl={msg.audio_url}
+                  audioUrl={displayAudioUrl}
                   durationStr={msg.file_size || '0:12'}
                   isMe={isMe}
                   isSentDark={isSentDark}
@@ -206,7 +251,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                 <div 
                   className={`p-3 rounded-xl flex items-center gap-3 mb-1 text-xs border transition-colors ${cardBgClass}`}
                 >
-                  <div className={`p-2.5 rounded-xl shrink-0 ${isSentDark && isMe ? 'bg-white/20 text-white' : 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-400'}`}>
+                  <div className={`p-2.5 rounded-xl shrink-0 ${isSentDark && isMe ? 'bg-white/20 text-white' : 'bg-neutral-800 dark:bg-neutral-200/20 text-neutral-900 dark:text-neutral-100 dark:text-neutral-400 dark:text-neutral-600'}`}>
                     <FileText className="h-5 w-5" />
                   </div>
                   <div className="text-left min-w-0 flex-1">
@@ -217,13 +262,13 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (!msg.media_url) {
+                      if (!displayMediaUrl) {
                         onToast(`File not found`);
                         return;
                       }
                       onToast(`Downloading ${msg.file_name || 'document'}...`);
                       const link = document.createElement('a');
-                      link.href = msg.media_url;
+                      link.href = displayMediaUrl;
                       link.download = msg.file_name || 'document';
                       document.body.appendChild(link);
                       link.click();
@@ -273,19 +318,19 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                           onClick={() => onVotePoll(msg.id, opt.id)}
                           className={`w-full p-2.5 rounded-xl relative overflow-hidden border text-left transition-all cursor-pointer ${
                             hasVoted 
-                              ? 'border-indigo-400 dark:border-indigo-500 bg-indigo-500/30 font-bold shadow-xs' 
-                              : 'border-black/10 dark:border-white/10 hover:border-indigo-300 bg-black/5 dark:bg-white/5'
+                              ? 'border-neutral-700 dark:border-neutral-300 dark:border-neutral-400 bg-neutral-800 dark:bg-neutral-200/30 font-bold shadow-xs' 
+                              : 'border-black/10 dark:border-white/10 hover:border-neutral-400 bg-black/5 dark:bg-white/5'
                           }`}
                         >
                           {/* Animated Progress bar */}
                           <div 
-                            className="absolute left-0 top-0 bottom-0 bg-indigo-500/30 dark:bg-indigo-500/40 transition-all duration-500" 
+                            className="absolute left-0 top-0 bottom-0 bg-neutral-800 dark:bg-neutral-200/30 dark:bg-neutral-800 dark:bg-neutral-200/40 transition-all duration-500" 
                             style={{ width: `${percentage}%` }}
                           />
                           <div className="relative z-10 flex justify-between items-center text-xs">
                             <span className="flex items-center gap-2">
                               {hasVoted ? (
-                                <span className="h-4 w-4 rounded-full bg-indigo-500 text-white flex items-center justify-center text-[10px]">✓</span>
+                                <span className="h-4 w-4 rounded-full bg-neutral-800 dark:bg-neutral-200 text-white dark:text-neutral-900 flex items-center justify-center text-[10px]">✓</span>
                               ) : (
                                 <span className="h-4 w-4 rounded-full border border-neutral-400 dark:border-neutral-600 shrink-0"></span>
                               )}
@@ -308,7 +353,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                   className={`p-3 rounded-xl space-y-2 mb-1 min-w-[220px] border ${cardBgClass}`}
                 >
                   <div className="flex items-center gap-2">
-                    <div className="p-2 bg-rose-500/20 rounded-xl text-rose-500 shrink-0">
+                    <div className="p-2 bg-neutral-200 dark:bg-neutral-800 rounded-xl text-neutral-700 dark:text-neutral-300 shrink-0">
                       <MapPin className="h-5 w-5" />
                     </div>
                     <div className="text-left min-w-0 flex-1">
@@ -334,7 +379,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                   className={`p-3 rounded-xl space-y-2 mb-1 min-w-[220px] border ${cardBgClass}`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <div className="h-9 w-9 rounded-full bg-indigo-500 text-white font-bold flex items-center justify-center text-xs shrink-0">
+                    <div className="h-9 w-9 rounded-full bg-neutral-800 dark:bg-neutral-200 text-white dark:text-neutral-900 font-bold flex items-center justify-center text-xs shrink-0">
                       {msg.contact_data.name.charAt(0).toUpperCase()}
                     </div>
                     <div className="text-left min-w-0 flex-1">
@@ -351,7 +396,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                     </button>
                     <button 
                       onClick={() => onToast(`Opening conversation with ${msg.contact_data?.name}...`)} 
-                      className="flex-1 py-1 rounded-lg bg-indigo-500 text-white hover:bg-indigo-600 text-[10px] font-semibold text-center cursor-pointer"
+                      className="flex-1 py-1 rounded-lg bg-neutral-800 dark:bg-neutral-200 text-white dark:text-neutral-900 hover:bg-neutral-900 dark:bg-neutral-100 text-[10px] font-semibold text-center cursor-pointer"
                     >
                       Message
                     </button>
@@ -365,9 +410,9 @@ export const MessageCard: React.FC<MessageCardProps> = ({
               )}
 
               {/* GIF */}
-              {msg.type === 'gif' && msg.media_url && (
+              {msg.type === 'gif' && displayMediaUrl && (
                 <img 
-                  src={msg.media_url} 
+                  src={displayMediaUrl} 
                   alt="GIF" 
                   className="rounded-xl max-w-full sm:max-w-xs h-36 object-cover mb-1.5" 
                   referrerPolicy="no-referrer" 
@@ -383,7 +428,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                     {/* Call Icon Badge */}
                     <div className={`p-2.5 rounded-xl shrink-0 ${
                       msg.call_data?.status === 'answered'
-                        ? (msg.call_data?.call_type === 'video' ? 'bg-indigo-500/25 text-indigo-400' : 'bg-emerald-500/25 text-emerald-400')
+                        ? (msg.call_data?.call_type === 'video' ? 'bg-neutral-800 dark:bg-neutral-200/25 text-neutral-400 dark:text-neutral-600' : 'bg-emerald-500/25 text-emerald-400')
                         : 'bg-rose-500/25 text-rose-400'
                     }`}>
                       {msg.call_data?.status === 'answered' ? (
@@ -463,7 +508,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                         className={`font-bold ml-1 text-[11px] underline cursor-pointer inline-flex items-center gap-0.5 ${
                           isMe
                             ? (activeTheme.bubble.linkSent || (isSentDark ? 'text-white underline hover:opacity-90' : 'text-slate-900 underline font-bold'))
-                            : (activeTheme.bubble.linkReceived || (isReceivedDark ? 'text-indigo-300 underline' : 'text-indigo-600 underline'))
+                            : (activeTheme.bubble.linkReceived || (isReceivedDark ? 'text-indigo-300 underline' : 'text-neutral-900 dark:text-neutral-100 underline'))
                         }`}
                       >
                         <span>See More</span>
@@ -482,7 +527,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                           className={`font-bold ml-1.5 text-[11px] underline cursor-pointer inline-flex items-center gap-0.5 ${
                             isMe
                               ? (activeTheme.bubble.linkSent || (isSentDark ? 'text-white underline hover:opacity-90' : 'text-slate-900 underline font-bold'))
-                              : (activeTheme.bubble.linkReceived || (isReceivedDark ? 'text-indigo-300 underline' : 'text-indigo-600 underline'))
+                              : (activeTheme.bubble.linkReceived || (isReceivedDark ? 'text-indigo-300 underline' : 'text-neutral-900 dark:text-neutral-100 underline'))
                           }`}
                         >
                           <span>See Less</span>
@@ -535,8 +580,8 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                     className={`text-[10px] px-2 py-0.5 rounded-full border flex items-center gap-1 hover:scale-105 transition-transform cursor-pointer shadow-2xs ${
                       hasMyReaction 
                         ? isSentDark
-                          ? 'bg-indigo-950/80 border-indigo-500 text-indigo-200 font-bold'
-                          : 'bg-indigo-100 border-indigo-400 text-indigo-800 font-bold'
+                          ? 'bg-indigo-950/80 border-indigo-500 text-neutral-300 dark:text-neutral-700 font-bold'
+                          : 'bg-indigo-100 border-neutral-700 dark:border-neutral-300 text-indigo-800 font-bold'
                         : isSentDark
                           ? 'bg-neutral-900/80 border-neutral-700 text-neutral-200'
                           : 'bg-white/90 border-neutral-300 text-neutral-800'

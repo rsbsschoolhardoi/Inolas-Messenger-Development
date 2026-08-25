@@ -1,12 +1,12 @@
 {
   "projectId": "zenoa-inolas",
-  "appId": "1:521203244415:web:54f0a71575305d79e50e4a",
+  "appId": "1:521203244415:web:697eefef46957600e50e4a",
   "apiKey": "AIzaSyDvRzK3PJcvPVrfh8XXMvUADAKfHxb8-N8",
   "authDomain": "zenoa-inolas.firebaseapp.com",
   "firestoreDatabaseId": "(default)",
   "storageBucket": "zenoa-inolas.firebasestorage.app",
   "messagingSenderId": "521203244415",
-  "measurementId": "G-CTTXCTPC22",
-  "oAuthClientId": "",
+  "measurementId": "",
+  "oAuthClientId": "521203244415-asb2ei8v4jumbbetjk741b3n33n1f91b.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

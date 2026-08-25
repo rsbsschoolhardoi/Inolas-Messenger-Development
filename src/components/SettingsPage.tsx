@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { GoogleDriveLogo } from './GoogleDriveLogo';
+import { VaultPasswordModal } from './VaultPasswordModal';
 import {
   Palette,
   Bell,
@@ -27,7 +29,9 @@ import {
   RefreshCw,
   Zap,
   CheckCircle2,
-  Sliders
+  Sliders,
+  Cloud,
+  Upload
 } from 'lucide-react';
 import { storageManager, StorageEstimateInfo } from '../storageManager';
 
@@ -73,8 +77,19 @@ interface SettingsPageProps {
   userUsername: string;
   userAvatarSeed: string;
   userAvatarUrl?: string;
+  userEmail?: string;
+  userUid?: string;
   renderAvatar: (seed?: string, name?: string, url?: string, sizeClasses?: string) => React.ReactNode;
   onOpenEditProfile: () => void;
+  isDriveConnected: boolean;
+  isBackingUp: boolean;
+  isRestoring: boolean;
+  lastBackupDate: string | null;
+  onConnectDrive: () => void;
+  onDisconnectDrive: () => void;
+  onBackupToDrive: (password: string) => void;
+  onRestoreFromDrive: (password: string) => void;
+  onDeleteBackupFromDrive: (password: string) => void;
 }
 
 type SettingsSection = 'main' | 'appearance' | 'notifications' | 'privacy' | 'chats' | 'storage' | 'account' | 'calls';
@@ -121,12 +136,44 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   userUsername,
   userAvatarSeed,
   userAvatarUrl,
+  userEmail,
+  userUid,
   renderAvatar,
   onOpenEditProfile,
+  isDriveConnected,
+  isBackingUp,
+  isRestoring,
+  lastBackupDate,
+  onConnectDrive,
+  onDisconnectDrive,
+  onBackupToDrive,
+  onRestoreFromDrive,
+  onDeleteBackupFromDrive,
 }) => {
   const [section, setSection] = useState<SettingsSection>('main');
   const [storageInfo, setStorageInfo] = useState<StorageEstimateInfo | null>(null);
   const [isCleaningStorage, setIsCleaningStorage] = useState<boolean>(false);
+  const [vaultPassword, setVaultPassword] = useState<string>('');
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState<boolean>(false);
+  const [passwordModalAction, setPasswordModalAction] = useState<'backup' | 'restore' | 'delete'>('backup');
+  const [hasSavedPassword, setHasSavedPassword] = useState<boolean>(() => {
+    return localStorage.getItem('zenoa_has_master_password') === 'true';
+  });
+
+  const handlePasswordModalSubmit = (pwd: string) => {
+    localStorage.setItem('zenoa_has_master_password', 'true');
+    setHasSavedPassword(true);
+    setPasswordModalOpen(false);
+
+    if (passwordModalAction === 'backup') {
+      onBackupToDrive(pwd);
+    } else if (passwordModalAction === 'restore') {
+      onRestoreFromDrive(pwd);
+    } else if (passwordModalAction === 'delete') {
+      onDeleteBackupFromDrive(pwd);
+    }
+  };
 
   const refreshStorageStats = async () => {
     try {
@@ -203,22 +250,97 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {/* Main Settings Directory */}
         {section === 'main' && (
           <div className="space-y-6 animate-fade-in">
-            {/* User Profile Mini-Card */}
+            {/* 1. TOP ITEM: USER PROFILE CARD */}
             <div className="p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm flex items-center justify-between gap-4">
               <div className="flex items-center gap-3.5 min-w-0">
                 {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-14 w-14 text-xl')}
                 <div className="min-w-0">
-                  <h3 className="font-bold text-sm text-neutral-900 dark:text-white truncate">{userDisplayName}</h3>
+                  <h3 className="font-bold text-base text-neutral-900 dark:text-white truncate">{userDisplayName}</h3>
                   <p className="text-xs text-neutral-400 truncate">@{userUsername}</p>
                 </div>
               </div>
               <button
                 onClick={onOpenEditProfile}
-                className="px-3.5 py-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shrink-0"
+                className="px-4 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shrink-0"
               >
                 <Edit2 className="h-3.5 w-3.5" />
-                <span>Edit</span>
+                <span>Edit Profile</span>
               </button>
+            </div>
+
+            {/* 2. SECOND ITEM: GOOGLE DRIVE BACKUP CARD */}
+            <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4 overflow-hidden">
+              <div className="flex items-center justify-between gap-2.5 min-w-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200/60 dark:border-neutral-700/60 shrink-0">
+                    <GoogleDriveLogo className="h-6 w-6" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-bold text-sm text-neutral-900 dark:text-white truncate">Google Drive Backup</h3>
+                      {isDriveConnected ? (
+                        <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1 shrink-0">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          Connected
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0">
+                          Not Connected
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 truncate">
+                      {isDriveConnected
+                        ? lastBackupDate ? `Last Sync: ${lastBackupDate}` : 'Ready for Cloud Backup'
+                        : 'Connect Google Drive for cloud backup & restore'}
+                    </p>
+                  </div>
+                </div>
+                {isDriveConnected && (
+                  <button
+                    onClick={onDisconnectDrive}
+                    className="text-xs font-semibold text-neutral-400 hover:text-rose-500 transition-colors px-2 py-1 cursor-pointer shrink-0"
+                  >
+                    Disconnect
+                  </button>
+                )}
+              </div>
+
+              {isDriveConnected ? (
+                <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-1">
+                  <button
+                    onClick={() => {
+                      setPasswordModalAction('backup');
+                      setPasswordModalOpen(true);
+                    }}
+                    disabled={isBackingUp}
+                    className="py-2.5 px-2 sm:px-3 rounded-2xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 font-bold text-xs flex items-center justify-center gap-1.5 min-w-0 transition-all disabled:opacity-50 cursor-pointer shadow-xs"
+                  >
+                    {isBackingUp ? <RefreshCw className="h-4 w-4 animate-spin shrink-0" /> : <Upload className="h-4 w-4 shrink-0" />}
+                    <span className="truncate">Backup Now</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setPasswordModalAction('restore');
+                      setPasswordModalOpen(true);
+                    }}
+                    disabled={isRestoring}
+                    className="py-2.5 px-2 sm:px-3 rounded-2xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-900 dark:text-white font-bold text-xs flex items-center justify-center gap-1.5 min-w-0 transition-all border border-neutral-200 dark:border-neutral-700 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isRestoring ? <RefreshCw className="h-4 w-4 animate-spin shrink-0" /> : <Download className="h-4 w-4 shrink-0" />}
+                    <span className="truncate">Restore Data</span>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={onConnectDrive}
+                  className="w-full py-2.5 px-4 rounded-2xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer"
+                >
+                  <GoogleDriveLogo className="h-4 w-4 shrink-0" />
+                  <span>Connect Google Drive</span>
+                </button>
+              )}
             </div>
 
             {/* Category Groups */}
@@ -277,7 +399,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <ChevronRight className="h-4 w-4 text-neutral-400" />
                 </button>
 
-                {/* Chats */}
+                {/* Chats & Storage */}
                 <button
                   onClick={() => setSection('chats')}
                   className="w-full p-4 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors text-left cursor-pointer"
@@ -287,64 +409,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       <MessageSquare className="h-5 w-5" />
                     </div>
                     <div>
-                      <p className="text-sm font-bold text-neutral-900 dark:text-white">Chats</p>
-                      <p className="text-xs text-neutral-400">Media auto-download, enter key, conversation history</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-neutral-400" />
-                </button>
-
-                {/* Storage & Data */}
-                <button
-                  onClick={() => setSection('storage')}
-                  className="w-full p-4 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors text-left cursor-pointer"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200/50 dark:border-neutral-700/50">
-                      <HardDrive className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-bold text-neutral-900 dark:text-white">Storage & Data</p>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700">
-                          {storageInfo?.quotaFormatted || 'Gigabytes'}
-                        </span>
-                      </div>
-                      <p className="text-xs text-neutral-400">High-capacity IndexedDB, media compression, cache tools</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-neutral-400" />
-                </button>
-
-                {/* Calls & Audio */}
-                <button
-                  onClick={() => setSection('calls')}
-                  className="w-full p-4 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors text-left cursor-pointer"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200/50 dark:border-neutral-700/50">
-                      <PhoneCall className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-neutral-900 dark:text-white">Calls & Audio</p>
-                      <p className="text-xs text-neutral-400">Noise suppression, data saver, voice quality</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-neutral-400" />
-                </button>
-
-                {/* Account & Data */}
-                <button
-                  onClick={() => setSection('account')}
-                  className="w-full p-4 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors text-left cursor-pointer"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200/50 dark:border-neutral-700/50">
-                      <Shield className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-neutral-900 dark:text-white">Account & Backup</p>
-                      <p className="text-xs text-neutral-400">Export chat backup, session management, logout</p>
+                      <p className="text-sm font-bold text-neutral-900 dark:text-white">Chats & Storage</p>
+                      <p className="text-xs text-neutral-400">Media auto-download, enter key, storage management</p>
                     </div>
                   </div>
                   <ChevronRight className="h-4 w-4 text-neutral-400" />
@@ -360,7 +426,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 className="w-full p-4 rounded-3xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/40 text-rose-600 dark:text-rose-400 font-bold text-sm hover:bg-rose-100/60 dark:hover:bg-rose-900/30 transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
               >
                 <LogOut className="h-4 w-4" />
-                <span>Log Out of Zenoa</span>
+                <span>Log Out</span>
               </button>
             </div>
           </div>
@@ -835,15 +901,104 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {/* SECTION: ACCOUNT */}
         {section === 'account' && (
           <div className="space-y-6 animate-fade-in">
+            {/* Cloud Vault Section */}
+            <div className="p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-5">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200/50 dark:border-neutral-700/50 shrink-0">
+                  <GoogleDriveLogo className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Google Drive Cloud Vault</h3>
+                  <p className="text-xs text-neutral-400">Zero-knowledge encrypted cloud backup</p>
+                </div>
+              </div>
+
+              {!isDriveConnected ? (
+                <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-100 dark:border-neutral-800 space-y-3">
+                  <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
+                    Connect your official Google Drive account to enable end-to-end encrypted cloud backups for all your chats and media.
+                  </p>
+                  <button
+                    onClick={onConnectDrive}
+                    className="w-full py-2.5 rounded-xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 font-bold text-xs flex items-center justify-center gap-2 transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer"
+                  >
+                    <GoogleDriveLogo className="h-4 w-4" />
+                    <span>Connect Google Drive</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                      <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Google Drive Connected</span>
+                    </div>
+                    <button
+                      onClick={onDisconnectDrive}
+                      className="text-[10px] font-bold text-neutral-400 hover:text-rose-500 transition-colors cursor-pointer"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                      <button
+                        onClick={() => {
+                          setPasswordModalAction('backup');
+                          setPasswordModalOpen(true);
+                        }}
+                        disabled={isBackingUp}
+                        className="py-3 rounded-2xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 font-bold text-xs flex items-center justify-center gap-2 transition-all hover:bg-neutral-800 dark:hover:bg-neutral-100 disabled:opacity-50 cursor-pointer shadow-xs"
+                      >
+                        {isBackingUp ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                        <span>Backup Now</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setPasswordModalAction('restore');
+                          setPasswordModalOpen(true);
+                        }}
+                        disabled={isRestoring}
+                        className="py-3 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-700 font-bold text-xs flex items-center justify-center gap-2 transition-all hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-50 cursor-pointer"
+                      >
+                        {isRestoring ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                        <span>Restore Vault</span>
+                      </button>
+                    </div>
+
+                    {lastBackupDate && (
+                      <div className="space-y-3 pt-2">
+                        <p className="text-[10px] text-center text-neutral-400 font-medium">
+                          Last Cloud Sync: {lastBackupDate}
+                        </p>
+                        <button
+                          onClick={() => {
+                            setPasswordModalAction('delete');
+                            setPasswordModalOpen(true);
+                          }}
+                          className="w-full py-2.5 rounded-xl border border-red-200 dark:border-red-900/30 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Delete Cloud Backup</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Export Chat Backup</h3>
-                  <p className="text-xs text-neutral-400">Save a local encrypted backup JSON of your conversations</p>
+                  <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Local JSON Export</h3>
+                  <p className="text-xs text-neutral-400">Save a local encrypted backup file to your device</p>
                 </div>
                 <button
                   onClick={handleExportChatData}
-                  className="px-4 py-2 bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+                  className="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer shrink-0"
                 >
                   <Download className="h-3.5 w-3.5" />
                   <span>Export</span>
@@ -868,6 +1023,20 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         )}
 
       </div>
+
+      <VaultPasswordModal
+        isOpen={passwordModalOpen}
+        onClose={() => setPasswordModalOpen(false)}
+        onSubmit={handlePasswordModalSubmit}
+        actionType={passwordModalAction}
+        hasExistingPassword={hasSavedPassword}
+        isLoading={isBackingUp || isRestoring}
+        userEmail={userEmail}
+        userUid={userUid}
+        onPasswordResetComplete={(newPwd) => {
+          handlePasswordModalSubmit(newPwd);
+        }}
+      />
     </div>
   );
 };

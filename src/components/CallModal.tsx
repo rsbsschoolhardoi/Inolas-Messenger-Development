@@ -49,7 +49,9 @@ const ICE_SERVERS: RTCConfiguration = {
     { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:global.stun.twilio.com:3478' }
   ],
-  iceCandidatePoolSize: 10
+  iceCandidatePoolSize: 10,
+  bundlePolicy: 'max-bundle',
+  rtcpMuxPolicy: 'require'
 };
 
 export const CallModal: React.FC<CallModalProps> = ({
@@ -311,12 +313,16 @@ export const CallModal: React.FC<CallModalProps> = ({
           localVideoRef.current.play().catch(() => {});
         }
       }
-    }
-
-    // Remote Audio element (works for both voice and video to ensure crystal clear sound)
-    if (remoteAudioRef.current && remoteStream && remoteAudioRef.current.srcObject !== remoteStream) {
-      remoteAudioRef.current.srcObject = remoteStream;
-      remoteAudioRef.current.play().catch(() => {});
+      // Detach audio element during video calls so video element handles audio natively without echo
+      if (remoteAudioRef.current && remoteAudioRef.current.srcObject) {
+        remoteAudioRef.current.srcObject = null;
+      }
+    } else {
+      // Voice mode: Remote Audio element handles remote sound
+      if (remoteAudioRef.current && remoteStream && remoteAudioRef.current.srcObject !== remoteStream) {
+        remoteAudioRef.current.srcObject = remoteStream;
+        remoteAudioRef.current.play().catch(() => {});
+      }
     }
   }, [isSwapped, session.type]);
 
@@ -644,78 +650,90 @@ export const CallModal: React.FC<CallModalProps> = ({
 
       // 10. Subscribe to Firestore Call Document updates
       if (callDocRef) {
-        unsubscribeCallDoc = onSnapshot(callDocRef, async (snap) => {
-          if (!snap.exists()) return;
-          const data = snap.data();
+        unsubscribeCallDoc = onSnapshot(
+          callDocRef,
+          async (snap) => {
+            if (!snap.exists()) return;
+            const data = snap.data();
 
-          // Handle remote hang up or decline
-          if (data.status === 'declined' || data.status === 'ended') {
-            handleCallEndedRemotely(data.status);
-            return;
-          }
-
-          // Caller detects Callee answered
-          if (!session.isIncoming && data.status === 'connected') {
-            setIsRemoteConnected(true);
-            wasConnectedRef.current = true;
-            stopAudioTone();
-            if (session.status !== 'connected') {
-              onAnswerCall();
+            // Handle remote hang up or decline
+            if (data.status === 'declined' || data.status === 'ended') {
+              handleCallEndedRemotely(data.status);
+              return;
             }
-          }
 
-          // Callee receives caller's offer
-          if (session.isIncoming && data.offer && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current && (session.status === 'connected' || isRemoteConnected)) {
-            try {
-              isSettingRemoteDescriptionRef.current = true;
-              await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-              await processPendingCandidates(pc);
-
-              const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
-
-              await updateDoc(callDocRef, {
-                answer: { type: answer.type, sdp: answer.sdp },
-                status: 'connected',
-                answered_at: Date.now()
-              });
-              isSettingRemoteDescriptionRef.current = false;
-            } catch (e) {
-              isSettingRemoteDescriptionRef.current = false;
-              console.warn("Offer handling notice:", e);
-            }
-          }
-
-          // Caller receives callee's answer
-          if (!session.isIncoming && data.answer && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current) {
-            try {
-              isSettingRemoteDescriptionRef.current = true;
-              await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-              await processPendingCandidates(pc);
-              isSettingRemoteDescriptionRef.current = false;
+            // Caller detects Callee answered
+            if (!session.isIncoming && data.status === 'connected') {
               setIsRemoteConnected(true);
               wasConnectedRef.current = true;
               stopAudioTone();
-            } catch (e) {
-              isSettingRemoteDescriptionRef.current = false;
-              console.warn("Answer handling notice:", e);
+              if (session.status !== 'connected') {
+                onAnswerCall();
+              }
             }
+
+            // Callee receives caller's offer
+            if (session.isIncoming && data.offer && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current && (session.status === 'connected' || isRemoteConnected)) {
+              try {
+                isSettingRemoteDescriptionRef.current = true;
+                await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+                await processPendingCandidates(pc);
+
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+
+                await updateDoc(callDocRef, {
+                  answer: { type: answer.type, sdp: answer.sdp },
+                  status: 'connected',
+                  answered_at: Date.now()
+                });
+                isSettingRemoteDescriptionRef.current = false;
+              } catch (e) {
+                isSettingRemoteDescriptionRef.current = false;
+                console.warn("Offer handling notice:", e);
+              }
+            }
+
+            // Caller receives callee's answer
+            if (!session.isIncoming && data.answer && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current) {
+              try {
+                isSettingRemoteDescriptionRef.current = true;
+                await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+                await processPendingCandidates(pc);
+                isSettingRemoteDescriptionRef.current = false;
+                setIsRemoteConnected(true);
+                wasConnectedRef.current = true;
+                stopAudioTone();
+              } catch (e) {
+                isSettingRemoteDescriptionRef.current = false;
+                console.warn("Answer handling notice:", e);
+              }
+            }
+          },
+          (err) => {
+            console.warn("Call document listener notice:", err.message);
           }
-        });
+        );
 
         // 11. Subscribe to Remote ICE Candidates from subcollection
         const candidatesToListen = session.isIncoming ? 'callerCandidates' : 'calleeCandidates';
         const candidatesCollection = collection(callDocRef, candidatesToListen);
-        unsubscribeCandidates = onSnapshot(candidatesCollection, (snapshot) => {
-          snapshot.docChanges().forEach(async (change) => {
-            if (change.type === 'added') {
-              const candidateData = change.doc.data();
-              if (candidateData) {
-                addOrBufferCandidate(pc, candidateData);
+        unsubscribeCandidates = onSnapshot(
+          candidatesCollection,
+          (snapshot) => {
+            snapshot.docChanges().forEach(async (change) => {
+              if (change.type === 'added') {
+                const candidateData = change.doc.data();
+                if (candidateData) {
+                  addOrBufferCandidate(pc, candidateData);
+                }
               }
-            }
-          });
-        });
+            });
+          },
+          (err) => {
+            console.warn("Call candidates listener notice:", err.message);
+          }
+        );
       }
     };
 
@@ -939,7 +957,7 @@ export const CallModal: React.FC<CallModalProps> = ({
     }
   };
 
-  // Avatar Renderer Helper
+  // Avatar Renderer Helper - Professional Initials or User Photo (No cartoon emojis)
   const renderCallAvatar = (seed: string, initials: string, url?: string, sizeClass = 'h-28 w-28 text-3xl') => {
     if (url && url.trim().length > 5) {
       return (
@@ -951,15 +969,24 @@ export const CallModal: React.FC<CallModalProps> = ({
         />
       );
     }
-    const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed || 'user')}`;
+    
+    const raw = (initials || seed || 'User').trim();
+    const cleanLetters = raw.replace(/[^a-zA-Z0-9]/g, '').slice(0, 2).toUpperCase() || 'U';
+
+    const gradients = [
+      'from-indigo-600 via-indigo-700 to-violet-800',
+      'from-violet-600 via-purple-700 to-fuchsia-800',
+      'from-rose-600 via-pink-700 to-red-800',
+      'from-emerald-600 via-teal-700 to-cyan-800',
+      'from-sky-600 via-blue-700 to-indigo-800'
+    ];
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) hash += raw.charCodeAt(i);
+    const grad = gradients[hash % gradients.length];
+
     return (
-      <div className={`${sizeClass} rounded-full bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-600 flex items-center justify-center font-bold text-white border-4 border-white/20 shadow-2xl relative overflow-hidden select-none`}>
-        <img 
-          src={avatarUrl} 
-          alt={initials || 'User Avatar'} 
-          referrerPolicy="no-referrer"
-          className="w-full h-full object-cover" 
-        />
+      <div className={`${sizeClass} rounded-full bg-gradient-to-tr ${grad} flex items-center justify-center font-black text-white border-4 border-white/20 shadow-2xl relative overflow-hidden select-none tracking-wider`}>
+        <span>{cleanLetters}</span>
       </div>
     );
   };
@@ -991,17 +1018,31 @@ export const CallModal: React.FC<CallModalProps> = ({
           </span>
         </div>
         
-        {isConnected ? (
-          <div className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold font-mono text-xs sm:text-sm rounded-full backdrop-blur-md">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>{formatTime(callDuration)}</span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500/15 border border-amber-500/25 text-amber-400 font-semibold text-xs rounded-full backdrop-blur-md">
-            <Radio className="h-3.5 w-3.5 animate-spin" />
-            <span>{session.isIncoming ? 'Incoming...' : 'Connecting...'}</span>
-          </div>
-        )}
+        <AnimatePresence mode="wait">
+          {isConnected ? (
+            <motion.div 
+              key="connected-badge"
+              initial={{ opacity: 0, scale: 0.8, y: -5 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold font-mono text-xs sm:text-sm rounded-full backdrop-blur-md shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+            >
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>{formatTime(callDuration)}</span>
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="connecting-badge"
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500/15 border border-amber-500/25 text-amber-400 font-semibold text-xs rounded-full backdrop-blur-md shadow-[0_0_15px_rgba(245,158,11,0.15)] animate-pulse"
+            >
+              <Radio className="h-3.5 w-3.5 animate-spin" />
+              <span>{session.isIncoming ? 'Incoming...' : 'Connecting...'}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Main Stream / Center Area */}
@@ -1030,21 +1071,57 @@ export const CallModal: React.FC<CallModalProps> = ({
               />
 
               {/* Placeholder when remote stream is dialing / connecting */}
-              {!isConnected && !isSwapped && (
-                <div className="absolute inset-0 bg-neutral-950/90 backdrop-blur-md flex flex-col items-center justify-center space-y-4 p-6 z-20">
-                  <div className="relative">
-                    <div className="absolute inset-0 rounded-full bg-indigo-500/20 animate-ping" style={{ animationDuration: '2.5s' }} />
-                    {renderCallAvatar(session.partnerAvatarSeed, session.partnerName[0], session.partnerAvatarUrl, 'h-28 w-28 text-3xl')}
-                  </div>
-                  <div className="text-center">
-                    <h3 className="text-lg font-bold">{session.partnerName}</h3>
-                    <p className="text-xs text-neutral-400 font-mono">@{session.partnerUsername}</p>
-                    <p className="text-xs font-semibold text-indigo-400 mt-2 animate-pulse">
-                      {session.isIncoming ? 'Incoming Video Call...' : 'Waiting for answer...'}
-                    </p>
-                  </div>
-                </div>
-              )}
+              <AnimatePresence>
+                {!isConnected && !isSwapped && (
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0, scale: 1.05, transition: { duration: 0.4 } }}
+                    className="absolute inset-0 bg-neutral-950/90 backdrop-blur-md flex flex-col items-center justify-center space-y-6 p-6 z-20"
+                  >
+                    {/* Connecting Multi-Layer Ripples */}
+                    <div className="relative flex items-center justify-center">
+                      <div className="absolute w-48 h-48 rounded-full bg-gradient-to-r from-indigo-600/20 via-purple-600/20 to-pink-600/20 blur-2xl animate-pulse" />
+                      
+                      <motion.div
+                        animate={{ scale: [1, 1.8, 2.3], opacity: [0.7, 0.35, 0] }}
+                        transition={{ duration: 2.4, repeat: Infinity, ease: "easeOut", delay: 0 }}
+                        className="absolute inset-0 rounded-full border border-indigo-500/40 bg-indigo-500/10 shadow-[0_0_20px_rgba(99,102,241,0.2)]"
+                      />
+                      <motion.div
+                        animate={{ scale: [1, 1.8, 2.3], opacity: [0.7, 0.35, 0] }}
+                        transition={{ duration: 2.4, repeat: Infinity, ease: "easeOut", delay: 0.8 }}
+                        className="absolute inset-0 rounded-full border border-violet-500/35 bg-violet-500/10 shadow-[0_0_25px_rgba(139,92,246,0.15)]"
+                      />
+                      <motion.div
+                        animate={{ scale: [1, 1.8, 2.3], opacity: [0.7, 0.35, 0] }}
+                        transition={{ duration: 2.4, repeat: Infinity, ease: "easeOut", delay: 1.6 }}
+                        className="absolute inset-0 rounded-full border border-pink-500/30 bg-pink-500/5 shadow-[0_0_30px_rgba(236,72,153,0.1)]"
+                      />
+                      <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 6, repeat: Infinity, ease: "linear" }}
+                        className="absolute -inset-3 rounded-full border border-dashed border-indigo-400/30"
+                      />
+
+                      <div className="relative z-10">
+                        {renderCallAvatar(session.partnerAvatarSeed, session.partnerName[0], session.partnerAvatarUrl, 'h-28 w-28 text-3xl')}
+                      </div>
+                    </div>
+
+                    <div className="text-center space-y-1">
+                      <h3 className="text-xl font-bold tracking-tight">{session.partnerName}</h3>
+                      <p className="text-xs text-neutral-400 font-mono">@{session.partnerUsername}</p>
+                      <div className="pt-2">
+                        <span className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-xs font-semibold text-indigo-300 animate-pulse backdrop-blur-md">
+                          <Radio className="h-3.5 w-3.5 animate-spin" />
+                          <span>{session.isIncoming ? 'Incoming Video Call...' : 'Establishing encrypted video stream...'}</span>
+                        </span>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* 2. Floating Picture-in-Picture Frame (Tap to Swap View) */}
@@ -1077,15 +1154,77 @@ export const CallModal: React.FC<CallModalProps> = ({
           /* Voice Mode Layout */
           <div className="flex flex-col items-center justify-center space-y-8 z-10 p-6 max-w-sm text-center">
             
-            {/* Pulsing Avatar */}
-            <div className="relative">
-              {isConnected && (
-                <div 
-                  className="absolute inset-0 rounded-full bg-emerald-500/25 animate-ping" 
-                  style={{ animationDuration: '2.5s' }}
-                />
-              )}
-              {renderCallAvatar(session.partnerAvatarSeed, session.partnerName[0], session.partnerAvatarUrl, 'h-32 w-32 sm:h-36 sm:w-36 text-4xl relative z-10')}
+            {/* Pulsing Avatar with Seamless Transition Ripples */}
+            <div className="relative flex items-center justify-center">
+              <AnimatePresence mode="wait">
+                {!isConnected ? (
+                  <motion.div 
+                    key="voice-connecting-ripples"
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 1.2, transition: { duration: 0.4 } }}
+                    className="absolute inset-0 flex items-center justify-center pointer-events-none"
+                  >
+                    {/* Ambient Glow */}
+                    <div className="absolute w-52 h-52 rounded-full bg-gradient-to-r from-indigo-600/20 via-purple-600/20 to-pink-600/20 blur-2xl animate-pulse" />
+
+                    {/* Ripple Ring 1 */}
+                    <motion.div
+                      animate={{ scale: [1, 1.85, 2.4], opacity: [0.75, 0.35, 0] }}
+                      transition={{ duration: 2.4, repeat: Infinity, ease: "easeOut", delay: 0 }}
+                      className="absolute inset-0 rounded-full border border-indigo-500/40 bg-indigo-500/10 shadow-[0_0_20px_rgba(99,102,241,0.2)]"
+                    />
+
+                    {/* Ripple Ring 2 */}
+                    <motion.div
+                      animate={{ scale: [1, 1.85, 2.4], opacity: [0.75, 0.35, 0] }}
+                      transition={{ duration: 2.4, repeat: Infinity, ease: "easeOut", delay: 0.8 }}
+                      className="absolute inset-0 rounded-full border border-violet-500/35 bg-violet-500/10 shadow-[0_0_25px_rgba(139,92,246,0.15)]"
+                    />
+
+                    {/* Ripple Ring 3 */}
+                    <motion.div
+                      animate={{ scale: [1, 1.85, 2.4], opacity: [0.75, 0.35, 0] }}
+                      transition={{ duration: 2.4, repeat: Infinity, ease: "easeOut", delay: 1.6 }}
+                      className="absolute inset-0 rounded-full border border-pink-500/30 bg-pink-500/5 shadow-[0_0_30px_rgba(236,72,153,0.1)]"
+                    />
+
+                    {/* Rotating Dashed Radar Orbit */}
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 7, repeat: Infinity, ease: "linear" }}
+                      className="absolute -inset-4 rounded-full border border-dashed border-indigo-400/30"
+                    />
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="voice-connected-halo"
+                    initial={{ opacity: 0, scale: 0.7 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                    className="absolute inset-0 flex items-center justify-center pointer-events-none"
+                  >
+                    {/* Connected Ambient Glow */}
+                    <div className="absolute w-48 h-48 rounded-full bg-emerald-500/20 blur-2xl animate-pulse" />
+                    
+                    {/* Breathing Emerald Ring */}
+                    <motion.div
+                      animate={{ scale: [1, 1.35, 1], opacity: [0.3, 0.65, 0.3] }}
+                      transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                      className="absolute inset-0 rounded-full border-2 border-emerald-500/30 bg-emerald-500/10 shadow-[0_0_35px_rgba(16,185,129,0.25)]"
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Avatar Center */}
+              <motion.div 
+                animate={isConnected ? { scale: [1, 1.03, 1] } : { scale: 1 }}
+                transition={{ duration: 2.5, repeat: isConnected ? Infinity : 0, ease: 'easeInOut' }}
+                className="relative z-10"
+              >
+                {renderCallAvatar(session.partnerAvatarSeed, session.partnerName[0], session.partnerAvatarUrl, 'h-32 w-32 sm:h-36 sm:w-36 text-4xl')}
+              </motion.div>
             </div>
 
             {/* Details */}
@@ -1094,22 +1233,47 @@ export const CallModal: React.FC<CallModalProps> = ({
               <p className="text-xs text-neutral-400 font-mono">@{session.partnerUsername}</p>
               
               <div className="pt-2">
-                {session.status === 'dialing' && !isConnected && (
-                  <span className="text-xs font-bold text-indigo-400 animate-pulse flex items-center justify-center gap-1.5">
-                    Calling...
-                  </span>
-                )}
-                {session.status === 'ringing' && !isConnected && (
-                  <span className="text-xs font-bold text-emerald-400 animate-pulse flex items-center justify-center gap-1.5">
-                    Ringing...
-                  </span>
-                )}
-                {isConnected && (
-                  <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-400">
-                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping mr-1" />
-                    <span>Connected • Encrypted</span>
-                  </div>
-                )}
+                <AnimatePresence mode="wait">
+                  {!isConnected ? (
+                    <motion.div
+                      key="status-connecting"
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -5 }}
+                      className="flex items-center justify-center"
+                    >
+                      {session.status === 'dialing' && (
+                        <span className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-xs font-bold text-indigo-300 animate-pulse shadow-[0_0_15px_rgba(99,102,241,0.2)]">
+                          <Radio className="h-3.5 w-3.5 animate-spin" />
+                          <span>Calling...</span>
+                        </span>
+                      )}
+                      {session.status === 'ringing' && (
+                        <span className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-xs font-bold text-emerald-300 animate-pulse shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+                          <Radio className="h-3.5 w-3.5 animate-spin" />
+                          <span>Ringing...</span>
+                        </span>
+                      )}
+                      {session.status !== 'dialing' && session.status !== 'ringing' && (
+                        <span className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-xs font-bold text-amber-300 animate-pulse shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+                          <Radio className="h-3.5 w-3.5 animate-spin" />
+                          <span>Connecting stream...</span>
+                        </span>
+                      )}
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="status-connected"
+                      initial={{ opacity: 0, scale: 0.85 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ type: 'spring', stiffness: 350, damping: 22 }}
+                      className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-4 py-1.5 rounded-full backdrop-blur-md shadow-[0_0_20px_rgba(16,185,129,0.2)]"
+                    >
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping mr-1" />
+                      <span>Connected • Encrypted HD Voice</span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
 

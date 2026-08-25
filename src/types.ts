@@ -87,6 +87,7 @@ export interface Message {
   forwarded?: boolean;
   pinned?: boolean;
   starred?: boolean;
+  expires_at?: number;
 }
 
 export interface Chat {

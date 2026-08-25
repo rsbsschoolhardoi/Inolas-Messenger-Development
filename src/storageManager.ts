@@ -178,6 +178,90 @@ class StorageManager {
   }
 
   /**
+   * Delete a single message from local IndexedDB
+   */
+  async deleteMessage(id: string): Promise<void> {
+    try {
+      const db = await this.initDB();
+      const tx = db.transaction('messages', 'readwrite');
+      const store = tx.objectStore('messages');
+      store.delete(id);
+      return new Promise((resolve) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+    } catch (err) {
+      console.warn("StorageManager.deleteMessage error:", err);
+    }
+  }
+
+  /**
+   * Delete all local messages for a specific chat
+   */
+  async deleteMessagesForChat(chatId: string): Promise<void> {
+    try {
+      const db = await this.initDB();
+      const tx = db.transaction('messages', 'readwrite');
+      const store = tx.objectStore('messages');
+      const index = store.index('chat_id');
+      const request = index.getAllKeys(chatId);
+
+      return new Promise((resolve) => {
+        request.onsuccess = () => {
+          const keys = request.result || [];
+          for (const key of keys) {
+            store.delete(key);
+          }
+          resolve();
+        };
+        request.onerror = () => resolve();
+      });
+    } catch (err) {
+      console.warn("StorageManager.deleteMessagesForChat error:", err);
+    }
+  }
+
+  /**
+   * Retrieve all messages stored across all chats in local IndexedDB
+   */
+  async getAllMessages(): Promise<any[]> {
+    try {
+      const db = await this.initDB();
+      const tx = db.transaction('messages', 'readonly');
+      const store = tx.objectStore('messages');
+      const request = store.getAll();
+
+      return new Promise((resolve) => {
+        request.onsuccess = () => {
+          resolve(request.result || []);
+        };
+        request.onerror = () => resolve([]);
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Clear all local message & chat data from device
+   */
+  async wipeAllData(): Promise<void> {
+    try {
+      const db = await this.initDB();
+      const tx = db.transaction(['messages', 'media_cache', 'kv_store'], 'readwrite');
+      tx.objectStore('messages').clear();
+      tx.objectStore('media_cache').clear();
+      tx.objectStore('kv_store').clear();
+      return new Promise((resolve) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+    } catch (err) {
+      console.warn("StorageManager.wipeAllData error:", err);
+    }
+  }
+
+  /**
    * Clear all media cache from IndexedDB to free space
    */
   async clearMediaCache(): Promise<number> {

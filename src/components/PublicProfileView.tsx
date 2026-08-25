@@ -131,7 +131,15 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
   };
 
   const getAvatarLetter = (name: string) => {
-    return name ? name.charAt(0).toUpperCase() : 'Z';
+    if (!name) return 'Z';
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const f = parts[0].replace(/[^a-zA-Z0-9]/g, '').charAt(0).toUpperCase();
+      const s = parts[1].replace(/[^a-zA-Z0-9]/g, '').charAt(0).toUpperCase();
+      if (f && s) return `${f}${s}`;
+    }
+    const clean = name.replace(/[^a-zA-Z0-9]/g, '');
+    return clean ? clean.charAt(0).toUpperCase() : 'Z';
   };
 
   const getAvatarBg = (seed: string) => {

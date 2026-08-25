@@ -28,11 +28,14 @@ import {  LandingPage } from './components/LandingPage';
 import {  AuthFlow } from './components/AuthFlow';
 import {  AccountSetup } from './components/AccountSetup';
 import {  PublicProfileView } from './components/PublicProfileView';
+import { GoogleDriveLogo } from './components/GoogleDriveLogo';
 import { isUserEffectivelyOnline, getOnlineStatusText } from './presenceUtils';
 import {  getThemeById, DEFAULT_THEME_ID } from './chatThemes';
 import {  getMessageDateKey, formatChatDateDivider } from './dateUtils';
-import {  encryptMessageText, decryptMessageText } from './cryptoUtils';
+import {  encryptMessageText, decryptMessageText, encryptFile, decryptFile } from './cryptoUtils';
 import {  storageManager } from './storageManager';
+import {  encryptVault, decryptVault } from './utils/crypto';
+import {  findVaultFile, uploadVaultFile, downloadVaultFile, DriveFileInfo, uploadMediaToDrive, getMediaUrlFromDrive, uploadPublicMediaToDrive, deleteVaultFile } from './lib/googleDrive';
 import {  compressImage } from './mediaCompressor';
 import {  uploadMediaToCloud } from './cloudStorage';
 import {  CallModal, CallSession, CallEndMetadata } from './components/CallModal';
@@ -41,6 +44,7 @@ import OneSignal from 'react-onesignal';
 import {  
   collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, query, where, getDocs, updateDoc, arrayUnion 
 } from 'firebase/firestore';
+import { sendRelayMessage } from './services/messageService';
 import {  
   signInWithEmailAndPassword, createUserWithEmailAndPassword, 
   signOut as firebaseSignOut, onAuthStateChanged, 
@@ -248,6 +252,25 @@ export default function App() {
   // Secure Voice & Video Calling States
   const [activeCallSession, setActiveCallSession] = useState<CallSession | null>(null);
 
+  // Cloud Vault States
+  const [isDriveConnected, setIsDriveConnected] = useState<boolean>(() => {
+    return localStorage.getItem('zenoa_drive_connected') === 'true';
+  });
+  const [driveAccessToken, setDriveAccessToken] = useState<string | null>(null);
+  const [isBackingUp, setIsBackingUp] = useState<boolean>(false);
+  const [isRestoring, setIsRestoring] = useState<boolean>(false);
+  const [lastBackupInfo, setLastBackupInfo] = useState<DriveFileInfo | null>(null);
+
+
+  useEffect(() => {
+    if (isDriveConnected && driveAccessToken) {
+      // Check for existing backup on connect
+      findVaultFile(driveAccessToken).then(info => {
+        setLastBackupInfo(info);
+      }).catch(() => {});
+    }
+  }, [isDriveConnected, driveAccessToken]);
+
   const handleStartCallWithUser = (targetUsername: string, type: 'voice' | 'video') => {
     if (!targetUsername) return;
     const targetUserObj = users[targetUsername] || Object.values(users).find(u => u.username === targetUsername);
@@ -424,7 +447,7 @@ export default function App() {
             await setDoc(doc(db, 'messages', newMsgId), {
               id: newMsgId,
               chat_id: targetChat.id, 
-              created_at: Date.now(),
+              created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
               sender,
               text: encryptedPayload,
               type: 'call',
@@ -830,13 +853,27 @@ export default function App() {
     }
   }, [chats]);
 
-  const [messagesByChat, setMessagesByChat] = useState<Record<string, Message[]>>(() => {
-    try {
-      const cached = localStorage.getItem('zenoa_cached_messages');
-      if (cached) return JSON.parse(cached);
-    } catch {}
-    return {};
-  });
+  const [messagesByChat, setMessagesByChat] = useState<Record<string, Message[]>>({});
+
+  useEffect(() => {
+    const loadMessages = async () => {
+      try {
+        const loadedMessages: Record<string, Message[]> = {};
+        for (const chat of chats) {
+          const msgs = await storageManager.getMessagesForChat(chat.id);
+          if (msgs.length > 0) {
+            loadedMessages[chat.id] = msgs;
+          }
+        }
+        setMessagesByChat(loadedMessages);
+      } catch (err) {
+        console.error("Failed to load messages from IndexedDB", err);
+      }
+    };
+    if (chats.length > 0) {
+        loadMessages();
+    }
+  }, [chats]);
 
   const [visibleMessageCountByChat, setVisibleMessageCountByChat] = useState<Record<string, number>>({});
   const MESSAGE_PAGE_SIZE = 40;
@@ -859,6 +896,9 @@ export default function App() {
   const [selectedMessageForActions, setSelectedMessageForActions] = useState<Message | null>(null);
   const [selectedChatForOptions, setSelectedChatForOptions] = useState<Chat | null>(null);
   const [showChatCustomizationSheet, setShowChatCustomizationSheet] = useState<boolean>(false);
+  const [chatCustomizationView, setChatCustomizationView] = useState<'main' | 'disappearing'>('main');
+  const [customDisappearingValue, setCustomDisappearingValue] = useState<string>('1');
+  const [customDisappearingUnit, setCustomDisappearingUnit] = useState<'h' | 'd'>('d');
 
   // Custom Wallpaper, Archive & Lock State
   const localMediaCacheRef = useRef<Record<string, string>>({});
@@ -901,7 +941,7 @@ export default function App() {
       showToast('Wallpaper & theme updated');
     }
   };
-  const [chatDisappearing, setChatDisappearing] = useState<Record<string, 'off' | '24h' | '7d' | '90d'>>({});
+  const [chatDisappearing, setChatDisappearing] = useState<Record<string, string>>({});
 
   // Search States
   const [globalSearchQuery, setGlobalSearchQuery] = useState<string>('');
@@ -1270,6 +1310,7 @@ export default function App() {
               updated_at: c.updated_at || Date.now(),
               cleared_at: c.cleared_at || {},
               theme: c.themes?.[userUsername] || c.themes?.[savedUsername] || c.theme,
+              disappearing_messages: c.disappearing_messages || 'off',
               last_message_sender: c.last_message_sender,
               last_message_status: c.last_message_status
             };
@@ -1305,6 +1346,18 @@ export default function App() {
               return next;
             }
             return prev;
+          });
+
+          setChatDisappearing(prev => {
+            const next = { ...prev };
+            let changed = false;
+            fetchedChats.forEach(c => {
+              if (c.disappearing_messages && c.disappearing_messages !== next[c.id]) {
+                next[c.id] = c.disappearing_messages;
+                changed = true;
+              }
+            });
+            return changed ? next : prev;
           });
         } else if (!chatsRef.current || chatsRef.current.length === 0) {
           setChats([]);
@@ -1378,6 +1431,7 @@ export default function App() {
             id: m.id || docSnap.id,
             chat_id: m.chat_id, 
             created_at: m.created_at || 0,
+            expires_at: m.expires_at,
             sender: m.sender || 'unknown',
             text: clearText,
             type: (m.type || 'text') as any,
@@ -1413,17 +1467,44 @@ export default function App() {
               return (msg.created_at || 0) >= chat.cleared_at[userUsername];
             }
             return true;
-          })
-          .sort((a, b) => {
-            const timeA = a.created_at || 0;
-            const timeB = b.created_at || 0;
-            if (timeA !== timeB) return timeA - timeB;
-            return a.id > b.id ? 1 : -1;
           });
+
+        if (activeMsgs.length > 0) {
+          // 1. Save all incoming relayed messages to local device IndexedDB
+          storageManager.saveMessages(activeMsgs).catch(() => {});
+
+          // 2. Immediate cloud purge: Delete messages from Firestore relay after local consumption
+          snapshot.docs.forEach(docSnap => {
+            const m = docSnap.data();
+            // Purge incoming messages from others or processed messages so zero copy stays in Firestore cloud
+            if (m.sender !== userUsername || m.read_by?.length > 0) {
+              deleteDoc(doc(db, 'messages', docSnap.id)).catch(() => {});
+            }
+          });
+        }
+
+        // Fetch all local messages from IndexedDB for this chat to combine history
+        const localChatMsgs = await storageManager.getMessagesForChat(activeChatId);
+        const combinedMsgs = [...localChatMsgs, ...activeMsgs].sort((a, b) => {
+          const timeA = a.created_at || 0;
+          const timeB = b.created_at || 0;
+          if (timeA !== timeB) return timeA - timeB;
+          return a.id > b.id ? 1 : -1;
+        });
+
+        const now = Date.now();
+        const unexpiredMsgs = combinedMsgs.filter(msg => {
+          if (msg.expires_at && now > msg.expires_at) {
+            deleteDoc(doc(db, 'messages', msg.id)).catch(() => {});
+            storageManager.deleteMessage(msg.id).catch(() => {});
+            return false;
+          }
+          return true;
+        });
 
         setMessagesByChat(prev => ({
           ...prev,
-          [activeChatId]: dedupeMessages(activeMsgs)
+          [activeChatId]: dedupeMessages(unexpiredMsgs)
         }));
       },
       (err) => {
@@ -2599,6 +2680,41 @@ export default function App() {
     });
   };
 
+  const handleDeleteBackupFromDrive = async (password: string) => {
+    if (!driveAccessToken) {
+      showToast('Please connect Google Drive first');
+      return;
+    }
+
+    if (!window.confirm('CRITICAL: Are you sure you want to permanently delete your backup from Google Drive? This action cannot be undone.')) {
+      return;
+    }
+
+    setIsBackingUp(true);
+    try {
+      // 1. Verification: Try to download and decrypt first to ensure password is correct
+      const vaultFile = await findVaultFile(driveAccessToken);
+      if (vaultFile) {
+        const encrypted = await downloadVaultFile(driveAccessToken, vaultFile.id);
+        try {
+          await decryptVault(encrypted, password);
+        } catch (e) {
+          showToast('Invalid Master Password. Deletion denied for security.');
+          return;
+        }
+      }
+
+      // 2. Proceed with deletion
+      await deleteVaultFile(driveAccessToken);
+      showToast('Backup permanently deleted from Google Drive.');
+    } catch (err: any) {
+      console.error('Delete backup failed:', err);
+      showToast('Failed to delete backup.');
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
   const handleLogout = async () => {
     if (isFirebaseConfigured && db && auth) {
       await firebaseSignOut(auth);
@@ -2626,6 +2742,207 @@ export default function App() {
     setChats([]);
     setMessagesByChat({});
     setActiveChatId('');
+    setIsDriveConnected(false);
+    setDriveAccessToken(null);
+    localStorage.removeItem('zenoa_drive_connected');
+  };
+
+  const handleConnectDrive = async () => {
+    if (isFirebaseConfigured && auth) {
+      try {
+        console.log("Starting Google Drive connection for project:", auth.app.options.projectId);
+        const provider = new GoogleAuthProvider();
+        provider.addScope('https://www.googleapis.com/auth/drive.appdata');
+        provider.addScope('https://www.googleapis.com/auth/drive.file');
+        
+        const result = await signInWithPopup(auth, provider);
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        
+        if (credential?.accessToken) {
+          setDriveAccessToken(credential.accessToken);
+          setIsDriveConnected(true);
+          localStorage.setItem('zenoa_drive_connected', 'true');
+          showToast('Google Drive connected successfully');
+        } else {
+          showToast('Failed to obtain Google Drive access token');
+        }
+      } catch (err: any) {
+        console.error('Drive connection error:', err);
+        if (err.code === 'auth/popup-blocked') {
+          showToast('Popup blocked. Please allow popups to connect Google Drive.');
+        } else if (err.code === 'auth/popup-closed-by-user') {
+          showToast('Connection cancelled. The login window was closed.');
+        } else if (err.code === 'auth/cancelled-popup-request') {
+          showToast('A previous login request is still pending or was cancelled.');
+        } else if (err.code === 'auth/missing-project-id') {
+          showToast('Configuration Error: Firebase Project ID is missing.');
+        } else {
+          showToast(`Connection failed: ${err.message || 'Unknown error'}`);
+        }
+      }
+    } else {
+      showToast('Firebase Auth not configured. Drive connection unavailable.');
+    }
+  };
+
+  const handleDisconnectDrive = () => {
+    setIsDriveConnected(false);
+    setDriveAccessToken(null);
+    localStorage.removeItem('zenoa_drive_connected');
+    showToast('Google Drive disconnected');
+  };
+
+  const handleBackupToDrive = async (password: string) => {
+    if (!driveAccessToken) {
+      handleConnectDrive();
+      return;
+    }
+
+    setIsBackingUp(true);
+    try {
+      // 1. Collect data from local IndexedDB and current state
+      const allMessages = await storageManager.getAllMessages();
+      const backupData = {
+        messages: allMessages,
+        chats: chats,
+        callLogs: firestoreCalls,
+        settings: {
+          themeMode,
+          soundEffects,
+          desktopNotifications,
+          messagePreviews,
+          vibrateFeedback,
+          enterToSend,
+          autoDownloadMedia,
+          twoFactorAuth,
+          mediaUploadQuality,
+          voiceRecordingQuality,
+          broadcastTypingStatus,
+          autoPlayVoiceNotes,
+          callDataSaver,
+          inCallRingtone,
+          noiseSuppression
+        },
+        userProfile: {
+          displayName: userDisplayName,
+          avatarUrl: userAvatarUrl,
+          avatarSeed: userAvatarSeed,
+          bio: myCustomStatus
+        },
+        email: userEmail,
+        timestamp: Date.now(),
+        version: 4,
+        user: userUsername
+      };
+
+      // 2. Encrypt data with Master Password
+      const encrypted = await encryptVault(JSON.stringify(backupData), password);
+
+      // 3. Upload to Google Drive (overwrite if exists)
+      const fileId = await uploadVaultFile(driveAccessToken, encrypted, lastBackupInfo?.id);
+      
+      const info = await findVaultFile(driveAccessToken);
+      setLastBackupInfo(info);
+      showToast('Vault backed up to Cloud successfully');
+    } catch (err: any) {
+      console.error('Backup error:', err);
+      showToast(`Backup failed: ${err.message}`);
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
+  const handleRestoreFromDrive = async (password: string) => {
+    if (!driveAccessToken) {
+      handleConnectDrive();
+      return;
+    }
+
+    setIsRestoring(true);
+    try {
+      // 1. Find the vault file
+      const info = await findVaultFile(driveAccessToken);
+      if (!info) {
+        throw new Error('No backup found on your Google Drive');
+      }
+
+      // 2. Download the encrypted blob
+      const encrypted = await downloadVaultFile(driveAccessToken, info.id);
+
+      // 3. Decrypt with Master Password
+      const decryptedJson = await decryptVault(encrypted, password);
+      const backupData = JSON.parse(decryptedJson);
+      
+      // 4. Identity Check: Ensure backup belongs to current user
+      if (backupData.user && backupData.user !== userUsername) {
+        throw new Error(`Restoration failed: This backup belongs to @${backupData.user}, but you are logged in as @${userUsername}.`);
+      }
+      
+      if (backupData.email && userEmail && backupData.email !== userEmail) {
+        throw new Error(`Restoration failed: This backup was created with ${backupData.email}, but you are using ${userEmail}. Please switch to the correct Google account.`);
+      }
+
+      // 5. Validate and restore to local IndexedDB and State
+      if (backupData.messages && Array.isArray(backupData.messages)) {
+        // Restore Messages
+        await storageManager.saveMessages(backupData.messages);
+        const organized: Record<string, Message[]> = {};
+        backupData.messages.forEach((msg: Message) => {
+          const chatId = msg.chat_id;
+          if (!organized[chatId]) organized[chatId] = [];
+          organized[chatId].push(msg);
+        });
+        setMessagesByChat(organized);
+
+        // Restore Chats
+        if (backupData.chats) {
+          setChats(backupData.chats);
+        }
+
+        // Restore Call Logs
+        if (backupData.callLogs) {
+          setFirestoreCalls(backupData.callLogs);
+        }
+
+        // Restore Settings
+        if (backupData.settings) {
+          const s = backupData.settings;
+          if (s.themeMode) setThemeMode(s.themeMode);
+          if (s.soundEffects !== undefined) setSoundEffects(s.soundEffects);
+          if (s.desktopNotifications !== undefined) setDesktopNotifications(s.desktopNotifications);
+          if (s.messagePreviews !== undefined) setMessagePreviews(s.messagePreviews);
+          if (s.vibrateFeedback !== undefined) setVibrateFeedback(s.vibrateFeedback);
+          if (s.enterToSend !== undefined) setEnterToSend(s.enterToSend);
+          if (s.autoDownloadMedia !== undefined) setAutoDownloadMedia(s.autoDownloadMedia);
+          if (s.twoFactorAuth !== undefined) setTwoFactorAuth(s.twoFactorAuth);
+          if (s.mediaUploadQuality) setMediaUploadQuality(s.mediaUploadQuality);
+          if (s.voiceRecordingQuality) setVoiceRecordingQuality(s.voiceRecordingQuality);
+          if (s.broadcastTypingStatus !== undefined) setBroadcastTypingStatus(s.broadcastTypingStatus);
+          if (s.autoPlayVoiceNotes !== undefined) setAutoPlayVoiceNotes(s.autoPlayVoiceNotes);
+          if (s.callDataSaver !== undefined) setCallDataSaver(s.callDataSaver);
+          if (s.inCallRingtone !== undefined) setInCallRingtone(s.inCallRingtone);
+          if (s.noiseSuppression !== undefined) setNoiseSuppression(s.noiseSuppression);
+        }
+
+        // Restore Profile (Local only, user might need to re-sync with Firestore for public view)
+        if (backupData.userProfile) {
+          const p = backupData.userProfile;
+          if (p.displayName) setUserDisplayName(p.displayName);
+          if (p.avatarUrl) setUserAvatarUrl(p.avatarUrl);
+          if (p.avatarSeed) setUserAvatarSeed(p.avatarSeed);
+          if (p.bio) setMyCustomStatus(p.bio);
+        }
+        
+        showToast('Full Vault restored successfully!');
+      } else {
+        throw new Error('Invalid backup format');
+      }
+    } catch (err: any) {
+      console.error('Restore error:', err);
+      showToast(`Restore failed: ${err.message}`);
+    } finally {
+      setIsRestoring(false);
+    }
   };
 
   // Sound effects helper using Web Audio API
@@ -2870,6 +3187,27 @@ export default function App() {
     });
   }, [chatSearchQuery, uniqueUserList, userUsername, userId]);
 
+  const getExpiresAt = (chatId: string) => {
+    const mode = chatDisappearing[chatId] || 'off';
+    if (mode === 'off') return undefined;
+    if (mode === '24h') return Date.now() + 24 * 60 * 60 * 1000;
+    if (mode === '48h') return Date.now() + 48 * 60 * 60 * 1000;
+    if (mode === '7d') return Date.now() + 7 * 24 * 60 * 60 * 1000;
+    if (mode === '30d') return Date.now() + 30 * 24 * 60 * 60 * 1000;
+    if (mode.startsWith('custom_')) {
+      const parts = mode.split('_');
+      if (parts.length === 2) {
+        const val = parseInt(parts[1].slice(0, -1), 10);
+        const unit = parts[1].slice(-1);
+        if (!isNaN(val) && val > 0) {
+          if (unit === 'h') return Date.now() + val * 60 * 60 * 1000;
+          if (unit === 'd') return Date.now() + val * 24 * 60 * 60 * 1000;
+        }
+      }
+    }
+    return undefined;
+  };
+
   // Send message
   const handleSendMessage = async () => {
     const text = composerText.trim();
@@ -2914,7 +3252,7 @@ export default function App() {
       const newMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
       const newMsg: Message = {
         id: newMsgId,
-        chat_id: activeChatId, created_at: Date.now(),
+        chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
         sender: 'me',
         text,
         type: 'text',
@@ -2926,12 +3264,15 @@ export default function App() {
         reply_preview: replyToPreview || undefined
       };
 
+      // Persist locally to sender device IndexedDB
+      storageManager.saveMessages([newMsg]).catch(() => {});
+
       if (isFirebaseConfigured && db && auth) {
         try {
           const encryptedPayload = await encryptMessageText(text, activeChatId);
           await setDoc(doc(db, 'messages', newMsgId), {
             id: newMsgId,
-            chat_id: activeChatId, created_at: Date.now(),
+            chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
             sender: userUsername || 'me',
             text: encryptedPayload,
             type: 'text',
@@ -3190,7 +3531,7 @@ export default function App() {
 
     const newMsg: Message = {
       id: newMsgId,
-      chat_id: activeChatId, created_at: Date.now(),
+      chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
       sender: userUsername || 'me',
       text: '',
       type: 'voice',
@@ -3203,20 +3544,18 @@ export default function App() {
 
     if (isFirebaseConfigured && db && auth) {
       try {
-        const firestoreAudioUrl = await safeFirestoreUrl(audioUrlToUse, 'voice_note.ogg', `voice_notes/${activeChatId}/${newMsgId}.ogg`);
-        await setDoc(doc(db, 'messages', newMsgId), {
-          id: newMsgId,
-          chat_id: activeChatId, created_at: Date.now(),
-          sender: userUsername || 'me',
-          text: '',
-          type: 'voice',
-          audio_url: firestoreAudioUrl,
-          file_size: durationFormatted || '0:05',
-          timestamp: timeStr,
-          reactions: [],
-          read_by: [],
-          forwarded: false,
-          pinned: false
+        let firestoreAudioUrl: string | null = null;
+        if (isDriveConnected && driveAccessToken && blobToSend) {
+          const encryptedBlob = await encryptFile(blobToSend, activeChatId);
+          const driveUrl = await uploadPublicMediaToDrive(driveAccessToken, encryptedBlob, `v_${newMsgId}.enc`);
+          firestoreAudioUrl = `enc:${driveUrl}`;
+        } else {
+          firestoreAudioUrl = await safeFirestoreUrl(audioUrlToUse, 'voice_note.ogg', `voice_notes/${activeChatId}/${newMsgId}.ogg`);
+        }
+
+        await sendRelayMessage({
+          ...newMsg,
+          audio_url: firestoreAudioUrl || undefined
         });
 
         const activeChat = chats.find(c => c.id === activeChatId);
@@ -3284,7 +3623,7 @@ export default function App() {
     const newMsg: Message = {
       id: newMsgId,
       chat_id: activeChatId,
-      created_at: Date.now(),
+      created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
       sender: userUsername || 'me',
       text: result.caption || result.fileName,
       type: finalType,
@@ -3307,14 +3646,26 @@ export default function App() {
       }).catch(() => {});
     }
 
+    // Persist media message object to local device IndexedDB
+    storageManager.saveMessages([newMsg]).catch(() => {});
+
     if (isFirebaseConfigured && db && auth) {
       try {
-        const firestoreMediaUrl = await safeFirestoreUrl(newMsg.media_url, result.fileName, `chat_media/${activeChatId}/${newMsgId}_${result.fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
+        let firestoreMediaUrl: string | null = null;
+        if (isDriveConnected && driveAccessToken && newMsg.media_url) {
+          // Encrypt before Drive upload
+          const blob = await fetch(newMsg.media_url).then(r => r.blob());
+          const encryptedBlob = await encryptFile(blob, activeChatId);
+          const driveUrl = await uploadPublicMediaToDrive(driveAccessToken, encryptedBlob, `${result.fileName}.enc`);
+          firestoreMediaUrl = `enc:${driveUrl}`;
+        } else {
+          firestoreMediaUrl = await safeFirestoreUrl(newMsg.media_url, result.fileName, `chat_media/${activeChatId}/${newMsgId}_${result.fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
+        }
 
         await setDoc(doc(db, 'messages', newMsgId), {
           id: newMsgId,
           chat_id: activeChatId,
-          created_at: Date.now(),
+          created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
           sender: userUsername || 'me',
           text: result.caption || result.fileName,
           type: newMsg.type,
@@ -3369,10 +3720,13 @@ export default function App() {
     const targetChat = chats.find(c => c.id === chatIdToDelete);
     triggerConfirm({
       title: `Delete Chat with ${targetChat?.name || 'this contact'}?`,
-      description: 'All messages and shared media history will be permanently deleted.',
+      description: 'Warning: This chat history and all media are stored locally on this device only. Deleting will permanently erase it from your device.',
       confirmText: 'Delete Chat',
       variant: 'danger',
       onConfirm: async () => {
+        // Delete locally from IndexedDB
+        await storageManager.deleteMessagesForChat(chatIdToDelete);
+
         if (isFirebaseConfigured && db) {
           try {
             await deleteDoc(doc(db, 'chats', chatIdToDelete));
@@ -3391,7 +3745,7 @@ export default function App() {
           setMobileShowChat(false);
         }
         setSelectedChatForOptions(null);
-        showToast('Chat deleted 🗑️');
+        showToast('Chat & local history deleted 🗑️');
         closeConfirm();
       }
     });
@@ -3437,7 +3791,7 @@ export default function App() {
 
       const newMsg: Message = {
         id: newMsgId,
-        chat_id: activeChatId, created_at: Date.now(),
+        chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
         sender: userUsername || 'me',
         text: file.name,
         type: mediaType === 'audio' ? 'voice' : mediaType,
@@ -3451,14 +3805,34 @@ export default function App() {
         read_by: []
       };
 
+      // Persist to local device IndexedDB
+      storageManager.saveMessages([newMsg]).catch(() => {});
+
       if (isFirebaseConfigured && db && auth) {
         try {
-          const firestoreMediaUrl = await safeFirestoreUrl(newMsg.media_url, file.name, `chat_media/${activeChatId}/${newMsgId}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
-          const firestoreAudioUrl = await safeFirestoreUrl(newMsg.audio_url, file.name, `audio_uploads/${activeChatId}/${newMsgId}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
+          let firestoreMediaUrl: string | null = null;
+          let firestoreAudioUrl: string | null = null;
+
+          if (isDriveConnected && driveAccessToken) {
+            // 1. Encrypt & Upload to Google Drive (Shared with link)
+            if (newMsg.type === 'voice' && file) {
+              const encryptedBlob = await encryptFile(file, activeChatId);
+              const driveUrl = await uploadPublicMediaToDrive(driveAccessToken, encryptedBlob, `v_${newMsgId}.enc`);
+              firestoreAudioUrl = `enc:${driveUrl}`;
+            } else if (newMsg.type === 'document' && file) {
+              const encryptedBlob = await encryptFile(file, activeChatId);
+              const driveUrl = await uploadPublicMediaToDrive(driveAccessToken, encryptedBlob, `${file.name}.enc`);
+              firestoreMediaUrl = `enc:${driveUrl}`;
+            }
+          } else {
+            // Fallback to Firebase (No encryption for now in fallback)
+            firestoreMediaUrl = await safeFirestoreUrl(newMsg.media_url, file.name, `chat_media/${activeChatId}/${newMsgId}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
+            firestoreAudioUrl = await safeFirestoreUrl(newMsg.audio_url, file.name, `audio_uploads/${activeChatId}/${newMsgId}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
+          }
 
           await setDoc(doc(db, 'messages', newMsgId), {
             id: newMsgId,
-            chat_id: activeChatId, created_at: Date.now(),
+            chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
             sender: userUsername || 'me',
             text: file.name,
             type: newMsg.type,
@@ -3505,7 +3879,7 @@ export default function App() {
 
     const newMsg: Message = {
       id: newMsgId,
-      chat_id: activeChatId, created_at: Date.now(),
+      chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
       sender: userUsername || 'me',
       text: `Location: ${locationTitle}`,
       type: 'location',
@@ -3520,11 +3894,14 @@ export default function App() {
       read_by: []
     };
 
+    // Save location message to local device IndexedDB
+    storageManager.saveMessages([newMsg]).catch(() => {});
+
     if (isFirebaseConfigured && db && auth) {
       try {
         await setDoc(doc(db, 'messages', newMsgId), {
           id: newMsgId,
-          chat_id: activeChatId, created_at: Date.now(),
+          chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
           sender: userUsername || 'me',
           text: newMsg.text,
           type: 'location',
@@ -3556,7 +3933,7 @@ export default function App() {
 
     const newMsg: Message = {
       id: newMsgId,
-      chat_id: activeChatId, created_at: Date.now(),
+      chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
       sender: userUsername || 'me',
       text: `Contact: ${contactName}`,
       type: 'contact',
@@ -3570,11 +3947,14 @@ export default function App() {
       read_by: []
     };
 
+    // Save contact message to local device IndexedDB
+    storageManager.saveMessages([newMsg]).catch(() => {});
+
     if (isFirebaseConfigured && db && auth) {
       try {
         await setDoc(doc(db, 'messages', newMsgId), {
           id: newMsgId,
-          chat_id: activeChatId, created_at: Date.now(),
+          chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
           sender: userUsername || 'me',
           text: newMsg.text,
           type: 'contact',
@@ -3617,7 +3997,7 @@ export default function App() {
 
     const newMsg: Message = {
       id: newMsgId,
-      chat_id: activeChatId, created_at: Date.now(),
+      chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
       sender: userUsername || 'me',
       text: `Poll: ${pollQuestion}`,
       type: 'poll',
@@ -3627,11 +4007,14 @@ export default function App() {
       read_by: []
     };
 
+    // Save poll message to local device IndexedDB
+    storageManager.saveMessages([newMsg]).catch(() => {});
+
     if (isFirebaseConfigured && db && auth) {
       try {
         await setDoc(doc(db, 'messages', newMsgId), {
           id: newMsgId,
-          chat_id: activeChatId, created_at: Date.now(),
+          chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
           sender: userUsername || 'me',
           text: newMsg.text,
           type: 'poll',
@@ -3795,24 +4178,20 @@ export default function App() {
     const msgId = typeof targetMsgId === 'string' ? targetMsgId : deleteMessageId;
     if (!msgId) return;
 
+    // Delete locally from IndexedDB
+    await storageManager.deleteMessage(msgId);
+
     const targetChatId = selectedMessageForActions?.chat_id || activeChatId;
 
     setMessagesByChat(prev => {
       const chatMsgs = prev[targetChatId] || [];
-      const updated = chatMsgs.map(m => {
-        if (m.id === msgId) {
-          return { ...m, deleted_for_me: true };
-        }
-        return m;
-      });
+      const updated = chatMsgs.filter(m => m.id !== msgId);
       return { ...prev, [targetChatId]: updated };
     });
 
     if (isFirebaseConfigured && db && auth) {
       try {
-        await setDoc(doc(db, 'messages', msgId), {
-          deleted_for_me: true
-        }, { merge: true });
+        await deleteDoc(doc(db, 'messages', msgId));
       } catch (err) {
         console.warn("Firebase delete for me warning:", err);
       }
@@ -3821,7 +4200,7 @@ export default function App() {
     setShowDeleteModal(false);
     setDeleteMessageId('');
     setSelectedMessageForActions(null);
-    showToast('Message deleted for you');
+    showToast('Message deleted from your device');
   };
 
   const canDeleteForEveryone = (msg: Message | null) => {
@@ -3850,6 +4229,9 @@ export default function App() {
     const msgId = typeof targetMsgId === 'string' ? targetMsgId : deleteMessageId;
     if (!msgId) return;
 
+    // Delete locally from IndexedDB
+    await storageManager.deleteMessage(msgId);
+
     const targetChatId = selectedMessageForActions?.chat_id || activeChatId;
 
     setMessagesByChat(prev => {
@@ -3865,10 +4247,7 @@ export default function App() {
 
     if (isFirebaseConfigured && db && auth) {
       try {
-        await setDoc(doc(db, 'messages', msgId), {
-          deleted_for_everyone: true,
-          text: ''
-        }, { merge: true });
+        await deleteDoc(doc(db, 'messages', msgId));
       } catch (err) {
         console.warn("Firebase delete for everyone warning:", err);
       }
@@ -3992,7 +4371,7 @@ export default function App() {
         const newMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
         const forwardedMsg: Message = {
           id: newMsgId,
-          chat_id: targetChatId, created_at: Date.now(),
+          chat_id: targetChatId, created_at: Date.now(), expires_at: getExpiresAt(targetChatId),
           sender: userUsername || 'me',
           text: originalMsg.text,
           type: originalMsg.type,
@@ -4009,7 +4388,7 @@ export default function App() {
           try {
             await setDoc(doc(db, 'messages', newMsgId), {
               id: newMsgId,
-              chat_id: targetChatId, created_at: Date.now(),
+              chat_id: targetChatId, created_at: Date.now(), expires_at: getExpiresAt(targetChatId),
               sender: userUsername || 'me',
               text: originalMsg.text || '',
               type: originalMsg.type,
@@ -4241,36 +4620,33 @@ export default function App() {
     }));
   };
 
-  // Trigger avatar helper letter
+  // Trigger avatar helper letter - professional initials (no emoji symbols)
   const getAvatarLetter = (seed: string, name: string) => {
-    const s = seed || name || '?';
-    return s.charAt(0).toUpperCase();
+    const raw = (name || seed || 'U').trim();
+    const parts = raw.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const f = parts[0].replace(/[^a-zA-Z0-9]/g, '').charAt(0).toUpperCase();
+      const s = parts[1].replace(/[^a-zA-Z0-9]/g, '').charAt(0).toUpperCase();
+      if (f && s) return `${f}${s}`;
+    }
+    const clean = raw.replace(/[^a-zA-Z0-9]/g, '');
+    if (clean.length > 0) {
+      return clean.charAt(0).toUpperCase();
+    }
+    return 'Z';
   };
 
   const getAvatarBgClass = (seed: string) => {
     const s = (seed || '').toLowerCase();
-    if (s.includes('indigo')) return 'bg-indigo-600 text-white';
-    if (s.includes('emerald')) return 'bg-emerald-600 text-white';
-    if (s.includes('rose')) return 'bg-rose-600 text-white';
-    if (s.includes('amber')) return 'bg-amber-600 text-white';
-    if (s.includes('violet')) return 'bg-violet-600 text-white';
-    if (s.includes('teal')) return 'bg-teal-600 text-white';
-    if (s.includes('orange')) return 'bg-orange-600 text-white';
-    if (s.includes('sky')) return 'bg-sky-600 text-white';
-    if (s.includes('sarah')) return 'bg-indigo-600 text-white';
-    if (s.includes('alex')) return 'bg-emerald-600 text-white';
-    if (s.includes('david')) return 'bg-rose-600 text-white';
     
-    // Hash-based selection
+    // Hash-based selection (Strictly Neutral & Professional)
     const colors = [
-      'bg-indigo-600 text-white',
-      'bg-emerald-600 text-white',
-      'bg-rose-600 text-white',
-      'bg-amber-600 text-white',
-      'bg-violet-600 text-white',
-      'bg-teal-600 text-white',
-      'bg-orange-600 text-white',
-      'bg-sky-600 text-white'
+      'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900',
+      'bg-stone-800 dark:bg-stone-200 text-white dark:text-stone-900',
+      'bg-zinc-800 dark:bg-zinc-200 text-white dark:text-zinc-900',
+      'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900',
+      'bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900',
+      'bg-neutral-800 dark:bg-neutral-200 text-white dark:text-neutral-900'
     ];
     let hash = 0;
     for (let i = 0; i < s.length; i++) {
@@ -4325,7 +4701,7 @@ export default function App() {
             <h3 className="font-sans text-sm font-bold tracking-[0.2em] uppercase text-neutral-500 dark:text-neutral-400">
               Zenoa
             </h3>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500 animate-pulse">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 dark:text-neutral-700 dark:text-neutral-300 animate-pulse">
               Reconnecting secure session...
             </p>
           </div>
@@ -4355,7 +4731,7 @@ export default function App() {
         <div className={`min-h-[100dvh] w-full flex items-center justify-center p-4 sm:p-6 transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-neutral-100' : 'bg-neutral-50 text-neutral-900'}`}>
           <div className="w-full max-w-md p-6 sm:p-8 rounded-3xl border shadow-2xl relative z-10 backdrop-blur-xl bg-white/90 dark:bg-neutral-900/90 border-neutral-200/80 dark:border-neutral-800 text-center space-y-6">
             <div className="flex justify-center animate-bounce">
-              <div className="h-16 w-16 rounded-full bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+              <div className="h-16 w-16 rounded-full bg-neutral-100 dark:bg-indigo-950/50 text-neutral-900 dark:text-neutral-100 flex items-center justify-center">
                 <Mail className="h-8 w-8" />
               </div>
             </div>
@@ -4371,7 +4747,7 @@ export default function App() {
             </div>
 
             <div className="bg-neutral-50 dark:bg-neutral-800/40 p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800/60 text-left space-y-2 text-xs">
-              <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-semibold">
+              <div className="flex items-center gap-2 text-neutral-900 dark:text-neutral-100 font-semibold">
                 <Check className="h-4 w-4" />
                 <span>Verification instructions:</span>
               </div>
@@ -4383,7 +4759,7 @@ export default function App() {
 
             <div className="flex flex-col gap-3 pt-2">
               <div className="flex items-center justify-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-                <RefreshCw className="h-3 w-3 animate-spin text-indigo-600" />
+                <RefreshCw className="h-3 w-3 animate-spin text-neutral-900 dark:text-neutral-100" />
                 <span>Checking verification status...</span>
               </div>
 
@@ -4416,7 +4792,7 @@ export default function App() {
                     setPendingVerificationEmail('');
                     setAuthFlowInitialMode('login');
                   }}
-                  className="flex-1 py-2.5 text-xs font-bold rounded-2xl bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors cursor-pointer"
+                  className="flex-1 py-2.5 text-xs font-bold rounded-2xl bg-neutral-100 dark:bg-rose-950/20 text-neutral-900 dark:text-neutral-100 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors cursor-pointer"
                 >
                   Cancel & Sign Out
                 </button>
@@ -4499,7 +4875,7 @@ export default function App() {
             exit={{ opacity: 0, y: -20, x: '-50%' }}
             className="absolute top-5 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 text-white text-xs px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 border border-neutral-800"
           >
-            <CheckCircle2 className="h-4 w-4 text-indigo-400" />
+            <CheckCircle2 className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
             <span>{toastMessage}</span>
           </motion.div>
         )}
@@ -4524,14 +4900,14 @@ export default function App() {
                       setForwardTargets(prev => [...prev, chat.id]);
                     }
                   }}
-                  className={`w-full flex items-center gap-3 p-2 rounded-xl border text-left transition-colors cursor-pointer ${forwardTargets.includes(chat.id) ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-900' : 'border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}`}
+                  className={`w-full flex items-center gap-3 p-2 rounded-xl border text-left transition-colors cursor-pointer ${forwardTargets.includes(chat.id) ? 'bg-neutral-100 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-900' : 'border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}`}
                 >
                   {renderAvatar(chat.avatar_seed, chat.name, chat.avatar_url, 'h-8 w-8 text-xs')}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate">{chat.name}</p>
-                    <p className="text-xs text-neutral-500 truncate">{chat.type === 'dm' ? `@${chat.username}` : 'Group'}</p>
+                    <p className="text-xs text-neutral-700 dark:text-neutral-300 truncate">{chat.type === 'dm' ? `@${chat.username}` : 'Group'}</p>
                   </div>
-                  <div className={`h-4 w-4 rounded border flex items-center justify-center ${forwardTargets.includes(chat.id) ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-neutral-300 dark:border-neutral-600'}`}>
+                  <div className={`h-4 w-4 rounded border flex items-center justify-center ${forwardTargets.includes(chat.id) ? 'bg-neutral-900 dark:bg-neutral-100 border-neutral-900 dark:border-neutral-100 text-white dark:text-neutral-900' : 'border-neutral-300 dark:border-neutral-600'}`}>
                     {forwardTargets.includes(chat.id) && <Check className="h-3 w-3 stroke-[3]" />}
                   </div>
                 </button>
@@ -4539,7 +4915,7 @@ export default function App() {
             </div>
             <div className="flex gap-2 mt-4">
               <button onClick={() => setShowForwardModal(false)} className="flex-1 py-2.5 rounded-xl text-xs font-semibold border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors">Cancel</button>
-              <button onClick={handleForwardSubmit} disabled={forwardTargets.length === 0} className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-md transition-colors">Forward</button>
+              <button onClick={handleForwardSubmit} disabled={forwardTargets.length === 0} className="flex-1 py-2.5 bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 disabled:opacity-50 text-white dark:text-neutral-900 text-xs font-semibold rounded-xl shadow-md transition-colors">Forward</button>
             </div>
           </div>
         </div>
@@ -4549,15 +4925,15 @@ export default function App() {
       {showDeleteModal && (
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
           <div className={`w-full max-w-xs rounded-2xl p-5 border shadow-2xl ${themeMode === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-150'}`}>
-            <div className="flex items-center gap-2 mb-3 text-rose-500">
+            <div className="flex items-center gap-2 mb-3 text-neutral-900 dark:text-neutral-100">
               <AlertTriangle className="h-5 w-5" />
               <h3 className="font-bold text-base text-neutral-900 dark:text-white">Delete message?</h3>
             </div>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-4 leading-relaxed">Choose whether to remove this message for only yourself or for all participants in the chat.</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-4 leading-relaxed">Warning: Messages and media are stored locally on your device. Deleting will permanently remove them from local storage.</p>
             <div className="flex flex-col gap-2">
               <button onClick={handleDeleteForMe} className="w-full py-2.5 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer">Delete for me</button>
-              <button onClick={handleDeleteForEveryone} className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer">Delete for everyone</button>
-              <button onClick={() => { setShowDeleteModal(false); setDeleteMessageId(''); }} className="w-full py-2 text-xs font-semibold text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors mt-1 cursor-pointer">Cancel</button>
+              <button onClick={handleDeleteForEveryone} className="w-full py-2.5 bg-neutral-900 dark:bg-neutral-100 hover:bg-rose-700 text-white dark:text-neutral-900 text-xs font-semibold rounded-xl transition-colors cursor-pointer">Delete for everyone</button>
+              <button onClick={() => { setShowDeleteModal(false); setDeleteMessageId(''); }} className="w-full py-2 text-xs font-semibold text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:text-neutral-200 dark:hover:text-neutral-300 transition-colors mt-1 cursor-pointer">Cancel</button>
             </div>
           </div>
         </div>
@@ -4570,10 +4946,10 @@ export default function App() {
             <div className="flex items-start gap-3.5 mb-4">
               <div className={`p-2.5 rounded-2xl shrink-0 ${
                 confirmModal.variant === 'danger'
-                  ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200/50 dark:border-rose-900/50'
+                  ? 'bg-neutral-100 dark:bg-rose-950/40 text-neutral-900 dark:text-neutral-100 border border-rose-200/50 dark:border-rose-900/50'
                   : confirmModal.variant === 'warning'
-                  ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200/50 dark:border-amber-900/50'
-                  : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-900/50'
+                  ? 'bg-neutral-100 dark:bg-neutral-800 dark:bg-amber-950/40 text-neutral-600 dark:text-neutral-400 border border-amber-200/50 dark:border-amber-900/50'
+                  : 'bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100 border border-indigo-200/50 dark:border-indigo-900/50'
               }`}>
                 <AlertTriangle className="h-5 w-5" />
               </div>
@@ -4587,7 +4963,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={closeConfirm}
-                className="flex-1 py-2 rounded-xl text-xs font-semibold border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                className="flex-1 py-2 rounded-xl text-xs font-semibold border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
               >
                 {confirmModal.cancelText || 'Cancel'}
               </button>
@@ -4596,10 +4972,10 @@ export default function App() {
                 onClick={confirmModal.onConfirm}
                 className={`flex-1 py-2 text-xs font-semibold rounded-xl text-white shadow-sm transition-all active:scale-95 cursor-pointer ${
                   confirmModal.variant === 'danger'
-                    ? 'bg-rose-600 hover:bg-rose-700'
+                    ? 'bg-neutral-900 dark:bg-neutral-100 hover:bg-rose-700'
                     : confirmModal.variant === 'warning'
-                    ? 'bg-amber-600 hover:bg-amber-700'
-                    : 'bg-indigo-600 hover:bg-indigo-700'
+                    ? 'bg-neutral-900 dark:bg-neutral-100 hover:bg-amber-700'
+                    : 'bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200'
                 }`}
               >
                 {confirmModal.confirmText || 'Confirm'}
@@ -4625,17 +5001,17 @@ export default function App() {
                 onClick={() => setShowStatusPopover(prev => !prev)}
                 className={`flex items-center gap-1.5 text-[10px] border px-2 py-0.5 rounded-full font-bold cursor-pointer transition-colors ${
                   myPresenceStatus === 'online' 
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200/50 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-400'
+                    ? 'bg-neutral-100 dark:bg-neutral-800 dark:bg-emerald-950/40 border-emerald-200/50 dark:border-emerald-900/50 text-neutral-900 dark:text-neutral-100'
                     : myPresenceStatus === 'away'
-                    ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200/50 dark:border-amber-900/50 text-amber-600 dark:text-amber-400'
+                    ? 'bg-neutral-100 dark:bg-neutral-800 dark:bg-amber-950/40 border-amber-200/50 dark:border-amber-900/50 text-neutral-600 dark:text-neutral-400'
                     : myPresenceStatus === 'busy'
-                    ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200/50 dark:border-rose-900/50 text-rose-600 dark:text-rose-400'
-                    : 'bg-neutral-100 dark:bg-neutral-800 border-neutral-300 dark:border-neutral-700 text-neutral-500'
+                    ? 'bg-neutral-100 dark:bg-rose-950/40 border-rose-200/50 dark:border-rose-900/50 text-neutral-900 dark:text-neutral-100'
+                    : 'bg-neutral-100 dark:bg-neutral-800 border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300'
                 }`}
                 title="Change Presence Status & Note"
               >
                 <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                  myPresenceStatus === 'online' ? 'bg-emerald-500' : myPresenceStatus === 'away' ? 'bg-amber-500' : myPresenceStatus === 'busy' ? 'bg-rose-500' : 'bg-neutral-400'
+                  myPresenceStatus === 'online' ? 'bg-neutral-800 dark:bg-neutral-200' : myPresenceStatus === 'away' ? 'bg-neutral-100 dark:bg-neutral-800' : myPresenceStatus === 'busy' ? 'bg-neutral-800 dark:bg-neutral-200' : 'bg-neutral-400'
                 }`} />
                 <span className="capitalize">{myPresenceStatus}</span>
               </button>
@@ -4644,15 +5020,15 @@ export default function App() {
               {showStatusPopover && (
                 <div className="absolute right-0 top-8 z-50 w-56 p-3 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-2xl space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Activity Status</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">Activity Status</span>
                     <button onClick={() => setShowStatusPopover(false)} className="p-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800"><X className="h-3 w-3" /></button>
                   </div>
 
                   <div className="space-y-1">
                     {[
-                      { status: 'online', label: 'Online', color: 'bg-emerald-500' },
-                      { status: 'away', label: 'Away', color: 'bg-amber-500' },
-                      { status: 'busy', label: 'Do Not Disturb', color: 'bg-rose-500' },
+                      { status: 'online', label: 'Online', color: 'bg-neutral-800 dark:bg-neutral-200' },
+                      { status: 'away', label: 'Away', color: 'bg-neutral-100 dark:bg-neutral-800' },
+                      { status: 'busy', label: 'Do Not Disturb', color: 'bg-neutral-800 dark:bg-neutral-200' },
                       { status: 'offline', label: 'Invisible', color: 'bg-neutral-400' },
                     ].map(st => (
                       <button
@@ -4663,26 +5039,26 @@ export default function App() {
                           showToast(`Status set to ${st.label}`);
                         }}
                         className={`w-full flex items-center justify-between p-2 rounded-xl text-xs font-semibold transition-colors ${
-                          myPresenceStatus === st.status ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
+                          myPresenceStatus === st.status ? 'bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
                         }`}
                       >
                         <span className="flex items-center gap-2.5">
                           <span className={`h-2.5 w-2.5 rounded-full ${st.color}`} />
                           <span>{st.label}</span>
                         </span>
-                        {myPresenceStatus === st.status && <Check className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />}
+                        {myPresenceStatus === st.status && <Check className="h-3.5 w-3.5 text-neutral-900 dark:text-neutral-100" />}
                       </button>
                     ))}
                   </div>
 
                   <div className="border-t border-neutral-100 dark:border-neutral-800 pt-2 space-y-1.5">
-                    <label className="block text-[10px] uppercase font-bold text-neutral-400">Custom Status Note</label>
+                    <label className="block text-[10px] uppercase font-bold text-neutral-500 dark:text-neutral-400">Custom Status Note</label>
                     <input 
                       type="text"
                       value={myCustomStatus}
                       onChange={e => setMyCustomStatus(e.target.value)}
                       placeholder="e.g. In a meeting"
-                      className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 outline-none focus:border-indigo-500"
+                      className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 outline-none focus:border-neutral-900 dark:border-neutral-100"
                     />
                   </div>
                 </div>
@@ -4695,16 +5071,16 @@ export default function App() {
         <nav className="flex-1 p-3 space-y-1">
           <button 
             onClick={() => { setActiveView('chats'); setShowProfilePanel(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeView === 'chats' ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400' : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white'}`}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeView === 'chats' ? 'bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100' : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white'}`}
           >
             <MessageSquare className="h-5 w-5" />
             <span>Chats</span>
-            {totalUnreads > 0 && <span className="ml-auto bg-indigo-600 text-white text-[10px] font-bold h-4 px-1.5 rounded-full flex items-center justify-center">{totalUnreads}</span>}
+            {totalUnreads > 0 && <span className="ml-auto bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-[10px] font-bold h-4 px-1.5 rounded-full flex items-center justify-center">{totalUnreads}</span>}
           </button>
           
           <button 
             onClick={() => { setActiveView('search'); setShowProfilePanel(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeView === 'search' ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400' : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white'}`}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeView === 'search' ? 'bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100' : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white'}`}
           >
             <Search className="h-5 w-5" />
             <span>Discover</span>
@@ -4712,7 +5088,7 @@ export default function App() {
 
           <button 
             onClick={() => { setActiveView('profile'); setShowProfilePanel(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeView === 'profile' ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400' : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white'}`}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeView === 'profile' ? 'bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100' : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white'}`}
           >
             <User className="h-5 w-5" />
             <span>Profile</span>
@@ -4720,7 +5096,7 @@ export default function App() {
 
           <button 
             onClick={() => { setActiveView('settings'); setShowProfilePanel(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeView === 'settings' ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400' : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white'}`}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeView === 'settings' ? 'bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100' : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white'}`}
           >
             <Palette className="h-5 w-5" />
             <span>Settings</span>
@@ -4731,12 +5107,12 @@ export default function App() {
         <div className="p-3 border-t border-neutral-200 dark:border-neutral-800">
           <div 
             onClick={() => { setActiveView('profile'); setShowProfilePanel(false); }}
-            className="flex items-center gap-2 p-2 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-600 transition-all group"
+            className="flex items-center gap-2 p-2 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 cursor-pointer hover:border-indigo-400 dark:hover:border-neutral-900 dark:border-neutral-100 transition-all group"
           >
             {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-8 w-8 text-xs')}
             <div className="flex-1 min-w-0 text-left">
-              <p className="text-xs font-bold truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{userDisplayName}</p>
-              <p className="text-[10px] text-neutral-400 truncate">@{userUsername}</p>
+              <p className="text-xs font-bold truncate group-hover:text-neutral-900 dark:text-neutral-100 dark:group-hover:text-neutral-500 dark:text-neutral-400 transition-colors">{userDisplayName}</p>
+              <p className="text-[10px] text-neutral-500 dark:text-neutral-400 truncate">@{userUsername}</p>
             </div>
             <div className="flex items-center gap-1">
               <button 
@@ -4744,14 +5120,14 @@ export default function App() {
                   e.stopPropagation(); 
                   changeTheme(themeMode === 'light' ? 'dark' : 'light'); 
                 }}
-                className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-800 dark:hover:text-amber-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors" 
+                className="p-1.5 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors" 
                 title="Theme"
               >
-                {themeMode === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-amber-400" />}
+                {themeMode === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />}
               </button>
               <button 
                 onClick={(e) => { e.stopPropagation(); setActiveView('settings'); }}
-                className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-800 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors" 
+                className="p-1.5 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors" 
                 title="Settings"
               >
                 <Menu className="h-4 w-4" />
@@ -4776,37 +5152,37 @@ export default function App() {
                     <h1 className="font-zenoa text-xl md:text-2xl font-bold tracking-[0.14em] uppercase text-neutral-900 dark:text-white select-none transition-colors">
                       Zenoa
                     </h1>
-                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-600 dark:bg-indigo-400"></span>
+                    <span className="h-1.5 w-1.5 rounded-full bg-neutral-900 dark:bg-neutral-100 dark:bg-indigo-400"></span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <button 
                       onClick={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')} 
-                      className="p-2 rounded-xl text-neutral-500 dark:text-neutral-300 hover:text-amber-500 dark:hover:text-amber-400 bg-neutral-100 dark:bg-neutral-800 transition-colors cursor-pointer" 
+                      className="p-2 rounded-xl text-neutral-700 dark:text-neutral-300 dark:text-neutral-300 hover:text-neutral-900 dark:text-neutral-100 dark:hover:text-neutral-500 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800 transition-colors cursor-pointer" 
                       title="Switch Theme"
                     >
-                      {themeMode === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-amber-400" />}
+                      {themeMode === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />}
                     </button>
                     <button 
                       onClick={() => setActiveView('settings')} 
-                      className="p-2 rounded-xl text-neutral-500 dark:text-neutral-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-neutral-100 dark:bg-neutral-800 transition-colors cursor-pointer" 
+                      className="p-2 rounded-xl text-neutral-700 dark:text-neutral-300 dark:text-neutral-300 hover:text-neutral-900 dark:text-neutral-100 dark:hover:text-neutral-500 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800 transition-colors cursor-pointer" 
                       title="Settings"
                     >
                       <Menu className="h-4 w-4" />
                     </button>
                     {/* Plus trigger to initiate conversation with custom user */}
-                    <button onClick={() => setActiveView('search')} className="p-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 transition-colors cursor-pointer" title="Start new chat">
+                    <button onClick={() => setActiveView('search')} className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/40 text-neutral-900 dark:text-neutral-100 transition-colors cursor-pointer" title="Start new chat">
                       <Plus className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
                 <div className="relative">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-neutral-400" />
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-neutral-500 dark:text-neutral-400" />
                   <input 
                     type="text" 
                     value={chatSearchQuery}
                     onChange={e => setChatSearchQuery(e.target.value)}
                     placeholder="Search chats..."
-                    className="w-full pl-9 pr-4 py-1.5 rounded-xl text-sm border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 outline-none focus:border-indigo-500"
+                    className="w-full pl-9 pr-4 py-1.5 rounded-xl text-sm border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 outline-none focus:border-neutral-900 dark:border-neutral-100"
                   />
                 </div>
               </div>
@@ -4815,7 +5191,7 @@ export default function App() {
               <div className="flex-1 overflow-y-auto p-2 space-y-1 pb-24 md:pb-2 overscroll-contain">
                 {filteredChats.length === 0 && (!chatSearchQuery.trim() || matchingContactsForSidebar.length === 0) ? (
                   <div className="p-8 text-center">
-                    <p className="text-sm text-neutral-400">No chats or contacts found</p>
+                    <p className="text-sm text-neutral-500 dark:text-neutral-400">No chats or contacts found</p>
                   </div>
                 ) : (
                   <>
@@ -4834,39 +5210,39 @@ export default function App() {
                         onTouchEnd={() => {
                           if ((window as any)._chatTouchTimer) clearTimeout((window as any)._chatTouchTimer);
                         }}
-                        className={`group w-full flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all relative ${chat.id === activeChatId ? 'bg-indigo-50/80 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900'}`}
+                        className={`group w-full flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all relative ${chat.id === activeChatId ? 'bg-neutral-100/80 dark:bg-indigo-950/20 text-neutral-900 dark:text-neutral-100' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900'}`}
                       >
                         <div className="relative">
                           {renderAvatar(chat.avatar_seed, chat.name, chat.avatar_url || users[chat.username]?.avatar_url, 'h-10 w-10 text-sm')}
-                          {isUserEffectivelyOnline(users[chat.username]) && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-500 border-2 border-white dark:border-neutral-950"></span>}
+                          {isUserEffectivelyOnline(users[chat.username]) && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-950"></span>}
                         </div>
 
                         <div className="flex-1 min-w-0 text-left">
                           <div className="flex justify-between items-baseline">
                             <div className="flex items-center gap-1 min-w-0">
                               <p className={`text-sm truncate ${chat.id === activeChatId ? 'font-bold' : 'font-semibold text-neutral-800 dark:text-neutral-200'}`}>{chat.name}</p>
-                              {chat.pinned && <Pin className="h-3 w-3 text-indigo-600 rotate-45 shrink-0" />}
-                              {chat.muted && <VolumeX className="h-3 w-3 text-neutral-400 shrink-0" />}
-                              {chat.archived && <Archive className="h-3 w-3 text-amber-500 shrink-0" />}
+                              {chat.pinned && <Pin className="h-3 w-3 text-neutral-900 dark:text-neutral-100 rotate-45 shrink-0" />}
+                              {chat.muted && <VolumeX className="h-3 w-3 text-neutral-500 dark:text-neutral-400 shrink-0" />}
+                              {chat.archived && <Archive className="h-3 w-3 text-neutral-900 dark:text-neutral-100 shrink-0" />}
                             </div>
-                            <span className="text-[10px] text-neutral-400 shrink-0 ml-1">{chat.last_time}</span>
+                            <span className="text-[10px] text-neutral-500 dark:text-neutral-400 shrink-0 ml-1">{chat.last_time}</span>
                           </div>
                           <div className="flex justify-between items-center mt-1 min-w-0">
-                            <p className="text-xs text-neutral-400 truncate pr-2 flex-1 min-w-0 flex items-center gap-1">
+                            <p className="text-xs text-neutral-500 dark:text-neutral-400 truncate pr-2 flex-1 min-w-0 flex items-center gap-1">
                               {chat.last_message_sender === userUsername && chat.last_message && chat.last_message !== 'Chat history cleared' && (
                                 <span className="shrink-0">
                                   {chat.last_message_status === 'read' ? (
-                                    <CheckCheck className="h-3.5 w-3.5 text-blue-500" />
+                                    <CheckCheck className="h-3.5 w-3.5 text-neutral-700 dark:text-neutral-300" />
                                   ) : chat.last_message_status === 'delivered' ? (
-                                    <CheckCheck className="h-3.5 w-3.5 text-neutral-400" />
+                                    <CheckCheck className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" />
                                   ) : (
-                                    <Check className="h-3.5 w-3.5 text-neutral-400" />
+                                    <Check className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" />
                                   )}
                                 </span>
                               )}
                               <span className="truncate">
                                 {chat.typing ? (
-                                  <span className="text-indigo-500 font-medium animate-pulse">typing...</span>
+                                  <span className="text-neutral-700 dark:text-neutral-300 font-medium animate-pulse">typing...</span>
                                 ) : (
                                   chat.last_message && chat.last_message.length > 32 
                                     ? chat.last_message.slice(0, 32).trim() + '...' 
@@ -4876,13 +5252,13 @@ export default function App() {
                             </p>
                             <div className="flex items-center gap-1">
                               {chat.unread > 0 && (
-                                <span className="bg-indigo-600 text-white text-[10px] font-bold h-4 px-1.5 rounded-full flex items-center justify-center shrink-0">
+                                <span className="bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-[10px] font-bold h-4 px-1.5 rounded-full flex items-center justify-center shrink-0">
                                   {chat.unread}
                                 </span>
                               )}
                               <button 
                                 onClick={(e) => { e.stopPropagation(); setSelectedChatForOptions(chat); }}
-                                className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-opacity text-neutral-400 hover:text-neutral-700 dark:hover:text-white"
+                                className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-opacity text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-white"
                                 title="Chat Options"
                               >
                                 <MoreVertical className="h-3.5 w-3.5" />
@@ -4896,7 +5272,7 @@ export default function App() {
                     {/* Matching People section in sidebar search */}
                     {chatSearchQuery.trim() !== '' && matchingContactsForSidebar.length > 0 && (
                       <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800 mt-2 space-y-1">
-                        <p className="px-3 py-1 text-[11px] font-bold text-neutral-400 uppercase tracking-wider text-left">
+                        <p className="px-3 py-1 text-[11px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider text-left">
                           People & Contacts
                         </p>
                         {matchingContactsForSidebar.map(user => (
@@ -4906,17 +5282,17 @@ export default function App() {
                               setChatSearchQuery('');
                               handleStartChatWithUser(user);
                             }}
-                            className="w-full flex items-center gap-3 p-3 rounded-2xl cursor-pointer hover:bg-indigo-50/60 dark:hover:bg-indigo-950/30 transition-all text-left"
+                            className="w-full flex items-center gap-3 p-3 rounded-2xl cursor-pointer hover:bg-neutral-100/60 dark:hover:bg-indigo-950/30 transition-all text-left"
                           >
                             <div className="relative shrink-0">
                               {renderAvatar(user.avatar_seed, user.display_name, user.avatar_url, 'h-10 w-10 text-sm')}
-                              {isUserEffectivelyOnline(user) && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-500 border-2 border-white dark:border-neutral-950"></span>}
+                              {isUserEffectivelyOnline(user) && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-950"></span>}
                             </div>
                             <div className="flex-1 min-w-0 text-left">
                               <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 truncate">{user.display_name}</p>
-                              <p className="text-xs text-neutral-400 truncate">@{user.username}</p>
+                              <p className="text-xs text-neutral-500 dark:text-neutral-400 truncate">@{user.username}</p>
                             </div>
-                            <button className="px-2.5 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shrink-0">
+                            <button className="px-2.5 py-1 text-xs bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-semibold rounded-xl shrink-0">
                               Chat
                             </button>
                           </div>
@@ -4937,23 +5313,23 @@ export default function App() {
                   <button onClick={() => setMobileShowChat(false)} className="md:hidden p-2 -ml-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"><ChevronLeft className="h-5 w-5" /></button>
                   <div className="relative shrink-0">
                     {renderAvatar(activeChat.avatar_seed, activeChat.name, activeChat.avatar_url || users[activeChat.username]?.avatar_url, 'h-10 w-10 text-sm')}
-                    {isUserEffectivelyOnline(users[activeChat.username]) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-neutral-950"></span>}
+                    {isUserEffectivelyOnline(users[activeChat.username]) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-950"></span>}
                   </div>
                   <div className="min-w-0 text-left">
                     <h3 onClick={() => { setSelectedProfileUsername(activeChat.username || activeChat.avatar_seed); setShowProfilePanel(true); }} className="font-bold text-sm cursor-pointer hover:underline truncate">{activeChat.name}</h3>
-                    <p className="text-[10px] text-neutral-400 truncate">
+                    <p className="text-[10px] text-neutral-500 dark:text-neutral-400 truncate">
                       {activeChat.activity_type === 'recording_voice' ? (
-                        <span className="text-rose-500 font-bold animate-pulse flex items-center gap-1">
+                        <span className="text-neutral-900 dark:text-neutral-100 font-bold animate-pulse flex items-center gap-1">
                           <Mic className="h-3 w-3" /> recording voice note...
                         </span>
                       ) : activeChat.typing || activeChat.activity_type === 'typing' ? (
-                        <span className="text-indigo-500 font-bold animate-pulse">typing...</span>
+                        <span className="text-neutral-700 dark:text-neutral-300 font-bold animate-pulse">typing...</span>
                       ) : activeChat.activity_type === 'in_call' ? (
-                        <span className="text-emerald-500 font-bold flex items-center gap-1">
+                        <span className="text-neutral-900 dark:text-neutral-100 font-bold flex items-center gap-1">
                           <Phone className="h-3 w-3" /> in audio call...
                         </span>
                       ) : isUserEffectivelyOnline(users[activeChat.username]) ? (
-                        <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                        <span className="text-neutral-900 dark:text-neutral-100 font-medium">
                           online {users[activeChat.username]?.custom_status ? `• "${users[activeChat.username]?.custom_status}"` : ''}
                         </span>
                       ) : (
@@ -4966,25 +5342,25 @@ export default function App() {
                 <div className="flex items-center gap-1.5">
                   <button 
                     onClick={() => handleStartCall('voice')} 
-                    className="p-2 rounded-lg text-neutral-400 hover:text-emerald-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer active:scale-95" 
+                    className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer active:scale-95" 
                     title="Start Secure Voice Call"
                   >
                     <Phone className="h-4 w-4" />
                   </button>
                   <button 
                     onClick={() => handleStartCall('video')} 
-                    className="p-2 rounded-lg text-neutral-400 hover:text-indigo-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer active:scale-95" 
+                    className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer active:scale-95" 
                     title="Start Secure Video Call"
                   >
                     <Video className="h-4 w-4" />
                   </button>
-                  <button onClick={() => { setShowMsgSearchInChat(prev => !prev); setMessageSearchQuery(''); }} className={`p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 ${showMsgSearchInChat ? 'bg-neutral-100 dark:hover:bg-neutral-800 text-indigo-600' : 'text-neutral-400'}`} title="Search messages">
+                  <button onClick={() => { setShowMsgSearchInChat(prev => !prev); setMessageSearchQuery(''); }} className={`p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 ${showMsgSearchInChat ? 'bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-900 dark:text-neutral-100' : 'text-neutral-500 dark:text-neutral-400'}`} title="Search messages">
                     <Search className="h-4 w-4" />
                   </button>
-                  <button onClick={() => { setSelectedProfileUsername(activeChat.username || activeChat.avatar_seed); setShowProfilePanel(prev => !prev); }} className="p-2 rounded-lg text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800" title="Conversation Details">
+                  <button onClick={() => { setSelectedProfileUsername(activeChat.username || activeChat.avatar_seed); setShowProfilePanel(prev => !prev); }} className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800" title="Conversation Details">
                     <Info className="h-4 w-4" />
                   </button>
-                  <button onClick={() => setShowChatCustomizationSheet(true)} className="p-2 rounded-lg text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer" title="More options & Wallpaper">
+                  <button onClick={() => setShowChatCustomizationSheet(true)} className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer" title="Options">
                     <MoreVertical className="h-4 w-4" />
                   </button>
                 </div>
@@ -4993,7 +5369,7 @@ export default function App() {
               {/* Msg Search bar overlay */}
               {showMsgSearchInChat && (
                 <div className="bg-neutral-50 dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 p-2 px-4 flex items-center gap-2">
-                  <Search className="h-4 w-4 text-neutral-400" />
+                  <Search className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
                   <input 
                     type="text" 
                     value={messageSearchQuery}
@@ -5007,11 +5383,11 @@ export default function App() {
 
               {/* Pinned Messages Bar */}
               {activeMessages.some(m => m.pinned && !m.deleted_for_me && !m.deleted_for_everyone) && (
-                <div className="bg-indigo-50/50 dark:bg-indigo-950/20 border-b border-neutral-100 dark:border-neutral-800/80 px-4 py-2 flex items-center gap-3 z-10">
-                  <Pin className="h-3.5 w-3.5 text-indigo-600 rotate-45 shrink-0" />
+                <div className="bg-neutral-100/50 dark:bg-indigo-950/20 border-b border-neutral-100 dark:border-neutral-800/80 px-4 py-2 flex items-center gap-3 z-10">
+                  <Pin className="h-3.5 w-3.5 text-neutral-900 dark:text-neutral-100 rotate-45 shrink-0" />
                   <div className="flex-1 min-w-0 text-left">
-                    <p className="text-[10px] font-bold text-indigo-600">Pinned</p>
-                    <p className="text-xs text-neutral-600 dark:text-neutral-300 truncate">
+                    <p className="text-[10px] font-bold text-neutral-900 dark:text-neutral-100">Pinned</p>
+                    <p className="text-xs text-neutral-700 dark:text-neutral-300 truncate">
                       {activeMessages.find(m => m.pinned && !m.deleted_for_me && !m.deleted_for_everyone)?.text || '[Attachment]'}
                     </p>
                   </div>
@@ -5035,9 +5411,9 @@ export default function App() {
                   >
                 {/* Automatic Top Privacy & Encryption Banner (Zenoa zero-knowledge) */}
                 <div className="flex justify-center my-3 px-2 select-none">
-                  <div className="max-w-md w-full bg-amber-50/90 dark:bg-neutral-900/90 border border-amber-200/80 dark:border-neutral-800 rounded-2xl p-3 text-center shadow-2xs backdrop-blur-xs">
+                  <div className="max-w-md w-full bg-neutral-100 dark:bg-neutral-800/90 dark:bg-neutral-900/90 border border-amber-200/80 dark:border-neutral-800 rounded-2xl p-3 text-center shadow-2xs backdrop-blur-xs">
                     <div className="flex items-center justify-center gap-1.5 text-amber-900 dark:text-amber-300 font-bold text-xs mb-1">
-                      <Lock className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                      <Lock className="h-3.5 w-3.5 text-neutral-600 dark:text-neutral-400" />
                       <span>End-to-End Encrypted</span>
                     </div>
                     <p className="text-[11px] text-amber-950/80 dark:text-neutral-300 leading-relaxed font-medium">
@@ -5058,7 +5434,7 @@ export default function App() {
                       }}
                       className="px-4 py-1.5 rounded-full text-xs font-semibold bg-neutral-100/90 dark:bg-neutral-800/90 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 border border-neutral-200/80 dark:border-neutral-700/80 shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
                     >
-                      <Clock className="h-3.5 w-3.5 text-indigo-500" />
+                      <Clock className="h-3.5 w-3.5 text-neutral-700 dark:text-neutral-300" />
                       <span>Load older messages ({totalChatMessages - currentVisibleLimit} earlier)</span>
                     </button>
                   </div>
@@ -5068,7 +5444,7 @@ export default function App() {
                   <div className="flex flex-col items-center justify-center h-full text-center p-6 space-y-2">
                     <MessageSquare className="h-10 w-10 text-neutral-300 dark:text-neutral-700" />
                     <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">No messages in this chat</p>
-                    <p className="text-[11px] text-neutral-400">Type a message below to start chatting!</p>
+                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400">Type a message below to start chatting!</p>
                   </div>
                 ) : (
                   displayedActiveMessages.map((msg, idx) => {
@@ -5088,7 +5464,7 @@ export default function App() {
                       <React.Fragment key={`${msg.id || 'msg'}_${idx}`}>
                         {showDateDivider && (
                           <div className="flex justify-center my-3 select-none sticky top-2 z-10">
-                            <div className="px-3.5 py-1 rounded-full text-[11px] font-semibold tracking-wide bg-neutral-100/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border border-neutral-200/80 dark:border-neutral-700/80 shadow-2xs backdrop-blur-md">
+                            <div className="px-3.5 py-1 rounded-full text-[11px] font-semibold tracking-wide bg-neutral-100/90 dark:bg-neutral-800/90 text-neutral-700 dark:text-neutral-300 border border-neutral-200/80 dark:border-neutral-700/80 shadow-2xs backdrop-blur-md">
                               {formatChatDateDivider(currentDateKey)}
                             </div>
                           </div>
@@ -5107,6 +5483,7 @@ export default function App() {
                           onVotePoll={(msgId, optionId) => handleVotePoll(msgId, optionId)}
                           onOpenMediaPlayer={(type, url, meta) => openInMediaPlayer(type, url, meta)}
                           onToast={(text) => showToast(text)}
+                          driveAccessToken={driveAccessToken}
                         />
                       </React.Fragment>
                     );
@@ -5120,8 +5497,8 @@ export default function App() {
               {/* Composer Input Area Controls OR Blocked User Banner */}
               <div className="p-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] md:pb-3 border-t border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 shrink-0 space-y-2 min-w-0">
                 {activeChat && blockedUsers.includes(activeChat.username) ? (
-                  <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 rounded-2xl flex flex-col items-center justify-center gap-3 text-center animate-fade-in">
-                    <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 font-bold text-sm">
+                  <div className="p-4 bg-neutral-100 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 rounded-2xl flex flex-col items-center justify-center gap-3 text-center animate-fade-in">
+                    <div className="flex items-center gap-2 text-neutral-900 dark:text-neutral-100 font-bold text-sm">
                       <UserX className="h-5 w-5 shrink-0" />
                       <span>You blocked {activeChat.name || activeChat.username}</span>
                     </div>
@@ -5131,7 +5508,7 @@ export default function App() {
                     <div className="flex items-center justify-center gap-3 pt-1">
                       <button
                         onClick={() => handleToggleBlockUser(activeChat.username)}
-                        className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                        className="px-4 py-2 rounded-xl bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 active:scale-95 text-white dark:text-neutral-900 font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
                       >
                         <UserCheck className="h-4 w-4" />
                         <span>Unblock {activeChat.name || activeChat.username}</span>
@@ -5150,10 +5527,10 @@ export default function App() {
                   <>
                 {/* Reply display banner */}
                 {replyToId && (
-                  <div className="bg-neutral-50 dark:bg-neutral-800/80 p-2 rounded-xl flex items-center justify-between border-l-4 border-indigo-500">
+                  <div className="bg-neutral-50 dark:bg-neutral-800/80 p-2 rounded-xl flex items-center justify-between border-l-4 border-neutral-900 dark:border-neutral-100">
                     <div className="text-left">
-                      <p className="text-[10px] font-bold text-indigo-500">Replying to {replyToSender}</p>
-                      <p className="text-xs text-neutral-500 truncate">{replyToPreview}</p>
+                      <p className="text-[10px] font-bold text-neutral-700 dark:text-neutral-300">Replying to {replyToSender}</p>
+                      <p className="text-xs text-neutral-700 dark:text-neutral-300 truncate">{replyToPreview}</p>
                     </div>
                     <button onClick={() => { setReplyToId(''); setReplyToPreview(''); setReplyToSender(''); }} className="p-1 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-700"><X className="h-4 w-4" /></button>
                   </div>
@@ -5163,8 +5540,8 @@ export default function App() {
                 {editMessageId && (
                   <div className="bg-neutral-50 dark:bg-neutral-800/80 p-2 rounded-xl flex items-center justify-between border-l-4 border-emerald-500">
                     <div className="text-left">
-                      <p className="text-[10px] font-bold text-emerald-500">Editing Message</p>
-                      <p className="text-xs text-neutral-500 truncate">{composerText}</p>
+                      <p className="text-[10px] font-bold text-neutral-900 dark:text-neutral-100">Editing Message</p>
+                      <p className="text-xs text-neutral-700 dark:text-neutral-300 truncate">{composerText}</p>
                     </div>
                     <button onClick={() => { setEditMessageId(''); setComposerText(''); }} className="p-1 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-700"><X className="h-4 w-4" /></button>
                   </div>
@@ -5194,13 +5571,13 @@ export default function App() {
                       {/* Media & Voice Quality Setting Pill Header */}
                       <div className="space-y-1.5 pb-2 border-b border-neutral-100 dark:border-neutral-800">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] uppercase font-bold tracking-wider text-neutral-400">Upload Quality</span>
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-neutral-500 dark:text-neutral-400">Upload Quality</span>
                           <div className="flex gap-1 bg-neutral-100 dark:bg-neutral-800 p-0.5 rounded-lg text-[10px] font-bold">
                             {(['standard', 'hd', 'data_saver'] as const).map(q => (
                               <button
                                 key={q}
                                 onClick={() => { setMediaUploadQuality(q); showToast(`Upload quality: ${q.toUpperCase()}`); }}
-                                className={`px-2 py-0.5 rounded-md capitalize transition-colors ${mediaUploadQuality === q ? 'bg-indigo-600 text-white shadow-xs' : 'text-neutral-400 hover:text-neutral-200'}`}
+                                className={`px-2 py-0.5 rounded-md capitalize transition-colors ${mediaUploadQuality === q ? 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 shadow-xs' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-200'}`}
                               >
                                 {q === 'hd' ? 'HD High' : q === 'standard' ? 'Auto' : 'Saver'}
                               </button>
@@ -5209,13 +5586,13 @@ export default function App() {
                         </div>
 
                         <div className="flex items-center justify-between pt-1">
-                          <span className="text-[10px] uppercase font-bold tracking-wider text-neutral-400">Mic Quality</span>
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-neutral-500 dark:text-neutral-400">Mic Quality</span>
                           <div className="flex gap-1 bg-neutral-100 dark:bg-neutral-800 p-0.5 rounded-lg text-[10px] font-bold">
                             {(['hd', 'standard', 'compressed'] as const).map(q => (
                               <button
                                 key={q}
                                 onClick={() => { setVoiceRecordingQuality(q); showToast(`Voice quality: ${q.toUpperCase()}`); }}
-                                className={`px-2 py-0.5 rounded-md capitalize transition-colors ${voiceRecordingQuality === q ? 'bg-rose-600 text-white shadow-xs' : 'text-neutral-400 hover:text-neutral-200'}`}
+                                className={`px-2 py-0.5 rounded-md capitalize transition-colors ${voiceRecordingQuality === q ? 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 shadow-xs' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-200'}`}
                               >
                                 {q === 'hd' ? 'HD 128k' : q === 'standard' ? 'Std 64k' : 'Compact'}
                               </button>
@@ -5226,49 +5603,49 @@ export default function App() {
 
                       <div className="grid grid-cols-4 gap-2">
                         <button onClick={() => handleAttachMock('image')} className="flex flex-col items-center p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-transform active:scale-95">
-                          <div className="p-2.5 rounded-2xl bg-sky-500/10 text-sky-500 mb-1">
+                          <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 mb-1">
                             <ImageIcon className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Photo</span>
                         </button>
 
                         <button onClick={() => handleAttachMock('video')} className="flex flex-col items-center p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-transform active:scale-95">
-                          <div className="p-2.5 rounded-2xl bg-indigo-500/10 text-indigo-500 mb-1">
+                          <div className="p-2.5 rounded-2xl bg-neutral-1000/10 text-neutral-700 dark:text-neutral-300 mb-1">
                             <Video className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Video</span>
                         </button>
 
                         <button onClick={() => handleAttachMock('document')} className="flex flex-col items-center p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-transform active:scale-95">
-                          <div className="p-2.5 rounded-2xl bg-emerald-500/10 text-emerald-500 mb-1">
+                          <div className="p-2.5 rounded-2xl bg-neutral-800 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 mb-1">
                             <FileText className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Document</span>
                         </button>
 
                         <button onClick={() => handleAttachMock('voice')} className="flex flex-col items-center p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-transform active:scale-95">
-                          <div className="p-2.5 rounded-2xl bg-rose-500/10 text-rose-500 mb-1">
+                          <div className="p-2.5 rounded-2xl bg-neutral-800 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 mb-1">
                             <Mic className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Voice Note</span>
                         </button>
 
                         <button onClick={() => handleAttachMock('location')} className="flex flex-col items-center p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-transform active:scale-95">
-                          <div className="p-2.5 rounded-2xl bg-amber-500/10 text-amber-500 mb-1">
+                          <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 mb-1">
                             <MapPin className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Location</span>
                         </button>
 
                         <button onClick={() => handleAttachMock('contact')} className="flex flex-col items-center p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-transform active:scale-95">
-                          <div className="p-2.5 rounded-2xl bg-purple-500/10 text-purple-500 mb-1">
+                          <div className="p-2.5 rounded-2xl bg-neutral-800 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 mb-1">
                             <UserPlus className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Contact</span>
                         </button>
 
                         <button onClick={() => handleAttachMock('poll')} className="flex flex-col items-center p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-transform active:scale-95">
-                          <div className="p-2.5 rounded-2xl bg-teal-500/10 text-teal-500 mb-1">
+                          <div className="p-2.5 rounded-2xl bg-neutral-800 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 mb-1">
                             <BarChart2 className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Poll</span>
@@ -5287,7 +5664,7 @@ export default function App() {
                         const newMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
                         const newMsg: Message = {
                           id: newMsgId,
-                          chat_id: activeChatId, created_at: Date.now(),
+                          chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
                           sender: userUsername || 'me',
                           text: 'Shared a GIF',
                           type: 'gif',
@@ -5301,7 +5678,7 @@ export default function App() {
                           try {
                             await setDoc(doc(db, 'messages', newMsgId), {
                               id: newMsgId,
-                              chat_id: activeChatId, created_at: Date.now(),
+                              chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
                               sender: userUsername || 'me',
                               text: 'Shared a GIF',
                               type: 'gif',
@@ -5339,7 +5716,7 @@ export default function App() {
                         const newMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
                         const newMsg: Message = {
                           id: newMsgId,
-                          chat_id: activeChatId, created_at: Date.now(),
+                          chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
                           sender: userUsername || 'me',
                           text: st,
                           type: 'sticker',
@@ -5352,7 +5729,7 @@ export default function App() {
                           try {
                             await setDoc(doc(db, 'messages', newMsgId), {
                               id: newMsgId,
-                              chat_id: activeChatId, created_at: Date.now(),
+                              chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
                               sender: userUsername || 'me',
                               text: st,
                               type: 'sticker',
@@ -5393,10 +5770,10 @@ export default function App() {
 
                 {/* Message input elements row OR Voice Recording Engine Bar */}
                 {isRecordingVoice || recordedAudioUrl ? (
-                  <div className="flex items-center gap-3 p-2 bg-rose-50 dark:bg-rose-950/30 rounded-2xl border border-rose-200 dark:border-rose-900/50">
+                  <div className="flex items-center gap-3 p-2 bg-neutral-100 dark:bg-rose-950/30 rounded-2xl border border-rose-200 dark:border-rose-900/50">
                     <button 
                       onClick={cancelVoiceRecording}
-                      className="p-2 rounded-xl text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors"
+                      className="p-2 rounded-xl text-neutral-900 dark:text-neutral-100 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors"
                       title="Discard Recording"
                     >
                       <Trash2 className="h-5 w-5" />
@@ -5404,8 +5781,8 @@ export default function App() {
 
                     <div className="flex-1 flex items-center gap-3 px-2">
                       <div className="flex items-center gap-2">
-                        <span className="h-3 w-3 rounded-full bg-rose-500 animate-ping" />
-                        <span className="text-xs font-mono font-bold text-rose-600 dark:text-rose-400">
+                        <span className="h-3 w-3 rounded-full bg-neutral-800 dark:bg-neutral-200 animate-ping" />
+                        <span className="text-xs font-mono font-bold text-neutral-900 dark:text-neutral-100">
                           {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}
                         </span>
                       </div>
@@ -5415,7 +5792,7 @@ export default function App() {
                         {[30, 70, 45, 90, 60, 20, 80, 50, 100, 40, 75, 35, 85, 55, 65, 25, 95].map((h, i) => (
                           <div 
                             key={i} 
-                            className="w-1 bg-rose-500 rounded-full animate-pulse" 
+                            className="w-1 bg-neutral-800 dark:bg-neutral-200 rounded-full animate-pulse" 
                             style={{ 
                               height: `${Math.max(15, (h + (recordingSeconds * 10)) % 100)}%`,
                               animationDelay: `${i * 0.05}s` 
@@ -5430,7 +5807,7 @@ export default function App() {
                         onClick={stopVoiceRecording}
                         className="p-2 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 rounded-xl font-bold text-xs flex items-center gap-1 shadow-xs"
                       >
-                        <StopCircle className="h-4 w-4 fill-current text-rose-500" />
+                        <StopCircle className="h-4 w-4 fill-current text-neutral-900 dark:text-neutral-100" />
                         <span>Stop</span>
                       </button>
                     ) : (
@@ -5452,18 +5829,18 @@ export default function App() {
 
                     <button 
                       onClick={handleSendVoiceMessage} 
-                      className="p-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-md shadow-rose-600/20 transition-all active:scale-95 flex items-center gap-1 font-bold text-xs"
+                      className="p-2.5 bg-neutral-900 dark:bg-neutral-100 hover:bg-rose-700 text-white dark:text-neutral-900 rounded-xl shadow-md shadow-rose-600/20 transition-all active:scale-95 flex items-center gap-1 font-bold text-xs"
                     >
                       <span>Send Voice</span>
                       <Send className="h-4 w-4" />
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 p-1.5 pl-2 rounded-3xl bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/80 focus-within:border-indigo-500/60 transition-all">
+                  <div className="flex items-center gap-2 p-1.5 pl-2 rounded-3xl bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/80 focus-within:border-neutral-900 dark:border-neutral-100/60 transition-all">
                     {/* Single Emoji, GIF & Sticker Button at the START (Left) of Input Box */}
                     <button 
                       onClick={() => { setShowUnifiedPicker(prev => !prev); setShowAttachMenu(false); }} 
-                      className={`p-2 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer ${showUnifiedPicker ? 'text-amber-500 bg-neutral-200 dark:bg-neutral-700' : 'text-neutral-400 hover:text-amber-500'}`} 
+                      className={`p-2 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer ${showUnifiedPicker ? 'text-neutral-900 dark:text-neutral-100 bg-neutral-200 dark:bg-neutral-700' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:text-neutral-100'}`} 
                       title="Emojis, GIFs & Stickers"
                     >
                       <Smile className="h-5 w-5" />
@@ -5472,7 +5849,7 @@ export default function App() {
                     {/* Attachment Button */}
                     <button 
                       onClick={() => { setShowAttachMenu(prev => !prev); setShowUnifiedPicker(false); }} 
-                      className={`p-2 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer ${showAttachMenu ? 'text-indigo-600 bg-neutral-200 dark:bg-neutral-700' : 'text-neutral-400 hover:text-indigo-500'}`} 
+                      className={`p-2 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer ${showAttachMenu ? 'text-neutral-900 dark:text-neutral-100 bg-neutral-200 dark:bg-neutral-700' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:text-neutral-300'}`} 
                       title="Attach File / Media"
                     >
                       <Paperclip className="h-5 w-5" />
@@ -5488,14 +5865,14 @@ export default function App() {
                       }}
                       onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
                       placeholder="Type a message..."
-                      className="flex-1 px-2 py-1.5 text-sm bg-transparent border-0 outline-none placeholder:text-neutral-400 text-neutral-900 dark:text-neutral-100 min-w-0"
+                      className="flex-1 px-2 py-1.5 text-sm bg-transparent border-0 outline-none placeholder:text-neutral-500 dark:text-neutral-400 text-neutral-900 dark:text-neutral-100 min-w-0"
                     />
 
                     {/* Action button: Send or Voice Recording */}
                     {composerText.trim() ? (
                       <button 
                         onClick={handleSendMessage} 
-                        className="p-2.5 bg-neutral-900 hover:bg-neutral-800 dark:bg-indigo-600 dark:hover:bg-indigo-700 text-white rounded-full shadow-sm transition-transform active:scale-95 shrink-0 cursor-pointer"
+                        className="p-2.5 bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-900 dark:bg-neutral-100 dark:hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 rounded-full shadow-sm transition-transform active:scale-95 shrink-0 cursor-pointer"
                         title="Send Message"
                       >
                         <Send className="h-4 w-4" />
@@ -5503,7 +5880,7 @@ export default function App() {
                     ) : (
                       <button 
                         onClick={startVoiceRecording} 
-                        className="p-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 rounded-full transition-colors shrink-0 cursor-pointer" 
+                        className="p-2.5 bg-neutral-800 dark:bg-neutral-800 hover:bg-neutral-800 dark:bg-neutral-200/20 text-neutral-900 dark:text-neutral-100 rounded-full transition-colors shrink-0 cursor-pointer" 
                         title="Record Voice Note"
                       >
                         <Mic className="h-4.5 w-4.5" />
@@ -5538,7 +5915,7 @@ export default function App() {
                   >
                   <div className="flex justify-between items-center h-16 px-4 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
                     <h3 className="font-bold text-sm">Profile Details</h3>
-                    <button onClick={() => setShowProfilePanel(false)} className="p-1.5 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400"><X className="h-4 w-4" /></button>
+                    <button onClick={() => setShowProfilePanel(false)} className="p-1.5 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 dark:text-neutral-400"><X className="h-4 w-4" /></button>
                   </div>
 
                   <div className="flex-1 overflow-y-auto p-5 text-center space-y-5">
@@ -5547,8 +5924,8 @@ export default function App() {
                         {renderAvatar(selectedProfileUsername, users[selectedProfileUsername]?.display_name || selectedProfileUsername, users[selectedProfileUsername]?.avatar_url, 'h-20 w-20 text-2xl')}
                       </div>
                       <h4 className="font-bold text-base">{users[selectedProfileUsername]?.display_name || selectedProfileUsername}</h4>
-                      <p className="text-xs text-neutral-400">@{selectedProfileUsername}</p>
-                      <span className={`text-[10px] mt-1 px-2.5 py-0.5 rounded-full font-semibold ${isUserEffectivelyOnline(users[selectedProfileUsername]) ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400' : 'bg-neutral-50 text-neutral-400 dark:bg-neutral-800'}`}>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400">@{selectedProfileUsername}</p>
+                      <span className={`text-[10px] mt-1 px-2.5 py-0.5 rounded-full font-semibold ${isUserEffectivelyOnline(users[selectedProfileUsername]) ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 dark:bg-emerald-950/20 dark:text-neutral-500 dark:text-neutral-400' : 'bg-neutral-50 text-neutral-500 dark:text-neutral-400 dark:bg-neutral-800'}`}>
                         {isUserEffectivelyOnline(users[selectedProfileUsername]) ? 'Online' : getOnlineStatusText(users[selectedProfileUsername])}
                       </span>
                     </div>
@@ -5561,7 +5938,7 @@ export default function App() {
                             setShowProfilePanel(false);
                             handleStartCallWithUser(selectedProfileUsername, 'voice');
                           }}
-                          className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 font-semibold text-xs transition-colors cursor-pointer border border-indigo-200/50 dark:border-indigo-800/50"
+                          className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100 hover:bg-neutral-200 dark:hover:bg-indigo-900/50 font-semibold text-xs transition-colors cursor-pointer border border-indigo-200/50 dark:border-indigo-800/50"
                         >
                           <Phone className="h-3.5 w-3.5" />
                           <span>Voice Call</span>
@@ -5571,7 +5948,7 @@ export default function App() {
                             setShowProfilePanel(false);
                             handleStartCallWithUser(selectedProfileUsername, 'video');
                           }}
-                          className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/50 font-semibold text-xs transition-colors cursor-pointer border border-purple-200/50 dark:border-purple-800/50"
+                          className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-neutral-700 dark:text-neutral-300 dark:text-neutral-700 dark:text-neutral-300 hover:bg-purple-100 dark:hover:bg-purple-900/50 font-semibold text-xs transition-colors cursor-pointer border border-purple-200/50 dark:border-purple-800/50"
                         >
                           <Video className="h-3.5 w-3.5" />
                           <span>Video Call</span>
@@ -5579,8 +5956,8 @@ export default function App() {
                       </div>
 
                       <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block mb-1">About</span>
-                        <p className="text-xs leading-relaxed text-neutral-600 dark:text-neutral-300">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 block mb-1">About</span>
+                        <p className="text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">
                           {users[selectedProfileUsername]?.bio || 'No bio specified.'}
                         </p>
                       </div>
@@ -5588,7 +5965,7 @@ export default function App() {
                       {/* User's Call History with Current Contact */}
                       <div className="border-t border-neutral-100 dark:border-neutral-800 pt-4 space-y-2.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">Call History</span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 block">Call History</span>
                           {(() => {
                             const userPairCalls = allUserCalls.filter(c => 
                               c.partner_username === selectedProfileUsername || 
@@ -5596,7 +5973,7 @@ export default function App() {
                               c.receiver === selectedProfileUsername
                             );
                             return (
-                              <span className="text-[10px] font-semibold text-neutral-400">
+                              <span className="text-[10px] font-semibold text-neutral-500 dark:text-neutral-400">
                                 {userPairCalls.length} {userPairCalls.length === 1 ? 'call' : 'calls'}
                               </span>
                             );
@@ -5613,7 +5990,7 @@ export default function App() {
                           if (userPairCalls.length === 0) {
                             return (
                               <div className="p-3.5 rounded-xl border border-neutral-100 dark:border-neutral-800/80 bg-neutral-50/50 dark:bg-neutral-800/30 text-center space-y-1">
-                                <PhoneCall className="h-4 w-4 text-neutral-400 mx-auto" />
+                                <PhoneCall className="h-4 w-4 text-neutral-500 dark:text-neutral-400 mx-auto" />
                                 <p className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">No calls with @{selectedProfileUsername} yet</p>
                               </div>
                             );
@@ -5632,10 +6009,10 @@ export default function App() {
                                     <div className="flex items-center gap-2.5 min-w-0">
                                       <div className={`p-1.5 rounded-lg shrink-0 ${
                                         isMissed 
-                                          ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-500' 
+                                          ? 'bg-neutral-100 dark:bg-rose-950/40 text-neutral-900 dark:text-neutral-100' 
                                           : isVideo
-                                            ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-500'
-                                            : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-500'
+                                            ? 'bg-purple-50 dark:bg-purple-950/40 text-neutral-700 dark:text-neutral-300'
+                                            : 'bg-neutral-100 dark:bg-neutral-800 dark:bg-emerald-950/40 text-neutral-900 dark:text-neutral-100'
                                       }`}>
                                         {isVideo ? (
                                           <Video className="h-3.5 w-3.5" />
@@ -5652,13 +6029,13 @@ export default function App() {
                                           <span>{isVideo ? 'Video Call' : 'Voice Call'}</span>
                                           <span className={`text-[9px] px-1 py-0.2 rounded font-medium ${
                                             isMissed 
-                                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-400' 
-                                              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400'
+                                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-neutral-500 dark:text-neutral-400' 
+                                              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-neutral-500 dark:text-neutral-400'
                                           }`}>
                                             {call.status}
                                           </span>
                                         </p>
-                                        <p className="text-[9px] text-neutral-400 mt-0.5">
+                                        <p className="text-[9px] text-neutral-500 dark:text-neutral-400 mt-0.5">
                                           {call.timestamp} {call.duration_formatted ? `• ${call.duration_formatted}` : ''}
                                         </p>
                                       </div>
@@ -5669,7 +6046,7 @@ export default function App() {
                                         setShowProfilePanel(false);
                                         handleStartCallWithUser(selectedProfileUsername, isVideo ? 'video' : 'voice');
                                       }}
-                                      className="p-1.5 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                      className="p-1.5 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:text-neutral-100 dark:hover:text-neutral-500 dark:text-neutral-400 transition-colors"
                                       title="Call again"
                                     >
                                       {isVideo ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" />}
@@ -5683,19 +6060,19 @@ export default function App() {
                       </div>
 
                       <div className="border-t border-neutral-100 dark:border-neutral-800 pt-4 space-y-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block mb-2">Actions</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 block mb-2">Actions</span>
                         
                         <button 
                           onClick={() => handleToggleBlockUser(selectedProfileUsername)}
                           className="w-full flex items-center gap-3 p-2 rounded-xl text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left transition-colors"
                         >
-                          {blockedUsers.includes(selectedProfileUsername) ? <UserCheck className="h-4 w-4 text-emerald-500" /> : <UserX className="h-4 w-4 text-rose-500" />}
+                          {blockedUsers.includes(selectedProfileUsername) ? <UserCheck className="h-4 w-4 text-neutral-900 dark:text-neutral-100" /> : <UserX className="h-4 w-4 text-neutral-900 dark:text-neutral-100" />}
                           <span>{blockedUsers.includes(selectedProfileUsername) ? 'Unblock User' : 'Block User'}</span>
                         </button>
 
                         <button 
                           onClick={() => handleReportUser(selectedProfileUsername)}
-                          className="w-full flex items-center gap-3 p-2 rounded-xl text-xs hover:bg-rose-50 dark:hover:bg-rose-950/20 text-left text-rose-600 dark:text-rose-400 transition-colors"
+                          className="w-full flex items-center gap-3 p-2 rounded-xl text-xs hover:bg-neutral-100 dark:hover:bg-rose-950/20 text-left text-neutral-900 dark:text-neutral-100 transition-colors"
                         >
                           <Flag className="h-4 w-4" />
                           <span>Report Policy Violation</span>
@@ -5715,16 +6092,16 @@ export default function App() {
         {activeView === 'search' && (
           <div className="flex-1 h-full flex flex-col p-4 md:p-6 max-w-2xl mx-auto w-full pb-24 md:pb-6 overscroll-contain">
             <h1 className="text-2xl font-bold tracking-tight mb-2 text-left">Discover people</h1>
-            <p className="text-sm text-neutral-400 mb-6 text-left">Find friends, designers, and developer colleagues. Start an instant chat conversation.</p>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-6 text-left">Find friends, designers, and developer colleagues. Start an instant chat conversation.</p>
 
             <div className="relative mb-6 shrink-0">
-              <Search className="absolute left-4 top-3.5 h-5 w-5 text-neutral-400" />
+              <Search className="absolute left-4 top-3.5 h-5 w-5 text-neutral-500 dark:text-neutral-400" />
               <input 
                 type="text" 
                 value={globalSearchQuery}
                 onChange={e => setGlobalSearchQuery(e.target.value)}
                 placeholder="Search username or real display name..."
-                className="w-full pl-12 pr-4 py-3 rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 outline-none focus:border-indigo-500"
+                className="w-full pl-12 pr-4 py-3 rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 outline-none focus:border-neutral-900 dark:border-neutral-100"
               />
             </div>
 
@@ -5732,14 +6109,14 @@ export default function App() {
               {globalSearchQuery.trim() === '' ? (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <p className="text-xs uppercase tracking-wider font-bold text-neutral-400 text-left">Active Contacts & Users</p>
-                    <span className="text-xs font-semibold text-neutral-400">{activeContactsList.length} people</span>
+                    <p className="text-xs uppercase tracking-wider font-bold text-neutral-500 dark:text-neutral-400 text-left">Active Contacts & Users</p>
+                    <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">{activeContactsList.length} people</span>
                   </div>
 
                   {activeContactsList.length === 0 ? (
                     <div className="p-8 text-center bg-neutral-50/50 dark:bg-neutral-900/30 rounded-2xl border border-dashed border-neutral-200 dark:border-neutral-800 space-y-2">
                       <p className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">No other users found yet</p>
-                      <p className="text-xs text-neutral-500">When people join Zenoa with their username, they will appear here.</p>
+                      <p className="text-xs text-neutral-700 dark:text-neutral-300">When people join Zenoa with their username, they will appear here.</p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -5747,20 +6124,20 @@ export default function App() {
                         <div 
                           key={`contact_user_${user.id || user.username}`}
                           onClick={() => handleStartChatWithUser(user)}
-                          className="p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 flex items-center justify-between gap-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50/10 transition-all text-left group"
+                          className="p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 flex items-center justify-between gap-3 cursor-pointer hover:border-neutral-900 dark:border-neutral-100 hover:bg-neutral-100/10 transition-all text-left group"
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <div className="relative shrink-0">
                               {renderAvatar(user.avatar_seed, user.display_name, user.avatar_url, 'h-10 w-10 text-base')}
-                              {isUserEffectivelyOnline(user) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-neutral-950"></span>}
+                              {isUserEffectivelyOnline(user) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-950"></span>}
                             </div>
                             <div className="min-w-0">
                               <p className="font-bold text-sm truncate">{user.display_name}</p>
-                              <p className="text-[10px] text-neutral-400 truncate">@{user.username}</p>
-                              {user.bio && <p className="text-xs text-neutral-500 truncate mt-0.5">{user.bio}</p>}
+                              <p className="text-[10px] text-neutral-500 dark:text-neutral-400 truncate">@{user.username}</p>
+                              {user.bio && <p className="text-xs text-neutral-700 dark:text-neutral-300 truncate mt-0.5">{user.bio}</p>}
                             </div>
                           </div>
-                          <button className="px-3 py-1 bg-indigo-600 group-hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors shrink-0">
+                          <button className="px-3 py-1 bg-neutral-900 dark:bg-neutral-100 group-hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 rounded-xl text-xs font-semibold shadow-sm transition-colors shrink-0">
                             Chat
                           </button>
                         </div>
@@ -5771,32 +6148,32 @@ export default function App() {
               ) : (
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
-                    <p className="text-xs uppercase tracking-wider font-bold text-neutral-400 text-left">Search Results</p>
-                    <span className="text-xs font-semibold text-neutral-400">{globalSearchResults.length} found</span>
+                    <p className="text-xs uppercase tracking-wider font-bold text-neutral-500 dark:text-neutral-400 text-left">Search Results</p>
+                    <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">{globalSearchResults.length} found</span>
                   </div>
                   {globalSearchResults.length === 0 ? (
                     <div className="p-8 text-center bg-neutral-50 dark:bg-neutral-900 rounded-2xl border border-dashed border-neutral-200 dark:border-neutral-800">
-                      <p className="text-sm text-neutral-500">No user profiles matched &quot;{globalSearchQuery}&quot;</p>
+                      <p className="text-sm text-neutral-700 dark:text-neutral-300">No user profiles matched &quot;{globalSearchQuery}&quot;</p>
                     </div>
                   ) : (
                     globalSearchResults.map(user => (
                       <div 
                         key={`search_user_${user.id || user.username}`}
                         onClick={() => handleStartChatWithUser(user)}
-                        className="p-3.5 rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 flex items-center justify-between cursor-pointer hover:border-indigo-500 hover:shadow-md transition-all text-left"
+                        className="p-3.5 rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 flex items-center justify-between cursor-pointer hover:border-neutral-900 dark:border-neutral-100 hover:shadow-md transition-all text-left"
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="relative shrink-0">
                             {renderAvatar(user.avatar_seed, user.display_name, user.avatar_url, 'h-10 w-10 text-sm')}
-                            {isUserEffectivelyOnline(user) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-neutral-950"></span>}
+                            {isUserEffectivelyOnline(user) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-950"></span>}
                           </div>
                           <div className="min-w-0">
                             <p className="font-bold text-sm truncate">{user.display_name}</p>
-                            <p className="text-[10px] text-neutral-400 truncate">@{user.username}</p>
-                            {user.bio && <p className="text-xs text-neutral-500 truncate">{user.bio}</p>}
+                            <p className="text-[10px] text-neutral-500 dark:text-neutral-400 truncate">@{user.username}</p>
+                            {user.bio && <p className="text-xs text-neutral-700 dark:text-neutral-300 truncate">{user.bio}</p>}
                           </div>
                         </div>
-                        <button className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-md transition-colors shrink-0 ml-4">
+                        <button className="px-3.5 py-1.5 bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 rounded-xl text-xs font-semibold shadow-md transition-colors shrink-0 ml-4">
                           Chat
                         </button>
                       </div>
@@ -5816,10 +6193,10 @@ export default function App() {
             <div className="sticky top-0 z-10 backdrop-blur-md bg-white/85 dark:bg-neutral-900/85 border-b border-neutral-200/80 dark:border-neutral-800 px-4 md:px-8 py-3.5 flex items-center justify-between">
               {/* Left: Username with lock icon and verified badge */}
               <div className="flex items-center gap-2">
-                <Lock className="h-4 w-4 text-neutral-400" />
+                <Lock className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
                 <h1 className="text-base md:text-lg font-bold tracking-tight text-neutral-900 dark:text-white flex items-center gap-1.5">
                   <span>@{userUsername || 'username'}</span>
-                  <CheckCircle2 className="h-4 w-4 text-indigo-500 fill-indigo-500/20" />
+                  <CheckCircle2 className="h-4 w-4 text-neutral-700 dark:text-neutral-300 fill-indigo-500/20" />
                 </h1>
               </div>
 
@@ -5827,10 +6204,10 @@ export default function App() {
               <div className="flex items-center gap-1.5 md:gap-2">
                 <button
                   onClick={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
-                  className="p-2 rounded-xl text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-amber-500 dark:hover:text-amber-400 transition-colors cursor-pointer"
+                  className="p-2 rounded-xl text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:text-neutral-100 dark:hover:text-neutral-500 dark:text-neutral-400 transition-colors cursor-pointer"
                   title="Switch Theme"
                 >
-                  {themeMode === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5 text-amber-400" />}
+                  {themeMode === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5 text-neutral-500 dark:text-neutral-400" />}
                 </button>
 
                 <button
@@ -5843,7 +6220,7 @@ export default function App() {
                     }
                     setShowShareProfileModal(true);
                   }}
-                  className="p-2 rounded-xl text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                  className="p-2 rounded-xl text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:text-neutral-100 dark:hover:text-neutral-500 dark:text-neutral-400 transition-colors"
                   title="Share Profile"
                 >
                   <Share2 className="h-5 w-5" />
@@ -5854,7 +6231,7 @@ export default function App() {
                   onClick={() => {
                     setActiveView('settings');
                   }}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200/60 dark:border-indigo-800/60 font-semibold text-xs transition-all shadow-sm active:scale-95 cursor-pointer"
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100 hover:bg-neutral-200 dark:hover:bg-indigo-900/50 border border-indigo-200/60 dark:border-indigo-800/60 font-semibold text-xs transition-all shadow-sm active:scale-95 cursor-pointer"
                   title="Settings & Privacy"
                 >
                   <Menu className="h-5 w-5 stroke-[2.5]" />
@@ -5871,14 +6248,14 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
                   {/* Avatar with gradient story ring & camera quick change button */}
                   <div className="relative group shrink-0">
-                    <div className="p-1 rounded-full bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 shadow-md">
+                    <div className="p-1 rounded-full bg-neutral-900 dark:bg-neutral-100 shadow-md">
                       <div className="p-1 rounded-full bg-white dark:bg-neutral-900">
                         {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-24 w-24 text-3xl shadow-inner')}
                       </div>
                     </div>
                     <button
                       onClick={handleOpenEditProfile}
-                      className="absolute bottom-1 right-1 p-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg border-2 border-white dark:border-neutral-900 transition-transform hover:scale-110 active:scale-95 cursor-pointer"
+                      className="absolute bottom-1 right-1 p-2 rounded-full bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 shadow-lg border-2 border-white dark:border-neutral-900 transition-transform hover:scale-110 active:scale-95 cursor-pointer"
                       title="Change profile picture"
                     >
                       <Camera className="h-3.5 w-3.5" />
@@ -5892,16 +6269,16 @@ export default function App() {
                       <div>
                         <h2 className="text-xl font-bold text-neutral-900 dark:text-white flex items-center justify-center sm:justify-start gap-2">
                           <span>{userDisplayName || 'User'}</span>
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-100 dark:border-indigo-900/50">
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100 font-semibold border border-indigo-100 dark:border-indigo-900/50">
                             Verified
                           </span>
                         </h2>
-                        <p className="text-xs text-neutral-400 mt-0.5">@{userUsername}</p>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">@{userUsername}</p>
                       </div>
 
                       {/* Online Status Pill */}
-                      <div className="flex items-center justify-center sm:justify-end gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <div className="flex items-center justify-center sm:justify-end gap-1.5 text-xs text-neutral-900 dark:text-neutral-100 font-medium">
+                        <span className="h-2 w-2 rounded-full bg-neutral-800 dark:bg-neutral-200 animate-pulse"></span>
                         <span>Active Now</span>
                       </div>
                     </div>
@@ -5910,34 +6287,34 @@ export default function App() {
                     <div className="grid grid-cols-4 gap-2 py-3 border-y border-neutral-100 dark:border-neutral-800/80 text-center">
                       <div className="space-y-0.5 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setActiveView('chats')}>
                         <span className="text-base md:text-lg font-bold text-neutral-900 dark:text-white">{chats.length}</span>
-                        <p className="text-[11px] text-neutral-400 font-medium">Chats</p>
+                        <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Chats</p>
                       </div>
                       <div className="space-y-0.5 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setActiveView('search')}>
                         <span className="text-base md:text-lg font-bold text-neutral-900 dark:text-white">{Object.keys(users).length}</span>
-                        <p className="text-[11px] text-neutral-400 font-medium">Contacts</p>
+                        <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Contacts</p>
                       </div>
                       <div className="space-y-0.5 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setProfileActiveTab('saved')}>
                         <span className="text-base md:text-lg font-bold text-neutral-900 dark:text-white">
                           {Object.values(messagesByChat).flat().filter(m => m.pinned || (m.reactions && m.reactions.length > 0)).length}
                         </span>
-                        <p className="text-[11px] text-neutral-400 font-medium">Saved</p>
+                        <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Saved</p>
                       </div>
                       <div className="space-y-0.5 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setProfileActiveTab('calls')}>
-                        <span className="text-base md:text-lg font-bold text-indigo-600 dark:text-indigo-400">
+                        <span className="text-base md:text-lg font-bold text-neutral-900 dark:text-neutral-100">
                           {allUserCalls.length}
                         </span>
-                        <p className="text-[11px] text-neutral-400 font-medium">Calls</p>
+                        <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Calls</p>
                       </div>
                     </div>
 
                     {/* Bio Section */}
-                    <div className="space-y-1 text-xs text-neutral-600 dark:text-neutral-300">
+                    <div className="space-y-1 text-xs text-neutral-700 dark:text-neutral-300">
                       <p className="font-medium whitespace-pre-line leading-relaxed">
                         {userBio || "Hey there! I am using Zenoa for ultra-fast, secure communication."}
                       </p>
-                      <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 pt-1 text-[11px] text-neutral-400 font-medium">
-                        {userEmail && <span className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5 text-neutral-400" /> {userEmail}</span>}
-                        {userPhone && <span className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5 text-neutral-400" /> {userPhone}</span>}
+                      <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 pt-1 text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">
+                        {userEmail && <span className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" /> {userEmail}</span>}
+                        {userPhone && <span className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" /> {userPhone}</span>}
                       </div>
                     </div>
 
@@ -5972,6 +6349,35 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Google Drive Integration Card (Shown on Profile ONLY BEFORE Integration) */}
+              {!isDriveConnected && (
+                <div className="bg-white dark:bg-neutral-900 rounded-3xl p-6 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4 animate-fade-in">
+                  <div className="flex items-center gap-3.5">
+                    <div className="p-3 rounded-2xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200/60 dark:border-neutral-700/60 shrink-0">
+                      <GoogleDriveLogo className="h-7 w-7" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Google Drive Backup</h3>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 dark:bg-amber-950/40 text-neutral-600 dark:text-neutral-400 border border-amber-200/60 dark:border-amber-800/60">
+                          Not Connected
+                        </span>
+                      </div>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                        Connect your official Google Drive account to back up messages, media, and settings with end-to-end encryption.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleConnectDrive}
+                    className="w-full py-3 px-4 rounded-2xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 font-bold text-xs flex items-center justify-center gap-2.5 shadow-sm transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer"
+                  >
+                    <GoogleDriveLogo className="h-5 w-5" />
+                    <span>Connect Google Drive</span>
+                  </button>
+                </div>
+              )}
+
               {/* Instagram Profile Tabs: Media & Saved */}
               <div className="bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-200/80 dark:border-neutral-800 shadow-sm overflow-hidden">
                 {/* Tabs Bar */}
@@ -5980,8 +6386,8 @@ export default function App() {
                     onClick={() => setProfileActiveTab('media')}
                     className={`flex-1 py-3.5 text-xs font-bold flex items-center justify-center gap-2 border-b-2 transition-all ${
                       profileActiveTab === 'media'
-                        ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/30 dark:bg-indigo-950/20'
-                        : 'border-transparent text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
+                        ? 'border-neutral-900 dark:border-neutral-100 text-neutral-900 dark:text-neutral-100 bg-neutral-100/30 dark:bg-indigo-950/20'
+                        : 'border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
                     }`}
                   >
                     <Grid className="h-4 w-4" />
@@ -5992,8 +6398,8 @@ export default function App() {
                     onClick={() => setProfileActiveTab('saved')}
                     className={`flex-1 py-3.5 text-xs font-bold flex items-center justify-center gap-2 border-b-2 transition-all ${
                       profileActiveTab === 'saved'
-                        ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/30 dark:bg-indigo-950/20'
-                        : 'border-transparent text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
+                        ? 'border-neutral-900 dark:border-neutral-100 text-neutral-900 dark:text-neutral-100 bg-neutral-100/30 dark:bg-indigo-950/20'
+                        : 'border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
                     }`}
                   >
                     <Bookmark className="h-4 w-4" />
@@ -6004,14 +6410,14 @@ export default function App() {
                     onClick={() => setProfileActiveTab('calls')}
                     className={`flex-1 py-3.5 text-xs font-bold flex items-center justify-center gap-2 border-b-2 transition-all ${
                       profileActiveTab === 'calls'
-                        ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/30 dark:bg-indigo-950/20'
-                        : 'border-transparent text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
+                        ? 'border-neutral-900 dark:border-neutral-100 text-neutral-900 dark:text-neutral-100 bg-neutral-100/30 dark:bg-indigo-950/20'
+                        : 'border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
                     }`}
                   >
                     <PhoneCall className="h-4 w-4" />
                     <span>Call History</span>
                     {allUserCalls.length > 0 && (
-                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-bold">
+                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-neutral-200 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-bold">
                         {allUserCalls.length}
                       </span>
                     )}
@@ -6041,11 +6447,11 @@ export default function App() {
                       if (mediaItems.length === 0) {
                         return (
                           <div className="py-16 text-center space-y-3">
-                            <div className="h-14 w-14 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mx-auto text-neutral-400">
+                            <div className="h-14 w-14 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mx-auto text-neutral-500 dark:text-neutral-400">
                               <Folder className="h-7 w-7" />
                             </div>
                             <p className="text-sm font-bold text-neutral-700 dark:text-neutral-300">No media attachments yet</p>
-                            <p className="text-xs text-neutral-400 max-w-sm mx-auto">
+                            <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-sm mx-auto">
                               Photos, videos, audio notes, and documents you send in chats will be organized here automatically in dedicated, secure folders.
                             </p>
                           </div>
@@ -6057,77 +6463,77 @@ export default function App() {
                         return (
                           <div className="space-y-3">
                             <div className="flex items-center justify-between pb-1 border-b border-neutral-100 dark:border-neutral-800">
-                              <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400">Library Folders</span>
-                              <span className="text-[10px] text-neutral-400">{mediaItems.length} items total</span>
+                              <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">Library Folders</span>
+                              <span className="text-[10px] text-neutral-500 dark:text-neutral-400">{mediaItems.length} items total</span>
                             </div>
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
                               {/* Photos Folder */}
                               <div
                                 onClick={() => setCurrentMediaFolder('photos')}
-                                className="group p-4 rounded-2xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 hover:border-indigo-500 hover:bg-indigo-550/10 transition-all cursor-pointer flex items-center justify-between text-left"
+                                className="group p-4 rounded-2xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 hover:border-neutral-900 dark:border-neutral-100 hover:bg-indigo-550/10 transition-all cursor-pointer flex items-center justify-between text-left"
                               >
                                 <div className="flex items-center gap-3.5 min-w-0">
-                                  <div className="p-3 bg-indigo-500/10 text-indigo-500 rounded-xl group-hover:scale-110 transition-transform">
+                                  <div className="p-3 bg-neutral-1000/10 text-neutral-700 dark:text-neutral-300 rounded-xl group-hover:scale-110 transition-transform">
                                     <Camera className="h-5 w-5" />
                                   </div>
                                   <div className="min-w-0">
-                                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">Photos</p>
-                                    <p className="text-[10px] text-neutral-400">{photos.length} {photos.length === 1 ? 'item' : 'items'}</p>
+                                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 group-hover:text-neutral-900 dark:text-neutral-100 dark:group-hover:text-neutral-500 dark:text-neutral-400 transition-colors">Photos</p>
+                                    <p className="text-[10px] text-neutral-500 dark:text-neutral-400">{photos.length} {photos.length === 1 ? 'item' : 'items'}</p>
                                   </div>
                                 </div>
-                                <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-1 transition-transform" />
+                                <ChevronRight className="h-4 w-4 text-neutral-500 dark:text-neutral-400 group-hover:translate-x-1 transition-transform" />
                               </div>
 
                               {/* Videos Folder */}
                               <div
                                 onClick={() => setCurrentMediaFolder('videos')}
-                                className="group p-4 rounded-2xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 hover:border-indigo-500 hover:bg-indigo-550/10 transition-all cursor-pointer flex items-center justify-between text-left"
+                                className="group p-4 rounded-2xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 hover:border-neutral-900 dark:border-neutral-100 hover:bg-indigo-550/10 transition-all cursor-pointer flex items-center justify-between text-left"
                               >
                                 <div className="flex items-center gap-3.5 min-w-0">
-                                  <div className="p-3 bg-rose-500/10 text-rose-500 rounded-xl group-hover:scale-110 transition-transform">
+                                  <div className="p-3 bg-neutral-800 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 rounded-xl group-hover:scale-110 transition-transform">
                                     <Video className="h-5 w-5" />
                                   </div>
                                   <div className="min-w-0">
-                                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors">Videos</p>
-                                    <p className="text-[10px] text-neutral-400">{videos.length} {videos.length === 1 ? 'item' : 'items'}</p>
+                                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 group-hover:text-neutral-900 dark:text-neutral-100 dark:group-hover:text-neutral-500 dark:text-neutral-400 transition-colors">Videos</p>
+                                    <p className="text-[10px] text-neutral-500 dark:text-neutral-400">{videos.length} {videos.length === 1 ? 'item' : 'items'}</p>
                                   </div>
                                 </div>
-                                <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-1 transition-transform" />
+                                <ChevronRight className="h-4 w-4 text-neutral-500 dark:text-neutral-400 group-hover:translate-x-1 transition-transform" />
                               </div>
 
                               {/* Audio Folder */}
                               <div
                                 onClick={() => setCurrentMediaFolder('audio')}
-                                className="group p-4 rounded-2xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 hover:border-indigo-500 hover:bg-indigo-550/10 transition-all cursor-pointer flex items-center justify-between text-left"
+                                className="group p-4 rounded-2xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 hover:border-neutral-900 dark:border-neutral-100 hover:bg-indigo-550/10 transition-all cursor-pointer flex items-center justify-between text-left"
                               >
                                 <div className="flex items-center gap-3.5 min-w-0">
-                                  <div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-xl group-hover:scale-110 transition-transform">
+                                  <div className="p-3 bg-neutral-800 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 rounded-xl group-hover:scale-110 transition-transform">
                                     <Mic className="h-5 w-5" />
                                   </div>
                                   <div className="min-w-0">
-                                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">Audio Notes</p>
-                                    <p className="text-[10px] text-neutral-400">{audios.length} {audios.length === 1 ? 'item' : 'items'}</p>
+                                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 group-hover:text-neutral-900 dark:text-neutral-100 dark:group-hover:text-neutral-500 dark:text-neutral-400 transition-colors">Audio Notes</p>
+                                    <p className="text-[10px] text-neutral-500 dark:text-neutral-400">{audios.length} {audios.length === 1 ? 'item' : 'items'}</p>
                                   </div>
                                 </div>
-                                <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-1 transition-transform" />
+                                <ChevronRight className="h-4 w-4 text-neutral-500 dark:text-neutral-400 group-hover:translate-x-1 transition-transform" />
                               </div>
 
                               {/* Documents Folder */}
                               <div
                                 onClick={() => setCurrentMediaFolder('documents')}
-                                className="group p-4 rounded-2xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 hover:border-indigo-500 hover:bg-indigo-550/10 transition-all cursor-pointer flex items-center justify-between text-left"
+                                className="group p-4 rounded-2xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 hover:border-neutral-900 dark:border-neutral-100 hover:bg-indigo-550/10 transition-all cursor-pointer flex items-center justify-between text-left"
                               >
                                 <div className="flex items-center gap-3.5 min-w-0">
-                                  <div className="p-3 bg-amber-500/10 text-amber-500 rounded-xl group-hover:scale-110 transition-transform">
+                                  <div className="p-3 bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 rounded-xl group-hover:scale-110 transition-transform">
                                     <FileText className="h-5 w-5" />
                                   </div>
                                   <div className="min-w-0">
-                                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">Documents & Files</p>
-                                    <p className="text-[10px] text-neutral-400">{documents.length} {documents.length === 1 ? 'item' : 'items'}</p>
+                                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 group-hover:text-neutral-800 dark:text-neutral-200 dark:group-hover:text-neutral-500 dark:text-neutral-400 transition-colors">Documents & Files</p>
+                                    <p className="text-[10px] text-neutral-500 dark:text-neutral-400">{documents.length} {documents.length === 1 ? 'item' : 'items'}</p>
                                   </div>
                                 </div>
-                                <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-1 transition-transform" />
+                                <ChevronRight className="h-4 w-4 text-neutral-500 dark:text-neutral-400 group-hover:translate-x-1 transition-transform" />
                               </div>
                             </div>
                           </div>
@@ -6153,7 +6559,7 @@ export default function App() {
                           <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-neutral-800">
                             <button
                               onClick={() => setCurrentMediaFolder(null)}
-                              className="px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 transition-all text-xs font-bold text-neutral-600 dark:text-neutral-300 flex items-center gap-1 cursor-pointer"
+                              className="px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-900 dark:bg-neutral-100 hover:text-white dark:text-neutral-900 dark:hover:bg-neutral-900 dark:bg-neutral-100 transition-all text-xs font-bold text-neutral-700 dark:text-neutral-300 flex items-center gap-1 cursor-pointer"
                             >
                               ← Back to folders
                             </button>
@@ -6161,7 +6567,7 @@ export default function App() {
                           </div>
 
                           {activeItems.length === 0 ? (
-                            <div className="py-12 text-center text-neutral-400 text-xs">
+                            <div className="py-12 text-center text-neutral-500 dark:text-neutral-400 text-xs">
                               This folder is currently empty. Shared files of this type will appear here.
                             </div>
                           ) : currentMediaFolder === 'photos' || currentMediaFolder === 'videos' ? (
@@ -6192,8 +6598,8 @@ export default function App() {
                                     />
                                   ) : (
                                     <div className="h-full w-full flex flex-col items-center justify-center bg-neutral-900 text-white">
-                                      <Video className="h-8 w-8 text-neutral-400" />
-                                      <span className="text-[10px] text-neutral-500 mt-2">Play Video</span>
+                                      <Video className="h-8 w-8 text-neutral-500 dark:text-neutral-400" />
+                                      <span className="text-[10px] text-neutral-700 dark:text-neutral-300 mt-2">Play Video</span>
                                     </div>
                                   )}
 
@@ -6206,7 +6612,7 @@ export default function App() {
                                     </div>
                                     <div className="text-left">
                                       <p className="text-[10px] font-bold truncate">@{item.sender}</p>
-                                      <p className="text-[9px] text-white/80">{item.timestamp}</p>
+                                      <p className="text-[9px] text-white/80 dark:text-neutral-900/80">{item.timestamp}</p>
                                     </div>
                                   </div>
                                 </div>
@@ -6229,22 +6635,22 @@ export default function App() {
                                       setMobileShowChat(true);
                                     }
                                   }}
-                                  className="p-3 rounded-xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/10 hover:border-indigo-550 hover:bg-indigo-50/10 transition-all flex items-center justify-between gap-3 cursor-pointer text-left group"
+                                  className="p-3 rounded-xl border border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/10 hover:border-indigo-550 hover:bg-neutral-100/10 transition-all flex items-center justify-between gap-3 cursor-pointer text-left group"
                                 >
                                   <div className="flex items-center gap-3 min-w-0">
-                                    <div className={`p-2.5 rounded-xl ${currentMediaFolder === 'audio' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}`}>
+                                    <div className={`p-2.5 rounded-xl ${currentMediaFolder === 'audio' ? 'bg-neutral-800 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100'}`}>
                                       {currentMediaFolder === 'audio' ? <Mic className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
                                     </div>
                                     <div className="min-w-0">
-                                      <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                                      <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 truncate group-hover:text-neutral-900 dark:text-neutral-100 dark:group-hover:text-neutral-500 dark:text-neutral-400 transition-colors">
                                         {item.file_name || item.text || (currentMediaFolder === 'audio' ? 'Voice Recording' : 'Document Attachment')}
                                       </p>
-                                      <p className="text-[10px] text-neutral-400 mt-0.5">
+                                      <p className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-0.5">
                                         Shared by @{item.sender} • {item.timestamp} {item.file_size ? `• ${item.file_size}` : ''}
                                       </p>
                                     </div>
                                   </div>
-                                  <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-1 transition-transform" />
+                                  <ChevronRight className="h-4 w-4 text-neutral-500 dark:text-neutral-400 group-hover:translate-x-1 transition-transform" />
                                 </div>
                               ))}
                             </div>
@@ -6267,11 +6673,11 @@ export default function App() {
                       if (savedItems.length === 0) {
                         return (
                           <div className="py-16 text-center space-y-3">
-                            <div className="h-14 w-14 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mx-auto text-neutral-400">
+                            <div className="h-14 w-14 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mx-auto text-neutral-500 dark:text-neutral-400">
                               <Star className="h-7 w-7" />
                             </div>
                             <p className="text-sm font-bold text-neutral-700 dark:text-neutral-300">No saved messages yet</p>
-                            <p className="text-xs text-neutral-400 max-w-sm mx-auto">
+                            <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-sm mx-auto">
                               Pin or react to important messages in any chat to save them here for fast reference.
                             </p>
                           </div>
@@ -6286,23 +6692,23 @@ export default function App() {
                             setActiveView('chats');
                             setMobileShowChat(true);
                           }}
-                          className="p-3.5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/50 hover:border-indigo-400 dark:hover:border-indigo-600 transition-colors cursor-pointer flex items-start justify-between gap-3 group"
+                          className="p-3.5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/50 hover:border-indigo-400 dark:hover:border-neutral-900 dark:border-neutral-100 transition-colors cursor-pointer flex items-start justify-between gap-3 group"
                         >
                           <div className="space-y-1 min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                              <span className="text-xs font-bold text-neutral-900 dark:text-neutral-100">
                                 {getSenderDisplayName(msg.sender)}
                               </span>
-                              <span className="text-[10px] text-neutral-400">{msg.timestamp}</span>
+                              <span className="text-[10px] text-neutral-500 dark:text-neutral-400">{msg.timestamp}</span>
                               {msg.pinned && (
-                                <span className="text-[9px] bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                                <span className="text-[9px] bg-neutral-100 dark:bg-neutral-800 dark:bg-amber-950/40 text-neutral-600 dark:text-neutral-400 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5">
                                   <Pin className="h-2.5 w-2.5" /> Pinned
                                 </span>
                               )}
                             </div>
                             <p className="text-xs text-neutral-700 dark:text-neutral-300 line-clamp-2">{msg.text}</p>
                           </div>
-                          <button className="text-neutral-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 text-xs font-semibold shrink-0 flex items-center gap-1">
+                          <button className="text-neutral-500 dark:text-neutral-400 group-hover:text-neutral-900 dark:text-neutral-100 dark:group-hover:text-neutral-500 dark:text-neutral-400 text-xs font-semibold shrink-0 flex items-center gap-1">
                             <span>Open</span>
                             <ChevronRight className="h-3.5 w-3.5" />
                           </button>
@@ -6318,18 +6724,18 @@ export default function App() {
                     {/* Search & Filter Bar */}
                     <div className="space-y-3">
                       <div className="relative">
-                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500 dark:text-neutral-400" />
                         <input
                           type="text"
                           value={callHistorySearch}
                           onChange={(e) => setCallHistorySearch(e.target.value)}
                           placeholder="Search calls by contact name or username..."
-                          className="w-full pl-10 pr-4 py-2 text-xs rounded-xl bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/80 text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:border-indigo-500 transition-colors"
+                          className="w-full pl-10 pr-4 py-2 text-xs rounded-xl bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/80 text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:border-neutral-900 dark:border-neutral-100 transition-colors"
                         />
                         {callHistorySearch && (
                           <button
                             onClick={() => setCallHistorySearch('')}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:text-neutral-200 dark:hover:text-neutral-200"
                           >
                             <X className="h-3.5 w-3.5" />
                           </button>
@@ -6351,7 +6757,7 @@ export default function App() {
                             onClick={() => setCallHistoryFilter(chip.id as any)}
                             className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
                               callHistoryFilter === chip.id
-                                ? 'bg-indigo-600 text-white shadow-xs'
+                                ? 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 shadow-xs'
                                 : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
                             }`}
                           >
@@ -6391,13 +6797,13 @@ export default function App() {
                       if (filteredCalls.length === 0) {
                         return (
                           <div className="py-16 text-center space-y-3">
-                            <div className="h-14 w-14 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mx-auto text-neutral-400">
+                            <div className="h-14 w-14 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mx-auto text-neutral-500 dark:text-neutral-400">
                               <PhoneCall className="h-7 w-7" />
                             </div>
                             <p className="text-sm font-bold text-neutral-700 dark:text-neutral-300">
                               {callHistorySearch ? 'No calls matching your search' : 'No call history recorded'}
                             </p>
-                            <p className="text-xs text-neutral-400 max-w-sm mx-auto">
+                            <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-sm mx-auto">
                               {callHistorySearch
                                 ? 'Try searching for a different name or username, or switch filter tags.'
                                 : 'Make voice or video calls with your contacts to see detailed call logs, durations, and timestamps here.'}
@@ -6428,7 +6834,7 @@ export default function App() {
                                       'h-12 w-12 text-base shadow-xs'
                                     )}
                                     {isUserEffectivelyOnline(partnerUserObj) && (
-                                      <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-500 border-2 border-white dark:border-neutral-900" />
+                                      <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-900" />
                                     )}
                                   </div>
 
@@ -6438,7 +6844,7 @@ export default function App() {
                                       <h4 className="text-xs sm:text-sm font-bold text-neutral-900 dark:text-white truncate">
                                         {call.partner_name || call.partner_username}
                                       </h4>
-                                      <span className="text-[10px] text-neutral-400 truncate">
+                                      <span className="text-[10px] text-neutral-500 dark:text-neutral-400 truncate">
                                         @{call.partner_username}
                                       </span>
                                     </div>
@@ -6447,10 +6853,10 @@ export default function App() {
                                     <div className="flex flex-wrap items-center gap-2 text-xs">
                                       <div className={`flex items-center gap-1 font-semibold text-[11px] ${
                                         isMissed 
-                                          ? 'text-rose-500' 
+                                          ? 'text-neutral-900 dark:text-neutral-100' 
                                           : call.is_outgoing 
-                                            ? 'text-indigo-600 dark:text-indigo-400' 
-                                            : 'text-emerald-600 dark:text-emerald-400'
+                                            ? 'text-neutral-900 dark:text-neutral-100' 
+                                            : 'text-neutral-900 dark:text-neutral-100'
                                       }`}>
                                         {isVideo ? (
                                           <Video className="h-3.5 w-3.5" />
@@ -6481,10 +6887,10 @@ export default function App() {
 
                                       <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold uppercase ${
                                         call.status === 'answered' || call.status === 'connected'
-                                          ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400'
+                                          ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 dark:bg-emerald-950/40 dark:text-neutral-500 dark:text-neutral-400'
                                           : call.status === 'missed'
-                                            ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400'
-                                            : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'
+                                            ? 'bg-neutral-100 text-neutral-900 dark:text-neutral-100 dark:bg-rose-950/40 dark:text-neutral-500 dark:text-neutral-400'
+                                            : 'bg-neutral-100 text-neutral-800 dark:text-neutral-200 dark:bg-neutral-800 dark:text-neutral-500 dark:text-neutral-400'
                                       }`}>
                                         {call.status}
                                       </span>
@@ -6497,7 +6903,7 @@ export default function App() {
                                   {/* Voice Call */}
                                   <button
                                     onClick={() => handleStartCallWithUser(call.partner_username, 'voice')}
-                                    className="p-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 transition-all cursor-pointer"
+                                    className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-neutral-900 dark:text-neutral-100 transition-all cursor-pointer"
                                     title={`Voice Call @${call.partner_username}`}
                                   >
                                     <Phone className="h-4 w-4" />
@@ -6506,7 +6912,7 @@ export default function App() {
                                   {/* Video Call */}
                                   <button
                                     onClick={() => handleStartCallWithUser(call.partner_username, 'video')}
-                                    className="p-2 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-purple-600 dark:text-purple-400 transition-all cursor-pointer"
+                                    className="p-2 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-neutral-700 dark:text-neutral-300 dark:text-neutral-700 dark:text-neutral-300 transition-all cursor-pointer"
                                     title={`Video Call @${call.partner_username}`}
                                   >
                                     <Video className="h-4 w-4" />
@@ -6524,7 +6930,7 @@ export default function App() {
                                         handleStartCallWithUser(call.partner_username, 'voice');
                                       }
                                     }}
-                                    className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300 transition-all cursor-pointer"
+                                    className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 transition-all cursor-pointer"
                                     title={`Message @${call.partner_username}`}
                                   >
                                     <MessageSquare className="h-4 w-4" />
@@ -6590,8 +6996,19 @@ export default function App() {
             userUsername={userUsername}
             userAvatarSeed={userAvatarSeed}
             userAvatarUrl={userAvatarUrl}
+            userEmail={userEmail}
+            userUid={userId}
             renderAvatar={renderAvatar}
             onOpenEditProfile={handleOpenEditProfile}
+            isDriveConnected={isDriveConnected}
+            isBackingUp={isBackingUp}
+            isRestoring={isRestoring}
+            lastBackupDate={lastBackupInfo ? new Date(lastBackupInfo.modifiedTime).toLocaleString() : null}
+            onConnectDrive={handleConnectDrive}
+            onDisconnectDrive={handleDisconnectDrive}
+            onBackupToDrive={handleBackupToDrive}
+            onRestoreFromDrive={handleRestoreFromDrive}
+            onDeleteBackupFromDrive={handleDeleteBackupFromDrive}
           />
         )}
 
@@ -6602,38 +7019,38 @@ export default function App() {
         <footer className="md:hidden fixed bottom-0 left-0 right-0 h-16 border-t border-neutral-200/80 dark:border-neutral-800/80 bg-white/95 dark:bg-neutral-950/95 backdrop-blur-xl flex items-center justify-around z-40 transition-all select-none pb-[env(safe-area-inset-bottom,4px)]">
           <button 
             onClick={() => { setActiveView('chats'); setMobileShowChat(false); }}
-            className={`relative flex flex-col items-center justify-center gap-1 px-4 py-1.5 rounded-2xl transition-all active:scale-90 cursor-pointer ${activeView === 'chats' ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}
+            className={`relative flex flex-col items-center justify-center gap-1 px-4 py-1.5 rounded-2xl transition-all active:scale-90 cursor-pointer ${activeView === 'chats' ? 'text-neutral-900 dark:text-neutral-100 font-bold' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:text-neutral-200 dark:hover:text-neutral-300'}`}
           >
             <div className="relative">
               <MessageSquare className="h-5 w-5 stroke-[2.2]" />
               {totalUnreads > 0 && (
-                <span className="absolute -top-1 -right-2.5 bg-indigo-600 text-white text-[9px] font-bold h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center shadow-sm animate-pulse">
+                <span className="absolute -top-1 -right-2.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-[9px] font-bold h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center shadow-sm animate-pulse">
                   {totalUnreads}
                 </span>
               )}
             </div>
             <span className="text-[10px] tracking-tight">Chats</span>
-            {activeView === 'chats' && <span className="absolute bottom-0.5 h-1 w-6 bg-indigo-600 dark:bg-indigo-400 rounded-full"></span>}
+            {activeView === 'chats' && <span className="absolute bottom-0.5 h-1 w-6 bg-neutral-900 dark:bg-neutral-100 dark:bg-indigo-400 rounded-full"></span>}
           </button>
 
           <button 
             onClick={() => { setActiveView('search'); setMobileShowChat(false); }}
-            className={`relative flex flex-col items-center justify-center gap-1 px-4 py-1.5 rounded-2xl transition-all active:scale-90 cursor-pointer ${activeView === 'search' ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}
+            className={`relative flex flex-col items-center justify-center gap-1 px-4 py-1.5 rounded-2xl transition-all active:scale-90 cursor-pointer ${activeView === 'search' ? 'text-neutral-900 dark:text-neutral-100 font-bold' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:text-neutral-200 dark:hover:text-neutral-300'}`}
           >
             <Search className="h-5 w-5 stroke-[2.2]" />
             <span className="text-[10px] tracking-tight">Discover</span>
-            {activeView === 'search' && <span className="absolute bottom-0.5 h-1 w-6 bg-indigo-600 dark:bg-indigo-400 rounded-full"></span>}
+            {activeView === 'search' && <span className="absolute bottom-0.5 h-1 w-6 bg-neutral-900 dark:bg-neutral-100 dark:bg-indigo-400 rounded-full"></span>}
           </button>
 
           <button 
             onClick={() => { setActiveView('profile'); setMobileShowChat(false); }}
-            className={`relative flex flex-col items-center justify-center gap-1 px-4 py-1.5 rounded-2xl transition-all active:scale-90 cursor-pointer ${activeView === 'profile' ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}
+            className={`relative flex flex-col items-center justify-center gap-1 px-4 py-1.5 rounded-2xl transition-all active:scale-90 cursor-pointer ${activeView === 'profile' ? 'text-neutral-900 dark:text-neutral-100 font-bold' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:text-neutral-200 dark:hover:text-neutral-300'}`}
           >
             <div className={`p-0.5 rounded-full transition-transform ${activeView === 'profile' ? 'ring-2 ring-indigo-600 dark:ring-indigo-400' : ''}`}>
               {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-5 w-5 text-[8px]')}
             </div>
             <span className="text-[10px] tracking-tight">Profile</span>
-            {activeView === 'profile' && <span className="absolute bottom-0.5 h-1 w-6 bg-indigo-600 dark:bg-indigo-400 rounded-full"></span>}
+            {activeView === 'profile' && <span className="absolute bottom-0.5 h-1 w-6 bg-neutral-900 dark:bg-neutral-100 dark:bg-indigo-400 rounded-full"></span>}
           </button>
         </footer>
       )}
@@ -6648,12 +7065,12 @@ export default function App() {
             {/* Modal Header */}
             <div className="px-5 py-4 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
-                <Edit2 className="h-4 w-4 text-indigo-500" />
+                <Edit2 className="h-4 w-4 text-neutral-700 dark:text-neutral-300" />
                 <h3 className="font-bold text-base text-neutral-900 dark:text-white">Edit Profile</h3>
               </div>
               <button
                 onClick={() => setShowEditProfileModal(false)}
-                className="p-1.5 rounded-xl text-neutral-400 hover:text-neutral-700 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                className="p-1.5 rounded-xl text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -6676,7 +7093,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => profilePhotoInputRef.current?.click()}
-                    className="absolute bottom-0 right-0 p-1.5 rounded-full bg-indigo-600 text-white shadow-md hover:scale-105 transition-transform cursor-pointer"
+                    className="absolute bottom-0 right-0 p-1.5 rounded-full bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 shadow-md hover:scale-105 transition-transform cursor-pointer"
                   >
                     <Camera className="h-3 w-3" />
                   </button>
@@ -6688,14 +7105,14 @@ export default function App() {
                     onClick={() => profilePhotoInputRef.current?.click()}
                     className="px-3.5 py-1.5 bg-neutral-200/80 dark:bg-neutral-800 hover:bg-neutral-300 dark:hover:bg-neutral-700 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
-                    <Upload className="h-3.5 w-3.5 text-indigo-500" />
+                    <Upload className="h-3.5 w-3.5 text-neutral-700 dark:text-neutral-300" />
                     <span>Upload</span>
                   </button>
                   {editDraftAvatarUrl && (
                     <button
                       type="button"
                       onClick={handleRemovePhoto}
-                      className="px-3.5 py-1.5 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                      className="px-3.5 py-1.5 bg-neutral-100 dark:bg-rose-950/30 text-neutral-900 dark:text-neutral-100 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                       <span>Remove</span>
@@ -6708,7 +7125,7 @@ export default function App() {
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-bold text-neutral-700 dark:text-neutral-300">Name</span>
-                  <span className="text-[10px] text-neutral-400">{remainingNameChanges}/2 edits left</span>
+                  <span className="text-[10px] text-neutral-500 dark:text-neutral-400">{remainingNameChanges}/2 edits left</span>
                 </div>
                 <input
                   type="text"
@@ -6716,7 +7133,7 @@ export default function App() {
                   value={editDraftDisplayName}
                   onChange={e => setEditDraftDisplayName(e.target.value)}
                   placeholder="Your Name"
-                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 outline-none focus:border-indigo-500 transition-colors"
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 outline-none focus:border-neutral-900 dark:border-neutral-100 transition-colors"
                 />
               </div>
 
@@ -6727,24 +7144,24 @@ export default function App() {
                   {cleanDraftUsername !== (savedUsername || '').toLowerCase() && cleanDraftUsername.length > 0 && (
                     <div className="text-[10px]">
                       {isUsernameAvailableInSettings ? (
-                        <span className="text-emerald-500 font-semibold">Available</span>
+                        <span className="text-neutral-900 dark:text-neutral-100 font-semibold">Available</span>
                       ) : !isUsernameFormatValidInSettings ? (
-                        <span className="text-rose-500">Invalid format</span>
+                        <span className="text-neutral-900 dark:text-neutral-100">Invalid format</span>
                       ) : (
-                        <span className="text-rose-500">Taken</span>
+                        <span className="text-neutral-900 dark:text-neutral-100">Taken</span>
                       )}
                     </div>
                   )}
                 </div>
                 <div className="relative">
-                  <span className="absolute left-3 top-2 text-xs font-bold text-neutral-400">@</span>
+                  <span className="absolute left-3 top-2 text-xs font-bold text-neutral-500 dark:text-neutral-400">@</span>
                   <input
                     type="text"
                     maxLength={20}
                     value={editDraftUsername}
                     onChange={e => setEditDraftUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
                     placeholder="username"
-                    className="w-full pl-7 pr-3 py-2 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 outline-none focus:border-indigo-500 transition-colors"
+                    className="w-full pl-7 pr-3 py-2 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 outline-none focus:border-neutral-900 dark:border-neutral-100 transition-colors"
                   />
                 </div>
               </div>
@@ -6753,7 +7170,7 @@ export default function App() {
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-bold text-neutral-700 dark:text-neutral-300">Bio</span>
-                  <span className="text-[10px] text-neutral-400">{editDraftBio.length}/80</span>
+                  <span className="text-[10px] text-neutral-500 dark:text-neutral-400">{editDraftBio.length}/80</span>
                 </div>
                 <input
                   type="text"
@@ -6761,7 +7178,7 @@ export default function App() {
                   value={editDraftBio}
                   onChange={e => setEditDraftBio(e.target.value)}
                   placeholder="Add a bio..."
-                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 outline-none focus:border-indigo-500 transition-colors"
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 outline-none focus:border-neutral-900 dark:border-neutral-100 transition-colors"
                 />
               </div>
 
@@ -6772,7 +7189,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setShowEditProfileModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-neutral-500 hover:bg-neutral-200/60 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200/60 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -6782,7 +7199,7 @@ export default function App() {
                 onClick={async () => {
                   await handleSaveProfile();
                 }}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
+                className="px-5 py-2 bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 disabled:opacity-50 text-white dark:text-neutral-900 font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
               >
                 {isSavingProfile ? <span>Saving...</span> : <span>Save</span>}
               </button>
@@ -6799,19 +7216,19 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
           <div className="w-full max-w-sm bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-3xl p-6 shadow-2xl text-center space-y-5">
             <div className="flex justify-between items-center">
-              <span className="text-xs font-bold uppercase tracking-wider text-neutral-400">Share Profile</span>
-              <button onClick={() => setShowShareProfileModal(false)} className="p-1 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-white">
+              <span className="text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">Share Profile</span>
+              <button onClick={() => setShowShareProfileModal(false)} className="p-1 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:text-neutral-200 dark:hover:text-white">
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="p-6 rounded-2xl bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 text-white shadow-lg space-y-3">
+            <div className="p-6 rounded-2xl bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 shadow-lg space-y-3">
               <div className="flex justify-center">
                 {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-20 w-20 text-2xl border-4 border-white shadow-md')}
               </div>
               <div>
                 <h3 className="font-bold text-lg">{userDisplayName}</h3>
-                <p className="text-xs text-white/80">@{userUsername}</p>
+                <p className="text-xs text-white/80 dark:text-neutral-900/80">@{userUsername}</p>
               </div>
               <div className="pt-2 text-[10px] bg-white/20 backdrop-blur-md py-1.5 px-3 rounded-full font-mono truncate">
                 {window.location.host}/u/{userUsername}
@@ -6827,7 +7244,7 @@ export default function App() {
                   }
                   setShowShareProfileModal(false);
                 }}
-                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                className="flex-1 py-2.5 bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
                 <Copy className="h-3.5 w-3.5" />
                 <span>Copy Link</span>
@@ -6861,19 +7278,19 @@ export default function App() {
           >
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2">
-                <div className="p-2 bg-amber-500/10 text-amber-500 rounded-xl">
+                <div className="p-2 bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 rounded-xl">
                   <MapPin className="h-5 w-5" />
                 </div>
                 <h3 className="font-bold text-sm">Share Location</h3>
               </div>
-              <button onClick={() => setShowLocationModal(false)} className="p-1 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-white">
+              <button onClick={() => setShowLocationModal(false)} className="p-1 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:text-neutral-200 dark:hover:text-white">
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1">Place / Title</label>
+                <label className="block text-[10px] uppercase font-bold text-neutral-500 dark:text-neutral-400 mb-1">Place / Title</label>
                 <input 
                   type="text"
                   value={locationTitle}
@@ -6884,7 +7301,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1">Address / Landmark</label>
+                <label className="block text-[10px] uppercase font-bold text-neutral-500 dark:text-neutral-400 mb-1">Address / Landmark</label>
                 <input 
                   type="text"
                   value={locationAddress}
@@ -6894,7 +7311,7 @@ export default function App() {
                 />
               </div>
 
-              <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-2xl border border-amber-200 dark:border-amber-900/40 text-[11px] text-amber-800 dark:text-amber-300 flex items-center justify-between">
+              <div className="p-3 bg-neutral-100 dark:bg-neutral-800 dark:bg-amber-950/30 rounded-2xl border border-amber-200 dark:border-amber-900/40 text-[11px] text-amber-800 dark:text-amber-300 flex items-center justify-between">
                 <span>Coordinates: {locationLat.toFixed(4)}, {locationLng.toFixed(4)}</span>
                 <button 
                   onClick={() => {
@@ -6906,7 +7323,7 @@ export default function App() {
                       });
                     }
                   }}
-                  className="px-2 py-1 bg-amber-500 text-white font-bold rounded-lg text-[10px]"
+                  className="px-2 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-bold rounded-lg text-[10px]"
                 >
                   Get GPS
                 </button>
@@ -6916,7 +7333,7 @@ export default function App() {
             <div className="flex gap-2 pt-2">
               <button 
                 onClick={handleSendLocation}
-                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl shadow-md transition-colors"
+                className="flex-1 py-2.5 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-bold text-xs rounded-xl shadow-md transition-colors"
               >
                 Send Location Card
               </button>
@@ -6937,19 +7354,19 @@ export default function App() {
           >
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2">
-                <div className="p-2 bg-purple-500/10 text-purple-500 rounded-xl">
+                <div className="p-2 bg-neutral-800 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 rounded-xl">
                   <UserPlus className="h-5 w-5" />
                 </div>
                 <h3 className="font-bold text-sm">Share Contact</h3>
               </div>
-              <button onClick={() => setShowContactModal(false)} className="p-1 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-white">
+              <button onClick={() => setShowContactModal(false)} className="p-1 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:text-neutral-200 dark:hover:text-white">
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1">Full Name</label>
+                <label className="block text-[10px] uppercase font-bold text-neutral-500 dark:text-neutral-400 mb-1">Full Name</label>
                 <input 
                   type="text"
                   value={contactName}
@@ -6960,7 +7377,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1">Phone Number</label>
+                <label className="block text-[10px] uppercase font-bold text-neutral-500 dark:text-neutral-400 mb-1">Phone Number</label>
                 <input 
                   type="tel"
                   value={contactPhone}
@@ -6971,7 +7388,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1">Email Address (Optional)</label>
+                <label className="block text-[10px] uppercase font-bold text-neutral-500 dark:text-neutral-400 mb-1">Email Address (Optional)</label>
                 <input 
                   type="email"
                   value={contactEmail}
@@ -6985,7 +7402,7 @@ export default function App() {
             <div className="flex gap-2 pt-2">
               <button 
                 onClick={handleSendContact}
-                className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-md transition-colors"
+                className="flex-1 py-2.5 bg-neutral-800 dark:bg-neutral-200 hover:bg-neutral-900 dark:hover:bg-neutral-300 text-white dark:text-neutral-900 font-bold text-xs rounded-xl shadow-md transition-colors"
               >
                 Send Contact Card
               </button>
@@ -7006,19 +7423,19 @@ export default function App() {
           >
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2">
-                <div className="p-2 bg-teal-500/10 text-teal-500 rounded-xl">
+                <div className="p-2 bg-neutral-800 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 rounded-xl">
                   <BarChart2 className="h-5 w-5" />
                 </div>
                 <h3 className="font-bold text-sm">Create Poll</h3>
               </div>
-              <button onClick={() => setShowPollModal(false)} className="p-1 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-white">
+              <button onClick={() => setShowPollModal(false)} className="p-1 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:text-neutral-200 dark:hover:text-white">
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1">Poll Question</label>
+                <label className="block text-[10px] uppercase font-bold text-neutral-500 dark:text-neutral-400 mb-1">Poll Question</label>
                 <input 
                   type="text"
                   value={pollQuestion}
@@ -7029,7 +7446,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1">Options</label>
+                <label className="block text-[10px] uppercase font-bold text-neutral-500 dark:text-neutral-400 mb-1">Options</label>
                 <div className="space-y-2">
                   {pollOptionsInputs.map((opt, idx) => (
                     <div key={idx} className="flex gap-2 items-center">
@@ -7047,7 +7464,7 @@ export default function App() {
                       {pollOptionsInputs.length > 2 && (
                         <button 
                           onClick={() => setPollOptionsInputs(pollOptionsInputs.filter((_, i) => i !== idx))}
-                          className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg"
+                          className="p-1.5 text-neutral-900 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-rose-950/40 rounded-lg"
                         >
                           <X className="h-3.5 w-3.5" />
                         </button>
@@ -7057,7 +7474,7 @@ export default function App() {
                   {pollOptionsInputs.length < 5 && (
                     <button 
                       onClick={() => setPollOptionsInputs([...pollOptionsInputs, `Option ${pollOptionsInputs.length + 1}`])}
-                      className="text-[11px] font-bold text-teal-600 dark:text-teal-400 hover:underline pt-1 block"
+                      className="text-[11px] font-bold text-neutral-700 dark:text-neutral-300 dark:text-neutral-700 dark:text-neutral-300 hover:underline pt-1 block"
                     >
                       + Add Option
                     </button>
@@ -7069,7 +7486,7 @@ export default function App() {
             <div className="flex gap-2 pt-2">
               <button 
                 onClick={handleSendPoll}
-                className="flex-1 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl shadow-md transition-colors"
+                className="flex-1 py-2.5 bg-neutral-800 dark:bg-neutral-200 hover:bg-neutral-900 dark:hover:bg-neutral-300 text-white dark:text-neutral-900 font-bold text-xs rounded-xl shadow-md transition-colors"
               >
                 Create & Send Poll
               </button>
@@ -7084,7 +7501,7 @@ export default function App() {
           {/* Top Bar Controls */}
           <div className="h-16 px-4 md:px-6 border-b border-white/10 flex items-center justify-between shrink-0 bg-neutral-900/80 backdrop-blur-md">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="p-2 rounded-xl bg-indigo-600/30 text-indigo-400 shrink-0">
+              <div className="p-2 rounded-xl bg-neutral-900 dark:bg-neutral-100/30 text-neutral-500 dark:text-neutral-400 shrink-0">
                 {mediaPlayer.type === 'image' || mediaPlayer.type === 'gif' ? (
                   <ImageIcon className="h-5 w-5" />
                 ) : mediaPlayer.type === 'video' ? (
@@ -7099,13 +7516,13 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <h3 className="font-bold text-sm md:text-base truncate">{mediaPlayer.title}</h3>
                   {mediaPlayer.quality && (
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/30 text-indigo-300 border border-indigo-500/40">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-neutral-1000/30 text-indigo-300 border border-neutral-900 dark:border-neutral-100/40">
                       {mediaPlayer.quality}
                     </span>
                   )}
                 </div>
                 {mediaPlayer.senderName && (
-                  <p className="text-[11px] text-neutral-400 truncate">Shared by @{mediaPlayer.senderName}</p>
+                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate">Shared by @{mediaPlayer.senderName}</p>
                 )}
               </div>
             </div>
@@ -7153,7 +7570,7 @@ export default function App() {
                       key={speed}
                       onClick={() => setMediaPlaybackSpeed(speed)}
                       className={`px-2 py-1 rounded-lg transition-colors cursor-pointer ${
-                        mediaPlaybackSpeed === speed ? 'bg-indigo-600 text-white shadow-xs' : 'text-neutral-300 hover:text-white'
+                        mediaPlaybackSpeed === speed ? 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 shadow-xs' : 'text-neutral-300 hover:text-white dark:text-neutral-900'
                       }`}
                     >
                       {speed}x
@@ -7177,7 +7594,7 @@ export default function App() {
               {/* Close Button */}
               <button
                 onClick={closeMediaPlayer}
-                className="p-2.5 rounded-xl bg-rose-600/80 hover:bg-rose-600 transition-colors text-white cursor-pointer"
+                className="p-2.5 rounded-xl bg-neutral-900 dark:bg-neutral-100/80 hover:bg-neutral-900 dark:bg-neutral-100 transition-colors text-white dark:text-neutral-900 cursor-pointer"
                 title="Close Player"
               >
                 <X className="h-4.5 w-4.5" />
@@ -7250,7 +7667,7 @@ export default function App() {
                       }}
                       className="flex-1 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                     />
-                    <span className="text-[11px] font-mono text-neutral-400 w-12">
+                    <span className="text-[11px] font-mono text-neutral-500 dark:text-neutral-400 w-12">
                       {Math.floor((mediaTotalDuration || 0) / 60)}:{Math.floor((mediaTotalDuration || 0) % 60).toString().padStart(2, '0')}
                     </span>
                   </div>
@@ -7269,7 +7686,7 @@ export default function App() {
                             }
                           }
                         }}
-                        className="p-2 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg transition-transform active:scale-95 cursor-pointer"
+                        className="p-2 rounded-full bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 shadow-lg transition-transform active:scale-95 cursor-pointer"
                       >
                         {mediaIsPlaying ? <Pause className="h-5 w-5 fill-current" /> : <Play className="h-5 w-5 fill-current ml-0.5" />}
                       </button>
@@ -7324,7 +7741,7 @@ export default function App() {
                 <div className="relative">
                   <div className={`h-32 w-32 rounded-full bg-gradient-to-tr from-indigo-600 to-rose-500 p-1 flex items-center justify-center shadow-2xl ${mediaIsPlaying ? 'animate-pulse' : ''}`}>
                     <div className="h-full w-full rounded-full bg-neutral-950 flex items-center justify-center">
-                      <Mic className={`h-12 w-12 ${mediaIsPlaying ? 'text-indigo-400 animate-bounce' : 'text-neutral-500'}`} />
+                      <Mic className={`h-12 w-12 ${mediaIsPlaying ? 'text-neutral-500 dark:text-neutral-400 animate-bounce' : 'text-neutral-700 dark:text-neutral-300'}`} />
                     </div>
                   </div>
                 </div>
@@ -7344,14 +7761,14 @@ export default function App() {
 
                 <div className="space-y-1 w-full">
                   <h4 className="font-bold text-lg">{mediaPlayer.title}</h4>
-                  <p className="text-xs text-neutral-400">High Definition Voice Sample ({mediaPlayer.quality || '128kbps'})</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">High Definition Voice Sample ({mediaPlayer.quality || '128kbps'})</p>
                 </div>
 
                 <div className="w-full flex items-center justify-center gap-1.5 h-12 py-2">
                   {[45, 80, 30, 95, 60, 25, 85, 50, 100, 40, 75, 35, 90, 55, 70, 30, 85].map((h, i) => (
                     <div
                       key={i}
-                      className={`w-1.5 rounded-full transition-all duration-300 ${mediaIsPlaying ? 'bg-indigo-500 animate-pulse' : 'bg-neutral-700'}`}
+                      className={`w-1.5 rounded-full transition-all duration-300 ${mediaIsPlaying ? 'bg-neutral-1000 animate-pulse' : 'bg-neutral-700'}`}
                       style={{
                         height: `${mediaIsPlaying ? Math.max(25, (h + (i * 15)) % 100) : 30}%`
                       }}
@@ -7374,7 +7791,7 @@ export default function App() {
                     }}
                     className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                   />
-                  <div className="flex justify-between text-[10px] font-mono text-neutral-400">
+                  <div className="flex justify-between text-[10px] font-mono text-neutral-500 dark:text-neutral-400">
                     <span>{Math.floor(mediaCurrentTime / 60)}:{Math.floor(mediaCurrentTime % 60).toString().padStart(2, '0')}</span>
                     <span>{Math.floor((mediaTotalDuration || 0) / 60)}:{Math.floor((mediaTotalDuration || 0) % 60).toString().padStart(2, '0')}</span>
                   </div>
@@ -7393,7 +7810,7 @@ export default function App() {
                         }
                       }
                     }}
-                    className="p-4 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white shadow-xl transition-transform active:scale-95 cursor-pointer"
+                    className="p-4 rounded-full bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 shadow-xl transition-transform active:scale-95 cursor-pointer"
                   >
                     {mediaIsPlaying ? <Pause className="h-7 w-7 fill-current" /> : <Play className="h-7 w-7 fill-current ml-0.5" />}
                   </button>
@@ -7404,12 +7821,12 @@ export default function App() {
             {/* 4. Document View */}
             {mediaPlayer.type === 'document' && (
               <div className="w-full max-w-xl p-8 rounded-3xl bg-neutral-900/90 border border-white/10 shadow-2xl flex flex-col items-center gap-6 text-center">
-                <div className="p-5 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                <div className="p-5 rounded-2xl bg-neutral-1000/20 text-neutral-500 dark:text-neutral-400 border border-neutral-900 dark:border-neutral-100/30">
                   <FileText className="h-16 w-16" />
                 </div>
                 <div className="space-y-1">
                   <h4 className="font-bold text-xl">{mediaPlayer.title}</h4>
-                  <p className="text-xs text-neutral-400">Size: {mediaPlayer.size || '1.5 MB'} • Document Attachment</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">Size: {mediaPlayer.size || '1.5 MB'} • Document Attachment</p>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3 w-full pt-2">
@@ -7418,7 +7835,7 @@ export default function App() {
                     download={mediaPlayer.title || 'document'}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex-1 py-3 px-5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-95 cursor-pointer"
+                    className="flex-1 py-3 px-5 rounded-2xl bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-95 cursor-pointer"
                   >
                     <Download className="h-4.5 w-4.5" />
                     <span>Download File</span>
@@ -7471,7 +7888,7 @@ export default function App() {
 
             {/* Message Preview snippet */}
             <div className="px-5 py-3 border-b border-neutral-100 dark:border-neutral-800 bg-neutral-100/50 dark:bg-neutral-900/50 text-left">
-              <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
+              <p className="text-[10px] font-bold text-neutral-900 dark:text-neutral-100">
                 {selectedMessageForActions.sender === 'me' ? 'You' : (users[selectedMessageForActions.sender]?.display_name || selectedMessageForActions.sender)}
               </p>
               <p className="text-xs text-neutral-700 dark:text-neutral-300 line-clamp-2 mt-0.5">
@@ -7486,7 +7903,7 @@ export default function App() {
                   onClick={() => handleCopyMessageText(selectedMessageForActions.text)}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition-colors cursor-pointer text-left"
                 >
-                  <Copy className="h-4 w-4 text-neutral-500" />
+                  <Copy className="h-4 w-4 text-neutral-700 dark:text-neutral-300" />
                   <span>Copy Message Text</span>
                 </button>
               )}
@@ -7498,7 +7915,7 @@ export default function App() {
                 }}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition-colors cursor-pointer text-left"
               >
-                <MessageSquare className="h-4 w-4 text-indigo-500" />
+                <MessageSquare className="h-4 w-4 text-neutral-700 dark:text-neutral-300" />
                 <span>Reply to Message</span>
               </button>
 
@@ -7510,7 +7927,7 @@ export default function App() {
                 }}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition-colors cursor-pointer text-left"
               >
-                <Forward className="h-4 w-4 text-sky-500" />
+                <Forward className="h-4 w-4 text-neutral-900 dark:text-neutral-100" />
                 <span>Forward Message</span>
               </button>
 
@@ -7522,7 +7939,7 @@ export default function App() {
                   }}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition-colors cursor-pointer text-left"
                 >
-                  <Edit2 className="h-4 w-4 text-emerald-500" />
+                  <Edit2 className="h-4 w-4 text-neutral-900 dark:text-neutral-100" />
                   <span>Edit Message</span>
                 </button>
               )}
@@ -7531,7 +7948,7 @@ export default function App() {
                 onClick={() => handleToggleStarMessage(selectedMessageForActions.id)}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition-colors cursor-pointer text-left"
               >
-                <Star className={`h-4 w-4 ${selectedMessageForActions.starred ? 'text-amber-500 fill-amber-500' : 'text-amber-500'}`} />
+                <Star className={`h-4 w-4 ${selectedMessageForActions.starred ? 'text-neutral-900 dark:text-neutral-100 fill-amber-500' : 'text-neutral-900 dark:text-neutral-100'}`} />
                 <span>{selectedMessageForActions.starred ? 'Unstar Message' : 'Star Message'}</span>
               </button>
 
@@ -7542,7 +7959,7 @@ export default function App() {
                 }}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition-colors cursor-pointer text-left"
               >
-                <Pin className="h-4 w-4 text-amber-500 rotate-45" />
+                <Pin className="h-4 w-4 text-neutral-900 dark:text-neutral-100 rotate-45" />
                 <span>{selectedMessageForActions.pinned ? 'Unpin Message' : 'Pin Message'}</span>
               </button>
 
@@ -7550,7 +7967,7 @@ export default function App() {
 
               <button
                 onClick={() => handleDeleteForMe(selectedMessageForActions.id)}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer text-left"
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-900 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-rose-950/30 transition-colors cursor-pointer text-left"
               >
                 <Trash2 className="h-4 w-4" />
                 <span>Delete for Me</span>
@@ -7559,7 +7976,7 @@ export default function App() {
               {canDeleteForEveryone(selectedMessageForActions) && (
                 <button
                   onClick={() => handleDeleteForEveryone(selectedMessageForActions.id)}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer text-left"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-900 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-rose-950/30 transition-colors cursor-pointer text-left"
                 >
                   <Trash2 className="h-4 w-4" />
                   <span>Delete for Everyone</span>
@@ -7598,11 +8015,11 @@ export default function App() {
               {renderAvatar(selectedChatForOptions.avatar_seed, selectedChatForOptions.name, selectedChatForOptions.avatar_url, 'h-11 w-11 text-base')}
               <div className="flex-1 min-w-0">
                 <h4 className="font-bold text-sm text-neutral-900 dark:text-white truncate">{selectedChatForOptions.name}</h4>
-                <p className="text-xs text-neutral-400 truncate">@{selectedChatForOptions.username || selectedChatForOptions.avatar_seed}</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 truncate">@{selectedChatForOptions.username || selectedChatForOptions.avatar_seed}</p>
               </div>
               <button
                 onClick={() => setSelectedChatForOptions(null)}
-                className="p-1.5 rounded-xl hover:bg-neutral-200 dark:hover:bg-neutral-800 text-neutral-400"
+                className="p-1.5 rounded-xl hover:bg-neutral-200 dark:hover:bg-neutral-800 text-neutral-500 dark:text-neutral-400"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -7617,7 +8034,7 @@ export default function App() {
                 }}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition-colors cursor-pointer text-left"
               >
-                <Pin className="h-4 w-4 text-indigo-600 rotate-45" />
+                <Pin className="h-4 w-4 text-neutral-900 dark:text-neutral-100 rotate-45" />
                 <span>{selectedChatForOptions.pinned ? 'Unpin Chat' : 'Pin Chat to Top'}</span>
               </button>
 
@@ -7625,7 +8042,7 @@ export default function App() {
                 onClick={() => handleToggleArchiveChat(selectedChatForOptions.id)}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition-colors cursor-pointer text-left"
               >
-                <Archive className="h-4 w-4 text-amber-500" />
+                <Archive className="h-4 w-4 text-neutral-900 dark:text-neutral-100" />
                 <span>{selectedChatForOptions.archived ? 'Unarchive Chat' : 'Archive Chat'}</span>
               </button>
 
@@ -7636,7 +8053,7 @@ export default function App() {
                 }}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition-colors cursor-pointer text-left"
               >
-                <VolumeX className="h-4 w-4 text-sky-500" />
+                <VolumeX className="h-4 w-4 text-neutral-900 dark:text-neutral-100" />
                 <span>{selectedChatForOptions.muted ? 'Unmute Notifications' : 'Mute Notifications'}</span>
               </button>
 
@@ -7648,7 +8065,7 @@ export default function App() {
                 }}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition-colors cursor-pointer text-left"
               >
-                <Palette className="h-4 w-4 text-purple-500" />
+                <Palette className="h-4 w-4 text-neutral-700 dark:text-neutral-300" />
                 <span>Change Chat Wallpaper & Theme</span>
               </button>
 
@@ -7659,13 +8076,13 @@ export default function App() {
                 }}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition-colors cursor-pointer text-left"
               >
-                <FileDown className="h-4 w-4 text-emerald-500" />
+                <FileDown className="h-4 w-4 text-neutral-900 dark:text-neutral-100" />
                 <span>Export Chat History (.txt)</span>
               </button>
 
               <button
                 onClick={() => handleClearChatHistory(selectedChatForOptions.id)}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors cursor-pointer text-left"
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:bg-neutral-800 dark:hover:bg-amber-950/30 transition-colors cursor-pointer text-left"
               >
                 <Sparkles className="h-4 w-4" />
                 <span>Clear Chat History</span>
@@ -7675,7 +8092,7 @@ export default function App() {
 
               <button
                 onClick={() => handleDeleteChat(selectedChatForOptions.id)}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer text-left"
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold text-neutral-900 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-rose-950/30 transition-colors cursor-pointer text-left"
               >
                 <Trash2 className="h-4 w-4" />
                 <span>Delete Chat Permanently</span>
@@ -7696,145 +8113,218 @@ export default function App() {
       )}
 
       {/* ========================================================================= */}
-      {/* OPEN CHAT CUSTOMIZATION & WHATSAPP CONTROLS MODAL                        */}
+      {/* CHAT CUSTOMIZATION & OPTIONS MODAL (Aesthetic & Minimal)                 */}
       {/* ========================================================================= */}
       {showChatCustomizationSheet && activeChat && (
         <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 md:p-6 animate-fade-in"
-          onClick={() => setShowChatCustomizationSheet(false)}
+          className="fixed inset-0 bg-black/40 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => { setShowChatCustomizationSheet(false); setChatCustomizationView('main'); }}
         >
           <div 
-            className="w-full max-w-xl max-h-[90vh] bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-all text-left"
+            className="w-full max-w-sm bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-all text-left relative"
             onClick={(e) => e.stopPropagation()}
           >
-            
-            {/* Header */}
-            <div className="px-5 py-4 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-3">
-                {renderAvatar(activeChat.avatar_seed, activeChat.name, activeChat.avatar_url, 'h-10 w-10 text-xs')}
-                <div>
-                  <h3 className="font-bold text-base text-neutral-900 dark:text-white">{activeChat.name}</h3>
-                  <p className="text-[11px] text-neutral-400">Chat settings & customization</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowChatCustomizationSheet(false)}
-                className="p-2 rounded-xl text-neutral-400 hover:text-neutral-700 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+            {/* Main View */}
+            {chatCustomizationView === 'main' && (
+              <motion.div 
+                initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+                className="flex flex-col"
               >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Scroll Content */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-6">
-              
-              {/* Wallpaper & Theme Section */}
-              <div className="space-y-3">
-                <label className="text-xs font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-2">
-                  <Palette className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                  <span>Wallpaper & Themes Gallery</span>
-                </label>
-                <p className="text-[11px] text-neutral-400">Choose from Glowing Dark, Love & Romance, Cute Animals, and WhatsApp themes with auto-matching chat bubble colors.</p>
-                
-                <button
-                  onClick={() => {
-                    setShowChatCustomizationSheet(false);
-                    setShowThemeModal(true);
-                  }}
-                  className="w-full p-3.5 rounded-2xl bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-white font-bold text-xs flex items-center justify-between transition-all cursor-pointer shadow-xs"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Sparkles className="h-4 w-4 text-amber-400" />
-                    <span>Open Theme & Wallpaper Gallery</span>
-                  </div>
-                  <ChevronRight className="h-4 w-4 opacity-80" />
-                </button>
-              </div>
-
-              <div className="h-px bg-neutral-100 dark:bg-neutral-800" />
-
-              {/* Notification & Disappearing Settings */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-2">
-                      <VolumeX className="h-4 w-4 text-sky-500" />
-                      <span>Mute Notifications</span>
-                    </p>
-                    <p className="text-[11px] text-neutral-400">Silence sound alerts for this contact</p>
+                {/* Header */}
+                <div className="px-5 py-5 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-4">
+                    {renderAvatar(activeChat.avatar_seed, activeChat.name, activeChat.avatar_url, 'h-12 w-12 text-lg shadow-sm')}
+                    <div>
+                      <h3 className="font-bold text-lg text-neutral-900 dark:text-white leading-tight">{activeChat.name}</h3>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Contact Options</p>
+                    </div>
                   </div>
                   <button
-                    onClick={(e) => handleToggleMuteChat(e, activeChat.id)}
-                    className={`relative w-11 h-6 rounded-full transition-colors ${activeChat.muted ? 'bg-indigo-600' : 'bg-neutral-300 dark:bg-neutral-700'}`}
+                    onClick={() => setShowChatCustomizationSheet(false)}
+                    className="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
                   >
-                    <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${activeChat.muted ? 'translate-x-5' : ''}`} />
+                    <X className="h-5 w-5" />
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-amber-500" />
-                      <span>Disappearing Messages</span>
-                    </p>
-                    <p className="text-[11px] text-neutral-400">Auto-delete messages after selected duration</p>
-                  </div>
-                  <select
-                    value={chatDisappearing[activeChat.id] || 'off'}
-                    onChange={(e) => {
-                      const val = e.target.value as any;
-                      setChatDisappearing(prev => ({ ...prev, [activeChat.id]: val }));
-                      showToast(`Disappearing messages set to ${val}`);
-                    }}
-                    className="px-2.5 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 text-xs font-semibold outline-none focus:border-indigo-500"
-                  >
-                    <option value="off">Off</option>
-                    <option value="24h">24 Hours</option>
-                    <option value="7d">7 Days</option>
-                    <option value="90d">90 Days</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="h-px bg-neutral-100 dark:bg-neutral-800" />
-
-              {/* Chat Actions */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-2">
-                  <Shield className="h-4 w-4 text-emerald-500" />
-                  <span>Chat Management</span>
-                </label>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                  <button
-                    onClick={() => handleExportChat(activeChat.id)}
-                    className="flex items-center gap-2 p-3 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-950/50 hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition-colors text-xs font-semibold text-neutral-700 dark:text-neutral-200"
-                  >
-                    <FileDown className="h-4 w-4 text-indigo-500" />
-                    <span>Export Transcript</span>
+                {/* List Content */}
+                <div className="p-3 space-y-1">
+                  <button onClick={() => { setShowChatCustomizationSheet(false); setShowThemeModal(true); }} className="w-full text-left px-4 py-3 rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50 flex items-center justify-between transition-colors cursor-pointer group">
+                    <div className="flex items-center gap-4">
+                      <div className="p-2 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 group-hover:scale-110 transition-transform">
+                        <Palette className="h-4 w-4" />
+                      </div>
+                      <span className="font-semibold text-sm text-neutral-700 dark:text-neutral-200">Wallpaper & Theme</span>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
                   </button>
 
-                  <button
-                    onClick={() => handleClearChatHistory(activeChat.id)}
-                    className="flex items-center gap-2 p-3 rounded-2xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/30 dark:bg-amber-950/20 hover:bg-amber-100/50 transition-colors text-xs font-semibold text-amber-600 dark:text-amber-400"
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    <span>Clear Chat History</span>
+                  <button onClick={(e) => handleToggleMuteChat(e, activeChat.id)} className="w-full text-left px-4 py-3 rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50 flex items-center justify-between transition-colors cursor-pointer group">
+                    <div className="flex items-center gap-4">
+                      <div className="p-2 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 group-hover:scale-110 transition-transform">
+                        <VolumeX className="h-4 w-4" />
+                      </div>
+                      <span className="font-semibold text-sm text-neutral-700 dark:text-neutral-200">Mute Notifications</span>
+                    </div>
+                    <div className={`relative w-10 h-5 rounded-full transition-colors ${activeChat.muted ? 'bg-neutral-900 dark:bg-neutral-100' : 'bg-neutral-200 dark:bg-neutral-700'}`}>
+                      <span className={`absolute top-0.5 left-0.5 bg-white w-4 h-4 rounded-full shadow-sm transition-transform ${activeChat.muted ? 'translate-x-5' : ''}`} />
+                    </div>
+                  </button>
+
+                  <button onClick={() => setChatCustomizationView('disappearing')} className="w-full text-left px-4 py-3 rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50 flex items-center justify-between transition-colors cursor-pointer group">
+                    <div className="flex items-center gap-4">
+                      <div className="p-2 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 group-hover:scale-110 transition-transform">
+                        <Clock className="h-4 w-4" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-sm text-neutral-700 dark:text-neutral-200">Disappearing Messages</span>
+                        <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">
+                          {chatDisappearing[activeChat.id] === '24h' ? '24 Hours' :
+                           chatDisappearing[activeChat.id] === '48h' ? '48 Hours' :
+                           chatDisappearing[activeChat.id] === '7d' ? '7 Days' :
+                           chatDisappearing[activeChat.id] === '30d' ? '30 Days' :
+                           chatDisappearing[activeChat.id]?.startsWith('custom_') ? 'Custom' : 'Off'}
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
+                  </button>
+
+                  <div className="h-px bg-neutral-100 dark:bg-neutral-800 my-2 mx-4" />
+
+                  <button onClick={() => { setShowChatCustomizationSheet(false); handleExportChat(activeChat.id); }} className="w-full text-left px-4 py-3 rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50 flex items-center gap-4 transition-colors cursor-pointer group">
+                    <div className="p-2 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 group-hover:scale-110 transition-transform">
+                      <FileDown className="h-4 w-4" />
+                    </div>
+                    <span className="font-semibold text-sm text-neutral-700 dark:text-neutral-200">Export Transcript</span>
+                  </button>
+
+                  <button onClick={() => { setShowChatCustomizationSheet(false); handleClearChatHistory(activeChat.id); }} className="w-full text-left px-4 py-3 rounded-2xl hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-4 transition-colors cursor-pointer group">
+                    <div className="p-2 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 group-hover:scale-110 transition-transform">
+                      <Sparkles className="h-4 w-4" />
+                    </div>
+                    <span className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">Clear Chat History</span>
                   </button>
                 </div>
-              </div>
+              </motion.div>
+            )}
 
-            </div>
-
-            {/* Footer */}
-            <div className="p-4 border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 flex justify-end">
-              <button
-                onClick={() => setShowChatCustomizationSheet(false)}
-                className="px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-transform active:scale-95 cursor-pointer"
+            {/* Disappearing Messages View */}
+            {chatCustomizationView === 'disappearing' && (
+              <motion.div 
+                initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
+                className="flex flex-col"
               >
-                Done
-              </button>
-            </div>
+                <div className="px-3 py-4 border-b border-neutral-100 dark:border-neutral-800 flex items-center gap-3 shrink-0">
+                  <button
+                    onClick={() => setChatCustomizationView('main')}
+                    className="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                  <h3 className="font-bold text-base text-neutral-900 dark:text-white">Message Timer</h3>
+                </div>
+
+                <div className="p-4 space-y-4">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 text-center px-4 leading-relaxed">
+                    Set a timer. New messages will automatically disappear after the selected duration.
+                  </p>
+
+                  <div className="space-y-1">
+                    {[
+                      { id: 'off', label: 'Off' },
+                      { id: '24h', label: '24 Hours' },
+                      { id: '48h', label: '48 Hours' },
+                      { id: '7d', label: '7 Days' },
+                      { id: '30d', label: '30 Days' },
+                      { id: 'custom', label: 'Custom' }
+                    ].map(opt => {
+                      const isActive = opt.id === 'custom' 
+                        ? (chatDisappearing[activeChat.id] || '').startsWith('custom_') 
+                        : (chatDisappearing[activeChat.id] || 'off') === opt.id;
+                      
+                      return (
+                        <button
+                          key={opt.id}
+                          onClick={async () => {
+                            if (opt.id === 'custom') {
+                              const v = customDisappearingValue || '1';
+                              const u = customDisappearingUnit || 'd';
+                              const customVal = `custom_${v}${u}`;
+                              setChatDisappearing(prev => ({ ...prev, [activeChat.id]: customVal }));
+                              if (isFirebaseConfigured && db && auth) {
+                                try { await setDoc(doc(db, 'chats', activeChat.id), { disappearing_messages: customVal }, { merge: true }); } catch (err) {}
+                              }
+                            } else {
+                              setChatDisappearing(prev => ({ ...prev, [activeChat.id]: opt.id }));
+                              if (isFirebaseConfigured && db && auth) {
+                                try { await setDoc(doc(db, 'chats', activeChat.id), { disappearing_messages: opt.id }, { merge: true }); } catch (err) {}
+                              }
+                            }
+                          }}
+                          className="w-full text-left px-4 py-3 rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50 flex items-center justify-between transition-colors cursor-pointer"
+                        >
+                          <span className={`font-semibold text-sm ${isActive ? 'text-neutral-900 dark:text-neutral-100' : 'text-neutral-700 dark:text-neutral-200'}`}>
+                            {opt.label}
+                          </span>
+                          {isActive && <Check className="h-4 w-4 text-neutral-900 dark:text-neutral-100" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Custom Duration Input */}
+                  <AnimatePresence>
+                    {(chatDisappearing[activeChat.id] || '').startsWith('custom_') && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="pt-2 px-4 flex items-center gap-3">
+                          <input
+                            type="number"
+                            min="1"
+                            max="365"
+                            value={customDisappearingValue}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCustomDisappearingValue(val);
+                              if (val && parseInt(val) > 0) {
+                                const customVal = `custom_${val}${customDisappearingUnit}`;
+                                setChatDisappearing(prev => ({ ...prev, [activeChat.id]: customVal }));
+                                if (isFirebaseConfigured && db && auth) {
+                                  try { setDoc(doc(db, 'chats', activeChat.id), { disappearing_messages: customVal }, { merge: true }); } catch (err) {}
+                                }
+                              }
+                            }}
+                            className="w-20 px-3 py-2 bg-neutral-100 dark:bg-neutral-800 border-none rounded-xl text-center text-sm font-bold text-neutral-900 dark:text-white outline-none focus:ring-2 focus:ring-neutral-900 dark:ring-neutral-100 transition-all"
+                            placeholder="1"
+                          />
+                          <select
+                            value={customDisappearingUnit}
+                            onChange={(e) => {
+                              const unit = e.target.value as 'h' | 'd';
+                              setCustomDisappearingUnit(unit);
+                              const v = customDisappearingValue || '1';
+                              const customVal = `custom_${v}${unit}`;
+                              setChatDisappearing(prev => ({ ...prev, [activeChat.id]: customVal }));
+                              if (isFirebaseConfigured && db && auth) {
+                                try { setDoc(doc(db, 'chats', activeChat.id), { disappearing_messages: customVal }, { merge: true }); } catch (err) {}
+                              }
+                            }}
+                            className="flex-1 px-3 py-2 bg-neutral-100 dark:bg-neutral-800 border-none rounded-xl text-sm font-bold text-neutral-900 dark:text-white outline-none focus:ring-2 focus:ring-neutral-900 dark:ring-neutral-100 transition-all cursor-pointer"
+                          >
+                            <option value="h">Hours</option>
+                            <option value="d">Days</option>
+                          </select>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                </div>
+              </motion.div>
+            )}
 
           </div>
         </div>

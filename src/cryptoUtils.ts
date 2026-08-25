@@ -136,8 +136,42 @@ export async function decryptMessageText(ciphertext: string, chatId: string): Pr
 }
 
 /**
- * Helper to check if text is an encrypted payload
+ * Encrypts a File or Blob using AES-GCM
  */
-export function isEncryptedMessage(text: string): boolean {
-  return typeof text === 'string' && text.startsWith(E2EE_PREFIX);
+export async function encryptFile(file: File | Blob, chatId: string): Promise<Blob> {
+  const key = await deriveChatKey(chatId);
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const arrayBuffer = await file.arrayBuffer();
+  
+  const cipherBuffer = await window.crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    arrayBuffer
+  );
+  
+  // Package as [IV(12 bytes)][Ciphertext]
+  const combined = new Uint8Array(iv.length + cipherBuffer.byteLength);
+  combined.set(iv);
+  combined.set(new Uint8Array(cipherBuffer), iv.length);
+  
+  return new Blob([combined], { type: 'application/octet-stream' });
+}
+
+/**
+ * Decrypts an encrypted Blob back into original Blob
+ */
+export async function decryptFile(encryptedBlob: Blob, chatId: string, originalType: string): Promise<Blob> {
+  const key = await deriveChatKey(chatId);
+  const arrayBuffer = await encryptedBlob.arrayBuffer();
+  
+  const iv = new Uint8Array(arrayBuffer.slice(0, 12));
+  const cipherBuffer = arrayBuffer.slice(12);
+  
+  const decryptedBuffer = await window.crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    cipherBuffer
+  );
+  
+  return new Blob([decryptedBuffer], { type: originalType });
 }
