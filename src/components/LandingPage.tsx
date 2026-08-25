@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { LegalModal, LegalDocType } from './LegalModal';
 import { 
   ShieldCheck, ArrowRight, Lock, Sun, Moon, ChevronDown, 
   ChevronUp, Send, Check, Terminal, FileText, Key,
@@ -21,6 +22,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 }) => {
   const [activeDocTab, setActiveDocTab] = useState<'crypto' | 'privacy' | 'terms' | 'architecture'>('crypto');
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
+  const [showLegalModal, setShowLegalModal] = useState<boolean>(false);
+  const [legalModalTab, setLegalModalTab] = useState<LegalDocType>('privacy');
   
   // Contact Form State
   const [contactName, setContactName] = useState<string>('');
@@ -797,9 +800,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div>
             <h4 className="font-bold text-neutral-900 dark:text-white uppercase text-[10px] tracking-wider mb-3">Legal & Governance</h4>
             <ul className="space-y-2 text-[11px]">
-              <li><a href="#docs" onClick={() => setActiveDocTab('privacy')} className="hover:text-neutral-900 dark:hover:text-white transition-colors">Privacy Policy</a></li>
-              <li><a href="#docs" onClick={() => setActiveDocTab('terms')} className="hover:text-neutral-900 dark:hover:text-white transition-colors">Terms of Service</a></li>
-              <li><a href="#docs" onClick={() => setActiveDocTab('crypto')} className="hover:text-neutral-900 dark:hover:text-white transition-colors">Cryptography Specs</a></li>
+              <li><button type="button" onClick={() => { setLegalModalTab('privacy'); setShowLegalModal(true); }} className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer text-left">Privacy Policy</button></li>
+              <li><button type="button" onClick={() => { setLegalModalTab('terms'); setShowLegalModal(true); }} className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer text-left">Terms & Conditions</button></li>
+              <li><button type="button" onClick={() => { setLegalModalTab('disclaimer'); setShowLegalModal(true); }} className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer text-left">Risk & Legal Disclaimer</button></li>
               <li><a href="#faq" className="hover:text-neutral-900 dark:hover:text-white transition-colors">Help Center</a></li>
             </ul>
           </div>
@@ -824,6 +827,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </div>
       </footer>
+
+      <LegalModal
+        isOpen={showLegalModal}
+        onClose={() => setShowLegalModal(false)}
+        initialTab={legalModalTab}
+        themeMode={themeMode}
+      />
     </div>
   );
 };

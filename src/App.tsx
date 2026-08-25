@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {  
   MessageSquare, Search, LogOut, Pin, VolumeX, Check, CheckCheck, 
   Send, Paperclip, Smile, Image as ImageIcon, Video, FileText, Mic, 
@@ -8,11 +8,12 @@ import {
   Grid, Bookmark, Download, Palette, 
   Database, Volume2, Laptop, ChevronRight, Copy, Lock, Bell, ShieldCheck, Mail, Phone,
   MapPin, BarChart2, Play, Pause, StopCircle, UserPlus, ExternalLink,
-  ZoomIn, ZoomOut, RotateCw, RefreshCw, Maximize2, MoreVertical, Archive, Folder, Clock, Shield, Sparkles, FileDown
+  ZoomIn, ZoomOut, RotateCw, RefreshCw, Maximize2, MoreVertical, Archive, Folder, Clock, Shield, Sparkles, FileDown,
+  PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneCall, PhoneOff, ArrowUpRight, ArrowDownLeft, History, Calendar, VideoOff, Filter
 } from 'lucide-react';
 import {  motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
-import {  UserData, Chat, Message, PollData } from './types';
+import {  UserData, Chat, Message, PollData, CallData, CallHistoryRecord } from './types';
 import {  SEED_USERS, SEED_CHATS, SEED_MESSAGES } from './data';
 import {  isFirebaseConfigured, db, auth } from './firebaseClient';
 import {  MessageCard } from './components/MessageCard';
@@ -27,20 +28,73 @@ import {  LandingPage } from './components/LandingPage';
 import {  AuthFlow } from './components/AuthFlow';
 import {  AccountSetup } from './components/AccountSetup';
 import {  PublicProfileView } from './components/PublicProfileView';
-import { isUserEffectivelyOnline } from './presenceUtils';
+import { isUserEffectivelyOnline, getOnlineStatusText } from './presenceUtils';
 import {  getThemeById, DEFAULT_THEME_ID } from './chatThemes';
+import {  getMessageDateKey, formatChatDateDivider } from './dateUtils';
 import {  encryptMessageText, decryptMessageText } from './cryptoUtils';
-import {  CallModal, CallSession } from './components/CallModal';
+import {  storageManager } from './storageManager';
+import {  compressImage } from './mediaCompressor';
+import {  uploadMediaToCloud } from './cloudStorage';
+import {  CallModal, CallSession, CallEndMetadata } from './components/CallModal';
 import {  blobToBase64, getSupportedMimeType, generateSyntheticVoiceNote } from './audioUtils';
 import OneSignal from 'react-onesignal';
 import {  
-  collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, query, where, getDocs 
+  collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, query, where, getDocs, updateDoc, arrayUnion 
 } from 'firebase/firestore';
 import {  
   signInWithEmailAndPassword, createUserWithEmailAndPassword, 
   signOut as firebaseSignOut, onAuthStateChanged, 
   GoogleAuthProvider, FacebookAuthProvider, signInWithPopup, sendEmailVerification, sendPasswordResetEmail 
 } from 'firebase/auth';
+
+export const checkUsernameIsTakenInFirestore = async (
+  dbRef: any,
+  username: string,
+  currentUserId?: string,
+  localUsers: Record<string, UserData> = {}
+): Promise<{ isTaken: boolean; reason?: string }> => {
+  const clean = (username || '').trim().toLowerCase();
+
+  if (!clean || clean.length < 3 || clean.length > 20 || !/^[a-z0-9_]+$/.test(clean)) {
+    return { isTaken: true, reason: 'Username must be 3-20 characters: letters, numbers, underscores only.' };
+  }
+
+  const localMatch = Object.values(localUsers).find(
+    u => (u.username?.toLowerCase() === clean || u.previous_usernames?.map(p => p.toLowerCase()).includes(clean)) && u.id !== currentUserId
+  );
+  if (localMatch) {
+    return { isTaken: true, reason: `@${clean} is already taken.` };
+  }
+
+  if (dbRef) {
+    try {
+      const usernameDocRef = doc(dbRef, 'usernames', clean);
+      const usernameSnap = await getDoc(usernameDocRef);
+      if (usernameSnap.exists()) {
+        const resData = usernameSnap.data();
+        if (resData && resData.uid && resData.uid !== currentUserId) {
+          return { isTaken: true, reason: `@${clean} is already registered.` };
+        }
+      }
+
+      const usersRef = collection(dbRef, 'users');
+      const q = query(usersRef, where('username', '==', clean));
+      const querySnap = await getDocs(q);
+
+      if (!querySnap.empty) {
+        for (const docSnap of querySnap.docs) {
+          if (docSnap.id !== currentUserId) {
+            return { isTaken: true, reason: `@${clean} is already taken by another account.` };
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn("Firestore username availability check notice:", err.message);
+    }
+  }
+
+  return { isTaken: false };
+};
 
 export default function App() {
   // Initialize OneSignal Web Push SDK
@@ -107,10 +161,16 @@ export default function App() {
   const dedupeMessages = (msgs: Message[]): Message[] => {
     if (!msgs || !Array.isArray(msgs)) return [];
     const seen = new Set<string>();
+    const callSeen = new Set<string>();
     return msgs.filter(m => {
       if (!m || !m.id) return false;
       if (seen.has(m.id)) return false;
       seen.add(m.id);
+      // Strictly prevent duplicate call log entries for the same call_id
+      if (m.type === 'call' && m.call_data?.call_id) {
+        if (callSeen.has(m.call_data.call_id)) return false;
+        callSeen.add(m.call_data.call_id);
+      }
       return true;
     });
   };
@@ -152,13 +212,28 @@ export default function App() {
     });
   };
 
-  const safeFirestoreUrl = (url: string | undefined | null, fileName = 'file'): string | null => {
+  const safeFirestoreUrl = async (url: string | undefined | null, fileName = 'file', customPath?: string): Promise<string | null> => {
     if (!url) return null;
+    // If it's already an external HTTP/HTTPS URL, return as is
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    // If payload is a data URL and exceeds 200KB, seamlessly offload to Cloud Storage bucket for infinite scaling
+    if (url.startsWith('data:') && url.length > 200000) {
+      try {
+        const cloudPath = customPath || `media_uploads/${Date.now()}_${Math.random().toString(36).substring(2, 8)}_${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const cloudUrl = await uploadMediaToCloud(url, cloudPath);
+        if (cloudUrl && cloudUrl.startsWith('http')) {
+          return cloudUrl;
+        }
+      } catch (err) {
+        console.warn("Cloud Storage offload warning:", err);
+      }
+    }
     // Firestore 1MB document limit = 1,048,576 bytes.
-    // Capping payload at 700,000 characters ensures setDoc will never throw doc size exceeded errors.
     if (url.length > 700000) {
-      console.warn(`Attachment exceeds Firestore 1MB doc size limit (${url.length} chars). Saving placeholder for remote sync.`);
-      return `[File Attachment (${fileName}): Base64 payload exceeds 1MB cloud document limit. Accessible locally.]`;
+      console.warn(`Attachment exceeds Firestore 1MB doc size limit (${url.length} chars). Offloaded to cloud storage.`);
+      return `[File Attachment (${fileName}): Stored securely in Cloud Storage]`;
     }
     return url;
   };
@@ -173,61 +248,154 @@ export default function App() {
   // Secure Voice & Video Calling States
   const [activeCallSession, setActiveCallSession] = useState<CallSession | null>(null);
 
+  const handleStartCallWithUser = (targetUsername: string, type: 'voice' | 'video') => {
+    if (!targetUsername) return;
+    const targetUserObj = users[targetUsername] || Object.values(users).find(u => u.username === targetUsername);
+    const partnerName = targetUserObj?.display_name || targetUsername;
+    const partnerAvatarSeed = targetUserObj?.avatar_seed || targetUsername;
+    const partnerAvatarUrl = targetUserObj?.avatar_url || '';
+
+    // Find or create chat if needed
+    let targetChat = chats.find(c => c.type === 'dm' && c.username === targetUsername);
+    if (!targetChat) {
+      const newChatId = 'chat_' + [userUsername, targetUsername].sort().join('_');
+      targetChat = {
+        id: newChatId,
+        type: 'dm',
+        name: partnerName,
+        username: targetUsername,
+        avatar_seed: partnerAvatarSeed,
+        avatar_url: partnerAvatarUrl,
+        participants: [userUsername, targetUsername],
+        unread: 0,
+        last_message: 'Started conversation',
+        last_time: 'now',
+        pinned: false,
+        muted: false,
+        typing: false,
+        online: isUserEffectivelyOnline(targetUserObj),
+        last_seen: targetUserObj?.last_seen || ''
+      };
+      setChats(prev => [targetChat!, ...prev]);
+    }
+    setActiveChatId(targetChat.id);
+
+    const nowTimestamp = Date.now();
+    const nowTimeStr = new Date(nowTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const newCallSession: CallSession = {
+      id: 'call_' + nowTimestamp.toString(36) + '_' + Math.random().toString(36).substring(2, 6),
+      type: type,
+      status: 'dialing',
+      isIncoming: false,
+      partnerUsername: targetUsername,
+      partnerName: partnerName,
+      partnerAvatarSeed: partnerAvatarSeed,
+      partnerAvatarUrl: partnerAvatarUrl,
+      startedAt: nowTimestamp,
+      startTimeStr: nowTimeStr
+    };
+
+    // If Firestore is active, initialize call signaling document with full user details
+    if (isFirebaseConfigured && db) {
+      setDoc(doc(db, 'calls', newCallSession.id), {
+        id: newCallSession.id,
+        type: type,
+        caller: userUsername,
+        receiver: targetUsername,
+        caller_name: userDisplayName || userUsername,
+        receiver_name: partnerName,
+        caller_avatar_seed: userAvatarSeed || userUsername,
+        caller_avatar_url: userAvatarUrl || '',
+        receiver_avatar_seed: partnerAvatarSeed,
+        receiver_avatar_url: partnerAvatarUrl,
+        status: 'dialing',
+        created_at: nowTimestamp,
+        start_time_str: nowTimeStr,
+        candidates: []
+      }).catch(err => console.warn("Failed to synchronize call to Cloud Firestore:", err));
+    }
+
+    // Local tab signaling accelerator
+    try {
+      if (typeof BroadcastChannel !== 'undefined' && targetUsername) {
+        const bc = new BroadcastChannel(`zenoa_incoming_calls_${targetUsername}`);
+        bc.postMessage({
+          id: newCallSession.id,
+          type: type,
+          caller: userUsername,
+          receiver: targetUsername,
+          status: 'dialing',
+          created_at: nowTimestamp,
+          start_time_str: nowTimeStr
+        });
+        setTimeout(() => bc.close(), 2000);
+      }
+    } catch (bcErr) {
+      console.warn("BroadcastChannel post notice:", bcErr);
+    }
+
+    setActiveCallSession(newCallSession);
+    showToast(`Calling ${partnerName}...`);
+  };
+
   const handleStartCall = (type: 'voice' | 'video') => {
     const activeChat = chats.find(c => c.id === activeChatId);
     if (!activeChat) {
       showToast("Select a conversation to start a call");
       return;
     }
-
-    const newCallSession: CallSession = {
-      id: 'call_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 6),
-      type: type,
-      status: 'dialing',
-      isIncoming: false,
-      partnerUsername: activeChat.username,
-      partnerName: activeChat.name,
-      partnerAvatarSeed: activeChat.avatar_seed || activeChat.username,
-      partnerAvatarUrl: activeChat.avatar_url || users[activeChat.username]?.avatar_url
-    };
-
-    // If Firestore is active, initialize call signaling document
-    if (isFirebaseConfigured && db) {
-      setDoc(doc(db, 'calls', newCallSession.id), {
-        id: newCallSession.id,
-        type: type,
-        caller: userUsername,
-        receiver: activeChat.username,
-        status: 'dialing',
-        created_at: Date.now(),
-        candidates: []
-      }).catch(err => console.warn("Failed to synchronize call to Cloud Firestore:", err));
-    }
-
-    setActiveCallSession(newCallSession);
-    showToast(`Calling ${activeChat.name}...`);
+    handleStartCallWithUser(activeChat.username, type);
   };
 
-  const handleEndCall = async (duration: number, reason: string) => {
+  const handleEndCall = async (metaOrDuration: CallEndMetadata | number, reason?: string) => {
     if (activeCallSession && activeCallSession.partnerUsername) {
       const targetChat = chats.find(c => c.type === 'dm' && c.username === activeCallSession.partnerUsername);
       if (targetChat) {
-        const callTypeLabel = activeCallSession.type === 'video' ? '📹 Video' : '📞 Voice';
-        const isMissed = reason === 'declined' || (reason === 'ended' && duration === 0);
-        let logText = '';
-        
-        if (isMissed) {
-          logText = activeCallSession.isIncoming ? `Missed ${callTypeLabel} Call` : `Unanswered ${callTypeLabel} Call`;
+        let callMeta: CallEndMetadata;
+        if (typeof metaOrDuration === 'object' && metaOrDuration !== null && 'status' in metaOrDuration) {
+          callMeta = metaOrDuration;
         } else {
+          const duration = typeof metaOrDuration === 'number' ? metaOrDuration : 0;
+          const wasConnected = activeCallSession.status === 'connected' || (reason === 'ended' && duration > 0);
           const m = Math.floor(duration / 60);
           const s = duration % 60;
           const durationStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-          logText = `${callTypeLabel} Call • ${durationStr}`;
+          const startTimeStr = activeCallSession.startTimeStr || new Date(activeCallSession.startedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const endTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+          callMeta = {
+            callId: activeCallSession.id,
+            callType: activeCallSession.type,
+            status: wasConnected ? 'answered' : (activeCallSession.isIncoming ? 'missed' : (reason === 'declined' ? 'declined' : 'unanswered')),
+            startTime: startTimeStr,
+            endTime: endTimeStr,
+            durationSeconds: duration,
+            durationFormatted: durationStr
+          };
         }
 
-        const newMsgId = 'msg_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 6);
+        const callTypeLabel = callMeta.callType === 'video' ? 'Video' : 'Voice';
+        let logText = '';
+        if (callMeta.status === 'answered') {
+          logText = `${callTypeLabel} Call • ${callMeta.durationFormatted}`;
+        } else {
+          logText = activeCallSession.isIncoming ? `Missed ${callTypeLabel} Call` : `Unanswered ${callTypeLabel} Call`;
+        }
+
+        const newMsgId = 'call_log_' + (callMeta.callId || activeCallSession.id);
         const sender = activeCallSession.isIncoming ? activeCallSession.partnerUsername : (userUsername || 'me');
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        const callDataPayload: CallData = {
+          call_id: callMeta.callId,
+          call_type: callMeta.callType,
+          status: callMeta.status,
+          start_time: callMeta.startTime,
+          end_time: callMeta.status === 'answered' ? callMeta.endTime : undefined,
+          duration_seconds: callMeta.durationSeconds,
+          duration_formatted: callMeta.durationFormatted
+        };
 
         const newMsg: Message = {
           id: newMsgId,
@@ -235,7 +403,8 @@ export default function App() {
           text: logText,
           sender,
           timestamp,
-          type: 'text',
+          type: 'call',
+          call_data: callDataPayload,
           reactions: [],
           read_by: [],
           reply_to: undefined,
@@ -258,7 +427,8 @@ export default function App() {
               created_at: Date.now(),
               sender,
               text: encryptedPayload,
-              type: 'text',
+              type: 'call',
+              call_data: callDataPayload,
               timestamp,
               reactions: [],
               read_by: [],
@@ -276,6 +446,19 @@ export default function App() {
               last_message_sender: sender,
               last_message_status: 'delivered' as const
             }, { merge: true });
+
+            // Also ensure call document in calls collection reflects final status
+            const callDocId = callMeta.callId || activeCallSession.id;
+            if (callDocId) {
+              await updateDoc(doc(db, 'calls', callDocId), {
+                status: callMeta.status,
+                ended_at: Date.now(),
+                duration: callMeta.durationSeconds,
+                duration_seconds: callMeta.durationSeconds,
+                duration_formatted: callMeta.durationFormatted,
+                end_time_str: callMeta.endTime
+              }).catch(() => {});
+            }
           } catch (err) {
             console.warn("Call log delivery notice:", err);
           }
@@ -283,7 +466,7 @@ export default function App() {
 
         setMessagesByChat(prev => ({
           ...prev,
-          [targetChat.id]: [...(prev[targetChat.id] || []), newMsg]
+          [targetChat.id]: dedupeMessages([...(prev[targetChat.id] || []), newMsg])
         }));
         setChats(prev => prev.map(c => c.id === targetChat.id ? { 
           ...c, 
@@ -296,7 +479,7 @@ export default function App() {
       }
     }
     setActiveCallSession(null);
-    showToast("Call ended safely");
+    showToast("Call ended");
   };
 
   const handleAnswerCall = () => {
@@ -315,7 +498,10 @@ export default function App() {
   const [settingsSearchQuery, setSettingsSearchQuery] = useState<string>('');
   const [showEditProfileModal, setShowEditProfileModal] = useState<boolean>(false);
   const [showShareProfileModal, setShowShareProfileModal] = useState<boolean>(false);
-  const [profileActiveTab, setProfileActiveTab] = useState<'media' | 'saved'>('media');
+  const [profileActiveTab, setProfileActiveTab] = useState<'media' | 'saved' | 'calls'>('media');
+  const [callHistoryFilter, setCallHistoryFilter] = useState<'all' | 'missed' | 'incoming' | 'outgoing' | 'video' | 'voice'>('all');
+  const [callHistorySearch, setCallHistorySearch] = useState<string>('');
+  const [firestoreCalls, setFirestoreCalls] = useState<CallHistoryRecord[]>([]);
   const [currentMediaFolder, setCurrentMediaFolder] = useState<'photos' | 'videos' | 'audio' | 'documents' | null>(null);
   const [publicProfileUsername, setPublicProfileUsername] = useState<string | null>(null);
 
@@ -375,7 +561,7 @@ export default function App() {
 
   // Real Presence & User Status
   const [myPresenceStatus, setMyPresenceStatus] = useState<'online' | 'away' | 'busy' | 'dnd' | 'offline'>('online');
-  const [myCustomStatus, setMyCustomStatus] = useState<string>('Available 💬');
+  const [myCustomStatus, setMyCustomStatus] = useState<string>('Available');
   const [myActivityType, setMyActivityType] = useState<'none' | 'typing' | 'recording_voice' | 'in_call'>('none');
   const [showStatusPopover, setShowStatusPopover] = useState<boolean>(false);
 
@@ -445,6 +631,7 @@ export default function App() {
   // Authentication State
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isNewUserSetupPending, setIsNewUserSetupPending] = useState(false);
+  const [pendingUserAuth, setPendingUserAuth] = useState<any>(null);
   const [isAuthResolving, setIsAuthResolving] = useState<boolean>(true);
   const [isEmailVerificationPending, setIsEmailVerificationPending] = useState<boolean>(false);
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string>('');
@@ -504,6 +691,63 @@ export default function App() {
   const [userUsernameChanges, setUserUsernameChanges] = useState<number[]>([]);
   const [savedDisplayName, setSavedDisplayName] = useState<string>('');
   const [savedUsername, setSavedUsername] = useState<string>('');
+  // Clean up any legacy shared usernames key in localStorage
+  useEffect(() => {
+    try { localStorage.removeItem('zenoa_known_usernames'); } catch {}
+  }, []);
+
+  // Dedicated Draft State for Profile Editing (Isolated so typing does not alter active chat connections or cause lag)
+  const [editDraftDisplayName, setEditDraftDisplayName] = useState<string>('');
+  const [editDraftUsername, setEditDraftUsername] = useState<string>('');
+  const [editDraftBio, setEditDraftBio] = useState<string>('');
+  const [editDraftAvatarUrl, setEditDraftAvatarUrl] = useState<string>('');
+  const [editDraftAvatarSeed, setEditDraftAvatarSeed] = useState<string>('');
+
+  const handleOpenEditProfile = () => {
+    setEditDraftDisplayName(userDisplayName || savedDisplayName);
+    setEditDraftUsername((userUsername || savedUsername).replace(/^@/, ''));
+    setEditDraftBio(userBio);
+    setEditDraftAvatarUrl(userAvatarUrl);
+    setEditDraftAvatarSeed(userAvatarSeed || userUsername);
+    setShowEditProfileModal(true);
+  };
+
+  // Resilient Identity Helpers (Decouples username from identity so history & chats are 100% preserved)
+  const isSenderMe = (sender: string | undefined): boolean => {
+    if (!sender) return false;
+    const cleanSender = sender.trim().toLowerCase();
+    const cleanCurrent = (userUsername || '').trim().toLowerCase();
+    const cleanSaved = (savedUsername || '').trim().toLowerCase();
+    const cleanId = (userId || '').trim().toLowerCase();
+
+    if (
+      cleanSender === 'me' ||
+      (cleanCurrent && cleanSender === cleanCurrent) ||
+      (cleanSaved && cleanSender === cleanSaved) ||
+      (cleanId && cleanSender === cleanId)
+    ) {
+      return true;
+    }
+
+    // Check if the current user profile has previous_usernames matching this sender
+    const myProfile: UserData | undefined = (userId && typeof users[userId] === 'object' ? users[userId] : undefined) || 
+      (userUsername && typeof users[userUsername] === 'object' ? users[userUsername] : undefined);
+    if (myProfile && Array.isArray(myProfile.previous_usernames)) {
+      if (myProfile.previous_usernames.some((p: string) => p && p.trim().toLowerCase() === cleanSender)) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  const getSenderDisplayName = (sender: string | undefined): string => {
+    if (!sender) return '';
+    if (isSenderMe(sender)) return 'You';
+    const u = users[sender] || Object.values(users).find(u => u.username === sender || u.id === sender || u.previous_usernames?.includes(sender));
+    return u?.display_name || sender;
+  };
+
   const profilePhotoInputRef = useRef<HTMLInputElement>(null);
   const [showImageCropper, setShowImageCropper] = useState<boolean>(false);
   const [cropperSourceImage, setCropperSourceImage] = useState<string>('');
@@ -516,10 +760,99 @@ export default function App() {
 
   // Messenger Database State
   const [users, setUsers] = useState<Record<string, UserData>>({});
-  const [chats, setChats] = useState<Chat[]>([]);
+
+  // Memoized unique user list (Deduplicated strictly by permanent UID / Email Identity so username changes never duplicate accounts)
+  const uniqueUserList = useMemo<UserData[]>(() => {
+    const map = new Map<string, UserData>();
+    // First pass: Index all users by canonical identity
+    Object.values(users).forEach((u: UserData) => {
+      if (u) {
+        // Group strictly by primary identity:
+        // 1. u.id (Firebase Auth UID)
+        // 2. u.email (Email address used during registration)
+        // 3. u.username (Clean username fallback)
+        const primaryKey = (u.id && u.id.trim())
+          ? `uid:${u.id.trim().toLowerCase()}`
+          : (u.email && u.email.trim())
+            ? `email:${u.email.trim().toLowerCase()}`
+            : (u.username && u.username.trim())
+              ? `username:${u.username.trim().toLowerCase()}`
+              : '';
+
+        if (primaryKey) {
+          if (!map.has(primaryKey)) {
+            map.set(primaryKey, u);
+          } else {
+            const existing = map.get(primaryKey)!;
+            // Always preserve and merge the richest, most up-to-date profile data
+            map.set(primaryKey, {
+              ...existing,
+              ...u,
+              display_name: u.display_name || existing.display_name,
+              username: u.username || existing.username,
+              bio: u.bio || existing.bio,
+              avatar_seed: u.avatar_seed || existing.avatar_seed,
+              avatar_url: u.avatar_url || existing.avatar_url,
+              online: u.online !== undefined ? u.online : existing.online,
+              last_seen: u.last_seen || existing.last_seen,
+              previous_usernames: Array.from(new Set([...(existing.previous_usernames || []), ...(u.previous_usernames || [])].filter(Boolean)))
+            });
+          }
+        }
+      }
+    });
+
+    // Secondary pass: Deduplicate any residual entries that share the exact same username or email or previous_usernames
+    const finalMap = new Map<string, UserData>();
+    map.forEach(user => {
+      const canonicalUsername = (user.username || '').trim().toLowerCase();
+      const canonicalId = (user.id || '').trim().toLowerCase();
+      const dedupeKey = canonicalId ? `id_${canonicalId}` : `un_${canonicalUsername}`;
+      if (dedupeKey && !finalMap.has(dedupeKey)) {
+        finalMap.set(dedupeKey, user);
+      }
+    });
+
+    return Array.from(finalMap.values());
+  }, [users]);
+  const [chats, setChats] = useState<Chat[]>(() => {
+    try {
+      const cached = localStorage.getItem('zenoa_cached_chats');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
   const chatsRef = useRef<Chat[]>([]);
-  useEffect(() => { chatsRef.current = chats; }, [chats]);
-  const [messagesByChat, setMessagesByChat] = useState<Record<string, Message[]>>({});
+  useEffect(() => { 
+    chatsRef.current = chats; 
+    if (chats && chats.length > 0) {
+      try { localStorage.setItem('zenoa_cached_chats', JSON.stringify(chats)); } catch {}
+    }
+  }, [chats]);
+
+  const [messagesByChat, setMessagesByChat] = useState<Record<string, Message[]>>(() => {
+    try {
+      const cached = localStorage.getItem('zenoa_cached_messages');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return {};
+  });
+
+  const [visibleMessageCountByChat, setVisibleMessageCountByChat] = useState<Record<string, number>>({});
+  const MESSAGE_PAGE_SIZE = 40;
+
+  useEffect(() => {
+    if (messagesByChat && Object.keys(messagesByChat).length > 0) {
+      try { localStorage.setItem('zenoa_cached_messages', JSON.stringify(messagesByChat)); } catch {}
+      // Sync to High-Capacity IndexedDB in background
+      try {
+        const allMsgs = Object.values(messagesByChat).flat();
+        if (allMsgs.length > 0) {
+          storageManager.saveMessages(allMsgs).catch(() => {});
+        }
+      } catch {}
+    }
+  }, [messagesByChat]);
   const [activeChatId, setActiveChatId] = useState<string>('');
 
   // Modals, Context Menus & WhatsApp Chat Controls
@@ -550,7 +883,7 @@ export default function App() {
           ));
         } catch (e) { console.error(e); }
       }
-      showToast('Theme applied to all chats ✨');
+      showToast('Theme applied to all chats');
     } else if (activeChatId) {
       setChatWallpapers(prev => {
         const next = { ...prev, [activeChatId]: themeId };
@@ -565,7 +898,7 @@ export default function App() {
           }, { merge: true });
         } catch (e) { console.error(e); }
       }
-      showToast('Wallpaper & theme updated ✨');
+      showToast('Wallpaper & theme updated');
     }
   };
   const [chatDisappearing, setChatDisappearing] = useState<Record<string, 'off' | '24h' | '7d' | '90d'>>({});
@@ -716,12 +1049,14 @@ export default function App() {
             const fetchedUsers: Record<string, UserData> = {};
             snapshot.forEach(docSnap => {
               const p = docSnap.data();
-              if (p.username) {
-                fetchedUsers[p.username] = {
-                  username: p.username,
-                  display_name: p.display_name || p.username,
+              const rawUsername = (p.username || (p.email ? p.email.split('@')[0] : '') || p.display_name?.toLowerCase().replace(/[^a-z0-9_]/g, '') || docSnap.id).trim();
+              if (rawUsername || docSnap.id) {
+                const userObj: UserData = {
+                  id: docSnap.id,
+                  username: rawUsername || docSnap.id,
+                  display_name: p.display_name || p.fullName || rawUsername || docSnap.id,
                   bio: p.bio || '',
-                  avatar_seed: p.avatar_seed || p.username,
+                  avatar_seed: p.avatar_seed || rawUsername || docSnap.id,
                   avatar_url: p.avatar_url || '',
                   online: isUserEffectivelyOnline(p as any),
                   last_seen: p.last_seen || 'offline',
@@ -730,8 +1065,21 @@ export default function App() {
                   activity_status: p.activity_status || 'online',
                   activity_type: p.activity_type || 'none',
                   name_change_timestamps: p.name_change_timestamps || [],
-                  username_change_timestamps: p.username_change_timestamps || []
+                  username_change_timestamps: p.username_change_timestamps || [],
+                  previous_usernames: p.previous_usernames || []
                 };
+                if (rawUsername) {
+                  fetchedUsers[rawUsername] = userObj;
+                  fetchedUsers[rawUsername.toLowerCase()] = userObj;
+                }
+                fetchedUsers[docSnap.id] = userObj;
+                if (Array.isArray(p.previous_usernames)) {
+                  p.previous_usernames.forEach((prevU: string) => {
+                    if (prevU && !fetchedUsers[prevU]) {
+                      fetchedUsers[prevU] = userObj;
+                    }
+                  });
+                }
               }
             });
             setUsers(snapshot.empty ? {} : fetchedUsers);
@@ -762,14 +1110,14 @@ export default function App() {
                 const userDocRef = doc(db, 'users', userObj.uid);
                 const userSnap = await getDoc(userDocRef);
   
-                if (userSnap.exists()) {
+                if (userSnap.exists() && userSnap.data()?.username && userSnap.data()?.display_name) {
                   const profile = userSnap.data();
-                  const uName = profile.username || '';
-                  const dName = profile.display_name || profile.username || '';
+                  const uName = profile.username;
+                  const dName = profile.display_name;
                   setUserUsername(uName);
                   setUserDisplayName(dName);
                   setUserBio(profile.bio || '');
-                  setUserAvatarSeed(profile.avatar_seed || profile.username || '');
+                  setUserAvatarSeed(profile.avatar_seed || uName);
                   setUserAvatarUrl(profile.avatar_url || '');
                   setUserNameChanges(profile.name_change_timestamps || []);
                   setUserUsernameChanges(profile.username_change_timestamps || []);
@@ -777,11 +1125,19 @@ export default function App() {
                   setSavedUsername(uName);
                   setAuthMethod(userObj.providerData[0]?.providerId || 'email');
                   setIsAuthenticated(true);
+                  setIsNewUserSetupPending(false);
                 } else {
                   setAuthMethod(userObj.providerData[0]?.providerId || 'email');
-                  const defaultUser = userObj.email?.split('@')[0].replace(/[^a-z0-9_]/g, '') || 'user';
-                  setUsernameInput(defaultUser);
-                  setOnboardingStep(1);
+                  setPendingUserAuth(userObj);
+                  if (userSnap.exists()) {
+                    setUserDisplayName(userSnap.data().display_name || userObj.displayName || '');
+                    setUserUsername(userSnap.data().username || '');
+                  } else {
+                    setUserDisplayName(userObj.displayName || '');
+                    setUserUsername('');
+                  }
+                  setIsNewUserSetupPending(true);
+                  setIsAuthenticated(false);
                 }
               } catch (fetchErr: any) {
                 console.warn("User profile fetch fallback:", fetchErr.message);
@@ -827,7 +1183,7 @@ export default function App() {
           clearInterval(interval);
           setIsEmailVerificationPending(false);
           setPendingVerificationEmail('');
-          showToast("Email verified successfully! 🎉");
+          showToast("Email verified successfully");
           try {
             confetti();
           } catch (confettiErr) {}
@@ -886,17 +1242,21 @@ export default function App() {
         snapshot.forEach(docSnap => {
           const c = docSnap.data();
           if (c.id && !chatMap.has(c.id)) {
-            const otherUser = (c.participants || []).find((p: string) => p !== userUsername) || '';
-            const uProfile = users[otherUser];
+            const otherUser = (c.participants || []).find((p: string) => !isSenderMe(p) && p !== userUsername && p !== userId) || (c.username !== userUsername ? c.username : '') || '';
+            const uProfile = users[otherUser] || Object.values(users).find(u => u.username === otherUser || u.id === otherUser || u.previous_usernames?.includes(otherUser));
+
+            const resolvedPartnerUsername = uProfile?.username || otherUser || c.username || '';
+            const resolvedPartnerName = c.type === 'dm' ? (uProfile?.display_name || resolvedPartnerUsername) : (c.name || '');
 
             const chatObj: Chat = {
               id: c.id,
               type: (c.type || 'dm') as 'dm' | 'group',
-              name: c.type === 'dm' ? (uProfile?.display_name || otherUser) : (c.name || ''),
-              username: c.type === 'dm' ? otherUser : (c.username || ''),
-              avatar_seed: c.type === 'dm' ? (uProfile?.avatar_seed || otherUser) : (c.avatar_seed || ''),
+              name: resolvedPartnerName,
+              username: c.type === 'dm' ? resolvedPartnerUsername : (c.username || ''),
+              avatar_seed: c.type === 'dm' ? (uProfile?.avatar_seed || resolvedPartnerUsername) : (c.avatar_seed || ''),
               avatar_url: c.type === 'dm' ? (uProfile?.avatar_url || '') : (c.avatar_url || ''),
               participants: c.participants || [],
+              participant_ids: c.participant_ids || [],
               unread: c.unread || 0,
               last_message: c.last_message || '',
               last_time: c.last_time || '',
@@ -909,7 +1269,7 @@ export default function App() {
               custom_status: c.type === 'dm' ? (uProfile?.custom_status || '') : (c.custom_status || ''),
               updated_at: c.updated_at || Date.now(),
               cleared_at: c.cleared_at || {},
-              theme: c.themes?.[userUsername],
+              theme: c.themes?.[userUsername] || c.themes?.[savedUsername] || c.theme,
               last_message_sender: c.last_message_sender,
               last_message_status: c.last_message_status
             };
@@ -946,7 +1306,7 @@ export default function App() {
             }
             return prev;
           });
-        } else {
+        } else if (!chatsRef.current || chatsRef.current.length === 0) {
           setChats([]);
         }
       },
@@ -1021,6 +1381,10 @@ export default function App() {
             sender: m.sender || 'unknown',
             text: clearText,
             type: (m.type || 'text') as any,
+            call_data: m.call_data || undefined,
+            location_data: m.location_data || undefined,
+            contact_data: m.contact_data || undefined,
+            poll_data: m.poll_data || undefined,
             media_url: (m.media_url && !m.media_url.startsWith('[File Attachment'))
               ? m.media_url
               : (localMediaCacheRef.current[m.id || docSnap.id] || (m.file_name ? localMediaCacheRef.current[m.file_name] : undefined) || (m.type === 'video' ? 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' : undefined)),
@@ -1072,66 +1436,260 @@ export default function App() {
     };
   }, [isFirebaseConfigured, db, activeChatId, userUsername]);
 
-  // Real Presence & User Status Sync Heartbeat
+  // Real Presence & User Status Sync Heartbeat with Instant Offline Cleanup
   useEffect(() => {
     if (!isFirebaseConfigured || !db || !userUsername) return;
 
-    const syncPresence = () => {
+    const syncPresence = (isOnline = true) => {
       setDoc(doc(db, 'users', userUsername), {
-        online: myPresenceStatus !== 'offline',
+        online: isOnline && myPresenceStatus !== 'offline',
         activity_status: myPresenceStatus,
         custom_status: myCustomStatus,
         activity_type: myActivityType,
-        last_seen: 'just now',
-        last_seen_timestamp: Date.now()
+        last_seen: isOnline ? 'just now' : 'offline',
+        last_seen_timestamp: isOnline ? Date.now() : 0
       }, { merge: true }).catch(err => console.warn("Presence sync notice:", err));
     };
 
-    syncPresence();
+    syncPresence(true);
     
-    // Heartbeat every 30 seconds
-    const interval = setInterval(syncPresence, 30000);
+    // Heartbeat every 15 seconds
+    const interval = setInterval(() => syncPresence(true), 15000);
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        syncPresence(false);
+      } else {
+        syncPresence(true);
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      syncPresence(false);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
     
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      syncPresence(false);
+    };
   }, [userUsername, myPresenceStatus, myCustomStatus, myActivityType, isFirebaseConfigured, db]);
 
-  // Live Voice & Video Signaling Listener for Incoming Calls
+  // Live Voice & Video Signaling Listener for Incoming Calls (Firestore + BroadcastChannel)
   useEffect(() => {
-    if (!isFirebaseConfigured || !db || !userUsername) return;
+    let unsubscribeCalls: (() => void) | null = null;
+    let localBroadcastChannel: BroadcastChannel | null = null;
 
-    const q = query(
-      collection(db, 'calls'),
-      where('receiver', '==', userUsername),
-      where('status', '==', 'dialing')
-    );
+    if (isFirebaseConfigured && db && userUsername) {
+      const q = query(
+        collection(db, 'calls'),
+        where('receiver', '==', userUsername),
+        where('status', '==', 'dialing')
+      );
 
-    const unsubscribeCalls = onSnapshot(q, (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === 'added' || change.type === 'modified') {
-          const callData = change.doc.data();
-          if (callData.status === 'dialing') {
-            const callerUserObj = users[callData.caller];
+      unsubscribeCalls = onSnapshot(q, (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added' || change.type === 'modified') {
+            const callData = change.doc.data();
+            if (callData.status === 'dialing') {
+              const callerUserObj = users[callData.caller] || Object.values(users).find(u => u.username === callData.caller);
+              setActiveCallSession({
+                id: callData.id,
+                type: callData.type as 'voice' | 'video',
+                status: 'ringing', // Mark as ringing for recipient
+                isIncoming: true,
+                partnerUsername: callData.caller,
+                partnerName: callerUserObj?.display_name || callData.caller,
+                partnerAvatarSeed: callerUserObj?.avatar_seed || callData.caller,
+                partnerAvatarUrl: callerUserObj?.avatar_url,
+                startedAt: callData.created_at || Date.now(),
+                startTimeStr: callData.start_time_str || new Date(callData.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              });
+            }
+          }
+        });
+      }, (err) => {
+        console.warn("Call signaling snapshot notice:", err);
+      });
+    }
+
+    try {
+      if (typeof BroadcastChannel !== 'undefined' && userUsername) {
+        localBroadcastChannel = new BroadcastChannel(`zenoa_incoming_calls_${userUsername}`);
+        localBroadcastChannel.onmessage = (e) => {
+          const callData = e.data;
+          if (callData && callData.status === 'dialing') {
+            const callerUserObj = users[callData.caller] || Object.values(users).find(u => u.username === callData.caller);
             setActiveCallSession({
               id: callData.id,
               type: callData.type as 'voice' | 'video',
-              status: 'ringing', // Mark as ringing for recipient
+              status: 'ringing',
               isIncoming: true,
               partnerUsername: callData.caller,
               partnerName: callerUserObj?.display_name || callData.caller,
               partnerAvatarSeed: callerUserObj?.avatar_seed || callData.caller,
-              partnerAvatarUrl: callerUserObj?.avatar_url
+              partnerAvatarUrl: callerUserObj?.avatar_url,
+              startedAt: callData.created_at || Date.now(),
+              startTimeStr: callData.start_time_str || new Date(callData.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            });
+          }
+        };
+      }
+    } catch (bcErr) {
+      console.warn("BroadcastChannel initialization notice:", bcErr);
+    }
+
+    return () => {
+      if (unsubscribeCalls) unsubscribeCalls();
+      if (localBroadcastChannel) localBroadcastChannel.close();
+    };
+  }, [userUsername, isFirebaseConfigured, db, users]);
+
+  // Live Call History Listener across all devices & sessions (Caller and Receiver)
+  useEffect(() => {
+    if (!isFirebaseConfigured || !db || !userUsername) return;
+
+    let unsubCaller: (() => void) | null = null;
+    let unsubReceiver: (() => void) | null = null;
+    const callsMap = new Map<string, CallHistoryRecord>();
+
+    const updateCallsState = () => {
+      const sorted = Array.from(callsMap.values()).sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      setFirestoreCalls(sorted);
+    };
+
+    try {
+      const qCaller = query(
+        collection(db, 'calls'),
+        where('caller', '==', userUsername)
+      );
+      unsubCaller = onSnapshot(qCaller, (snapshot) => {
+        snapshot.docs.forEach((d) => {
+          const data = d.data();
+          const partnerUsername = data.receiver || '';
+          const partnerUserObj = users[partnerUsername] || Object.values(users).find(u => u.username === partnerUsername);
+          const isOutgoing = true;
+          const status = data.status || 'answered';
+          const rec: CallHistoryRecord = {
+            id: data.id || d.id,
+            call_type: data.type === 'video' ? 'video' : 'voice',
+            status: status === 'ended' ? 'answered' : status,
+            caller: data.caller,
+            receiver: data.receiver,
+            caller_name: data.caller_name || userDisplayName || userUsername,
+            receiver_name: data.receiver_name || partnerUserObj?.display_name || partnerUsername,
+            partner_username: partnerUsername,
+            partner_name: data.receiver_name || partnerUserObj?.display_name || partnerUsername,
+            partner_avatar_seed: data.receiver_avatar_seed || partnerUserObj?.avatar_seed || partnerUsername,
+            partner_avatar_url: data.receiver_avatar_url || partnerUserObj?.avatar_url,
+            is_outgoing: isOutgoing,
+            timestamp: data.start_time_str || (data.created_at ? new Date(data.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'),
+            created_at: data.created_at || (data.ended_at ? data.ended_at - 1000 : Date.now()),
+            duration_seconds: data.duration_seconds ?? data.duration ?? 0,
+            duration_formatted: data.duration_formatted || (data.duration ? `${Math.floor(data.duration / 60).toString().padStart(2, '0')}:${(data.duration % 60).toString().padStart(2, '0')}` : undefined)
+          };
+          callsMap.set(rec.id, rec);
+        });
+        updateCallsState();
+      }, (err) => {
+        console.warn("Calls caller query notice:", err);
+      });
+
+      const qReceiver = query(
+        collection(db, 'calls'),
+        where('receiver', '==', userUsername)
+      );
+      unsubReceiver = onSnapshot(qReceiver, (snapshot) => {
+        snapshot.docs.forEach((d) => {
+          const data = d.data();
+          const partnerUsername = data.caller || '';
+          const partnerUserObj = users[partnerUsername] || Object.values(users).find(u => u.username === partnerUsername);
+          const isOutgoing = false;
+          const status = data.status || 'answered';
+          const rec: CallHistoryRecord = {
+            id: data.id || d.id,
+            call_type: data.type === 'video' ? 'video' : 'voice',
+            status: status === 'ended' ? 'answered' : status,
+            caller: data.caller,
+            receiver: data.receiver,
+            caller_name: data.caller_name || partnerUserObj?.display_name || partnerUsername,
+            receiver_name: data.receiver_name || userDisplayName || userUsername,
+            partner_username: partnerUsername,
+            partner_name: data.caller_name || partnerUserObj?.display_name || partnerUsername,
+            partner_avatar_seed: data.caller_avatar_seed || partnerUserObj?.avatar_seed || partnerUsername,
+            partner_avatar_url: data.caller_avatar_url || partnerUserObj?.avatar_url,
+            is_outgoing: isOutgoing,
+            timestamp: data.start_time_str || (data.created_at ? new Date(data.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'),
+            created_at: data.created_at || (data.ended_at ? data.ended_at - 1000 : Date.now()),
+            duration_seconds: data.duration_seconds ?? data.duration ?? 0,
+            duration_formatted: data.duration_formatted || (data.duration ? `${Math.floor(data.duration / 60).toString().padStart(2, '0')}:${(data.duration % 60).toString().padStart(2, '0')}` : undefined)
+          };
+          callsMap.set(rec.id, rec);
+        });
+        updateCallsState();
+      }, (err) => {
+        console.warn("Calls receiver query notice:", err);
+      });
+    } catch (e) {
+      console.warn("Calls snapshot setup error:", e);
+    }
+
+    return () => {
+      if (unsubCaller) unsubCaller();
+      if (unsubReceiver) unsubReceiver();
+    };
+  }, [userUsername, isFirebaseConfigured, db, userDisplayName, users]);
+
+  // Aggregated Call History across all sources (Firestore + Chat Call logs)
+  const allUserCalls = useMemo<CallHistoryRecord[]>(() => {
+    const map = new Map<string, CallHistoryRecord>();
+
+    // 1. Add Firestore calls
+    firestoreCalls.forEach(c => map.set(c.id, c));
+
+    // 2. Extract call logs from messagesByChat
+    Object.entries(messagesByChat).forEach(([chatId, msgs]) => {
+      const targetChat = chats.find(c => c.id === chatId);
+      const partnerUsername = targetChat?.type === 'dm' ? targetChat.username : (targetChat?.name || '');
+      const partnerObj = users[partnerUsername] || Object.values(users).find(u => u.username === partnerUsername);
+
+      msgs.forEach(m => {
+        if (m.type === 'call' || m.call_data) {
+          const callId = m.call_data?.call_id || m.id.replace('call_log_', '');
+          const isOutgoing = m.sender === 'me' || m.sender === userUsername;
+          const status = m.call_data?.status || (m.text.toLowerCase().includes('missed') ? 'missed' : m.text.toLowerCase().includes('declined') ? 'declined' : 'answered');
+          const callType = m.call_data?.call_type || (m.text.toLowerCase().includes('video') ? 'video' : 'voice');
+          
+          if (!map.has(callId)) {
+            map.set(callId, {
+              id: callId,
+              call_type: callType,
+              status: status,
+              caller: isOutgoing ? (userUsername || 'me') : partnerUsername,
+              receiver: isOutgoing ? partnerUsername : (userUsername || 'me'),
+              caller_name: isOutgoing ? (userDisplayName || 'You') : (partnerObj?.display_name || partnerUsername),
+              receiver_name: isOutgoing ? (partnerObj?.display_name || partnerUsername) : (userDisplayName || 'You'),
+              partner_username: partnerUsername,
+              partner_name: partnerObj?.display_name || targetChat?.name || partnerUsername,
+              partner_avatar_seed: partnerObj?.avatar_seed || targetChat?.avatar_seed || partnerUsername,
+              partner_avatar_url: partnerObj?.avatar_url || targetChat?.avatar_url,
+              is_outgoing: isOutgoing,
+              timestamp: m.timestamp,
+              created_at: m.created_at || (Date.now() - 10000),
+              duration_seconds: m.call_data?.duration_seconds,
+              duration_formatted: m.call_data?.duration_formatted
             });
           }
         }
       });
-    }, (err) => {
-      console.warn("Call signaling snapshot notice:", err);
     });
 
-    return () => {
-      unsubscribeCalls();
-    };
-  }, [userUsername, isFirebaseConfigured, db, users]);
+    return Array.from(map.values()).sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+  }, [firestoreCalls, messagesByChat, chats, userUsername, userDisplayName, users]);
 
   // Sync Media Player Speed & Volume
   useEffect(() => {
@@ -1153,48 +1711,9 @@ export default function App() {
 
   // Check username availability
   const isUsernameValidFormat = usernameInput.length >= 3 && usernameInput.length <= 20 && /^[a-z0-9_]+$/.test(usernameInput);
-  const isUsernameAvailable = isUsernameValidFormat && !Object.values(users).some(u => u.username === usernameInput);
+  const isUsernameAvailable = isUsernameValidFormat && !uniqueUserList.some(u => u.username.toLowerCase() === usernameInput.toLowerCase());
 
-  // Online Status Helpers
-  const getOnlineStatusText = (user: UserData | undefined) => {
-    if (!user) return 'offline';
-    if (!isUserEffectivelyOnline(user)) {
-      if (!user.last_seen_timestamp) return user.last_seen || 'offline';
-      const diff = Date.now() - user.last_seen_timestamp;
-      const mins = Math.floor(diff / 60000);
-      if (mins < 1) return 'last seen just now';
-      if (mins < 60) return `last seen ${mins}m ago`;
-      const hrs = Math.floor(mins / 60);
-      if (hrs < 24) return `last seen ${hrs}h ago`;
-      return `last seen ${Math.floor(hrs/24)}d ago`;
-    }
-    
-    // Heartbeat check (assume offline if no heartbeat for 1.5 mins)
-    if (user.last_seen_timestamp) {
-      const diff = Date.now() - user.last_seen_timestamp;
-      if (diff > 90000) {
-        const mins = Math.floor(diff / 60000);
-        if (mins < 60) return `last seen ${mins}m ago`;
-        const hrs = Math.floor(mins / 60);
-        if (hrs < 24) return `last seen ${hrs}h ago`;
-        return `last seen ${Math.floor(hrs/24)}d ago`;
-      }
-    }
-    return 'online';
-  };
 
-  const isUserEffectivelyOnline = (user: UserData | undefined) => {
-    if (!user) return false;
-    
-    // Always check timestamp first
-    if (user.last_seen_timestamp) {
-      // 60 seconds threshold (60,000 ms)
-      return Date.now() - user.last_seen_timestamp <= 60000;
-    }
-    
-    // Fallback to boolean flag
-    return user.online;
-  };
 
   // Dismiss Toast helper
   const showToast = (msg: string) => {
@@ -1421,6 +1940,78 @@ export default function App() {
     }, 800);
   };
 
+  const handleCheckUsernameAvailability = async (targetUsername: string) => {
+    return await checkUsernameIsTakenInFirestore(db, targetUsername, userId || pendingUserAuth?.uid, users);
+  };
+
+  const handleCompleteMandatoryAccountSetup = async (data: {
+    fullName: string;
+    username: string;
+    bio: string;
+    avatarSeed: string;
+  }): Promise<{ success: boolean; error?: string }> => {
+    const cleanFullName = data.fullName.trim();
+    const cleanUsername = data.username.trim().toLowerCase();
+
+    if (!cleanFullName) {
+      return { success: false, error: 'Full Display Name is required.' };
+    }
+    if (!cleanUsername || cleanUsername.length < 3) {
+      return { success: false, error: 'Username must be at least 3 characters.' };
+    }
+
+    const targetUid = userId || pendingUserAuth?.uid || auth?.currentUser?.uid;
+    const targetEmail = userEmail || pendingUserAuth?.email || auth?.currentUser?.email || '';
+
+    const checkRes = await checkUsernameIsTakenInFirestore(db, cleanUsername, targetUid, users);
+    if (checkRes.isTaken) {
+      return { success: false, error: checkRes.reason || `@${cleanUsername} is already registered.` };
+    }
+
+    const now = Date.now();
+    setUserDisplayName(cleanFullName);
+    setUserUsername(cleanUsername);
+    setSavedDisplayName(cleanFullName);
+    setSavedUsername(cleanUsername);
+    setUserBio(data.bio);
+    setUserAvatarSeed(data.avatarSeed || cleanUsername);
+    if (targetUid) setUserId(targetUid);
+    if (targetEmail) setUserEmail(targetEmail);
+
+    if (isFirebaseConfigured && db && targetUid) {
+      try {
+        await setDoc(doc(db, 'users', targetUid), {
+          id: targetUid,
+          email: targetEmail,
+          display_name: cleanFullName,
+          username: cleanUsername,
+          bio: data.bio || 'Hey there! I am using Zenoa Messenger.',
+          avatar_seed: data.avatarSeed || cleanUsername,
+          created_at: now,
+          name_change_timestamps: [now],
+          username_change_timestamps: [now],
+          online: true,
+          last_seen: 'online'
+        }, { merge: true });
+
+        await setDoc(doc(db, 'usernames', cleanUsername), {
+          uid: targetUid,
+          username: cleanUsername,
+          created_at: now
+        });
+      } catch (err: any) {
+        console.error("Account setup setDoc error:", err);
+        return { success: false, error: 'Database error saving account details. Please try again.' };
+      }
+    }
+
+    setIsNewUserSetupPending(false);
+    setPendingUserAuth(null);
+    setIsAuthenticated(true);
+    showToast('Account setup complete! Welcome to Zenoa.');
+    return { success: true };
+  };
+
   const handleOAuthLogin = async (provider: string) => {
     setIsLoading(true);
     setErrorMessage('');
@@ -1444,28 +2035,29 @@ export default function App() {
         setUserEmail(userObj.email || '');
         setAuthMethod(provider);
 
-        if (userSnap.exists()) {
+        if (userSnap.exists() && userSnap.data()?.username && userSnap.data()?.display_name) {
           const profile = userSnap.data();
-          const uName = profile.username || '';
-          const dName = profile.display_name || profile.username || '';
+          const uName = profile.username;
+          const dName = profile.display_name;
           setUserUsername(uName);
           setUserDisplayName(dName);
           setUserBio(profile.bio || '');
-          setUserAvatarSeed(profile.avatar_seed || profile.username || '');
+          setUserAvatarSeed(profile.avatar_seed || uName);
           setUserAvatarUrl(profile.avatar_url || '');
           setUserNameChanges(profile.name_change_timestamps || []);
           setUserUsernameChanges(profile.username_change_timestamps || []);
           setSavedDisplayName(dName);
           setSavedUsername(uName);
           setIsAuthenticated(true);
+          setIsNewUserSetupPending(false);
           confetti({ particleCount: 80, spread: 60, origin: { y: 0.8 } });
           showToast(`Welcome back, ${dName}!`);
         } else {
-          // Profile is missing, trigger onboarding
-          const resolvedUsername = (userObj.email || 'user').split('@')[0].replace(/[^a-z0-9_]/g, '');
-          setUsernameInput(resolvedUsername);
-          setIsAuthenticated(true);
-          setOnboardingStep(1);
+          // Profile is missing or incomplete, force mandatory account setup
+          setPendingUserAuth(userObj);
+          setUserDisplayName(userObj.displayName || '');
+          setIsNewUserSetupPending(true);
+          setIsAuthenticated(false);
         }
       } catch (err: any) {
         setErrorMessage(err.message || `An error occurred starting ${provider} login.`);
@@ -1558,21 +2150,22 @@ export default function App() {
         setUserEmail(userObj.email || '');
         setAuthMethod('email');
 
-        if (userSnap.exists()) {
+        if (userSnap.exists() && userSnap.data()?.username && userSnap.data()?.display_name) {
           const profile = userSnap.data();
-          setUserUsername(profile.username || '');
-          setUserDisplayName(profile.display_name || profile.username || '');
+          setUserUsername(profile.username);
+          setUserDisplayName(profile.display_name);
           setUserBio(profile.bio || '');
-          setUserAvatarSeed(profile.avatar_seed || profile.username || '');
+          setUserAvatarSeed(profile.avatar_seed || profile.username);
           setUserAvatarUrl(profile.avatar_url || '');
+          setIsAuthenticated(true);
+          setIsNewUserSetupPending(false);
         } else {
-          const resolvedUsername = emailToUse.split('@')[0].replace(/[^a-z0-9_]/g, '');
-          setUserUsername(resolvedUsername);
-          setUserDisplayName(resolvedUsername);
-          setUserAvatarSeed(resolvedUsername);
+          setPendingUserAuth(userObj);
+          setUserDisplayName(userObj.displayName || '');
+          setIsNewUserSetupPending(true);
+          setIsAuthenticated(false);
         }
 
-        setIsAuthenticated(true);
         showToast(`Welcome back!`);
         return { success: true };
       } catch (err: any) {
@@ -1608,21 +2201,44 @@ export default function App() {
     gender: string;
     password: string;
   }): Promise<{ success: boolean; error?: string }> => {
+    const cleanFullName = (data.fullName || '').trim();
+    const cleanUsername = (data.username || '').trim().toLowerCase();
+
+    if (!cleanFullName) {
+      return { success: false, error: 'Full Display Name is strictly mandatory.' };
+    }
+    if (!cleanUsername || cleanUsername.length < 3) {
+      return { success: false, error: 'Username must be at least 3 characters long.' };
+    }
+
+    // Direct check against Firestore & local state before creating account
+    const checkRes = await checkUsernameIsTakenInFirestore(db, cleanUsername, undefined, users);
+    if (checkRes.isTaken) {
+      return { success: false, error: checkRes.reason || `@${cleanUsername} is already taken by another account.` };
+    }
+
     if (isFirebaseConfigured && auth && db) {
       try {
         const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
         const userObj = userCredential.user;
 
+        const now = Date.now();
         await setDoc(doc(db, 'users', userObj.uid), {
           id: userObj.uid,
           email: data.email,
-          display_name: data.fullName,
-          username: data.username.toLowerCase(),
+          display_name: cleanFullName,
+          username: cleanUsername,
           dob: data.dob,
           gender: data.gender,
-          avatar_seed: data.username.toLowerCase(),
+          avatar_seed: cleanUsername,
           bio: 'Hey there! I am using Zenoa Messenger.',
-          created_at: Date.now()
+          created_at: now
+        });
+
+        await setDoc(doc(db, 'usernames', cleanUsername), {
+          uid: userObj.uid,
+          username: cleanUsername,
+          created_at: now
         });
 
         try {
@@ -1631,7 +2247,6 @@ export default function App() {
           console.warn("Verification email notice:", verifErr);
         }
 
-        // Keep them logged in but set verification pending state so the polling effect checks them!
         setIsEmailVerificationPending(true);
         setPendingVerificationEmail(data.email);
 
@@ -1655,9 +2270,9 @@ export default function App() {
       const mockUser = {
         id: mockUid,
         email: data.email,
-        display_name: data.fullName,
-        username: data.username.toLowerCase(),
-        avatar_seed: data.username.toLowerCase(),
+        display_name: cleanFullName,
+        username: cleanUsername,
+        avatar_seed: cleanUsername,
         bio: 'Hey there! I am using Zenoa Messenger.',
         online: true,
         last_seen: 'Just now'
@@ -1667,12 +2282,11 @@ export default function App() {
         [mockUid]: mockUser
       }));
 
-      // Populate local state
       setUserId(mockUid);
       setUserEmail(data.email);
-      setUserUsername(data.username.toLowerCase());
-      setUserDisplayName(data.fullName);
-      setUserAvatarSeed(data.username.toLowerCase());
+      setUserUsername(cleanUsername);
+      setUserDisplayName(cleanFullName);
+      setUserAvatarSeed(cleanUsername);
       setAuthMethod('email');
 
       return { success: true };
@@ -1783,9 +2397,10 @@ export default function App() {
   };
 
   const handleCroppedAvatarSave = (croppedDataUrl: string) => {
+    setEditDraftAvatarUrl(croppedDataUrl);
     setUserAvatarUrl(croppedDataUrl);
     setShowImageCropper(false);
-    showToast('Profile picture cropped & set successfully! 📸');
+    showToast('Profile picture updated');
   };
 
   const handleRemovePhoto = () => {
@@ -1795,6 +2410,7 @@ export default function App() {
       confirmText: 'Remove Photo',
       variant: 'danger',
       onConfirm: () => {
+        setEditDraftAvatarUrl('');
         setUserAvatarUrl('');
         showToast('Photo removed. Save profile to apply.');
         closeConfirm();
@@ -1820,23 +2436,27 @@ export default function App() {
     ? new Date(oldestActiveUsernameChange + ONE_DAY_MS).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
     : null;
 
-  const cleanSettingsUsername = userUsername.trim().toLowerCase().replace(/^@/, '');
-  const isUsernameFormatValidInSettings = cleanSettingsUsername.length >= 3 && cleanSettingsUsername.length <= 20 && /^[a-z0-9_]+$/.test(cleanSettingsUsername);
+  const cleanDraftUsername = editDraftUsername.trim().toLowerCase().replace(/^@/, '');
+  const isUsernameFormatValidInSettings = cleanDraftUsername.length >= 3 && cleanDraftUsername.length <= 20 && /^[a-z0-9_]+$/.test(cleanDraftUsername);
   const isUsernameAvailableInSettings = isUsernameFormatValidInSettings && (
-    cleanSettingsUsername === savedUsername || !Object.values(users).some(u => u.username.toLowerCase() === cleanSettingsUsername)
+    cleanDraftUsername === (savedUsername || '').toLowerCase() ||
+    cleanDraftUsername === (userUsername || '').toLowerCase() ||
+    !uniqueUserList.some(u => u.username?.toLowerCase() === cleanDraftUsername && u.id !== userId)
   );
 
   const handleSaveProfile = async () => {
-    if (!userDisplayName.trim()) {
+    const formattedDisplayName = editDraftDisplayName.trim();
+    if (!formattedDisplayName) {
       showToast('Display name cannot be empty');
       return;
     }
 
     const now = Date.now();
-    const formattedUsername = cleanSettingsUsername;
+    const formattedUsername = cleanDraftUsername || userUsername;
+    const oldUsername = savedUsername || userUsername;
 
     // 1. Check Display Name Rate Limit (Twice in 14 days)
-    const isDisplayNameChanged = userDisplayName.trim() !== savedDisplayName.trim();
+    const isDisplayNameChanged = formattedDisplayName !== (savedDisplayName || '').trim();
     let updatedNameChanges = [...recentNameChanges];
 
     if (isDisplayNameChanged) {
@@ -1848,7 +2468,7 @@ export default function App() {
     }
 
     // 2. Check Username Rate Limit (7 times per day) and validity
-    const isUsernameChanged = formattedUsername !== savedUsername;
+    const isUsernameChanged = formattedUsername !== (savedUsername || '').toLowerCase();
     let updatedUsernameChanges = [...recentUsernameChanges];
 
     if (isUsernameChanged) {
@@ -1867,56 +2487,102 @@ export default function App() {
       updatedUsernameChanges.push(now);
     }
 
-    setIsSavingProfile(true);
-    try {
-      if (isFirebaseConfigured && db && auth && userId) {
-        await setDoc(doc(db, 'users', userId), {
+    // 3. Instant Optimistic State Updates (Ultra-fast, 0ms latency)
+    setUserDisplayName(formattedDisplayName);
+    setSavedDisplayName(formattedDisplayName);
+    setUserUsername(formattedUsername);
+    setSavedUsername(formattedUsername);
+    setUserBio(editDraftBio);
+    setUserAvatarUrl(editDraftAvatarUrl);
+    setUserAvatarSeed(editDraftAvatarSeed || formattedUsername);
+    setUserNameChanges(updatedNameChanges);
+    setUserUsernameChanges(updatedUsernameChanges);
+
+    // Update local users dictionary so existing and new mappings both resolve cleanly
+    setUsers(prev => {
+      const next = { ...prev };
+      const userProfile: UserData = {
+        id: userId,
+        username: formattedUsername,
+        display_name: formattedDisplayName,
+        bio: editDraftBio,
+        avatar_seed: editDraftAvatarSeed || formattedUsername,
+        avatar_url: editDraftAvatarUrl || '',
+        name_change_timestamps: updatedNameChanges,
+        username_change_timestamps: updatedUsernameChanges,
+        previous_usernames: Array.from(new Set([...(prev[oldUsername]?.previous_usernames || []), oldUsername].filter(Boolean))),
+        online: true,
+        last_seen: 'online'
+      };
+      next[formattedUsername] = userProfile;
+      if (oldUsername && oldUsername !== formattedUsername) {
+        next[oldUsername] = userProfile;
+      }
+      if (userId) {
+        next[userId] = userProfile;
+      }
+      return next;
+    });
+
+    // Update all chats in local state immediately so no chat history or previews are ever lost
+    setChats(prev => prev.map(c => {
+      const newParticipants = (c.participants || []).map(p => (p === oldUsername ? formattedUsername : p));
+      const newLastSender = c.last_message_sender === oldUsername ? formattedUsername : c.last_message_sender;
+      return {
+        ...c,
+        participants: newParticipants,
+        last_message_sender: newLastSender
+      };
+    }));
+
+    setShowEditProfileModal(false);
+    showToast('Profile updated successfully');
+
+    // 4. Background Asynchronous Firestore Persistence
+    if (isFirebaseConfigured && db && auth && userId) {
+      try {
+        const userDocRef = doc(db, 'users', userId);
+        const userSnap = await getDoc(userDocRef);
+        const existingPrev = userSnap.exists() ? (userSnap.data().previous_usernames || []) : [];
+        const prevList = isUsernameChanged && oldUsername
+          ? Array.from(new Set([...existingPrev, oldUsername].filter(Boolean)))
+          : existingPrev;
+
+        await setDoc(userDocRef, {
           id: userId,
           username: formattedUsername,
-          display_name: userDisplayName.trim(),
-          bio: userBio,
-          avatar_seed: userAvatarSeed,
-          avatar_url: userAvatarUrl || '',
+          display_name: formattedDisplayName,
+          bio: editDraftBio,
+          avatar_seed: editDraftAvatarSeed || formattedUsername,
+          avatar_url: editDraftAvatarUrl || '',
           name_change_timestamps: updatedNameChanges,
           username_change_timestamps: updatedUsernameChanges,
+          previous_usernames: prevList,
           online: true,
           last_seen: 'online'
         }, { merge: true });
-      }
 
-      // Sync local users store so changes show up in chat feeds and profile drawers immediately
-      setUsers(prev => {
-        const next = { ...prev };
-        if (savedUsername && savedUsername !== formattedUsername) {
-          delete next[savedUsername];
+        // If username changed, update chat participant arrays in Firestore in the background
+        if (isUsernameChanged && oldUsername) {
+          const chatsColRef = collection(db, 'chats');
+          const qOld = query(chatsColRef, where('participants', 'array-contains', oldUsername));
+          const oldSnap = await getDocs(qOld);
+          for (const cDoc of oldSnap.docs) {
+            const cData = cDoc.data();
+            const pList: string[] = cData.participants || [];
+            const updatedPList = pList.map(p => p === oldUsername ? formattedUsername : p);
+            if (!updatedPList.includes(formattedUsername)) {
+              updatedPList.push(formattedUsername);
+            }
+            await updateDoc(doc(db, 'chats', cDoc.id), {
+              participants: updatedPList,
+              ...(cData.last_message_sender === oldUsername ? { last_message_sender: formattedUsername } : {})
+            });
+          }
         }
-        next[formattedUsername] = {
-          username: formattedUsername,
-          display_name: userDisplayName.trim(),
-          bio: userBio,
-          avatar_seed: userAvatarSeed,
-          avatar_url: userAvatarUrl || '',
-          name_change_timestamps: updatedNameChanges,
-          username_change_timestamps: updatedUsernameChanges,
-          online: true,
-          last_seen: 'online'
-        };
-        return next;
-      });
-
-      // Update current user state markers
-      setUserUsername(formattedUsername);
-      setSavedUsername(formattedUsername);
-      setSavedDisplayName(userDisplayName.trim());
-      setUserNameChanges(updatedNameChanges);
-      setUserUsernameChanges(updatedUsernameChanges);
-
-      showToast('Profile changes saved successfully!');
-    } catch (err: any) {
-      console.error("Save profile error:", err);
-      showToast('Failed to save profile changes.');
-    } finally {
-      setIsSavingProfile(false);
+      } catch (err: any) {
+        console.warn("Background profile sync error:", err.message);
+      }
     }
   };
 
@@ -2134,8 +2800,16 @@ export default function App() {
     return true;
   });
 
-  // Filter chats based on sidebar search with deduplication
-  const uniqueChats = chats.filter((chat, index, self) => index === self.findIndex(c => c.id === chat.id));
+  // Filter chats based on sidebar search with robust deduplication
+  const uniqueChats = chats.filter((chat, index, self) => {
+    const idIdx = self.findIndex(c => c.id === chat.id);
+    if (index !== idIdx) return false;
+    if (chat.type === 'dm' && chat.username) {
+      const dmIdx = self.findIndex(c => c.type === 'dm' && c.username?.toLowerCase() === chat.username?.toLowerCase());
+      if (index !== dmIdx) return false;
+    }
+    return true;
+  });
   const filteredChats = uniqueChats.filter(chat => {
     const query = chatSearchQuery.toLowerCase().trim();
     if (!query) return true;
@@ -2143,13 +2817,58 @@ export default function App() {
   });
 
   // Global user search (for Discover view)
-  const globalSearchResults = Object.values(users).filter(user => {
+  const globalSearchResults = useMemo(() => {
     const q = globalSearchQuery.toLowerCase().trim();
-    if (!q) return false;
-    // Don't search yourself
-    if (user.username === userUsername) return false;
-    return user.username.toLowerCase().includes(q) || user.display_name.toLowerCase().includes(q);
-  });
+    if (!q) return [];
+    const cleanCurrentU = (userUsername || '').trim().toLowerCase();
+    const cleanCurrentId = (userId || '').trim().toLowerCase();
+
+    return uniqueUserList.filter(user => {
+      const uName = (user.username || '').toLowerCase();
+      const uId = (user.id || '').toLowerCase();
+      const dName = (user.display_name || '').toLowerCase();
+      const bio = (user.bio || '').toLowerCase();
+
+      // Only filter out the logged in user themselves
+      if ((cleanCurrentU && uName === cleanCurrentU) || (cleanCurrentId && uId === cleanCurrentId)) {
+        return false;
+      }
+
+      return uName.includes(q) || dName.includes(q) || bio.includes(q);
+    });
+  }, [globalSearchQuery, uniqueUserList, userUsername, userId]);
+
+  // Active contacts list (all real registered users except current active user)
+  const activeContactsList = useMemo(() => {
+    const cleanCurrentU = (userUsername || '').trim().toLowerCase();
+    const cleanCurrentId = (userId || '').trim().toLowerCase();
+
+    return uniqueUserList.filter(user => {
+      const uName = (user.username || '').toLowerCase();
+      const uId = (user.id || '').toLowerCase();
+      return (cleanCurrentU ? uName !== cleanCurrentU : true) && (cleanCurrentId ? uId !== cleanCurrentId : true);
+    });
+  }, [uniqueUserList, userUsername, userId]);
+
+  // Sidebar matching contacts for quick chat initiation
+  const matchingContactsForSidebar = useMemo(() => {
+    const q = chatSearchQuery.toLowerCase().trim();
+    if (!q) return [];
+    const cleanCurrentU = (userUsername || '').trim().toLowerCase();
+    const cleanCurrentId = (userId || '').trim().toLowerCase();
+
+    return uniqueUserList.filter(user => {
+      const uName = (user.username || '').toLowerCase();
+      const uId = (user.id || '').toLowerCase();
+      const dName = (user.display_name || '').toLowerCase();
+
+      if ((cleanCurrentU && uName === cleanCurrentU) || (cleanCurrentId && uId === cleanCurrentId)) {
+        return false;
+      }
+
+      return uName.includes(q) || dName.includes(q);
+    });
+  }, [chatSearchQuery, uniqueUserList, userUsername, userId]);
 
   // Send message
   const handleSendMessage = async () => {
@@ -2284,7 +3003,7 @@ export default function App() {
   const handleStartReply = (msg: Message) => {
     setReplyToId(msg.id);
     setReplyToPreview(msg.text || `[${msg.type}]`);
-    setReplyToSender((msg.sender === 'me' || msg.sender === userUsername) ? 'You' : (users[msg.sender]?.display_name || msg.sender));
+    setReplyToSender(getSenderDisplayName(msg.sender));
     setEditMessageId('');
   };
 
@@ -2362,7 +3081,7 @@ export default function App() {
       }
     } catch (err) {
       console.warn("Microphone hardware access notice:", err);
-      showToast("Using voice audio synthesizer 🎙️");
+      showToast("Using voice audio synthesizer");
     }
 
     setIsRecordingVoice(true);
@@ -2374,7 +3093,7 @@ export default function App() {
       setRecordingSeconds(prev => prev + 1);
     }, 1000);
 
-    showToast("Voice recording started 🎙️");
+    showToast("Voice recording started");
   };
 
   const stopVoiceRecording = async (): Promise<Blob | null> => {
@@ -2484,7 +3203,7 @@ export default function App() {
 
     if (isFirebaseConfigured && db && auth) {
       try {
-        const firestoreAudioUrl = safeFirestoreUrl(audioUrlToUse, 'voice_note.ogg');
+        const firestoreAudioUrl = await safeFirestoreUrl(audioUrlToUse, 'voice_note.ogg', `voice_notes/${activeChatId}/${newMsgId}.ogg`);
         await setDoc(doc(db, 'messages', newMsgId), {
           id: newMsgId,
           chat_id: activeChatId, created_at: Date.now(),
@@ -2504,7 +3223,7 @@ export default function App() {
         if (activeChat) {
           await setDoc(doc(db, 'chats', activeChatId), {
             id: activeChatId,
-            last_message: '🎤 Voice Note (' + (durationFormatted || '0:05') + ')',
+            last_message: 'Voice Note (' + (durationFormatted || '0:05') + ')',
             last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
           }, { merge: true });
         }
@@ -2513,12 +3232,21 @@ export default function App() {
       }
     }
 
+    // Save voice note to high-capacity IndexedDB cache
+    if (audioUrlToUse) {
+      storageManager.saveMedia(newMsgId, audioUrlToUse, {
+        chat_id: activeChatId,
+        fileName: 'voice_note.ogg',
+        mimeType: 'audio/ogg'
+      }).catch(() => {});
+    }
+
     setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: 🎤 Voice Note (${durationFormatted || '0:05'})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
+    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: Voice Note (${durationFormatted || '0:05'})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
     
     cancelVoiceRecording();
     setShowAttachMenu(false);
-    showToast("Voice note sent 🎙️");
+    showToast("Voice note sent");
   };
 
   // --- MEDIA EDITOR SEND HANDLER (WhatsApp-Style Photo/Video Editor) ---
@@ -2532,6 +3260,22 @@ export default function App() {
   }) => {
     if (!pendingMediaEditorData) return;
 
+    let finalMediaUrl = result.mediaUrl;
+    let finalFileSize = result.fileSize;
+
+    // Apply smart image compression to maximize available storage
+    if (pendingMediaEditorData.mediaType === 'image' && result.mediaUrl && !result.isDocument) {
+      try {
+        const comp = await compressImage(result.mediaUrl, mediaUploadQuality);
+        finalMediaUrl = comp.dataUrl;
+        if (comp.savedPercent > 0) {
+          finalFileSize = `${(comp.compressedSize / 1024).toFixed(1)} KB (-${comp.savedPercent}%)`;
+        }
+      } catch (err) {
+        console.warn("Smart compression fallback:", err);
+      }
+    }
+
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const newMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
 
@@ -2544,9 +3288,9 @@ export default function App() {
       sender: userUsername || 'me',
       text: result.caption || result.fileName,
       type: finalType,
-      media_url: !result.isDocument ? (result.mediaUrl || (finalType === 'video' ? 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' : undefined)) : undefined,
+      media_url: !result.isDocument ? (finalMediaUrl || (finalType === 'video' ? 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' : undefined)) : undefined,
       file_name: result.fileName,
-      file_size: result.fileSize,
+      file_size: finalFileSize,
       media_quality: result.mediaQuality,
       timestamp: timeStr,
       reactions: [],
@@ -2556,11 +3300,16 @@ export default function App() {
     if (newMsg.media_url) {
       localMediaCacheRef.current[newMsg.id] = newMsg.media_url;
       if (result.fileName) localMediaCacheRef.current[result.fileName] = newMsg.media_url;
+      // Persist in high-capacity IndexedDB
+      storageManager.saveMedia(newMsg.id, newMsg.media_url, {
+        chat_id: activeChatId,
+        fileName: result.fileName,
+      }).catch(() => {});
     }
 
     if (isFirebaseConfigured && db && auth) {
       try {
-        const firestoreMediaUrl = safeFirestoreUrl(newMsg.media_url, result.fileName);
+        const firestoreMediaUrl = await safeFirestoreUrl(newMsg.media_url, result.fileName, `chat_media/${activeChatId}/${newMsgId}_${result.fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
 
         await setDoc(doc(db, 'messages', newMsgId), {
           id: newMsgId,
@@ -2704,8 +3453,8 @@ export default function App() {
 
       if (isFirebaseConfigured && db && auth) {
         try {
-          const firestoreMediaUrl = safeFirestoreUrl(newMsg.media_url, file.name);
-          const firestoreAudioUrl = safeFirestoreUrl(newMsg.audio_url, file.name);
+          const firestoreMediaUrl = await safeFirestoreUrl(newMsg.media_url, file.name, `chat_media/${activeChatId}/${newMsgId}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
+          const firestoreAudioUrl = await safeFirestoreUrl(newMsg.audio_url, file.name, `audio_uploads/${activeChatId}/${newMsgId}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
 
           await setDoc(doc(db, 'messages', newMsgId), {
             id: newMsgId,
@@ -2729,7 +3478,7 @@ export default function App() {
           if (activeChat) {
             await setDoc(doc(db, 'chats', activeChatId), {
               id: activeChatId,
-              last_message: '📁 ' + file.name,
+              last_message: file.name,
               last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
             }, { merge: true });
           }
@@ -2758,7 +3507,7 @@ export default function App() {
       id: newMsgId,
       chat_id: activeChatId, created_at: Date.now(),
       sender: userUsername || 'me',
-      text: `📍 ${locationTitle}`,
+      text: `Location: ${locationTitle}`,
       type: 'location',
       location_data: {
         title: locationTitle,
@@ -2790,10 +3539,10 @@ export default function App() {
     }
 
     setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: 📍 Location (${locationTitle})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
+    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: Location (${locationTitle})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
     setShowLocationModal(false);
     setShowAttachMenu(false);
-    showToast("Location shared 📍");
+    showToast("Location shared");
   };
 
   // --- CONTACT SHARING ---
@@ -2809,7 +3558,7 @@ export default function App() {
       id: newMsgId,
       chat_id: activeChatId, created_at: Date.now(),
       sender: userUsername || 'me',
-      text: `👤 Contact: ${contactName}`,
+      text: `Contact: ${contactName}`,
       type: 'contact',
       contact_data: {
         name: contactName,
@@ -2840,13 +3589,13 @@ export default function App() {
     }
 
     setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: 👤 Contact (${contactName})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
+    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: Contact (${contactName})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
     setShowContactModal(false);
     setShowAttachMenu(false);
     setContactName('');
     setContactPhone('');
     setContactEmail('');
-    showToast("Contact card shared 👤");
+    showToast("Contact card shared");
   };
 
   // --- POLL CREATION & VOTING ---
@@ -2870,7 +3619,7 @@ export default function App() {
       id: newMsgId,
       chat_id: activeChatId, created_at: Date.now(),
       sender: userUsername || 'me',
-      text: `📊 Poll: ${pollQuestion}`,
+      text: `Poll: ${pollQuestion}`,
       type: 'poll',
       poll_data: pollData,
       timestamp: timeStr,
@@ -2897,12 +3646,12 @@ export default function App() {
     }
 
     setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: 📊 Poll (${pollQuestion})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
+    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: Poll (${pollQuestion})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
     setShowPollModal(false);
     setShowAttachMenu(false);
     setPollQuestion('');
     setPollOptionsInputs(['Option 1', 'Option 2']);
-    showToast("Poll created 📊");
+    showToast("Poll created");
   };
 
   const handleVotePoll = (msgId: string, optionId: string) => {
@@ -2940,7 +3689,7 @@ export default function App() {
       });
       return { ...prev, [activeChatId]: updated };
     });
-    showToast("Vote updated 🗳️");
+    showToast("Vote updated");
   };
 
   // --- AUDIO MESSAGE PLAYBACK TOGGLE ---
@@ -3077,7 +3826,7 @@ export default function App() {
 
   const canDeleteForEveryone = (msg: Message | null) => {
     if (!msg) return false;
-    const isMe = msg.sender === 'me' || msg.sender === userUsername;
+    const isMe = isSenderMe(msg.sender);
     if (!isMe) return false;
     if (msg.deleted_for_everyone) return false;
 
@@ -3138,7 +3887,7 @@ export default function App() {
       try { localStorage.setItem('zenoa_chat_wallpapers', JSON.stringify(updated)); } catch {}
       return updated;
     });
-    showToast('Chat wallpaper updated 🎨');
+    showToast('Chat wallpaper updated');
   };
 
   const handleToggleStarMessage = (msgId: string) => {
@@ -3148,7 +3897,7 @@ export default function App() {
       const updated = msgs.map(m => {
         if (m.id === msgId) {
           const nextStarred = !m.starred;
-          showToast(nextStarred ? 'Message starred ⭐' : 'Message unstarred');
+          showToast(nextStarred ? 'Message starred' : 'Message unstarred');
           return { ...m, starred: nextStarred };
         }
         return m;
@@ -3162,7 +3911,7 @@ export default function App() {
     if (!text) return;
     try {
       navigator.clipboard.writeText(text);
-      showToast('Message copied to clipboard 📋');
+      showToast('Message copied to clipboard');
     } catch {
       showToast('Copied: ' + text.substring(0, 30));
     }
@@ -3186,7 +3935,7 @@ export default function App() {
             }, { merge: true });
           } catch (e) { console.error(e); }
         }
-        showToast('Chat history cleared 🧹');
+        showToast('Chat history cleared');
         setSelectedChatForOptions(null);
         setShowChatCustomizationSheet(false);
       }
@@ -3213,14 +3962,14 @@ export default function App() {
     a.download = `Chat_${(targetChat?.name || 'Transcript').replace(/\s+/g, '_')}_${Date.now()}.txt`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast('Chat transcript exported as .txt 📄');
+    showToast('Chat transcript exported as .txt');
   };
 
   const handleToggleArchiveChat = (chatId: string) => {
     setChats(prev => prev.map(c => {
       if (c.id === chatId) {
         const nextArchived = !c.archived;
-        showToast(nextArchived ? 'Chat archived 📦' : 'Chat unarchived');
+        showToast(nextArchived ? 'Chat archived' : 'Chat unarchived');
         return { ...c, archived: nextArchived };
       }
       return c;
@@ -3318,23 +4067,39 @@ export default function App() {
     setForwardTargets([]);
   };
 
-  // Discover start chat
+  // Discover start chat (Resilient deduplication & identity preservation)
   const handleStartChatWithUser = async (user: UserData) => {
-    const targetChatId = `c_${user.username}`;
-    const exists = chats.some(c => c.id === targetChatId);
+    const selfName = userUsername || 'me';
+    const targetUserClean = user.username.trim().toLowerCase();
+    
+    // Check if chat already exists by participant, username, or previous usernames
+    const existingChat = chats.find(c => {
+      if (c.id === `c_${user.username}`) return true;
+      if (c.type === 'dm') {
+        if (c.username?.toLowerCase() === targetUserClean) return true;
+        if (c.participants?.some(p => p.toLowerCase() === targetUserClean)) return true;
+        if (user.previous_usernames?.some(prev => c.participants?.includes(prev) || c.username === prev)) return true;
+      }
+      return false;
+    });
 
-    if (!exists) {
-      const selfName = userUsername || 'me';
+    const targetChatId = existingChat ? existingChat.id : `c_${user.username}`;
+
+    if (!existingChat) {
       const newChat: Chat = {
         id: targetChatId,
         type: 'dm',
         name: user.display_name,
         username: user.username,
-        avatar_seed: user.avatar_seed,
+        avatar_seed: user.avatar_seed || user.username,
+        avatar_url: user.avatar_url,
         participants: [selfName, user.username],
         unread: 0,
         last_message: 'Chat started',
-        last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
+        last_time: 'now',
+        updated_at: Date.now(),
+        last_message_sender: selfName,
+        last_message_status: 'delivered' as const,
         pinned: false,
         muted: false,
         typing: false,
@@ -3349,11 +4114,15 @@ export default function App() {
             type: 'dm',
             name: user.display_name,
             username: user.username,
-            avatar_seed: user.avatar_seed,
+            avatar_seed: user.avatar_seed || user.username,
+            avatar_url: user.avatar_url || '',
             participants: [selfName, user.username],
             unread: 0,
             last_message: 'Chat started',
-            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
+            last_time: 'now',
+            updated_at: Date.now(),
+            last_message_sender: selfName,
+            last_message_status: 'delivered' as const
           }, { merge: true });
         } catch (err) {
           console.error("Error creating chat in Firebase:", err);
@@ -3366,7 +4135,7 @@ export default function App() {
       });
       setMessagesByChat(prev => ({
         ...prev,
-        [targetChatId]: []
+        [targetChatId]: prev[targetChatId] || []
       }));
     }
 
@@ -3565,9 +4334,19 @@ export default function App() {
     );
   }
 
-  // Authentication UI Render
-  if (isAuthenticated && isNewUserSetupPending) {
-    return <AccountSetup themeMode={themeMode} onComplete={() => setIsNewUserSetupPending(false)} />;
+  // Authentication & Mandatory Setup UI Render
+  if (isNewUserSetupPending || (isAuthenticated && (!userDisplayName || !userUsername))) {
+    return (
+      <AccountSetup
+        initialFullName={pendingUserAuth?.displayName || userDisplayName || ''}
+        initialUsername={userUsername || ''}
+        initialEmail={pendingUserAuth?.email || userEmail || ''}
+        onComplete={handleCompleteMandatoryAccountSetup}
+        checkUsernameAvailability={handleCheckUsernameAvailability}
+        themeMode={themeMode}
+        onSignOut={handleLogout}
+      />
+    );
   }
   
   if (!isAuthenticated) {
@@ -3698,7 +4477,8 @@ export default function App() {
         onForgotPassword={handleForgotPassword}
         themeMode={themeMode}
         onToggleTheme={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
-        existingUsernames={Object.values(users).map(u => u.username)}
+        existingUsernames={uniqueUserList.map(u => u.username)}
+        checkUsernameAvailability={handleCheckUsernameAvailability}
         isOnboarding={onboardingStep > 0}
         initialRegStep={onboardingStep}
       />
@@ -3870,10 +4650,10 @@ export default function App() {
 
                   <div className="space-y-1">
                     {[
-                      { status: 'online', label: 'Online', color: 'bg-emerald-500', icon: '🟢' },
-                      { status: 'away', label: 'Away', color: 'bg-amber-500', icon: '🟡' },
-                      { status: 'busy', label: 'Do Not Disturb', color: 'bg-rose-500', icon: '🔴' },
-                      { status: 'offline', label: 'Invisible', color: 'bg-neutral-400', icon: '🌙' },
+                      { status: 'online', label: 'Online', color: 'bg-emerald-500' },
+                      { status: 'away', label: 'Away', color: 'bg-amber-500' },
+                      { status: 'busy', label: 'Do Not Disturb', color: 'bg-rose-500' },
+                      { status: 'offline', label: 'Invisible', color: 'bg-neutral-400' },
                     ].map(st => (
                       <button
                         key={st.status}
@@ -3882,15 +4662,15 @@ export default function App() {
                           setShowStatusPopover(false);
                           showToast(`Status set to ${st.label}`);
                         }}
-                        className={`w-full flex items-center justify-between p-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                          myPresenceStatus === st.status ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                        className={`w-full flex items-center justify-between p-2 rounded-xl text-xs font-semibold transition-colors ${
+                          myPresenceStatus === st.status ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
                         }`}
                       >
-                        <span className="flex items-center gap-2">
-                          <span>{st.icon}</span>
+                        <span className="flex items-center gap-2.5">
+                          <span className={`h-2.5 w-2.5 rounded-full ${st.color}`} />
                           <span>{st.label}</span>
                         </span>
-                        {myPresenceStatus === st.status && <Check className="h-3.5 w-3.5 text-indigo-600" />}
+                        {myPresenceStatus === st.status && <Check className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />}
                       </button>
                     ))}
                   </div>
@@ -3901,7 +4681,7 @@ export default function App() {
                       type="text"
                       value={myCustomStatus}
                       onChange={e => setMyCustomStatus(e.target.value)}
-                      placeholder="e.g. In a meeting 💼"
+                      placeholder="e.g. In a meeting"
                       className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 outline-none focus:border-indigo-500"
                     />
                   </div>
@@ -4033,84 +4813,117 @@ export default function App() {
 
               {/* Chat room scroll feed */}
               <div className="flex-1 overflow-y-auto p-2 space-y-1 pb-24 md:pb-2 overscroll-contain">
-                {filteredChats.length === 0 ? (
+                {filteredChats.length === 0 && (!chatSearchQuery.trim() || matchingContactsForSidebar.length === 0) ? (
                   <div className="p-8 text-center">
-                    <p className="text-sm text-neutral-400">No chats found</p>
+                    <p className="text-sm text-neutral-400">No chats or contacts found</p>
                   </div>
                 ) : (
-                  filteredChats.map(chat => (
-                    <div 
-                      key={chat.id} 
-                      onClick={() => { setActiveChatId(chat.id); setMobileShowChat(true); }}
-                      onContextMenu={(e) => { e.preventDefault(); setSelectedChatForOptions(chat); }}
-                      onTouchStart={() => {
-                        const timer = setTimeout(() => { setSelectedChatForOptions(chat); }, 1000);
-                        (window as any)._chatTouchTimer = timer;
-                      }}
-                      onTouchMove={() => {
-                        if ((window as any)._chatTouchTimer) clearTimeout((window as any)._chatTouchTimer);
-                      }}
-                      onTouchEnd={() => {
-                        if ((window as any)._chatTouchTimer) clearTimeout((window as any)._chatTouchTimer);
-                      }}
-                      className={`group w-full flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all relative ${chat.id === activeChatId ? 'bg-indigo-50/80 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900'}`}
-                    >
-                      <div className="relative">
-                        {renderAvatar(chat.avatar_seed, chat.name, chat.avatar_url || users[chat.username]?.avatar_url, 'h-10 w-10 text-sm')}
-                        {isUserEffectivelyOnline(users[chat.username]) && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-500 border-2 border-white dark:border-neutral-950"></span>}
-                      </div>
-
-                      <div className="flex-1 min-w-0 text-left">
-                        <div className="flex justify-between items-baseline">
-                          <div className="flex items-center gap-1 min-w-0">
-                            <p className={`text-sm truncate ${chat.id === activeChatId ? 'font-bold' : 'font-semibold text-neutral-800 dark:text-neutral-200'}`}>{chat.name}</p>
-                            {chat.pinned && <Pin className="h-3 w-3 text-indigo-600 rotate-45 shrink-0" />}
-                            {chat.muted && <VolumeX className="h-3 w-3 text-neutral-400 shrink-0" />}
-                            {chat.archived && <Archive className="h-3 w-3 text-amber-500 shrink-0" />}
-                          </div>
-                          <span className="text-[10px] text-neutral-400 shrink-0 ml-1">{chat.last_time}</span>
+                  <>
+                    {filteredChats.map(chat => (
+                      <div 
+                        key={chat.id} 
+                        onClick={() => { setActiveChatId(chat.id); setMobileShowChat(true); }}
+                        onContextMenu={(e) => { e.preventDefault(); setSelectedChatForOptions(chat); }}
+                        onTouchStart={() => {
+                          const timer = setTimeout(() => { setSelectedChatForOptions(chat); }, 1000);
+                          (window as any)._chatTouchTimer = timer;
+                        }}
+                        onTouchMove={() => {
+                          if ((window as any)._chatTouchTimer) clearTimeout((window as any)._chatTouchTimer);
+                        }}
+                        onTouchEnd={() => {
+                          if ((window as any)._chatTouchTimer) clearTimeout((window as any)._chatTouchTimer);
+                        }}
+                        className={`group w-full flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all relative ${chat.id === activeChatId ? 'bg-indigo-50/80 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900'}`}
+                      >
+                        <div className="relative">
+                          {renderAvatar(chat.avatar_seed, chat.name, chat.avatar_url || users[chat.username]?.avatar_url, 'h-10 w-10 text-sm')}
+                          {isUserEffectivelyOnline(users[chat.username]) && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-500 border-2 border-white dark:border-neutral-950"></span>}
                         </div>
-                        <div className="flex justify-between items-center mt-1 min-w-0">
-                          <p className="text-xs text-neutral-400 truncate pr-2 flex-1 min-w-0 flex items-center gap-1">
-                            {chat.last_message_sender === userUsername && chat.last_message && chat.last_message !== 'Chat history cleared' && (
-                              <span className="shrink-0">
-                                {chat.last_message_status === 'read' ? (
-                                  <CheckCheck className="h-3.5 w-3.5 text-blue-500" />
-                                ) : chat.last_message_status === 'delivered' ? (
-                                  <CheckCheck className="h-3.5 w-3.5 text-neutral-400" />
+
+                        <div className="flex-1 min-w-0 text-left">
+                          <div className="flex justify-between items-baseline">
+                            <div className="flex items-center gap-1 min-w-0">
+                              <p className={`text-sm truncate ${chat.id === activeChatId ? 'font-bold' : 'font-semibold text-neutral-800 dark:text-neutral-200'}`}>{chat.name}</p>
+                              {chat.pinned && <Pin className="h-3 w-3 text-indigo-600 rotate-45 shrink-0" />}
+                              {chat.muted && <VolumeX className="h-3 w-3 text-neutral-400 shrink-0" />}
+                              {chat.archived && <Archive className="h-3 w-3 text-amber-500 shrink-0" />}
+                            </div>
+                            <span className="text-[10px] text-neutral-400 shrink-0 ml-1">{chat.last_time}</span>
+                          </div>
+                          <div className="flex justify-between items-center mt-1 min-w-0">
+                            <p className="text-xs text-neutral-400 truncate pr-2 flex-1 min-w-0 flex items-center gap-1">
+                              {chat.last_message_sender === userUsername && chat.last_message && chat.last_message !== 'Chat history cleared' && (
+                                <span className="shrink-0">
+                                  {chat.last_message_status === 'read' ? (
+                                    <CheckCheck className="h-3.5 w-3.5 text-blue-500" />
+                                  ) : chat.last_message_status === 'delivered' ? (
+                                    <CheckCheck className="h-3.5 w-3.5 text-neutral-400" />
+                                  ) : (
+                                    <Check className="h-3.5 w-3.5 text-neutral-400" />
+                                  )}
+                                </span>
+                              )}
+                              <span className="truncate">
+                                {chat.typing ? (
+                                  <span className="text-indigo-500 font-medium animate-pulse">typing...</span>
                                 ) : (
-                                  <Check className="h-3.5 w-3.5 text-neutral-400" />
+                                  chat.last_message && chat.last_message.length > 32 
+                                    ? chat.last_message.slice(0, 32).trim() + '...' 
+                                    : (chat.last_message || '')
                                 )}
                               </span>
-                            )}
-                            <span className="truncate">
-                              {chat.typing ? (
-                                <span className="text-indigo-500 font-medium animate-pulse">typing...</span>
-                              ) : (
-                                chat.last_message && chat.last_message.length > 32 
-                                  ? chat.last_message.slice(0, 32).trim() + '...' 
-                                  : (chat.last_message || '')
+                            </p>
+                            <div className="flex items-center gap-1">
+                              {chat.unread > 0 && (
+                                <span className="bg-indigo-600 text-white text-[10px] font-bold h-4 px-1.5 rounded-full flex items-center justify-center shrink-0">
+                                  {chat.unread}
+                                </span>
                               )}
-                            </span>
-                          </p>
-                          <div className="flex items-center gap-1">
-                            {chat.unread > 0 && (
-                              <span className="bg-indigo-600 text-white text-[10px] font-bold h-4 px-1.5 rounded-full flex items-center justify-center shrink-0">
-                                {chat.unread}
-                              </span>
-                            )}
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); setSelectedChatForOptions(chat); }}
-                              className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-opacity text-neutral-400 hover:text-neutral-700 dark:hover:text-white"
-                              title="Chat Options"
-                            >
-                              <MoreVertical className="h-3.5 w-3.5" />
-                            </button>
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); setSelectedChatForOptions(chat); }}
+                                className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-opacity text-neutral-400 hover:text-neutral-700 dark:hover:text-white"
+                                title="Chat Options"
+                              >
+                                <MoreVertical className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))
+                    ))}
+
+                    {/* Matching People section in sidebar search */}
+                    {chatSearchQuery.trim() !== '' && matchingContactsForSidebar.length > 0 && (
+                      <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800 mt-2 space-y-1">
+                        <p className="px-3 py-1 text-[11px] font-bold text-neutral-400 uppercase tracking-wider text-left">
+                          People & Contacts
+                        </p>
+                        {matchingContactsForSidebar.map(user => (
+                          <div 
+                            key={`sidebar_user_${user.id || user.username}`}
+                            onClick={() => {
+                              setChatSearchQuery('');
+                              handleStartChatWithUser(user);
+                            }}
+                            className="w-full flex items-center gap-3 p-3 rounded-2xl cursor-pointer hover:bg-indigo-50/60 dark:hover:bg-indigo-950/30 transition-all text-left"
+                          >
+                            <div className="relative shrink-0">
+                              {renderAvatar(user.avatar_seed, user.display_name, user.avatar_url, 'h-10 w-10 text-sm')}
+                              {isUserEffectivelyOnline(user) && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-500 border-2 border-white dark:border-neutral-950"></span>}
+                            </div>
+                            <div className="flex-1 min-w-0 text-left">
+                              <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 truncate">{user.display_name}</p>
+                              <p className="text-xs text-neutral-400 truncate">@{user.username}</p>
+                            </div>
+                            <button className="px-2.5 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shrink-0">
+                              Chat
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -4208,6 +5021,13 @@ export default function App() {
               {/* Message scroll list with Theme & Wallpaper Support */}
               {(() => {
                 const activeTheme = getThemeById(chatWallpapers[activeChatId] || DEFAULT_THEME_ID);
+                const currentVisibleLimit = visibleMessageCountByChat[activeChatId] || MESSAGE_PAGE_SIZE;
+                const totalChatMessages = filteredActiveMessages.length;
+                const hasOlderMessages = totalChatMessages > currentVisibleLimit;
+                const displayedActiveMessages = hasOlderMessages
+                  ? filteredActiveMessages.slice(totalChatMessages - currentVisibleLimit)
+                  : filteredActiveMessages;
+
                 return (
                   <div 
                     className={`flex-1 min-h-0 overflow-y-auto p-3 md:p-4 space-y-2 overscroll-contain pb-6 md:pb-4 transition-all ${activeTheme.bgClass}`}
@@ -4225,6 +5045,25 @@ export default function App() {
                     </p>
                   </div>
                 </div>
+
+                {/* Pagination: Load Earlier Messages */}
+                {hasOlderMessages && (
+                  <div className="flex justify-center my-2 select-none">
+                    <button
+                      onClick={() => {
+                        setVisibleMessageCountByChat(prev => ({
+                          ...prev,
+                          [activeChatId]: (prev[activeChatId] || MESSAGE_PAGE_SIZE) + MESSAGE_PAGE_SIZE
+                        }));
+                      }}
+                      className="px-4 py-1.5 rounded-full text-xs font-semibold bg-neutral-100/90 dark:bg-neutral-800/90 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 border border-neutral-200/80 dark:border-neutral-700/80 shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Clock className="h-3.5 w-3.5 text-indigo-500" />
+                      <span>Load older messages ({totalChatMessages - currentVisibleLimit} earlier)</span>
+                    </button>
+                  </div>
+                )}
+
                 {filteredActiveMessages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-center p-6 space-y-2">
                     <MessageSquare className="h-10 w-10 text-neutral-300 dark:text-neutral-700" />
@@ -4232,31 +5071,44 @@ export default function App() {
                     <p className="text-[11px] text-neutral-400">Type a message below to start chatting!</p>
                   </div>
                 ) : (
-                  filteredActiveMessages.map((msg, idx) => {
-                    const isMe = msg.sender === 'me' || msg.sender === userUsername;
-                    const senderName = isMe ? 'You' : (users[msg.sender]?.display_name || msg.sender);
+                  displayedActiveMessages.map((msg, idx) => {
+                    const isMe = isSenderMe(msg.sender);
+                    const senderName = getSenderDisplayName(msg.sender);
                     const senderUsername = users[msg.sender]?.username || msg.sender;
-                    const isFirstInGroup = idx === 0 || filteredActiveMessages[idx - 1]?.sender !== msg.sender;
+                    const isFirstInGroup = idx === 0 || displayedActiveMessages[idx - 1]?.sender !== msg.sender;
                     const otherParticipants = activeChat?.participants.filter(p => p !== userUsername) || [];
                     const isDelivered = otherParticipants.some(p => isUserEffectivelyOnline(users[p]));
 
+                    const currentDateKey = getMessageDateKey(msg.created_at, msg.timestamp);
+                    const prevMsg = idx > 0 ? displayedActiveMessages[idx - 1] : null;
+                    const prevDateKey = prevMsg ? getMessageDateKey(prevMsg.created_at, prevMsg.timestamp) : null;
+                    const showDateDivider = idx === 0 || currentDateKey !== prevDateKey;
+
                     return (
-                      <MessageCard
-                        key={`${msg.id || 'msg'}_${idx}`}
-                        msg={msg}
-                        isMe={isMe}
-                        senderName={senderName}
-                        senderUsername={senderUsername}
-                        isFirstInGroup={isFirstInGroup}
-                        privacyReadReceipts={privacyReadReceipts}
-                        isDelivered={isDelivered}
-                        themeId={chatWallpapers[activeChatId] || DEFAULT_THEME_ID}
-                        onOpenActions={(m) => setSelectedMessageForActions(m)}
-                        onReact={(msgId, emoji) => handleReactToMessage(msgId, emoji)}
-                        onVotePoll={(msgId, optionId) => handleVotePoll(msgId, optionId)}
-                        onOpenMediaPlayer={(type, url, meta) => openInMediaPlayer(type, url, meta)}
-                        onToast={(text) => showToast(text)}
-                      />
+                      <React.Fragment key={`${msg.id || 'msg'}_${idx}`}>
+                        {showDateDivider && (
+                          <div className="flex justify-center my-3 select-none sticky top-2 z-10">
+                            <div className="px-3.5 py-1 rounded-full text-[11px] font-semibold tracking-wide bg-neutral-100/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border border-neutral-200/80 dark:border-neutral-700/80 shadow-2xs backdrop-blur-md">
+                              {formatChatDateDivider(currentDateKey)}
+                            </div>
+                          </div>
+                        )}
+                        <MessageCard
+                          msg={msg}
+                          isMe={isMe}
+                          senderName={senderName}
+                          senderUsername={senderUsername}
+                          isFirstInGroup={isFirstInGroup}
+                          privacyReadReceipts={privacyReadReceipts}
+                          isDelivered={isDelivered}
+                          themeId={chatWallpapers[activeChatId] || DEFAULT_THEME_ID}
+                          onOpenActions={(m) => setSelectedMessageForActions(m)}
+                          onReact={(msgId, emoji) => handleReactToMessage(msgId, emoji)}
+                          onVotePoll={(msgId, optionId) => handleVotePoll(msgId, optionId)}
+                          onOpenMediaPlayer={(type, url, meta) => openInMediaPlayer(type, url, meta)}
+                          onToast={(text) => showToast(text)}
+                        />
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -4437,7 +5289,7 @@ export default function App() {
                           id: newMsgId,
                           chat_id: activeChatId, created_at: Date.now(),
                           sender: userUsername || 'me',
-                          text: 'Shared a GIF 📹',
+                          text: 'Shared a GIF',
                           type: 'gif',
                           media_url: gifUrl,
                           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -4451,7 +5303,7 @@ export default function App() {
                               id: newMsgId,
                               chat_id: activeChatId, created_at: Date.now(),
                               sender: userUsername || 'me',
-                              text: 'Shared a GIF 📹',
+                              text: 'Shared a GIF',
                               type: 'gif',
                               media_url: gifUrl,
                               timestamp: newMsg.timestamp,
@@ -4702,11 +5554,132 @@ export default function App() {
                     </div>
 
                     <div className="text-left space-y-4">
+                      {/* Direct Call Actions */}
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button
+                          onClick={() => {
+                            setShowProfilePanel(false);
+                            handleStartCallWithUser(selectedProfileUsername, 'voice');
+                          }}
+                          className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 font-semibold text-xs transition-colors cursor-pointer border border-indigo-200/50 dark:border-indigo-800/50"
+                        >
+                          <Phone className="h-3.5 w-3.5" />
+                          <span>Voice Call</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowProfilePanel(false);
+                            handleStartCallWithUser(selectedProfileUsername, 'video');
+                          }}
+                          className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/50 font-semibold text-xs transition-colors cursor-pointer border border-purple-200/50 dark:border-purple-800/50"
+                        >
+                          <Video className="h-3.5 w-3.5" />
+                          <span>Video Call</span>
+                        </button>
+                      </div>
+
                       <div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block mb-1">About</span>
                         <p className="text-xs leading-relaxed text-neutral-600 dark:text-neutral-300">
                           {users[selectedProfileUsername]?.bio || 'No bio specified.'}
                         </p>
+                      </div>
+
+                      {/* User's Call History with Current Contact */}
+                      <div className="border-t border-neutral-100 dark:border-neutral-800 pt-4 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">Call History</span>
+                          {(() => {
+                            const userPairCalls = allUserCalls.filter(c => 
+                              c.partner_username === selectedProfileUsername || 
+                              c.caller === selectedProfileUsername || 
+                              c.receiver === selectedProfileUsername
+                            );
+                            return (
+                              <span className="text-[10px] font-semibold text-neutral-400">
+                                {userPairCalls.length} {userPairCalls.length === 1 ? 'call' : 'calls'}
+                              </span>
+                            );
+                          })()}
+                        </div>
+
+                        {(() => {
+                          const userPairCalls = allUserCalls.filter(c => 
+                            c.partner_username === selectedProfileUsername || 
+                            c.caller === selectedProfileUsername || 
+                            c.receiver === selectedProfileUsername
+                          );
+
+                          if (userPairCalls.length === 0) {
+                            return (
+                              <div className="p-3.5 rounded-xl border border-neutral-100 dark:border-neutral-800/80 bg-neutral-50/50 dark:bg-neutral-800/30 text-center space-y-1">
+                                <PhoneCall className="h-4 w-4 text-neutral-400 mx-auto" />
+                                <p className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">No calls with @{selectedProfileUsername} yet</p>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                              {userPairCalls.slice(0, 10).map((call) => {
+                                const isMissed = call.status === 'missed' || call.status === 'declined';
+                                const isVideo = call.call_type === 'video';
+                                return (
+                                  <div
+                                    key={`profile_call_${call.id}`}
+                                    className="p-2.5 rounded-xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-800/30 flex items-center justify-between gap-2"
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <div className={`p-1.5 rounded-lg shrink-0 ${
+                                        isMissed 
+                                          ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-500' 
+                                          : isVideo
+                                            ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-500'
+                                            : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-500'
+                                      }`}>
+                                        {isVideo ? (
+                                          <Video className="h-3.5 w-3.5" />
+                                        ) : isMissed ? (
+                                          <PhoneMissed className="h-3.5 w-3.5" />
+                                        ) : call.is_outgoing ? (
+                                          <PhoneOutgoing className="h-3.5 w-3.5" />
+                                        ) : (
+                                          <PhoneIncoming className="h-3.5 w-3.5" />
+                                        )}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <p className="text-[11px] font-bold text-neutral-800 dark:text-neutral-200 truncate flex items-center gap-1">
+                                          <span>{isVideo ? 'Video Call' : 'Voice Call'}</span>
+                                          <span className={`text-[9px] px-1 py-0.2 rounded font-medium ${
+                                            isMissed 
+                                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-400' 
+                                              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400'
+                                          }`}>
+                                            {call.status}
+                                          </span>
+                                        </p>
+                                        <p className="text-[9px] text-neutral-400 mt-0.5">
+                                          {call.timestamp} {call.duration_formatted ? `• ${call.duration_formatted}` : ''}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <button
+                                      onClick={() => {
+                                        setShowProfilePanel(false);
+                                        handleStartCallWithUser(selectedProfileUsername, isVideo ? 'video' : 'voice');
+                                      }}
+                                      className="p-1.5 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                      title="Call again"
+                                    >
+                                      {isVideo ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" />}
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       <div className="border-t border-neutral-100 dark:border-neutral-800 pt-4 space-y-2">
@@ -4760,38 +5733,47 @@ export default function App() {
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
                     <p className="text-xs uppercase tracking-wider font-bold text-neutral-400 text-left">Active Contacts & Users</p>
+                    <span className="text-xs font-semibold text-neutral-400">{activeContactsList.length} people</span>
                   </div>
 
-                  {Object.values(users).filter(u => u.username !== userUsername).length === 0 ? (
+                  {activeContactsList.length === 0 ? (
                     <div className="p-8 text-center bg-neutral-50/50 dark:bg-neutral-900/30 rounded-2xl border border-dashed border-neutral-200 dark:border-neutral-800 space-y-2">
-                      <p className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">No other users found</p>
+                      <p className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">No other users found yet</p>
                       <p className="text-xs text-neutral-500">When people join Zenoa with their username, they will appear here.</p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {Object.values(users)
-                        .filter(u => u.username !== userUsername)
-                        .slice(0, 6)
-                        .map(user => (
-                          <div 
-                            key={user.username}
-                            onClick={() => handleStartChatWithUser(user)}
-                            className="p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 flex items-center gap-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50/10 transition-all text-left"
-                          >
-                            {renderAvatar(user.avatar_seed, user.display_name, user.avatar_url, 'h-10 w-10 text-base')}
+                      {activeContactsList.map(user => (
+                        <div 
+                          key={`contact_user_${user.id || user.username}`}
+                          onClick={() => handleStartChatWithUser(user)}
+                          className="p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 flex items-center justify-between gap-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50/10 transition-all text-left group"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="relative shrink-0">
+                              {renderAvatar(user.avatar_seed, user.display_name, user.avatar_url, 'h-10 w-10 text-base')}
+                              {isUserEffectivelyOnline(user) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-neutral-950"></span>}
+                            </div>
                             <div className="min-w-0">
                               <p className="font-bold text-sm truncate">{user.display_name}</p>
                               <p className="text-[10px] text-neutral-400 truncate">@{user.username}</p>
-                              <p className="text-xs text-neutral-500 truncate mt-1">{user.bio}</p>
+                              {user.bio && <p className="text-xs text-neutral-500 truncate mt-0.5">{user.bio}</p>}
                             </div>
                           </div>
-                        ))}
+                          <button className="px-3 py-1 bg-indigo-600 group-hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors shrink-0">
+                            Chat
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <p className="text-xs uppercase tracking-wider font-bold text-neutral-400 text-left">Search Results</p>
+                  <div className="flex justify-between items-center">
+                    <p className="text-xs uppercase tracking-wider font-bold text-neutral-400 text-left">Search Results</p>
+                    <span className="text-xs font-semibold text-neutral-400">{globalSearchResults.length} found</span>
+                  </div>
                   {globalSearchResults.length === 0 ? (
                     <div className="p-8 text-center bg-neutral-50 dark:bg-neutral-900 rounded-2xl border border-dashed border-neutral-200 dark:border-neutral-800">
                       <p className="text-sm text-neutral-500">No user profiles matched &quot;{globalSearchQuery}&quot;</p>
@@ -4799,16 +5781,19 @@ export default function App() {
                   ) : (
                     globalSearchResults.map(user => (
                       <div 
-                        key={user.username}
+                        key={`search_user_${user.id || user.username}`}
                         onClick={() => handleStartChatWithUser(user)}
                         className="p-3.5 rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 flex items-center justify-between cursor-pointer hover:border-indigo-500 hover:shadow-md transition-all text-left"
                       >
                         <div className="flex items-center gap-3 min-w-0">
-                          {renderAvatar(user.avatar_seed, user.display_name, user.avatar_url, 'h-10 w-10 text-sm')}
+                          <div className="relative shrink-0">
+                            {renderAvatar(user.avatar_seed, user.display_name, user.avatar_url, 'h-10 w-10 text-sm')}
+                            {isUserEffectivelyOnline(user) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-neutral-950"></span>}
+                          </div>
                           <div className="min-w-0">
                             <p className="font-bold text-sm truncate">{user.display_name}</p>
                             <p className="text-[10px] text-neutral-400 truncate">@{user.username}</p>
-                            <p className="text-xs text-neutral-500 truncate">{user.bio}</p>
+                            {user.bio && <p className="text-xs text-neutral-500 truncate">{user.bio}</p>}
                           </div>
                         </div>
                         <button className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-md transition-colors shrink-0 ml-4">
@@ -4892,7 +5877,7 @@ export default function App() {
                       </div>
                     </div>
                     <button
-                      onClick={() => setShowEditProfileModal(true)}
+                      onClick={handleOpenEditProfile}
                       className="absolute bottom-1 right-1 p-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg border-2 border-white dark:border-neutral-900 transition-transform hover:scale-110 active:scale-95 cursor-pointer"
                       title="Change profile picture"
                     >
@@ -4921,8 +5906,8 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Instagram 3-Stats Row: Chats, Contacts, Saved */}
-                    <div className="grid grid-cols-3 gap-2 py-3 border-y border-neutral-100 dark:border-neutral-800/80 text-center">
+                    {/* Instagram 4-Stats Row: Chats, Contacts, Saved, Calls */}
+                    <div className="grid grid-cols-4 gap-2 py-3 border-y border-neutral-100 dark:border-neutral-800/80 text-center">
                       <div className="space-y-0.5 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setActiveView('chats')}>
                         <span className="text-base md:text-lg font-bold text-neutral-900 dark:text-white">{chats.length}</span>
                         <p className="text-[11px] text-neutral-400 font-medium">Chats</p>
@@ -4936,6 +5921,12 @@ export default function App() {
                           {Object.values(messagesByChat).flat().filter(m => m.pinned || (m.reactions && m.reactions.length > 0)).length}
                         </span>
                         <p className="text-[11px] text-neutral-400 font-medium">Saved</p>
+                      </div>
+                      <div className="space-y-0.5 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setProfileActiveTab('calls')}>
+                        <span className="text-base md:text-lg font-bold text-indigo-600 dark:text-indigo-400">
+                          {allUserCalls.length}
+                        </span>
+                        <p className="text-[11px] text-neutral-400 font-medium">Calls</p>
                       </div>
                     </div>
 
@@ -4953,7 +5944,7 @@ export default function App() {
                     {/* Instagram Action Buttons Bar */}
                     <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 pt-2">
                       <button
-                        onClick={() => setShowEditProfileModal(true)}
+                        onClick={handleOpenEditProfile}
                         className="flex-1 sm:flex-initial px-5 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                       >
                         <Edit2 className="h-3.5 w-3.5" />
@@ -5007,6 +5998,23 @@ export default function App() {
                   >
                     <Bookmark className="h-4 w-4" />
                     <span>Saved Messages</span>
+                  </button>
+
+                  <button
+                    onClick={() => setProfileActiveTab('calls')}
+                    className={`flex-1 py-3.5 text-xs font-bold flex items-center justify-center gap-2 border-b-2 transition-all ${
+                      profileActiveTab === 'calls'
+                        ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/30 dark:bg-indigo-950/20'
+                        : 'border-transparent text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
+                    }`}
+                  >
+                    <PhoneCall className="h-4 w-4" />
+                    <span>Call History</span>
+                    {allUserCalls.length > 0 && (
+                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-bold">
+                        {allUserCalls.length}
+                      </span>
+                    )}
                   </button>
                 </div>
 
@@ -5161,7 +6169,7 @@ export default function App() {
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                               {activeItems.map((item, idx) => (
                                 <div
-                                  key={item.id || idx}
+                                  key={`media_grid_${item.chatId}_${item.id || idx}`}
                                   onClick={() => {
                                     if (item.media_url || item.audio_url) {
                                       const url = item.media_url || item.audio_url!;
@@ -5209,7 +6217,7 @@ export default function App() {
                             <div className="space-y-2">
                               {activeItems.map((item, idx) => (
                                 <div
-                                  key={item.id || idx}
+                                  key={`media_list_${item.chatId}_${item.id || idx}`}
                                   onClick={() => {
                                     if (item.media_url || item.audio_url) {
                                       const url = item.media_url || item.audio_url!;
@@ -5272,7 +6280,7 @@ export default function App() {
 
                       return savedItems.map((msg, idx) => (
                         <div
-                          key={msg.id || idx}
+                          key={`saved_msg_${msg.chatId}_${msg.id || idx}`}
                           onClick={() => {
                             setActiveChatId(msg.chatId);
                             setActiveView('chats');
@@ -5283,7 +6291,7 @@ export default function App() {
                           <div className="space-y-1 min-w-0 flex-1">
                             <div className="flex items-center gap-2">
                               <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
-                                {msg.sender === 'me' ? 'You' : (users[msg.sender]?.display_name || msg.sender)}
+                                {getSenderDisplayName(msg.sender)}
                               </span>
                               <span className="text-[10px] text-neutral-400">{msg.timestamp}</span>
                               {msg.pinned && (
@@ -5300,6 +6308,233 @@ export default function App() {
                           </button>
                         </div>
                       ));
+                    })()}
+                  </div>
+                )}
+
+                {/* Tab 3: Call History */}
+                {profileActiveTab === 'calls' && (
+                  <div className="p-4 md:p-6 space-y-4">
+                    {/* Search & Filter Bar */}
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
+                        <input
+                          type="text"
+                          value={callHistorySearch}
+                          onChange={(e) => setCallHistorySearch(e.target.value)}
+                          placeholder="Search calls by contact name or username..."
+                          className="w-full pl-10 pr-4 py-2 text-xs rounded-xl bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/80 text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:border-indigo-500 transition-colors"
+                        />
+                        {callHistorySearch && (
+                          <button
+                            onClick={() => setCallHistorySearch('')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Filter Chips */}
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+                        {[
+                          { id: 'all', label: 'All Calls', count: allUserCalls.length },
+                          { id: 'missed', label: 'Missed', count: allUserCalls.filter(c => c.status === 'missed' || c.status === 'declined').length },
+                          { id: 'incoming', label: 'Incoming', count: allUserCalls.filter(c => !c.is_outgoing).length },
+                          { id: 'outgoing', label: 'Outgoing', count: allUserCalls.filter(c => c.is_outgoing).length },
+                          { id: 'video', label: 'Video', count: allUserCalls.filter(c => c.call_type === 'video').length },
+                          { id: 'voice', label: 'Voice', count: allUserCalls.filter(c => c.call_type === 'voice').length }
+                        ].map((chip) => (
+                          <button
+                            key={chip.id}
+                            onClick={() => setCallHistoryFilter(chip.id as any)}
+                            className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                              callHistoryFilter === chip.id
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                            }`}
+                          >
+                            <span>{chip.label}</span>
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                              callHistoryFilter === chip.id
+                                ? 'bg-white/20 text-white'
+                                : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'
+                            }`}>
+                              {chip.count}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Call Records List */}
+                    {(() => {
+                      const filteredCalls = allUserCalls.filter(c => {
+                        // Apply tab filter
+                        if (callHistoryFilter === 'missed' && !(c.status === 'missed' || c.status === 'declined')) return false;
+                        if (callHistoryFilter === 'incoming' && c.is_outgoing) return false;
+                        if (callHistoryFilter === 'outgoing' && !c.is_outgoing) return false;
+                        if (callHistoryFilter === 'video' && c.call_type !== 'video') return false;
+                        if (callHistoryFilter === 'voice' && c.call_type !== 'voice') return false;
+
+                        // Apply search filter
+                        if (callHistorySearch.trim()) {
+                          const q = callHistorySearch.toLowerCase();
+                          const partnerName = (c.partner_name || '').toLowerCase();
+                          const partnerUser = (c.partner_username || '').toLowerCase();
+                          return partnerName.includes(q) || partnerUser.includes(q);
+                        }
+                        return true;
+                      });
+
+                      if (filteredCalls.length === 0) {
+                        return (
+                          <div className="py-16 text-center space-y-3">
+                            <div className="h-14 w-14 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mx-auto text-neutral-400">
+                              <PhoneCall className="h-7 w-7" />
+                            </div>
+                            <p className="text-sm font-bold text-neutral-700 dark:text-neutral-300">
+                              {callHistorySearch ? 'No calls matching your search' : 'No call history recorded'}
+                            </p>
+                            <p className="text-xs text-neutral-400 max-w-sm mx-auto">
+                              {callHistorySearch
+                                ? 'Try searching for a different name or username, or switch filter tags.'
+                                : 'Make voice or video calls with your contacts to see detailed call logs, durations, and timestamps here.'}
+                            </p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-2.5">
+                          {filteredCalls.map((call) => {
+                            const isMissed = call.status === 'missed' || call.status === 'declined';
+                            const isVideo = call.call_type === 'video';
+                            const partnerUserObj = users[call.partner_username] || Object.values(users).find(u => u.username === call.partner_username);
+
+                            return (
+                              <div
+                                key={`call_rec_${call.id}`}
+                                className="p-3.5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900/60 hover:border-indigo-300 dark:hover:border-indigo-800/80 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs group"
+                              >
+                                <div className="flex items-center gap-3.5 min-w-0">
+                                  {/* Avatar */}
+                                  <div className="relative shrink-0">
+                                    {renderAvatar(
+                                      call.partner_avatar_seed || call.partner_username,
+                                      call.partner_name || call.partner_username,
+                                      call.partner_avatar_url || partnerUserObj?.avatar_url,
+                                      'h-12 w-12 text-base shadow-xs'
+                                    )}
+                                    {isUserEffectivelyOnline(partnerUserObj) && (
+                                      <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-500 border-2 border-white dark:border-neutral-900" />
+                                    )}
+                                  </div>
+
+                                  {/* Info */}
+                                  <div className="min-w-0 space-y-0.5">
+                                    <div className="flex items-center gap-2">
+                                      <h4 className="text-xs sm:text-sm font-bold text-neutral-900 dark:text-white truncate">
+                                        {call.partner_name || call.partner_username}
+                                      </h4>
+                                      <span className="text-[10px] text-neutral-400 truncate">
+                                        @{call.partner_username}
+                                      </span>
+                                    </div>
+
+                                    {/* Call Direction & Type & Status */}
+                                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                                      <div className={`flex items-center gap-1 font-semibold text-[11px] ${
+                                        isMissed 
+                                          ? 'text-rose-500' 
+                                          : call.is_outgoing 
+                                            ? 'text-indigo-600 dark:text-indigo-400' 
+                                            : 'text-emerald-600 dark:text-emerald-400'
+                                      }`}>
+                                        {isVideo ? (
+                                          <Video className="h-3.5 w-3.5" />
+                                        ) : isMissed ? (
+                                          <PhoneMissed className="h-3.5 w-3.5" />
+                                        ) : call.is_outgoing ? (
+                                          <PhoneOutgoing className="h-3.5 w-3.5" />
+                                        ) : (
+                                          <PhoneIncoming className="h-3.5 w-3.5" />
+                                        )}
+                                        <span>{isVideo ? 'Video Call' : 'Voice Call'}</span>
+                                      </div>
+
+                                      <span className="text-neutral-300 dark:text-neutral-700">•</span>
+
+                                      <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                                        {call.timestamp}
+                                      </span>
+
+                                      {call.duration_formatted && (
+                                        <>
+                                          <span className="text-neutral-300 dark:text-neutral-700">•</span>
+                                          <span className="text-[11px] font-mono font-medium text-neutral-500 dark:text-neutral-400">
+                                            {call.duration_formatted}
+                                          </span>
+                                        </>
+                                      )}
+
+                                      <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold uppercase ${
+                                        call.status === 'answered' || call.status === 'connected'
+                                          ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400'
+                                          : call.status === 'missed'
+                                            ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400'
+                                            : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'
+                                      }`}>
+                                        {call.status}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                                  {/* Voice Call */}
+                                  <button
+                                    onClick={() => handleStartCallWithUser(call.partner_username, 'voice')}
+                                    className="p-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 transition-all cursor-pointer"
+                                    title={`Voice Call @${call.partner_username}`}
+                                  >
+                                    <Phone className="h-4 w-4" />
+                                  </button>
+
+                                  {/* Video Call */}
+                                  <button
+                                    onClick={() => handleStartCallWithUser(call.partner_username, 'video')}
+                                    className="p-2 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-purple-600 dark:text-purple-400 transition-all cursor-pointer"
+                                    title={`Video Call @${call.partner_username}`}
+                                  >
+                                    <Video className="h-4 w-4" />
+                                  </button>
+
+                                  {/* Open Chat */}
+                                  <button
+                                    onClick={() => {
+                                      let targetChat = chats.find(c => c.type === 'dm' && c.username === call.partner_username);
+                                      if (targetChat) {
+                                        setActiveChatId(targetChat.id);
+                                        setActiveView('chats');
+                                        setMobileShowChat(true);
+                                      } else {
+                                        handleStartCallWithUser(call.partner_username, 'voice');
+                                      }
+                                    }}
+                                    className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300 transition-all cursor-pointer"
+                                    title={`Message @${call.partner_username}`}
+                                  >
+                                    <MessageSquare className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
                     })()}
                   </div>
                 )}
@@ -5348,13 +6583,15 @@ export default function App() {
             setCallDataSaver={setCallDataSaver}
             noiseSuppression={noiseSuppression}
             setNoiseSuppression={setNoiseSuppression}
+            mediaUploadQuality={mediaUploadQuality}
+            setMediaUploadQuality={setMediaUploadQuality}
             showToast={showToast}
             userDisplayName={userDisplayName}
             userUsername={userUsername}
             userAvatarSeed={userAvatarSeed}
             userAvatarUrl={userAvatarUrl}
             renderAvatar={renderAvatar}
-            onOpenEditProfile={() => setShowEditProfileModal(true)}
+            onOpenEditProfile={handleOpenEditProfile}
           />
         )}
 
@@ -5435,7 +6672,7 @@ export default function App() {
                     onChange={handlePhotoUpload}
                     className="hidden"
                   />
-                  {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-16 w-16 text-xl shadow-md')}
+                  {renderAvatar(editDraftAvatarSeed || editDraftUsername || userAvatarSeed, editDraftDisplayName || userDisplayName, editDraftAvatarUrl, 'h-16 w-16 text-xl shadow-md')}
                   <button
                     type="button"
                     onClick={() => profilePhotoInputRef.current?.click()}
@@ -5454,7 +6691,7 @@ export default function App() {
                     <Upload className="h-3.5 w-3.5 text-indigo-500" />
                     <span>Upload</span>
                   </button>
-                  {userAvatarUrl && (
+                  {editDraftAvatarUrl && (
                     <button
                       type="button"
                       onClick={handleRemovePhoto}
@@ -5476,8 +6713,8 @@ export default function App() {
                 <input
                   type="text"
                   maxLength={25}
-                  value={userDisplayName}
-                  onChange={e => setUserDisplayName(e.target.value)}
+                  value={editDraftDisplayName}
+                  onChange={e => setEditDraftDisplayName(e.target.value)}
                   placeholder="Your Name"
                   className="w-full px-3.5 py-2 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 outline-none focus:border-indigo-500 transition-colors"
                 />
@@ -5487,7 +6724,7 @@ export default function App() {
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-bold text-neutral-700 dark:text-neutral-300">Username</span>
-                  {cleanSettingsUsername !== savedUsername && (
+                  {cleanDraftUsername !== (savedUsername || '').toLowerCase() && cleanDraftUsername.length > 0 && (
                     <div className="text-[10px]">
                       {isUsernameAvailableInSettings ? (
                         <span className="text-emerald-500 font-semibold">Available</span>
@@ -5504,8 +6741,8 @@ export default function App() {
                   <input
                     type="text"
                     maxLength={20}
-                    value={userUsername.replace(/^@/, '')}
-                    onChange={e => setUserUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                    value={editDraftUsername}
+                    onChange={e => setEditDraftUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
                     placeholder="username"
                     className="w-full pl-7 pr-3 py-2 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 outline-none focus:border-indigo-500 transition-colors"
                   />
@@ -5516,13 +6753,13 @@ export default function App() {
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-bold text-neutral-700 dark:text-neutral-300">Bio</span>
-                  <span className="text-[10px] text-neutral-400">{userBio.length}/80</span>
+                  <span className="text-[10px] text-neutral-400">{editDraftBio.length}/80</span>
                 </div>
                 <input
                   type="text"
                   maxLength={80}
-                  value={userBio}
-                  onChange={e => setUserBio(e.target.value)}
+                  value={editDraftBio}
+                  onChange={e => setEditDraftBio(e.target.value)}
                   placeholder="Add a bio..."
                   className="w-full px-3.5 py-2 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 outline-none focus:border-indigo-500 transition-colors"
                 />
@@ -5541,10 +6778,9 @@ export default function App() {
               </button>
               <button
                 type="button"
-                disabled={isSavingProfile || (cleanSettingsUsername !== savedUsername && (!isUsernameFormatValidInSettings || !isUsernameAvailableInSettings))}
+                disabled={isSavingProfile || (cleanDraftUsername !== (savedUsername || '').toLowerCase() && (!isUsernameFormatValidInSettings || !isUsernameAvailableInSettings))}
                 onClick={async () => {
                   await handleSaveProfile();
-                  setShowEditProfileModal(false);
                 }}
                 className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
               >
@@ -5666,7 +6902,7 @@ export default function App() {
                       navigator.geolocation.getCurrentPosition((pos) => {
                         setLocationLat(pos.coords.latitude);
                         setLocationLng(pos.coords.longitude);
-                        showToast("Current location acquired 📍");
+                        showToast("Current location acquired");
                       });
                     }
                   }}

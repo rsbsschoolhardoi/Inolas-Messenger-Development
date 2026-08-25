@@ -14,6 +14,7 @@ export interface UserData {
   activity_type?: 'typing' | 'recording_voice' | 'in_call' | 'none';
   name_change_timestamps?: number[];
   username_change_timestamps?: number[];
+  previous_usernames?: string[];
 }
 
 export interface Reaction {
@@ -47,12 +48,23 @@ export interface ContactData {
   username?: string;
 }
 
+export interface CallData {
+  call_id: string;
+  call_type: 'voice' | 'video';
+  status: 'answered' | 'missed' | 'unanswered' | 'declined';
+  start_time: string;
+  end_time?: string;
+  duration_seconds?: number;
+  duration_formatted?: string;
+}
+
 export interface Message {
   id: string;
   chat_id: string;
   sender: string;
+  sender_id?: string;
   text: string;
-  type: 'text' | 'image' | 'video' | 'document' | 'voice' | 'sticker' | 'gif' | 'location' | 'contact' | 'poll';
+  type: 'text' | 'image' | 'video' | 'document' | 'voice' | 'sticker' | 'gif' | 'location' | 'contact' | 'poll' | 'call';
   media_url?: string;
   media_quality?: 'hd' | 'standard' | 'data_saver';
   file_name?: string;
@@ -61,6 +73,7 @@ export interface Message {
   location_data?: LocationData;
   contact_data?: ContactData;
   poll_data?: PollData;
+  call_data?: CallData;
   timestamp: string;
   created_at?: number;
   reply_to?: string;
@@ -84,6 +97,7 @@ export interface Chat {
   avatar_seed: string;
   avatar_url?: string;
   participants: string[];
+  participant_ids?: string[];
   unread: number;
   last_message: string;
   last_time: string;
@@ -132,4 +146,27 @@ export interface AuthState {
   display_name_input: string;
   bio_input: string;
   session_verifying: boolean;
+}
+
+export interface CallHistoryRecord {
+  id: string;
+  call_type: 'voice' | 'video';
+  status: 'answered' | 'missed' | 'unanswered' | 'declined' | 'ended' | 'connected' | 'dialing';
+  caller: string;
+  receiver: string;
+  caller_name?: string;
+  receiver_name?: string;
+  caller_avatar_seed?: string;
+  caller_avatar_url?: string;
+  receiver_avatar_seed?: string;
+  receiver_avatar_url?: string;
+  partner_username: string;
+  partner_name: string;
+  partner_avatar_seed?: string;
+  partner_avatar_url?: string;
+  is_outgoing: boolean;
+  timestamp: string;
+  created_at: number;
+  duration_seconds?: number;
+  duration_formatted?: string;
 }

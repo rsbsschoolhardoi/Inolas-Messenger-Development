@@ -4,6 +4,7 @@ import {
   ArrowLeft, CheckCircle2, AlertCircle, Eye, EyeOff, User, Mail, Lock, Calendar, 
   ArrowRight, RefreshCw, Sun, Moon, ShieldCheck, Check, Sparkles, Key
 } from 'lucide-react';
+import { LegalModal, LegalDocType } from './LegalModal';
 
 interface AuthFlowProps {
   initialMode?: 'login' | 'register';
@@ -23,6 +24,7 @@ interface AuthFlowProps {
   themeMode: 'light' | 'dark';
   onToggleTheme: () => void;
   existingUsernames?: string[];
+  checkUsernameAvailability?: (username: string) => Promise<{ isTaken: boolean; reason?: string }>;
   isOnboarding?: boolean;
   initialRegStep?: number;
 }
@@ -38,6 +40,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   themeMode,
   onToggleTheme,
   existingUsernames = [],
+  checkUsernameAvailability,
   isOnboarding = false,
   initialRegStep = 1
 }) => {
@@ -68,6 +71,46 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   const [regConfirmPassword, setRegConfirmPassword] = useState<string>('');
   const [showRegPassword, setShowRegPassword] = useState<boolean>(false);
 
+  // Legal & Compliance State (Important Checkbox)
+  const [regAgreedToLegal, setRegAgreedToLegal] = useState<boolean>(true);
+  const [showLegalModal, setShowLegalModal] = useState<boolean>(false);
+  const [legalModalTab, setLegalModalTab] = useState<LegalDocType>('terms');
+
+  // Username Availability Async Checker
+  const [isCheckingRegUsername, setIsCheckingRegUsername] = useState<boolean>(false);
+  const [regUsernameAsyncTaken, setRegUsernameAsyncTaken] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    const clean = regUsername.trim().toLowerCase();
+    setRegUsernameAsyncTaken(false);
+    if (!clean || clean.length < 3 || !/^[a-zA-Z0-9_]+$/.test(clean)) {
+      setIsCheckingRegUsername(false);
+      return;
+    }
+
+    if (existingUsernames.map(u => u.toLowerCase()).includes(clean)) {
+      setRegUsernameAsyncTaken(true);
+      setIsCheckingRegUsername(false);
+      return;
+    }
+
+    if (checkUsernameAvailability) {
+      setIsCheckingRegUsername(true);
+      const timer = setTimeout(async () => {
+        try {
+          const res = await checkUsernameAvailability(clean);
+          setRegUsernameAsyncTaken(res.isTaken);
+        } catch {
+          setRegUsernameAsyncTaken(false);
+        } finally {
+          setIsCheckingRegUsername(false);
+        }
+      }, 400);
+
+      return () => clearTimeout(timer);
+    }
+  }, [regUsername, existingUsernames, checkUsernameAvailability]);
+
   // Auto-suggest username when full name changes
   const handleFullNameChange = (val: string) => {
     setRegFullName(val);
@@ -81,7 +124,8 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
   const isUsernameAvailable = regUsername.length >= 3 && 
     /^[a-zA-Z0-9_]+$/.test(regUsername) && 
-    !existingUsernames.includes(regUsername.toLowerCase());
+    !existingUsernames.map(u => u.toLowerCase()).includes(regUsername.toLowerCase()) &&
+    !regUsernameAsyncTaken;
 
   // Handle Login
   const handleLogin = async (e: React.FormEvent) => {
@@ -148,6 +192,10 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     }
     if (regPassword !== regConfirmPassword) {
       setErrorMessage('Passwords do not match');
+      return;
+    }
+    if (!regAgreedToLegal) {
+      setErrorMessage('Important: You must read and agree to the Privacy Policy, Terms & Conditions, and Legal Disclaimer to proceed.');
       return;
     }
 
@@ -272,13 +320,13 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
         {mode === 'register' && !showOtpScreen && (
           <div className="mb-6">
             <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-2">
-              <span className={regStep >= 1 ? 'text-indigo-600 dark:text-indigo-400' : ''}>1. Identity</span>
-              <span className={regStep >= 2 ? 'text-indigo-600 dark:text-indigo-400' : ''}>2. Details</span>
-              <span className={regStep >= 3 ? 'text-indigo-600 dark:text-indigo-400' : ''}>3. Security</span>
+              <span className={regStep >= 1 ? 'text-neutral-900 dark:text-white' : ''}>1. Identity</span>
+              <span className={regStep >= 2 ? 'text-neutral-900 dark:text-white' : ''}>2. Details</span>
+              <span className={regStep >= 3 ? 'text-neutral-900 dark:text-white' : ''}>3. Security</span>
             </div>
             <div className="h-1.5 w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden flex">
               <div 
-                className="h-full bg-indigo-600 transition-all duration-300 rounded-full" 
+                className="h-full bg-neutral-900 dark:bg-white transition-all duration-300 rounded-full" 
                 style={{ width: regStep === 1 ? '33.3%' : regStep === 2 ? '66.6%' : '100%' }}
               />
             </div>
@@ -464,7 +512,12 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5 text-neutral-500 flex items-center justify-between">
                     <span>Username</span>
-                    {regUsername && (
+                    {isCheckingRegUsername ? (
+                      <span className="text-[10px] font-bold text-neutral-400 flex items-center gap-1">
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                        Checking...
+                      </span>
+                    ) : regUsername && (
                       <span className={`text-[10px] font-bold ${isUsernameAvailable ? 'text-emerald-500' : 'text-rose-500'}`}>
                         {isUsernameAvailable ? '✓ Available' : '✗ Taken or invalid'}
                       </span>
@@ -645,6 +698,60 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                   </div>
                 </div>
 
+                {/* LEGAL COMPLIANCE CHECKBOX */}
+                <div className="py-2 px-1">
+                  <label className="flex items-start gap-3 cursor-pointer select-none group">
+                    <input
+                      type="checkbox"
+                      checked={regAgreedToLegal}
+                      onChange={e => setRegAgreedToLegal(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-neutral-300 dark:border-neutral-600 text-neutral-900 dark:text-white focus:ring-0 cursor-pointer accent-neutral-900 dark:accent-white transition-all"
+                    />
+                    <span className="text-xs leading-relaxed text-neutral-600 dark:text-neutral-400">
+                      I have read and agree to the{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setLegalModalTab('privacy');
+                          setShowLegalModal(true);
+                        }}
+                        className="text-blue-600 dark:text-blue-400 font-medium hover:underline cursor-pointer inline-block"
+                      >
+                        Privacy Policy
+                      </button>
+                      ,{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setLegalModalTab('terms');
+                          setShowLegalModal(true);
+                        }}
+                        className="text-blue-600 dark:text-blue-400 font-medium hover:underline cursor-pointer inline-block"
+                      >
+                        Terms & Conditions
+                      </button>
+                      , and{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setLegalModalTab('disclaimer');
+                          setShowLegalModal(true);
+                        }}
+                        className="text-blue-600 dark:text-blue-400 font-medium hover:underline cursor-pointer inline-block"
+                      >
+                        Risk & Legal Disclaimer
+                      </button>
+                      .
+                    </span>
+                  </label>
+                </div>
+
                 <div className="flex gap-3 pt-2">
                   <button
                     type="button"
@@ -655,8 +762,12 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                   </button>
                   <button
                     type="submit"
-                    disabled={isLoading}
-                    className="w-2/3 py-3 bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 text-xs font-bold rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    disabled={isLoading || !regAgreedToLegal}
+                    className={`w-2/3 py-3 font-bold text-xs rounded-2xl shadow-sm transition-all flex items-center justify-center gap-2 ${
+                      !regAgreedToLegal
+                        ? 'bg-neutral-200 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-500 cursor-not-allowed'
+                        : 'bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 cursor-pointer active:scale-[0.98]'
+                    }`}
                   >
                     {isLoading ? (
                       <div className="h-4 w-4 border-2 border-white/30 border-t-white dark:border-black/30 dark:border-t-black rounded-full animate-spin" />
@@ -757,6 +868,15 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
           </div>
         )}
       </div>
+
+      {/* COMPREHENSIVE LEGAL & COMPLIANCE OVERLAY MODAL */}
+      <LegalModal
+        isOpen={showLegalModal}
+        onClose={() => setShowLegalModal(false)}
+        initialTab={legalModalTab}
+        onAccept={() => setRegAgreedToLegal(true)}
+        themeMode={themeMode}
+      />
     </div>
   );
 };

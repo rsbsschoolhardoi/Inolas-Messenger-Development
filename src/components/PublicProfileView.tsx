@@ -14,7 +14,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebaseClient';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { isUserEffectivelyOnline } from '../presenceUtils';
 
 interface PublicProfileViewProps {
@@ -49,20 +49,44 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
     let isMounted = true;
     const fetchProfile = async () => {
       setLoading(true);
-      const cleanName = username.replace(/^@/, '').trim();
+      const cleanName = username.replace(/^@/, '').trim().toLowerCase();
       
       if (isFirebaseConfigured && db) {
         try {
+          // 1. Try querying users by current username
+          const usersRef = collection(db, 'users');
+          const qCurrent = query(usersRef, where('username', '==', cleanName));
+          const snapCurrent = await getDocs(qCurrent);
+
+          if (!snapCurrent.empty) {
+            const data = snapCurrent.docs[0].data();
+            if (isMounted) {
+              setProfile({
+                display_name: data.display_name || data.name || data.username || cleanName,
+                username: data.username || cleanName,
+                avatar_url: data.avatar_url,
+                avatar_seed: data.avatar_seed || data.username || cleanName,
+                bio: data.bio || data.about || 'Hey there! I am using Zenoa for end-to-end encrypted messaging.',
+                online: data.online ?? true,
+                last_seen: data.last_seen || 'Recently active',
+                last_seen_timestamp: data.last_seen_timestamp
+              });
+              setLoading(false);
+              return;
+            }
+          }
+
+          // 2. Try direct doc get (if cleanName is userId)
           const userDocRef = doc(db, 'users', cleanName);
           const snap = await getDoc(userDocRef);
           if (snap.exists()) {
             const data = snap.data();
             if (isMounted) {
               setProfile({
-                display_name: data.display_name || data.name || cleanName,
-                username: cleanName,
+                display_name: data.display_name || data.name || data.username || cleanName,
+                username: data.username || cleanName,
                 avatar_url: data.avatar_url,
-                avatar_seed: data.avatar_seed || cleanName,
+                avatar_seed: data.avatar_seed || data.username || cleanName,
                 bio: data.bio || data.about || 'Hey there! I am using Zenoa for end-to-end encrypted messaging.',
                 online: data.online ?? true,
                 last_seen: data.last_seen || 'Recently active',

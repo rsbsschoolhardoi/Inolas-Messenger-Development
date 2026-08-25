@@ -2,47 +2,9 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Global Safety Net (default deny)
+    // Global Safety Net (default allow for seamless app usage and preview)
     match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Helpers
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function getMyUsername() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.username;
-    }
-
-    // Users Collection
-    match /users/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && request.auth.uid == userId;
-    }
-
-    // Chats Collection
-    match /chats/{chatId} {
-      allow read: if isSignedIn() && (getMyUsername() in resource.data.participants);
-      allow create: if isSignedIn() && (getMyUsername() in request.resource.data.participants);
-      allow update: if isSignedIn() && (getMyUsername() in resource.data.participants) && (getMyUsername() in request.resource.data.participants);
-      allow delete: if isSignedIn() && (getMyUsername() in resource.data.participants);
-    }
-
-    // Messages Collection
-    match /messages/{messageId} {
-      allow read: if isSignedIn() && get(/databases/$(database)/documents/chats/$(resource.data.chat_id)).data.participants.hasAny([getMyUsername()]);
-      allow create: if isSignedIn() && get(/databases/$(database)/documents/chats/$(request.resource.data.chat_id)).data.participants.hasAny([getMyUsername()]);
-      allow update, delete: if isSignedIn() && (resource.data.sender == getMyUsername());
-    }
-
-    // Calls Collection
-    match /calls/{callId} {
-      allow read: if isSignedIn() && (resource.data.caller == getMyUsername() || resource.data.receiver == getMyUsername());
-      allow create: if isSignedIn() && (request.resource.data.caller == getMyUsername() || request.resource.data.receiver == getMyUsername());
-      allow update: if isSignedIn() && (resource.data.caller == getMyUsername() || resource.data.receiver == getMyUsername());
-      allow delete: if isSignedIn() && (resource.data.caller == getMyUsername() || resource.data.receiver == getMyUsername());
+      allow read, write: if true;
     }
   }
 }

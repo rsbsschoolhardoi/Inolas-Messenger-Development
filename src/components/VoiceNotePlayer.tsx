@@ -6,6 +6,7 @@ interface VoiceNotePlayerProps {
   audioUrl?: string;
   durationStr?: string;
   isMe?: boolean;
+  isSentDark?: boolean;
   messageId: string;
 }
 
@@ -13,6 +14,7 @@ export const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
   audioUrl,
   durationStr = '0:05',
   isMe,
+  isSentDark = true,
   messageId,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -180,7 +182,9 @@ export const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
         onClick={togglePlay}
         className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 shadow-xs transition-all active:scale-95 cursor-pointer ${
           isMe
-            ? 'bg-white text-indigo-600 hover:bg-neutral-100'
+            ? isSentDark
+              ? 'bg-white text-indigo-600 hover:bg-neutral-100'
+              : 'bg-emerald-700 text-white hover:bg-emerald-800'
             : 'bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600'
         }`}
         title={isPlaying ? 'Pause Voice Note' : 'Play Voice Note'}
@@ -207,10 +211,14 @@ export const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
                 className={`flex-1 rounded-full transition-all duration-150 cursor-pointer ${
                   isFilled
                     ? isMe
-                      ? 'bg-white shadow-2xs scale-y-105'
+                      ? isSentDark
+                        ? 'bg-white shadow-2xs scale-y-105'
+                        : 'bg-emerald-700 dark:bg-emerald-800 scale-y-105'
                       : 'bg-indigo-600 dark:bg-indigo-400 scale-y-105'
                     : isMe
-                    ? 'bg-white/40'
+                    ? isSentDark
+                      ? 'bg-white/40'
+                      : 'bg-emerald-950/20'
                     : 'bg-neutral-300 dark:bg-neutral-700'
                 }`}
                 style={{
@@ -234,7 +242,9 @@ export const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
             onClick={cycleSpeed}
             className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer ${
               isMe
-                ? 'bg-white/20 hover:bg-white/30 text-white'
+                ? isSentDark
+                  ? 'bg-white/20 hover:bg-white/30 text-white'
+                  : 'bg-black/10 hover:bg-black/15 text-slate-800'
                 : 'bg-neutral-200 dark:bg-neutral-800 hover:bg-neutral-300 text-neutral-700 dark:text-neutral-300'
             }`}
             title="Playback Speed"

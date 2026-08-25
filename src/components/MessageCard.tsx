@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { 
   Check, CheckCheck, MoreVertical, Maximize2, FileText, 
   MapPin, ExternalLink, Download, UserPlus, BarChart2, 
-  Ban, Shield, Pin, Forward as ForwardIcon, Star, ChevronDown, ChevronUp
+  Ban, Shield, Pin, Forward as ForwardIcon, Star, ChevronDown, ChevronUp,
+  Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, Video, VideoOff, Clock
 } from 'lucide-react';
 import { Message, UserData } from '../types';
 import { InlineVideoPlayer } from './InlineVideoPlayer';
@@ -48,6 +49,13 @@ export const MessageCard: React.FC<MessageCardProps> = ({
   const activeTheme = getThemeById(themeId);
   const isMediaOnly = (msg.type === 'image' || msg.type === 'video') && !msg.text;
 
+  const isSentDark = activeTheme.bubble.isSentDark ?? true;
+  const isReceivedDark = activeTheme.bubble.isReceivedDark ?? false;
+
+  const cardBgClass = isMe
+    ? (activeTheme.bubble.cardBgSent || (isSentDark ? 'bg-black/25 border-white/20 text-white' : 'bg-black/5 border-black/15 text-slate-900'))
+    : (activeTheme.bubble.cardBgReceived || (isReceivedDark ? 'bg-neutral-800/80 border-neutral-700 text-neutral-100' : 'bg-stone-50 border-stone-200 text-stone-900'));
+
   return (
     <div 
       className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative my-0.5 max-w-full`}
@@ -61,8 +69,12 @@ export const MessageCard: React.FC<MessageCardProps> = ({
         <div 
           className={`text-[11px] py-1 px-3 rounded-t-xl max-w-[85%] md:max-w-md border-b text-left truncate select-none ${
             isMe 
-              ? 'bg-black/20 text-white border-white/20' 
-              : 'bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border-neutral-300 dark:border-neutral-700'
+              ? isSentDark 
+                ? 'bg-black/30 text-white/95 border-white/20' 
+                : 'bg-black/10 text-slate-900 border-black/15'
+              : isReceivedDark
+                ? 'bg-white/10 text-neutral-200 border-white/15'
+                : 'bg-neutral-200/90 text-neutral-800 border-neutral-300'
           }`}
         >
           <span className="font-bold">Replying to {msg.reply_sender || 'message'}: </span>
@@ -97,17 +109,14 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                 : `${activeTheme.bubble.sentBg} ${activeTheme.bubble.sentText} ${activeTheme.bubble.borderStyle || ''} rounded-tr-xs`
               : isMediaOnly
                 ? 'rounded-tl-xs'
-                : `${activeTheme.bubble.receivedBg || 'bg-white dark:bg-neutral-900'} ${activeTheme.bubble.receivedText || 'text-neutral-900 dark:text-neutral-100'} rounded-tl-xs border border-neutral-200/70 dark:border-neutral-800 shadow-neutral-900/5`
+                : `${activeTheme.bubble.receivedBg || 'bg-white dark:bg-neutral-900'} ${activeTheme.bubble.receivedText || 'text-neutral-900 dark:text-neutral-100'} rounded-tl-xs ${activeTheme.bubble.borderStyle || 'border border-neutral-200/70 dark:border-neutral-800'} shadow-neutral-900/5`
           }`}
         >
-          {/* SENDER USERNAME AT TOP INSIDE CARD */}
+          {/* SENDER NAME AT TOP INSIDE CARD */}
           {!isMe && isFirstInGroup && !msg.deleted_for_everyone && (
             <div className="flex items-center gap-1 mb-1 pb-0.5 border-b border-black/5 dark:border-white/5 select-none">
-              <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+              <span className={`text-[11px] font-bold ${isReceivedDark ? 'text-indigo-300' : 'text-indigo-600'}`}>
                 {senderName}
-              </span>
-              <span className="text-[10px] text-neutral-400 font-medium">
-                @{senderUsername || 'user'}
               </span>
             </div>
           )}
@@ -122,7 +131,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
             <>
               {/* Forwarded Header */}
               {msg.forwarded && (
-                <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold mb-1 opacity-70 select-none">
+                <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold mb-1 opacity-75 select-none">
                   <ForwardIcon className="h-3 w-3" />
                   <span>Forwarded</span>
                 </div>
@@ -187,6 +196,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                   audioUrl={msg.audio_url}
                   durationStr={msg.file_size || '0:12'}
                   isMe={isMe}
+                  isSentDark={isSentDark}
                   messageId={msg.id}
                 />
               )}
@@ -194,13 +204,9 @@ export const MessageCard: React.FC<MessageCardProps> = ({
               {/* DOCUMENT / FILE ATTACHMENT */}
               {msg.type === 'document' && (
                 <div 
-                  className={`p-3 rounded-xl flex items-center gap-3 mb-1 text-xs border transition-colors ${
-                    isMe 
-                      ? 'bg-indigo-700/80 border-indigo-500/50 text-white' 
-                      : 'bg-neutral-50 dark:bg-neutral-800/80 border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100'
-                  }`}
+                  className={`p-3 rounded-xl flex items-center gap-3 mb-1 text-xs border transition-colors ${cardBgClass}`}
                 >
-                  <div className="p-2.5 bg-indigo-500/20 text-indigo-400 rounded-xl shrink-0">
+                  <div className={`p-2.5 rounded-xl shrink-0 ${isSentDark && isMe ? 'bg-white/20 text-white' : 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-400'}`}>
                     <FileText className="h-5 w-5" />
                   </div>
                   <div className="text-left min-w-0 flex-1">
@@ -215,7 +221,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                         onToast(`File not found`);
                         return;
                       }
-                      onToast(`Downloading ${msg.file_name || 'document'}... 📥`);
+                      onToast(`Downloading ${msg.file_name || 'document'}...`);
                       const link = document.createElement('a');
                       link.href = msg.media_url;
                       link.download = msg.file_name || 'document';
@@ -225,8 +231,8 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                     }}
                     className={`p-2 rounded-xl transition-colors shrink-0 cursor-pointer ${
                       isMe 
-                        ? 'hover:bg-white/20 text-white' 
-                        : 'hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200'
+                        ? 'hover:bg-black/20 text-inherit' 
+                        : 'hover:bg-neutral-200 dark:hover:bg-neutral-700 text-inherit'
                     }`}
                     title="Download File"
                   >
@@ -238,15 +244,11 @@ export const MessageCard: React.FC<MessageCardProps> = ({
               {/* INTERACTIVE POLL */}
               {msg.type === 'poll' && msg.poll_data && (
                 <div 
-                  className={`p-3.5 rounded-xl space-y-3 mb-1 min-w-[240px] text-left border ${
-                    isMe 
-                      ? 'bg-indigo-700/80 border-indigo-500/40 text-white' 
-                      : 'bg-neutral-50 dark:bg-neutral-800/90 border-neutral-200 dark:border-neutral-700/80 text-neutral-800 dark:text-neutral-100'
-                  }`}
+                  className={`p-3.5 rounded-xl space-y-3 mb-1 min-w-[240px] text-left border ${cardBgClass}`}
                 >
                   <div className="flex justify-between items-start border-b border-black/10 dark:border-white/10 pb-2">
                     <div>
-                      <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold opacity-75">
+                      <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold opacity-80">
                         <BarChart2 className="h-3 w-3 text-teal-400" />
                         <span>Interactive Poll</span>
                       </div>
@@ -272,7 +274,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                           className={`w-full p-2.5 rounded-xl relative overflow-hidden border text-left transition-all cursor-pointer ${
                             hasVoted 
                               ? 'border-indigo-400 dark:border-indigo-500 bg-indigo-500/30 font-bold shadow-xs' 
-                              : 'border-neutral-200 dark:border-neutral-700/80 hover:border-indigo-300 bg-black/5 dark:bg-white/5'
+                              : 'border-black/10 dark:border-white/10 hover:border-indigo-300 bg-black/5 dark:bg-white/5'
                           }`}
                         >
                           {/* Animated Progress bar */}
@@ -303,11 +305,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
               {/* LOCATION CARD */}
               {msg.type === 'location' && msg.location_data && (
                 <div 
-                  className={`p-3 rounded-xl space-y-2 mb-1 min-w-[220px] border ${
-                    isMe 
-                      ? 'bg-indigo-700/80 border-indigo-500/40 text-white' 
-                      : 'bg-neutral-50 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700'
-                  }`}
+                  className={`p-3 rounded-xl space-y-2 mb-1 min-w-[220px] border ${cardBgClass}`}
                 >
                   <div className="flex items-center gap-2">
                     <div className="p-2 bg-rose-500/20 rounded-xl text-rose-500 shrink-0">
@@ -333,11 +331,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
               {/* CONTACT CARD */}
               {msg.type === 'contact' && msg.contact_data && (
                 <div 
-                  className={`p-3 rounded-xl space-y-2 mb-1 min-w-[220px] border ${
-                    isMe 
-                      ? 'bg-indigo-700/80 border-indigo-500/40 text-white' 
-                      : 'bg-neutral-50 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700'
-                  }`}
+                  className={`p-3 rounded-xl space-y-2 mb-1 min-w-[220px] border ${cardBgClass}`}
                 >
                   <div className="flex items-center gap-2.5">
                     <div className="h-9 w-9 rounded-full bg-indigo-500 text-white font-bold flex items-center justify-center text-xs shrink-0">
@@ -380,6 +374,81 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                 />
               )}
 
+              {/* CALL LOG CARD WITH CLEAR TIMINGS AND PROPER SPACING */}
+              {(msg.type === 'call' || msg.call_data) && (
+                <div 
+                  className={`p-3 rounded-2xl flex flex-col gap-2 min-w-[240px] sm:min-w-[270px] border select-none my-0.5 ${cardBgClass}`}
+                >
+                  <div className="flex items-center gap-3">
+                    {/* Call Icon Badge */}
+                    <div className={`p-2.5 rounded-xl shrink-0 ${
+                      msg.call_data?.status === 'answered'
+                        ? (msg.call_data?.call_type === 'video' ? 'bg-indigo-500/25 text-indigo-400' : 'bg-emerald-500/25 text-emerald-400')
+                        : 'bg-rose-500/25 text-rose-400'
+                    }`}>
+                      {msg.call_data?.status === 'answered' ? (
+                        msg.call_data?.call_type === 'video' ? (
+                          <Video className="h-5 w-5" />
+                        ) : isMe ? (
+                          <PhoneOutgoing className="h-5 w-5 text-emerald-400" />
+                        ) : (
+                          <PhoneIncoming className="h-5 w-5 text-emerald-400" />
+                        )
+                      ) : (
+                        msg.call_data?.call_type === 'video' ? (
+                          <VideoOff className="h-5 w-5 text-rose-400" />
+                        ) : (
+                          <PhoneMissed className="h-5 w-5 text-rose-400" />
+                        )
+                      )}
+                    </div>
+
+                    {/* Call Title & Info */}
+                    <div className="text-left min-w-0 flex-1">
+                      <h4 className="font-bold text-xs">
+                        {msg.call_data?.status === 'answered'
+                          ? (msg.call_data?.call_type === 'video' ? 'Video Call' : 'Voice Call')
+                          : (isMe 
+                              ? (msg.call_data?.call_type === 'video' ? 'Unanswered Video Call' : 'Unanswered Voice Call')
+                              : (msg.call_data?.call_type === 'video' ? 'Missed Video Call' : 'Missed Voice Call')
+                            )
+                        }
+                      </h4>
+
+                      {/* Answered: Start time, End time, and duration */}
+                      {msg.call_data?.status === 'answered' ? (
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-medium opacity-90">
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="h-3 w-3 opacity-70" />
+                            <span>Started: {msg.call_data.start_time}</span>
+                          </span>
+                          {msg.call_data.end_time && (
+                            <>
+                              <span className="opacity-40">•</span>
+                              <span>Ended: {msg.call_data.end_time}</span>
+                            </>
+                          )}
+                          {msg.call_data.duration_formatted && (
+                            <>
+                              <span className="opacity-40">•</span>
+                              <span className="font-mono font-bold bg-black/20 dark:bg-white/10 px-1.5 py-0.2 rounded text-[10px]">
+                                {msg.call_data.duration_formatted}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        /* Truly Unanswered / Missed: Only start time with clean spacing */
+                        <div className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-rose-400 dark:text-rose-300">
+                          <Clock className="h-3 w-3 opacity-70" />
+                          <span>Started: {msg.call_data?.start_time || msg.timestamp}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* PLAIN TEXT CONTENT WITH SEE MORE / SEE LESS UNIFORM WRAPPING */}
               {msg.text && msg.type === 'text' && (
                 <div className="text-xs leading-relaxed whitespace-pre-wrap break-words min-w-0 [overflow-wrap:anywhere] max-w-full overflow-hidden">
@@ -392,7 +461,9 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                           setIsExpanded(true);
                         }}
                         className={`font-bold ml-1 text-[11px] underline cursor-pointer inline-flex items-center gap-0.5 ${
-                          isMe ? 'text-white/90 hover:text-white' : 'text-indigo-600 dark:text-indigo-400 hover:text-indigo-700'
+                          isMe
+                            ? (activeTheme.bubble.linkSent || (isSentDark ? 'text-white underline hover:opacity-90' : 'text-slate-900 underline font-bold'))
+                            : (activeTheme.bubble.linkReceived || (isReceivedDark ? 'text-indigo-300 underline' : 'text-indigo-600 underline'))
                         }`}
                       >
                         <span>See More</span>
@@ -409,7 +480,9 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                             setIsExpanded(false);
                           }}
                           className={`font-bold ml-1.5 text-[11px] underline cursor-pointer inline-flex items-center gap-0.5 ${
-                            isMe ? 'text-white/90 hover:text-white' : 'text-indigo-600 dark:text-indigo-400 hover:text-indigo-700'
+                            isMe
+                              ? (activeTheme.bubble.linkSent || (isSentDark ? 'text-white underline hover:opacity-90' : 'text-slate-900 underline font-bold'))
+                              : (activeTheme.bubble.linkReceived || (isReceivedDark ? 'text-indigo-300 underline' : 'text-indigo-600 underline'))
                           }`}
                         >
                           <span>See Less</span>
@@ -422,23 +495,27 @@ export const MessageCard: React.FC<MessageCardProps> = ({
               )}
 
               {/* MESSAGE FOOTER: TIMESTAMP, EDITED & TICKS */}
-              <div className="flex items-center justify-end gap-1 mt-1 text-[9px] opacity-70 select-none">
+              <div className={`flex items-center justify-end gap-1 mt-1 text-[9px] select-none font-medium ${
+                isMe
+                  ? activeTheme.bubble.subtextSent || (isSentDark ? 'text-white/70' : 'text-slate-600')
+                  : activeTheme.bubble.subtextReceived || (isReceivedDark ? 'text-neutral-400' : 'text-slate-500')
+              }`}>
                 {msg.starred && <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400 mr-0.5" />}
                 <span>{msg.timestamp}</span>
                 {msg.edited && <span>• Edited</span>}
                 {isMe && (
-                  <span className="ml-0.5">
+                  <span className="ml-0.5 inline-flex items-center">
                     {(() => {
                       if (!privacyReadReceipts) {
-                        return <Check className="h-3 w-3 stroke-[2]" />;
+                        return <Check className={`h-3 w-3 stroke-[2] ${isSentDark ? 'text-white/80' : 'text-slate-600'}`} />;
                       }
                       if (isRead) {
-                        return <CheckCheck className="h-3 w-3 stroke-[2.5] text-sky-300 dark:text-sky-400" />;
+                        return <CheckCheck className={`h-3 w-3 stroke-[2.5] ${isSentDark ? 'text-sky-300' : 'text-sky-600'}`} />;
                       }
                       if (isDelivered) {
-                        return <CheckCheck className="h-3 w-3 stroke-[2]" />;
+                        return <CheckCheck className={`h-3 w-3 stroke-[2] ${isSentDark ? 'text-white/80' : 'text-slate-600'}`} />;
                       }
-                      return <Check className="h-3 w-3 stroke-[2]" />;
+                      return <Check className={`h-3 w-3 stroke-[2] ${isSentDark ? 'text-white/70' : 'text-slate-500'}`} />;
                     })()}
                   </span>
                 )}
@@ -449,20 +526,27 @@ export const MessageCard: React.FC<MessageCardProps> = ({
           {/* REACTION PILLS ON CARD */}
           {msg.reactions && msg.reactions.length > 0 && (
             <div className="flex gap-1 mt-1.5 flex-wrap">
-              {msg.reactions.map((react, rIdx) => (
-                <button 
-                  key={rIdx}
-                  onClick={() => onReact(msg.id, react.emoji)}
-                  className={`text-[10px] px-1.5 py-0.5 rounded-full border flex items-center gap-1 hover:scale-105 transition-transform cursor-pointer ${
-                    react.users.includes('me') || react.users.includes(senderUsername) 
-                      ? 'bg-indigo-100 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-bold' 
-                      : 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300'
-                  }`}
-                >
-                  <span>{react.emoji}</span>
-                  <span className="font-mono">{react.users.length}</span>
-                </button>
-              ))}
+              {msg.reactions.map((react, rIdx) => {
+                const hasMyReaction = react.users.includes('me') || react.users.includes(senderUsername);
+                return (
+                  <button 
+                    key={rIdx}
+                    onClick={() => onReact(msg.id, react.emoji)}
+                    className={`text-[10px] px-2 py-0.5 rounded-full border flex items-center gap-1 hover:scale-105 transition-transform cursor-pointer shadow-2xs ${
+                      hasMyReaction 
+                        ? isSentDark
+                          ? 'bg-indigo-950/80 border-indigo-500 text-indigo-200 font-bold'
+                          : 'bg-indigo-100 border-indigo-400 text-indigo-800 font-bold'
+                        : isSentDark
+                          ? 'bg-neutral-900/80 border-neutral-700 text-neutral-200'
+                          : 'bg-white/90 border-neutral-300 text-neutral-800'
+                    }`}
+                  >
+                    <span>{react.emoji}</span>
+                    <span className="font-mono">{react.users.length}</span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
