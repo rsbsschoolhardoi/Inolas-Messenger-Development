@@ -15,6 +15,8 @@ export interface UserData {
   name_change_timestamps?: number[];
   username_change_timestamps?: number[];
   previous_usernames?: string[];
+  followers?: string[];
+  following?: string[];
 }
 
 export interface Reaction {
@@ -64,7 +66,7 @@ export interface Message {
   sender: string;
   sender_id?: string;
   text: string;
-  type: 'text' | 'image' | 'video' | 'document' | 'voice' | 'sticker' | 'gif' | 'location' | 'contact' | 'poll' | 'call';
+  type: 'text' | 'image' | 'video' | 'document' | 'voice' | 'sticker' | 'gif' | 'location' | 'contact' | 'poll' | 'call' | 'system';
   media_url?: string;
   media_quality?: 'hd' | 'standard' | 'data_saver';
   file_name?: string;
@@ -117,6 +119,9 @@ export interface Chat {
   locked?: boolean;
   cleared_at?: Record<string, number>;
   theme?: string;
+  admin?: string;
+  group_admins?: string[];
+  group_description?: string;
   last_message_sender?: string;
   last_message_status?: 'sent' | 'delivered' | 'read';
 }

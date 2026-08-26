@@ -101,6 +101,16 @@ export const MessageCard: React.FC<MessageCardProps> = ({
     ? (activeTheme.bubble.cardBgSent || (isSentDark ? 'bg-black/25 border-white/20 text-white' : 'bg-black/5 border-black/15 text-slate-900'))
     : (activeTheme.bubble.cardBgReceived || (isReceivedDark ? 'bg-neutral-800/80 border-neutral-700 text-neutral-100' : 'bg-stone-50 border-stone-200 text-stone-900'));
 
+  if (msg.type === 'system') {
+    return (
+      <div className="flex justify-center my-2.5 px-4 select-none w-full">
+        <div className="px-4 py-1.5 rounded-full text-[11px] font-medium tracking-wide bg-neutral-100/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border border-neutral-200/80 dark:border-neutral-700/80 shadow-2xs backdrop-blur-xs max-w-md text-center">
+          {msg.text}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div 
       className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative my-0.5 max-w-full`}

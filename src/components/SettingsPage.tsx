@@ -250,22 +250,45 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {/* Main Settings Directory */}
         {section === 'main' && (
           <div className="space-y-6 animate-fade-in">
-            {/* 1. TOP ITEM: USER PROFILE CARD */}
-            <div className="p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3.5 min-w-0">
-                {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-14 w-14 text-xl')}
-                <div className="min-w-0">
-                  <h3 className="font-bold text-base text-neutral-900 dark:text-white truncate">{userDisplayName}</h3>
-                  <p className="text-xs text-neutral-400 truncate">@{userUsername}</p>
-                </div>
+            {/* 1. TOP ITEM: USER PROFILE CARD (REDESIGNED) */}
+            <div className="relative rounded-3xl overflow-hidden border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xl">
+              <div className="h-24 w-full bg-gradient-to-r from-neutral-900 via-indigo-950 to-neutral-900 relative p-4 flex justify-between items-start">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-indigo-500/20 via-transparent to-transparent" />
+                <span className="relative z-10 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-white/10 dark:bg-black/30 backdrop-blur-md text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  E2EE Protected Profile
+                </span>
+                <button
+                  onClick={onOpenEditProfile}
+                  className="relative z-10 p-2 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-md text-white transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 text-xs font-bold"
+                >
+                  <Edit2 className="h-3.5 w-3.5" />
+                  <span>Edit</span>
+                </button>
               </div>
-              <button
-                onClick={onOpenEditProfile}
-                className="px-4 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shrink-0"
-              >
-                <Edit2 className="h-3.5 w-3.5" />
-                <span>Edit Profile</span>
-              </button>
+
+              <div className="px-6 pb-6 pt-0 relative flex flex-col sm:flex-row items-center sm:items-end justify-between gap-4 -mt-10">
+                <div className="flex flex-col sm:flex-row items-center sm:items-end gap-4 text-center sm:text-left min-w-0">
+                  <div className="p-1.5 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 shadow-2xl shrink-0">
+                    {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-20 w-20 text-2xl border-4 border-white dark:border-neutral-900')}
+                  </div>
+                  <div className="min-w-0 pb-1">
+                    <h3 className="font-black text-xl text-neutral-900 dark:text-white truncate flex items-center justify-center sm:justify-start gap-1.5">
+                      <span>{userDisplayName}</span>
+                      <CheckCircle2 className="h-4 w-4 text-indigo-500 shrink-0 fill-indigo-500/10" />
+                    </h3>
+                    <p className="text-xs font-mono font-semibold text-neutral-400 truncate">@{userUsername}</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={onOpenEditProfile}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-2xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shrink-0 shadow-md active:scale-98"
+                >
+                  <Edit2 className="h-3.5 w-3.5" />
+                  <span>Customize Profile</span>
+                </button>
+              </div>
             </div>
 
             {/* 2. SECOND ITEM: GOOGLE DRIVE BACKUP CARD */}

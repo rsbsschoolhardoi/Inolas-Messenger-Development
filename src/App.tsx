@@ -7,8 +7,8 @@ import {
   Camera, Upload, Menu, Share2,
   Grid, Bookmark, Download, Palette, 
   Database, Volume2, Laptop, ChevronRight, Copy, Lock, Bell, ShieldCheck, Mail, Phone,
-  MapPin, BarChart2, Play, Pause, StopCircle, UserPlus, ExternalLink,
-  ZoomIn, ZoomOut, RotateCw, RefreshCw, Maximize2, MoreVertical, Archive, Folder, Clock, Shield, Sparkles, FileDown,
+  MapPin, BarChart2, Play, Pause, StopCircle, UserPlus, Users, ExternalLink,
+  ZoomIn, ZoomOut, RotateCw, RefreshCw, Maximize2, MoreVertical, MoreHorizontal, BellOff, ShieldAlert, Edit3, Archive, Folder, Clock, Shield, Sparkles, FileDown,
   PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneCall, PhoneOff, ArrowUpRight, ArrowDownLeft, History, Calendar, VideoOff, Filter
 } from 'lucide-react';
 import {  motion, AnimatePresence } from 'motion/react';
@@ -28,6 +28,8 @@ import {  LandingPage } from './components/LandingPage';
 import {  AuthFlow } from './components/AuthFlow';
 import {  AccountSetup } from './components/AccountSetup';
 import {  PublicProfileView } from './components/PublicProfileView';
+import {  NewGroupModal } from './components/NewGroupModal';
+import {  GroupDetailsModal } from './components/GroupDetailsModal';
 import { GoogleDriveLogo } from './components/GoogleDriveLogo';
 import { isUserEffectivelyOnline, getOnlineStatusText } from './presenceUtils';
 import {  getThemeById, DEFAULT_THEME_ID } from './chatThemes';
@@ -42,7 +44,7 @@ import {  CallModal, CallSession, CallEndMetadata } from './components/CallModal
 import {  blobToBase64, getSupportedMimeType, generateSyntheticVoiceNote } from './audioUtils';
 import OneSignal from 'react-onesignal';
 import {  
-  collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, query, where, getDocs, updateDoc, arrayUnion 
+  collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, query, where, getDocs, updateDoc, arrayUnion, arrayRemove 
 } from 'firebase/firestore';
 import { sendRelayMessage } from './services/messageService';
 import {  
@@ -511,6 +513,7 @@ export default function App() {
     }
   };
   const [showProfilePanel, setShowProfilePanel] = useState<boolean>(false);
+  const [showCallMenu, setShowCallMenu] = useState<boolean>(false);
   const [showAttachMenu, setShowAttachMenu] = useState<boolean>(false);
   const [showUnifiedPicker, setShowUnifiedPicker] = useState<boolean>(false);
   const [showEmojiPanel, setShowEmojiPanel] = useState<boolean>(false);
@@ -527,6 +530,23 @@ export default function App() {
   const [firestoreCalls, setFirestoreCalls] = useState<CallHistoryRecord[]>([]);
   const [currentMediaFolder, setCurrentMediaFolder] = useState<'photos' | 'videos' | 'audio' | 'documents' | null>(null);
   const [publicProfileUsername, setPublicProfileUsername] = useState<string | null>(null);
+  const [showFollowListModal, setShowFollowListModal] = useState<{ type: 'followers' | 'following'; username: string } | null>(null);
+  const [chatNicknames, setChatNicknames] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('inolas_chat_nicknames');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+  const [editingNicknameUser, setEditingNicknameUser] = useState<string | null>(null);
+  const [tempNicknameValue, setTempNicknameValue] = useState<string>('');
+  const [showNewGroupModal, setShowNewGroupModal] = useState<boolean>(false);
+  const [newGroupPreselectedUser, setNewGroupPreselectedUser] = useState<string | null>(null);
+  const [showGroupDetailsModal, setShowGroupDetailsModal] = useState<boolean>(false);
+  const [sharedMediaPreview, setSharedMediaPreview] = useState<{ url: string; type: string; title?: string } | null>(null);
+  const [showProfileOptionsModal, setShowProfileOptionsModal] = useState<boolean>(false);
+  const [showPrivacySafetyModal, setShowPrivacySafetyModal] = useState<boolean>(false);
 
   // Real Working Settings Preferences
   const [soundEffects, setSoundEffects] = useState<boolean>(true);
@@ -767,7 +787,13 @@ export default function App() {
   const getSenderDisplayName = (sender: string | undefined): string => {
     if (!sender) return '';
     if (isSenderMe(sender)) return 'You';
+    if (chatNicknames && chatNicknames[sender]) {
+      return chatNicknames[sender];
+    }
     const u = users[sender] || Object.values(users).find(u => u.username === sender || u.id === sender || u.previous_usernames?.includes(sender));
+    if (u?.username && chatNicknames && chatNicknames[u.username]) {
+      return chatNicknames[u.username];
+    }
     return u?.display_name || sender;
   };
 
@@ -1106,20 +1132,13 @@ export default function App() {
                   activity_type: p.activity_type || 'none',
                   name_change_timestamps: p.name_change_timestamps || [],
                   username_change_timestamps: p.username_change_timestamps || [],
-                  previous_usernames: p.previous_usernames || []
+                  previous_usernames: p.previous_usernames || [],
+                  followers: Array.isArray(p.followers) ? p.followers : [],
+                  following: Array.isArray(p.following) ? p.following : []
                 };
-                if (rawUsername) {
-                  fetchedUsers[rawUsername] = userObj;
-                  fetchedUsers[rawUsername.toLowerCase()] = userObj;
-                }
-                fetchedUsers[docSnap.id] = userObj;
-                if (Array.isArray(p.previous_usernames)) {
-                  p.previous_usernames.forEach((prevU: string) => {
-                    if (prevU && !fetchedUsers[prevU]) {
-                      fetchedUsers[prevU] = userObj;
-                    }
-                  });
-                }
+                // Store strictly one canonical entry per user document using docSnap.id or primary username
+                const primaryKey = (docSnap.id || rawUsername).toLowerCase();
+                fetchedUsers[primaryKey] = userObj;
               }
             });
             setUsers(snapshot.empty ? {} : fetchedUsers);
@@ -4549,6 +4568,90 @@ export default function App() {
     }
   }, [isAuthenticated, publicProfileUsername, users]);
 
+  // Follow/Unfollow
+  const handleToggleFollowUser = async (targetUsername: string) => {
+    if (!userUsername || !isAuthenticated) {
+      showToast('Please login to follow users');
+      return;
+    }
+    
+    if (targetUsername === userUsername) return;
+    
+    const targetUser = users[targetUsername] || Object.values(users).find(u => u.username === targetUsername);
+    if (!targetUser) return;
+    
+    const amIFollowing = targetUser.followers?.includes(userUsername) || false;
+
+    // 1. Instant Optimistic State Update for ultra-responsive UI
+    setUsers(prev => {
+      const currentTargetKey = Object.keys(prev).find(k => k === targetUsername || prev[k].username === targetUsername) || targetUsername;
+      const currentTarget = prev[currentTargetKey] || targetUser;
+      const currentFollowers = currentTarget.followers || [];
+      const updatedFollowers = amIFollowing
+        ? currentFollowers.filter(f => f !== userUsername)
+        : [...currentFollowers, userUsername];
+
+      const currentMeKey = Object.keys(prev).find(k => k === userUsername || prev[k].username === userUsername) || userUsername;
+      const currentMe = prev[currentMeKey];
+      const currentFollowing = currentMe?.following || [];
+      const updatedFollowing = amIFollowing
+        ? currentFollowing.filter(f => f !== targetUsername)
+        : [...currentFollowing, targetUsername];
+
+      return {
+        ...prev,
+        [currentTargetKey]: {
+          ...currentTarget,
+          followers: updatedFollowers
+        },
+        ...(currentMe ? {
+          [currentMeKey]: {
+            ...currentMe,
+            following: updatedFollowing
+          }
+        } : {})
+      };
+    });
+
+    if (amIFollowing) {
+      showToast(`You unfollowed ${targetUsername}`);
+    } else {
+      showToast(`You are now following ${targetUsername}`);
+    }
+
+    // 2. Persistent Firestore Update & Local Fallback
+    try {
+      const storedFollows = JSON.parse(localStorage.getItem('inolas_followed_users') || '[]');
+      const updatedStoredFollows = amIFollowing
+        ? storedFollows.filter((u: string) => u !== targetUsername)
+        : Array.from(new Set([...storedFollows, targetUsername]));
+      localStorage.setItem('inolas_followed_users', JSON.stringify(updatedStoredFollows));
+    } catch (e) {}
+
+    const targetUserId = targetUser.id || targetUser.username;
+    const myUserId = userId || userUsername;
+    
+    try {
+      if (isFirebaseConfigured && db && myUserId) {
+        const myDocRef = doc(db, 'users', myUserId);
+        
+        if (amIFollowing) {
+          await setDoc(myDocRef, { following: arrayRemove(targetUsername) }, { merge: true });
+          if (targetUserId) {
+            await setDoc(doc(db, 'users', targetUserId), { followers: arrayRemove(userUsername) }, { merge: true });
+          }
+        } else {
+          await setDoc(myDocRef, { following: arrayUnion(targetUsername) }, { merge: true });
+          if (targetUserId) {
+            await setDoc(doc(db, 'users', targetUserId), { followers: arrayUnion(userUsername) }, { merge: true });
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn("Follow error:", err);
+    }
+  };
+
   // Block/Unblock
   const handleToggleBlockUser = (username: string) => {
     if (blockedUsers.includes(username)) {
@@ -4593,6 +4696,297 @@ export default function App() {
         closeConfirm();
       }
     });
+  };
+
+  // Group Chat Management Handlers
+  const handleCreateGroup = async (groupData: {
+    name: string;
+    description: string;
+    participants: string[];
+    avatarSeed: string;
+  }) => {
+    const groupId = 'g_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 6);
+    const selfUsername = userUsername || 'me';
+    const allParticipants = Array.from(new Set([selfUsername, ...groupData.participants]));
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const creationMsgText = `You created group "${groupData.name}"`;
+    const initialMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+
+    const newGroupChat: Chat = {
+      id: groupId,
+      type: 'group',
+      name: groupData.name,
+      username: groupId,
+      avatar_seed: groupData.avatarSeed || groupData.name,
+      group_description: groupData.description,
+      admin: selfUsername,
+      group_admins: [selfUsername],
+      participants: allParticipants,
+      unread: 0,
+      last_message: creationMsgText,
+      last_time: 'now',
+      updated_at: Date.now(),
+      last_message_sender: selfUsername,
+      last_message_status: 'delivered' as const,
+      pinned: false,
+      muted: false,
+      typing: false,
+      online: true,
+      last_seen: 'now'
+    };
+
+    const initialSystemMsg: Message = {
+      id: initialMsgId,
+      chat_id: groupId,
+      created_at: Date.now(),
+      sender: selfUsername,
+      text: creationMsgText,
+      type: 'system',
+      timestamp: timeStr,
+      reactions: [],
+      read_by: [selfUsername]
+    };
+
+    // Save locally
+    setChats(prev => [newGroupChat, ...prev]);
+    setMessagesByChat(prev => ({
+      ...prev,
+      [groupId]: [initialSystemMsg]
+    }));
+    storageManager.saveMessages([initialSystemMsg]).catch(() => {});
+
+    // Save to Firestore
+    if (isFirebaseConfigured && db && auth) {
+      try {
+        await setDoc(doc(db, 'chats', groupId), {
+          id: groupId,
+          type: 'group',
+          name: groupData.name,
+          username: groupId,
+          avatar_seed: groupData.avatarSeed || groupData.name,
+          group_description: groupData.description,
+          admin: selfUsername,
+          group_admins: [selfUsername],
+          participants: allParticipants,
+          unread: 0,
+          last_message: creationMsgText,
+          last_time: 'now',
+          updated_at: Date.now(),
+          last_message_sender: selfUsername,
+          last_message_status: 'delivered'
+        });
+
+        await setDoc(doc(db, 'messages', initialMsgId), {
+          id: initialMsgId,
+          chat_id: groupId,
+          created_at: Date.now(),
+          sender: selfUsername,
+          text: creationMsgText,
+          type: 'system',
+          timestamp: timeStr,
+          reactions: [],
+          read_by: [selfUsername]
+        });
+      } catch (err) {
+        console.error("Firestore group creation error:", err);
+      }
+    }
+
+    setActiveChatId(groupId);
+    setActiveView('chats');
+    setMobileShowChat(true);
+    showToast(`Group "${groupData.name}" created!`);
+  };
+
+  const handleLeaveGroup = async (chatId: string) => {
+    const selfUsername = userUsername || 'me';
+    const targetChat = chats.find(c => c.id === chatId);
+    if (!targetChat) return;
+
+    const updatedParticipants = (targetChat.participants || []).filter(p => p !== selfUsername);
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const leaveMsgText = `@${selfUsername} left the group`;
+    const leaveMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+
+    const leaveSysMsg: Message = {
+      id: leaveMsgId,
+      chat_id: chatId,
+      created_at: Date.now(),
+      sender: selfUsername,
+      text: leaveMsgText,
+      type: 'system',
+      timestamp: timeStr,
+      reactions: [],
+      read_by: []
+    };
+
+    setChats(prev => prev.map(c => c.id === chatId ? {
+      ...c,
+      participants: updatedParticipants,
+      last_message: leaveMsgText,
+      last_time: 'now',
+      updated_at: Date.now()
+    } : c));
+
+    setMessagesByChat(prev => ({
+      ...prev,
+      [chatId]: [...(prev[chatId] || []), leaveSysMsg]
+    }));
+
+    if (isFirebaseConfigured && db && auth) {
+      try {
+        await setDoc(doc(db, 'chats', chatId), {
+          participants: updatedParticipants,
+          last_message: leaveMsgText,
+          last_time: 'now',
+          updated_at: Date.now()
+        }, { merge: true });
+
+        await setDoc(doc(db, 'messages', leaveMsgId), {
+          id: leaveMsgId,
+          chat_id: chatId,
+          created_at: Date.now(),
+          sender: selfUsername,
+          text: leaveMsgText,
+          type: 'system',
+          timestamp: timeStr,
+          reactions: [],
+          read_by: []
+        });
+      } catch (err) {}
+    }
+
+    if (activeChatId === chatId) {
+      setActiveChatId('');
+    }
+    showToast(`You left ${targetChat.name}`);
+  };
+
+  const handleAddGroupParticipant = async (chatId: string, newMemberUsername: string) => {
+    const selfUsername = userUsername || 'me';
+    const targetChat = chats.find(c => c.id === chatId);
+    if (!targetChat) return;
+
+    if (targetChat.participants?.includes(newMemberUsername)) {
+      showToast(`@${newMemberUsername} is already in the group`);
+      return;
+    }
+
+    const updatedParticipants = [...(targetChat.participants || []), newMemberUsername];
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const addMsgText = `You added @${newMemberUsername} to the group`;
+    const addMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+
+    const addSysMsg: Message = {
+      id: addMsgId,
+      chat_id: chatId,
+      created_at: Date.now(),
+      sender: selfUsername,
+      text: addMsgText,
+      type: 'system',
+      timestamp: timeStr,
+      reactions: [],
+      read_by: [selfUsername]
+    };
+
+    setChats(prev => prev.map(c => c.id === chatId ? {
+      ...c,
+      participants: updatedParticipants,
+      last_message: addMsgText,
+      last_time: 'now',
+      updated_at: Date.now()
+    } : c));
+
+    setMessagesByChat(prev => ({
+      ...prev,
+      [chatId]: [...(prev[chatId] || []), addSysMsg]
+    }));
+
+    if (isFirebaseConfigured && db && auth) {
+      try {
+        await setDoc(doc(db, 'chats', chatId), {
+          participants: updatedParticipants,
+          last_message: addMsgText,
+          last_time: 'now',
+          updated_at: Date.now()
+        }, { merge: true });
+
+        await setDoc(doc(db, 'messages', addMsgId), {
+          id: addMsgId,
+          chat_id: chatId,
+          created_at: Date.now(),
+          sender: selfUsername,
+          text: addMsgText,
+          type: 'system',
+          timestamp: timeStr,
+          reactions: [],
+          read_by: [selfUsername]
+        });
+      } catch (err) {}
+    }
+
+    showToast(`Added @${newMemberUsername} to group`);
+  };
+
+  const handleRemoveGroupParticipant = async (chatId: string, removeMemberUsername: string) => {
+    const selfUsername = userUsername || 'me';
+    const targetChat = chats.find(c => c.id === chatId);
+    if (!targetChat) return;
+
+    const updatedParticipants = (targetChat.participants || []).filter(p => p !== removeMemberUsername);
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const removeMsgText = `Admin removed @${removeMemberUsername} from the group`;
+    const removeMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+
+    const removeSysMsg: Message = {
+      id: removeMsgId,
+      chat_id: chatId,
+      created_at: Date.now(),
+      sender: selfUsername,
+      text: removeMsgText,
+      type: 'system',
+      timestamp: timeStr,
+      reactions: [],
+      read_by: [selfUsername]
+    };
+
+    setChats(prev => prev.map(c => c.id === chatId ? {
+      ...c,
+      participants: updatedParticipants,
+      last_message: removeMsgText,
+      last_time: 'now',
+      updated_at: Date.now()
+    } : c));
+
+    setMessagesByChat(prev => ({
+      ...prev,
+      [chatId]: [...(prev[chatId] || []), removeSysMsg]
+    }));
+
+    if (isFirebaseConfigured && db && auth) {
+      try {
+        await setDoc(doc(db, 'chats', chatId), {
+          participants: updatedParticipants,
+          last_message: removeMsgText,
+          last_time: 'now',
+          updated_at: Date.now()
+        }, { merge: true });
+
+        await setDoc(doc(db, 'messages', removeMsgId), {
+          id: removeMsgId,
+          chat_id: chatId,
+          created_at: Date.now(),
+          sender: selfUsername,
+          text: removeMsgText,
+          type: 'system',
+          timestamp: timeStr,
+          reactions: [],
+          read_by: [selfUsername]
+        });
+      } catch (err) {}
+    }
+
+    showToast(`Removed @${removeMemberUsername} from group`);
   };
 
   // Sidebar controls
@@ -5173,6 +5567,17 @@ export default function App() {
                     <button onClick={() => setActiveView('search')} className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/40 text-neutral-900 dark:text-neutral-100 transition-colors cursor-pointer" title="Start new chat">
                       <Plus className="h-4 w-4" />
                     </button>
+                    {/* New Group Button */}
+                    <button 
+                      onClick={() => {
+                        setNewGroupPreselectedUser(null);
+                        setShowNewGroupModal(true);
+                      }} 
+                      className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-900 dark:text-neutral-100 transition-colors cursor-pointer" 
+                      title="New Group Chat"
+                    >
+                      <Users className="h-4 w-4" />
+                    </button>
                   </div>
                 </div>
                 <div className="relative">
@@ -5220,7 +5625,11 @@ export default function App() {
                         <div className="flex-1 min-w-0 text-left">
                           <div className="flex justify-between items-baseline">
                             <div className="flex items-center gap-1 min-w-0">
-                              <p className={`text-sm truncate ${chat.id === activeChatId ? 'font-bold' : 'font-semibold text-neutral-800 dark:text-neutral-200'}`}>{chat.name}</p>
+                              <p className={`text-sm truncate ${chat.id === activeChatId ? 'font-bold' : 'font-semibold text-neutral-800 dark:text-neutral-200'}`}>
+                        {chat.type !== 'group' && chat.username && chatNicknames[chat.username] 
+                          ? chatNicknames[chat.username] 
+                          : chat.name}
+                      </p>
                               {chat.pinned && <Pin className="h-3 w-3 text-neutral-900 dark:text-neutral-100 rotate-45 shrink-0" />}
                               {chat.muted && <VolumeX className="h-3 w-3 text-neutral-500 dark:text-neutral-400 shrink-0" />}
                               {chat.archived && <Archive className="h-3 w-3 text-neutral-900 dark:text-neutral-100 shrink-0" />}
@@ -5275,9 +5684,9 @@ export default function App() {
                         <p className="px-3 py-1 text-[11px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider text-left">
                           People & Contacts
                         </p>
-                        {matchingContactsForSidebar.map(user => (
+                        {matchingContactsForSidebar.map((user, idx) => (
                           <div 
-                            key={`sidebar_user_${user.id || user.username}`}
+                            key={`sidebar_user_${user.id || user.username}_${idx}`}
                             onClick={() => {
                               setChatSearchQuery('');
                               handleStartChatWithUser(user);
@@ -5306,19 +5715,69 @@ export default function App() {
 
             {/* Right Pane: Message scroll chain */}
             <div className={`${mobileShowChat ? 'flex' : 'hidden'} md:flex flex-col flex-1 h-full relative`}>
-              
-              {/* Chat View Header */}
+              {activeChat ? (
+                <>
+                  {/* Chat View Header */}
               <div className="flex items-center justify-between h-16 px-4 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
                 <div className="flex items-center gap-3 min-w-0">
                   <button onClick={() => setMobileShowChat(false)} className="md:hidden p-2 -ml-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"><ChevronLeft className="h-5 w-5" /></button>
-                  <div className="relative shrink-0">
-                    {renderAvatar(activeChat.avatar_seed, activeChat.name, activeChat.avatar_url || users[activeChat.username]?.avatar_url, 'h-10 w-10 text-sm')}
-                    {isUserEffectivelyOnline(users[activeChat.username]) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-950"></span>}
+                  <div 
+                    className="relative shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                    onClick={() => {
+                      if (activeChat.type === 'group') {
+                        setShowGroupDetailsModal(true);
+                      } else {
+                        const targetUser = activeChat.username || activeChat.avatar_seed;
+                        if (targetUser) {
+                          setSelectedProfileUsername(targetUser);
+                          setShowProfilePanel(true);
+                        }
+                      }
+                    }}
+                  >
+                    {renderAvatar(activeChat.avatar_seed, activeChat.name, activeChat.avatar_url || (activeChat.username ? users[activeChat.username]?.avatar_url : undefined), 'h-10 w-10 text-sm')}
+                    {activeChat.type !== 'group' && isUserEffectivelyOnline(users[activeChat.username]) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-950"></span>}
                   </div>
                   <div className="min-w-0 text-left">
-                    <h3 onClick={() => { setSelectedProfileUsername(activeChat.username || activeChat.avatar_seed); setShowProfilePanel(true); }} className="font-bold text-sm cursor-pointer hover:underline truncate">{activeChat.name}</h3>
+                    <h3 
+                      onClick={() => {
+                        if (activeChat.type === 'group') {
+                          setShowGroupDetailsModal(true);
+                        } else {
+                          const targetUser = activeChat.username || activeChat.avatar_seed;
+                          if (targetUser) {
+                            setSelectedProfileUsername(targetUser);
+                            setShowProfilePanel(true);
+                          }
+                        }
+                      }} 
+                      className="font-bold text-sm cursor-pointer hover:underline truncate flex items-center gap-1.5"
+                    >
+                      {activeChat.type !== 'group' && activeChat.username && chatNicknames[activeChat.username] ? (
+                        <>
+                          <span>{chatNicknames[activeChat.username]}</span>
+                          <span className="text-xs text-neutral-400 font-normal">({activeChat.name})</span>
+                        </>
+                      ) : (
+                        <span>{activeChat.name}</span>
+                      )}
+                      {activeChat.type === 'group' && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
+                          Group
+                        </span>
+                      )}
+                    </h3>
                     <p className="text-[10px] text-neutral-500 dark:text-neutral-400 truncate">
-                      {activeChat.activity_type === 'recording_voice' ? (
+                      {activeChat.type === 'group' ? (
+                        <span>
+                          {(activeChat.participants || []).length} members • {
+                            (activeChat.participants || [])
+                              .map(p => p === userUsername ? 'You' : (chatNicknames[p] || users[p]?.display_name || p))
+                              .slice(0, 3)
+                              .join(', ') + ((activeChat.participants || []).length > 3 ? '...' : '')
+                          }
+                        </span>
+                      ) : activeChat.activity_type === 'recording_voice' ? (
                         <span className="text-neutral-900 dark:text-neutral-100 font-bold animate-pulse flex items-center gap-1">
                           <Mic className="h-3 w-3" /> recording voice note...
                         </span>
@@ -5338,28 +5797,37 @@ export default function App() {
                     </p>
                   </div>
                 </div>
+                
+                <div className="flex items-center gap-1.5 relative">
+                  {/* Group Info Icon or Follow Text Button */}
+                  {activeChat.type === 'group' ? (
+                    <button
+                      onClick={() => setShowGroupDetailsModal(true)}
+                      className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-900 dark:text-neutral-100 transition-colors cursor-pointer mr-1"
+                      title="Group Information & Members"
+                    >
+                      <Users className="h-4 w-4" />
+                    </button>
+                  ) : activeChat.username && activeChat.username !== userUsername && !users[activeChat.username]?.followers?.includes(userUsername) && (
+                    <button
+                      onClick={() => handleToggleFollowUser(activeChat.username)}
+                      className="px-3.5 py-1.5 rounded-xl text-xs bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 font-bold transition-all cursor-pointer mr-1 active:scale-95 shadow-xs"
+                      title="Click to Follow"
+                    >
+                      Follow
+                    </button>
+                  )}
 
-                <div className="flex items-center gap-1.5">
+                  {/* Search inside chat button */}
                   <button 
-                    onClick={() => handleStartCall('voice')} 
+                    onClick={() => setShowMsgSearchInChat(!showMsgSearchInChat)} 
                     className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer active:scale-95" 
-                    title="Start Secure Voice Call"
+                    title="Search Messages"
                   >
-                    <Phone className="h-4 w-4" />
-                  </button>
-                  <button 
-                    onClick={() => handleStartCall('video')} 
-                    className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer active:scale-95" 
-                    title="Start Secure Video Call"
-                  >
-                    <Video className="h-4 w-4" />
-                  </button>
-                  <button onClick={() => { setShowMsgSearchInChat(prev => !prev); setMessageSearchQuery(''); }} className={`p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 ${showMsgSearchInChat ? 'bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-900 dark:text-neutral-100' : 'text-neutral-500 dark:text-neutral-400'}`} title="Search messages">
                     <Search className="h-4 w-4" />
                   </button>
-                  <button onClick={() => { setSelectedProfileUsername(activeChat.username || activeChat.avatar_seed); setShowProfilePanel(prev => !prev); }} className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800" title="Conversation Details">
-                    <Info className="h-4 w-4" />
-                  </button>
+
+                  {/* 3-Dot Options */}
                   <button onClick={() => setShowChatCustomizationSheet(true)} className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer" title="Options">
                     <MoreVertical className="h-4 w-4" />
                   </button>
@@ -5888,212 +6356,30 @@ export default function App() {
                     )}
                   </div>
                 )}
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Slide-over Profile Detail Panel */}
-            <AnimatePresence>
-              {showProfilePanel && (
-                <>
-                  <motion.div 
-                    key="profile-backdrop"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    onClick={() => setShowProfilePanel(false)}
-                    className="absolute inset-0 bg-black/20 backdrop-blur-[1px] z-30"
-                  />
-                  <motion.div 
-                    key="profile-drawer"
-                    initial={{ x: '100%' }}
-                    animate={{ x: 0 }}
-                    exit={{ x: '100%' }}
-                    transition={{ type: 'tween', duration: 0.3 }}
-                    className={`absolute right-0 top-0 bottom-0 w-80 border-l shadow-2xl z-40 flex flex-col h-full ${themeMode === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-100'}`}
-                  >
-                  <div className="flex justify-between items-center h-16 px-4 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
-                    <h3 className="font-bold text-sm">Profile Details</h3>
-                    <button onClick={() => setShowProfilePanel(false)} className="p-1.5 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 dark:text-neutral-400"><X className="h-4 w-4" /></button>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto p-5 text-center space-y-5">
-                    <div className="flex flex-col items-center">
-                      <div className="mb-3">
-                        {renderAvatar(selectedProfileUsername, users[selectedProfileUsername]?.display_name || selectedProfileUsername, users[selectedProfileUsername]?.avatar_url, 'h-20 w-20 text-2xl')}
-                      </div>
-                      <h4 className="font-bold text-base">{users[selectedProfileUsername]?.display_name || selectedProfileUsername}</h4>
-                      <p className="text-xs text-neutral-500 dark:text-neutral-400">@{selectedProfileUsername}</p>
-                      <span className={`text-[10px] mt-1 px-2.5 py-0.5 rounded-full font-semibold ${isUserEffectivelyOnline(users[selectedProfileUsername]) ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 dark:bg-emerald-950/20 dark:text-neutral-500 dark:text-neutral-400' : 'bg-neutral-50 text-neutral-500 dark:text-neutral-400 dark:bg-neutral-800'}`}>
-                        {isUserEffectivelyOnline(users[selectedProfileUsername]) ? 'Online' : getOnlineStatusText(users[selectedProfileUsername])}
-                      </span>
-                    </div>
-
-                    <div className="text-left space-y-4">
-                      {/* Direct Call Actions */}
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        <button
-                          onClick={() => {
-                            setShowProfilePanel(false);
-                            handleStartCallWithUser(selectedProfileUsername, 'voice');
-                          }}
-                          className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100 hover:bg-neutral-200 dark:hover:bg-indigo-900/50 font-semibold text-xs transition-colors cursor-pointer border border-indigo-200/50 dark:border-indigo-800/50"
-                        >
-                          <Phone className="h-3.5 w-3.5" />
-                          <span>Voice Call</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            setShowProfilePanel(false);
-                            handleStartCallWithUser(selectedProfileUsername, 'video');
-                          }}
-                          className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-neutral-700 dark:text-neutral-300 dark:text-neutral-700 dark:text-neutral-300 hover:bg-purple-100 dark:hover:bg-purple-900/50 font-semibold text-xs transition-colors cursor-pointer border border-purple-200/50 dark:border-purple-800/50"
-                        >
-                          <Video className="h-3.5 w-3.5" />
-                          <span>Video Call</span>
-                        </button>
-                      </div>
-
-                      <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 block mb-1">About</span>
-                        <p className="text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">
-                          {users[selectedProfileUsername]?.bio || 'No bio specified.'}
-                        </p>
-                      </div>
-
-                      {/* User's Call History with Current Contact */}
-                      <div className="border-t border-neutral-100 dark:border-neutral-800 pt-4 space-y-2.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 block">Call History</span>
-                          {(() => {
-                            const userPairCalls = allUserCalls.filter(c => 
-                              c.partner_username === selectedProfileUsername || 
-                              c.caller === selectedProfileUsername || 
-                              c.receiver === selectedProfileUsername
-                            );
-                            return (
-                              <span className="text-[10px] font-semibold text-neutral-500 dark:text-neutral-400">
-                                {userPairCalls.length} {userPairCalls.length === 1 ? 'call' : 'calls'}
-                              </span>
-                            );
-                          })()}
-                        </div>
-
-                        {(() => {
-                          const userPairCalls = allUserCalls.filter(c => 
-                            c.partner_username === selectedProfileUsername || 
-                            c.caller === selectedProfileUsername || 
-                            c.receiver === selectedProfileUsername
-                          );
-
-                          if (userPairCalls.length === 0) {
-                            return (
-                              <div className="p-3.5 rounded-xl border border-neutral-100 dark:border-neutral-800/80 bg-neutral-50/50 dark:bg-neutral-800/30 text-center space-y-1">
-                                <PhoneCall className="h-4 w-4 text-neutral-500 dark:text-neutral-400 mx-auto" />
-                                <p className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">No calls with @{selectedProfileUsername} yet</p>
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                              {userPairCalls.slice(0, 10).map((call) => {
-                                const isMissed = call.status === 'missed' || call.status === 'declined';
-                                const isVideo = call.call_type === 'video';
-                                return (
-                                  <div
-                                    key={`profile_call_${call.id}`}
-                                    className="p-2.5 rounded-xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-800/30 flex items-center justify-between gap-2"
-                                  >
-                                    <div className="flex items-center gap-2.5 min-w-0">
-                                      <div className={`p-1.5 rounded-lg shrink-0 ${
-                                        isMissed 
-                                          ? 'bg-neutral-100 dark:bg-rose-950/40 text-neutral-900 dark:text-neutral-100' 
-                                          : isVideo
-                                            ? 'bg-purple-50 dark:bg-purple-950/40 text-neutral-700 dark:text-neutral-300'
-                                            : 'bg-neutral-100 dark:bg-neutral-800 dark:bg-emerald-950/40 text-neutral-900 dark:text-neutral-100'
-                                      }`}>
-                                        {isVideo ? (
-                                          <Video className="h-3.5 w-3.5" />
-                                        ) : isMissed ? (
-                                          <PhoneMissed className="h-3.5 w-3.5" />
-                                        ) : call.is_outgoing ? (
-                                          <PhoneOutgoing className="h-3.5 w-3.5" />
-                                        ) : (
-                                          <PhoneIncoming className="h-3.5 w-3.5" />
-                                        )}
-                                      </div>
-                                      <div className="min-w-0">
-                                        <p className="text-[11px] font-bold text-neutral-800 dark:text-neutral-200 truncate flex items-center gap-1">
-                                          <span>{isVideo ? 'Video Call' : 'Voice Call'}</span>
-                                          <span className={`text-[9px] px-1 py-0.2 rounded font-medium ${
-                                            isMissed 
-                                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-neutral-500 dark:text-neutral-400' 
-                                              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-neutral-500 dark:text-neutral-400'
-                                          }`}>
-                                            {call.status}
-                                          </span>
-                                        </p>
-                                        <p className="text-[9px] text-neutral-500 dark:text-neutral-400 mt-0.5">
-                                          {call.timestamp} {call.duration_formatted ? `• ${call.duration_formatted}` : ''}
-                                        </p>
-                                      </div>
-                                    </div>
-
-                                    <button
-                                      onClick={() => {
-                                        setShowProfilePanel(false);
-                                        handleStartCallWithUser(selectedProfileUsername, isVideo ? 'video' : 'voice');
-                                      }}
-                                      className="p-1.5 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:text-neutral-100 dark:hover:text-neutral-500 dark:text-neutral-400 transition-colors"
-                                      title="Call again"
-                                    >
-                                      {isVideo ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" />}
-                                    </button>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        })()}
-                      </div>
-
-                      <div className="border-t border-neutral-100 dark:border-neutral-800 pt-4 space-y-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 block mb-2">Actions</span>
-                        
-                        <button 
-                          onClick={() => handleToggleBlockUser(selectedProfileUsername)}
-                          className="w-full flex items-center gap-3 p-2 rounded-xl text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left transition-colors"
-                        >
-                          {blockedUsers.includes(selectedProfileUsername) ? <UserCheck className="h-4 w-4 text-neutral-900 dark:text-neutral-100" /> : <UserX className="h-4 w-4 text-neutral-900 dark:text-neutral-100" />}
-                          <span>{blockedUsers.includes(selectedProfileUsername) ? 'Unblock User' : 'Block User'}</span>
-                        </button>
-
-                        <button 
-                          onClick={() => handleReportUser(selectedProfileUsername)}
-                          className="w-full flex items-center gap-3 p-2 rounded-xl text-xs hover:bg-neutral-100 dark:hover:bg-rose-950/20 text-left text-neutral-900 dark:text-neutral-100 transition-colors"
-                        >
-                          <Flag className="h-4 w-4" />
-                          <span>Report Policy Violation</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-                </>
-              )}
-            </AnimatePresence>
-
+              </>
+            )}
           </div>
-        )}
+        </>
+      ) : (
+        <div className="hidden md:flex flex-1 flex-col items-center justify-center text-center p-8">
+          <div className="w-24 h-24 bg-neutral-100 dark:bg-neutral-800 rounded-full flex items-center justify-center mb-6">
+            <MessageSquare className="h-10 w-10 text-neutral-300 dark:text-neutral-600" />
+          </div>
+          <h2 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">Your Messages</h2>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 max-w-sm">
+            Select a chat from the sidebar or start a new conversation to begin messaging.
+          </p>
+        </div>
+      )}
+    </div>
+  </div>
+)}
 
-        {/* VIEW 2: Discover Users panel */}
-        {activeView === 'search' && (
+  {/* VIEW 2: Discover Users panel */}
+  {activeView === 'search' && (
           <div className="flex-1 h-full flex flex-col p-4 md:p-6 max-w-2xl mx-auto w-full pb-24 md:pb-6 overscroll-contain">
             <h1 className="text-2xl font-bold tracking-tight mb-2 text-left">Discover people</h1>
             <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-6 text-left">Find friends, designers, and developer colleagues. Start an instant chat conversation.</p>
-
             <div className="relative mb-6 shrink-0">
               <Search className="absolute left-4 top-3.5 h-5 w-5 text-neutral-500 dark:text-neutral-400" />
               <input 
@@ -6120,9 +6406,9 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {activeContactsList.map(user => (
+                      {activeContactsList.map((user, idx) => (
                         <div 
-                          key={`contact_user_${user.id || user.username}`}
+                          key={`contact_user_${user.id || user.username}_${idx}`}
                           onClick={() => handleStartChatWithUser(user)}
                           className="p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 flex items-center justify-between gap-3 cursor-pointer hover:border-neutral-900 dark:border-neutral-100 hover:bg-neutral-100/10 transition-all text-left group"
                         >
@@ -6156,9 +6442,9 @@ export default function App() {
                       <p className="text-sm text-neutral-700 dark:text-neutral-300">No user profiles matched &quot;{globalSearchQuery}&quot;</p>
                     </div>
                   ) : (
-                    globalSearchResults.map(user => (
+                    globalSearchResults.map((user, idx) => (
                       <div 
-                        key={`search_user_${user.id || user.username}`}
+                        key={`search_user_${user.id || user.username}_${idx}`}
                         onClick={() => handleStartChatWithUser(user)}
                         className="p-3.5 rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 flex items-center justify-between cursor-pointer hover:border-neutral-900 dark:border-neutral-100 hover:shadow-md transition-all text-left"
                       >
@@ -6191,12 +6477,11 @@ export default function App() {
             
             {/* Top Instagram-Style Header Bar */}
             <div className="sticky top-0 z-10 backdrop-blur-md bg-white/85 dark:bg-neutral-900/85 border-b border-neutral-200/80 dark:border-neutral-800 px-4 md:px-8 py-3.5 flex items-center justify-between">
-              {/* Left: Username with lock icon and verified badge */}
+              {/* Left: Username in clean plain text */}
               <div className="flex items-center gap-2">
                 <Lock className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
-                <h1 className="text-base md:text-lg font-bold tracking-tight text-neutral-900 dark:text-white flex items-center gap-1.5">
-                  <span>@{userUsername || 'username'}</span>
-                  <CheckCircle2 className="h-4 w-4 text-neutral-700 dark:text-neutral-300 fill-indigo-500/20" />
+                <h1 className="text-base md:text-lg font-bold tracking-tight text-neutral-900 dark:text-white">
+                  <span>{userUsername || 'username'}</span>
                 </h1>
               </div>
 
@@ -6264,16 +6549,13 @@ export default function App() {
 
                   {/* Profile Info & Stat Counters */}
                   <div className="flex-1 text-center sm:text-left space-y-4 w-full">
-                    {/* Top Row: Display name & verified badge */}
+                    {/* Top Row: Display name & username */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div>
                         <h2 className="text-xl font-bold text-neutral-900 dark:text-white flex items-center justify-center sm:justify-start gap-2">
                           <span>{userDisplayName || 'User'}</span>
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100 font-semibold border border-indigo-100 dark:border-indigo-900/50">
-                            Verified
-                          </span>
                         </h2>
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">@{userUsername}</p>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{userUsername}</p>
                       </div>
 
                       {/* Online Status Pill */}
@@ -6283,27 +6565,21 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Instagram 4-Stats Row: Chats, Contacts, Saved, Calls */}
-                    <div className="grid grid-cols-4 gap-2 py-3 border-y border-neutral-100 dark:border-neutral-800/80 text-center">
-                      <div className="space-y-0.5 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setActiveView('chats')}>
-                        <span className="text-base md:text-lg font-bold text-neutral-900 dark:text-white">{chats.length}</span>
-                        <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Chats</p>
+                    {/* Stats Row: ONLY Followers and Following */}
+                    <div className="grid grid-cols-2 gap-4 py-3 border-y border-neutral-100 dark:border-neutral-800/80 text-center max-w-xs mx-auto sm:mx-0">
+                      <div 
+                        className="space-y-0.5 cursor-pointer hover:opacity-80 transition-opacity p-2 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
+                        onClick={() => setShowFollowListModal({ type: 'followers', username: userUsername })}
+                      >
+                        <span className="text-lg md:text-xl font-bold text-neutral-900 dark:text-white">{users[userUsername]?.followers?.length || 0}</span>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Followers</p>
                       </div>
-                      <div className="space-y-0.5 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setActiveView('search')}>
-                        <span className="text-base md:text-lg font-bold text-neutral-900 dark:text-white">{Object.keys(users).length}</span>
-                        <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Contacts</p>
-                      </div>
-                      <div className="space-y-0.5 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setProfileActiveTab('saved')}>
-                        <span className="text-base md:text-lg font-bold text-neutral-900 dark:text-white">
-                          {Object.values(messagesByChat).flat().filter(m => m.pinned || (m.reactions && m.reactions.length > 0)).length}
-                        </span>
-                        <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Saved</p>
-                      </div>
-                      <div className="space-y-0.5 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setProfileActiveTab('calls')}>
-                        <span className="text-base md:text-lg font-bold text-neutral-900 dark:text-neutral-100">
-                          {allUserCalls.length}
-                        </span>
-                        <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Calls</p>
+                      <div 
+                        className="space-y-0.5 cursor-pointer hover:opacity-80 transition-opacity p-2 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
+                        onClick={() => setShowFollowListModal({ type: 'following', username: userUsername })}
+                      >
+                        <span className="text-lg md:text-xl font-bold text-neutral-900 dark:text-white">{users[userUsername]?.following?.length || 0}</span>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Following</p>
                       </div>
                     </div>
 
@@ -7012,6 +7288,600 @@ export default function App() {
           />
         )}
 
+            {/* Full-Screen Profile & Chat Details View (Matching Instagram/Messenger Details Screen) */}
+            <AnimatePresence>
+              {showProfilePanel && (
+                <motion.div 
+                  key="full-profile-screen"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 20 }}
+                  transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                  className={`fixed inset-0 z-50 flex flex-col overflow-y-auto ${themeMode === 'dark' ? 'bg-[#0a0a0c] text-white' : 'bg-neutral-50 text-neutral-900'}`}
+                >
+                  {/* Top Bar with Back Arrow */}
+                  <div className={`sticky top-0 z-20 flex items-center justify-between px-4 h-14 backdrop-blur-md border-b ${themeMode === 'dark' ? 'bg-[#0a0a0c]/80 border-neutral-850' : 'bg-white/80 border-neutral-200'}`}>
+                    <button 
+                      onClick={() => setShowProfilePanel(false)}
+                      className="p-2 -ml-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 transition-colors cursor-pointer"
+                      title="Back to chat"
+                    >
+                      <ChevronLeft className="h-6 w-6 stroke-[2.2]" />
+                    </button>
+                    
+                    <span className="text-xs font-semibold text-neutral-400">Details</span>
+
+                    <button 
+                      onClick={() => setShowProfileOptionsModal(true)}
+                      className="p-2 -mr-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 transition-colors cursor-pointer"
+                      title="Options"
+                    >
+                      <MoreHorizontal className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  {/* Main Scrollable Content Container */}
+                  <div className="flex-1 w-full max-w-xl mx-auto px-4 py-6 pb-20 space-y-6">
+                    
+                    {/* OWN PROFILE REDESIGN (When viewing self profile) */}
+                    {selectedProfileUsername === userUsername ? (
+                      <div className="space-y-6">
+                        {/* Cover Banner & Identity Header */}
+                        <div className="relative rounded-3xl overflow-hidden border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xl">
+                          {/* Mesh Gradient Cover */}
+                          <div className="h-32 w-full bg-gradient-to-r from-neutral-900 via-indigo-950 to-neutral-900 relative p-4 flex justify-between items-start">
+                            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-indigo-500/20 via-transparent to-transparent" />
+                            <span className="relative z-10 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-white/10 dark:bg-black/30 backdrop-blur-md text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                              Active Session • E2EE
+                            </span>
+                            <button
+                              onClick={handleOpenEditProfile}
+                              className="relative z-10 p-2 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-md text-white transition-all active:scale-95 cursor-pointer"
+                              title="Edit Cover & Profile"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </button>
+                          </div>
+
+                          {/* Profile Details Container */}
+                          <div className="px-6 pb-6 pt-0 text-center relative">
+                            {/* Avatar Container with glowing gradient border */}
+                            <div className="relative inline-block -mt-14 mb-3">
+                              <div className="p-1.5 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 shadow-2xl">
+                                {renderAvatar(
+                                  userAvatarSeed || userUsername, 
+                                  userDisplayName || userUsername, 
+                                  userAvatarUrl, 
+                                  'h-24 w-24 text-3xl shadow-inner border-4 border-white dark:border-neutral-900'
+                                )}
+                              </div>
+                              <button
+                                onClick={handleOpenEditProfile}
+                                className="absolute bottom-1 right-1 p-2 rounded-full bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 shadow-lg hover:scale-110 transition-transform cursor-pointer border-2 border-white dark:border-neutral-900"
+                                title="Change Avatar"
+                              >
+                                <Camera className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+
+                            {/* User Name & Handle */}
+                            <div className="space-y-1">
+                              <h2 className="text-2xl font-black tracking-tight text-neutral-900 dark:text-white flex items-center justify-center gap-2">
+                                <span>{userDisplayName || userUsername}</span>
+                                <CheckCircle2 className="h-5 w-5 text-indigo-500 shrink-0 fill-indigo-500/10" />
+                              </h2>
+                              <p className="text-xs font-mono font-semibold text-neutral-400 dark:text-neutral-500">
+                                @{userUsername}
+                              </p>
+                            </div>
+
+                            {/* Interactive Metric Showcase Cards */}
+                            <div className="grid grid-cols-3 gap-3 my-5">
+                              <div 
+                                onClick={() => setShowFollowListModal({ type: 'followers', username: userUsername })}
+                                className="p-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-750 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer text-center"
+                              >
+                                <span className="text-lg font-black text-neutral-900 dark:text-white block">
+                                  {users[userUsername]?.followers?.length || 0}
+                                </span>
+                                <span className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">
+                                  Followers
+                                </span>
+                              </div>
+
+                              <div 
+                                onClick={() => setShowFollowListModal({ type: 'following', username: userUsername })}
+                                className="p-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-750 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer text-center"
+                              >
+                                <span className="text-lg font-black text-neutral-900 dark:text-white block">
+                                  {users[userUsername]?.following?.length || 0}
+                                </span>
+                                <span className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">
+                                  Following
+                                </span>
+                              </div>
+
+                              <div 
+                                onClick={() => setActiveView('settings')}
+                                className="p-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-750 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer text-center"
+                              >
+                                <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 block pt-1">
+                                  Vault Protected
+                                </span>
+                                <span className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">
+                                  Security
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Bio Block */}
+                            <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/40 border border-neutral-200/60 dark:border-neutral-800 text-left space-y-1">
+                              <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 dark:text-neutral-500">
+                                Bio / Status
+                              </span>
+                              <p className="text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed font-medium">
+                                {userBio || "No status bio set. Tap Edit Profile to customize!"}
+                              </p>
+                            </div>
+
+                            {/* Primary Action Button Suite */}
+                            <div className="grid grid-cols-2 gap-3 pt-4">
+                              <button
+                                onClick={handleOpenEditProfile}
+                                className="py-3 px-4 rounded-2xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 cursor-pointer"
+                              >
+                                <Edit2 className="h-4 w-4" />
+                                <span>Edit Profile</span>
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  try {
+                                    navigator.clipboard.writeText(`https://zenoa.app/u/${userUsername}`);
+                                    showToast("Profile link copied!");
+                                  } catch (e) {
+                                    showToast("Profile link: zenoa.app/u/" + userUsername);
+                                  }
+                                }}
+                                className="py-3 px-4 rounded-2xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-bold text-xs flex items-center justify-center gap-2 transition-all border border-neutral-200 dark:border-neutral-700 active:scale-98 cursor-pointer"
+                              >
+                                <Share2 className="h-4 w-4" />
+                                <span>Share Link</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Quick Luxury Settings Directory */}
+                        <div className="space-y-1 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 overflow-hidden p-2 shadow-sm">
+                          <button 
+                            onClick={() => {
+                              setShowProfilePanel(false);
+                              setActiveView('settings');
+                            }}
+                            className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl hover:bg-neutral-100 dark:hover:bg-neutral-800/60 transition-colors text-left cursor-pointer group"
+                          >
+                            <div className="h-9 w-9 rounded-xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-neutral-800 dark:text-neutral-200 shrink-0 font-bold">
+                              ⚙️
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-neutral-900 dark:text-white">Account Settings</p>
+                              <p className="text-xs text-neutral-500 dark:text-neutral-400">Security, email, and Google Drive backup</p>
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+                          </button>
+
+                          <button 
+                            onClick={() => setShowThemeModal(true)}
+                            className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl hover:bg-neutral-100 dark:hover:bg-neutral-800/60 transition-colors text-left cursor-pointer group"
+                          >
+                            <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white shrink-0 shadow-xs">
+                              <Palette className="h-4 w-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-neutral-900 dark:text-white">Theme & Wallpapers</p>
+                              <p className="text-xs text-neutral-500 dark:text-neutral-400">Customize chat backgrounds and appearance</p>
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+                          </button>
+
+                          <button 
+                            onClick={() => setShowPrivacySafetyModal(true)}
+                            className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl hover:bg-neutral-100 dark:hover:bg-neutral-800/60 transition-colors text-left cursor-pointer group"
+                          >
+                            <div className="h-9 w-9 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/40 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                              <ShieldCheck className="h-4 w-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-neutral-900 dark:text-white">Privacy & Safety</p>
+                              <p className="text-xs text-neutral-500 dark:text-neutral-400">Read receipts, online status, blocked contacts</p>
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* CONTACT PROFILE VIEW (When viewing another user's profile) */
+                      <>
+                    
+                    {/* User Identity & Avatar Hero */}
+                    <div className="flex flex-col items-center text-center space-y-2.5">
+                      <div className="relative">
+                        <div className="p-1 rounded-full bg-gradient-to-tr from-neutral-200 to-neutral-400 dark:from-neutral-800 dark:to-neutral-700 shadow-xl">
+                          {renderAvatar(
+                            selectedProfileUsername, 
+                            users[selectedProfileUsername]?.display_name || selectedProfileUsername, 
+                            users[selectedProfileUsername]?.avatar_url, 
+                            'h-28 w-28 text-3xl shadow-inner'
+                          )}
+                        </div>
+                        {isUserEffectivelyOnline(users[selectedProfileUsername]) && (
+                          <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full bg-emerald-500 border-3 border-white dark:border-[#0a0a0c]" />
+                        )}
+                      </div>
+
+                      <div className="space-y-1">
+                        <h2 className="text-xl font-bold tracking-tight text-neutral-900 dark:text-white flex items-center justify-center gap-1.5">
+                          {chatNicknames[selectedProfileUsername] ? (
+                            <>
+                              <span>{chatNicknames[selectedProfileUsername]}</span>
+                              <span className="text-xs text-neutral-400 font-normal">({users[selectedProfileUsername]?.display_name || selectedProfileUsername})</span>
+                            </>
+                          ) : (
+                            users[selectedProfileUsername]?.display_name || selectedProfileUsername
+                          )}
+                        </h2>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">
+                          {selectedProfileUsername}
+                        </p>
+                      </div>
+
+                      {/* Followers and Following Metrics */}
+                      <div className="flex items-center justify-center gap-6 py-2 px-6 rounded-2xl bg-neutral-100/60 dark:bg-neutral-900/60 border border-neutral-200/60 dark:border-neutral-800/60">
+                        <button 
+                          onClick={() => setShowFollowListModal({ type: 'followers', username: selectedProfileUsername })}
+                          className="flex items-center gap-1.5 hover:opacity-80 transition-opacity cursor-pointer"
+                        >
+                          <span className="text-sm font-bold text-neutral-900 dark:text-white">
+                            {users[selectedProfileUsername]?.followers?.length || 0}
+                          </span>
+                          <span className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Followers</span>
+                        </button>
+                        <div className="h-3.5 w-px bg-neutral-300 dark:bg-neutral-700" />
+                        <button 
+                          onClick={() => setShowFollowListModal({ type: 'following', username: selectedProfileUsername })}
+                          className="flex items-center gap-1.5 hover:opacity-80 transition-opacity cursor-pointer"
+                        >
+                          <span className="text-sm font-bold text-neutral-900 dark:text-white">
+                            {users[selectedProfileUsername]?.following?.length || 0}
+                          </span>
+                          <span className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Following</span>
+                        </button>
+                      </div>
+
+                      {/* Follow / Following Primary Action Button (Inside profile view only!) */}
+                      {selectedProfileUsername !== userUsername && (
+                        <div className="pt-1 w-full max-w-xs">
+                          <button
+                            onClick={() => handleToggleFollowUser(selectedProfileUsername)}
+                            className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-98 ${
+                              users[selectedProfileUsername]?.followers?.includes(userUsername)
+                                ? 'bg-neutral-200/80 hover:bg-neutral-300 dark:bg-neutral-850 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-300/80 dark:border-neutral-750'
+                                : 'bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900'
+                            }`}
+                          >
+                            {users[selectedProfileUsername]?.followers?.includes(userUsername) ? 'Following' : 'Follow'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                      </>
+                    )}
+
+                    {/* 4 Quick Action Circular Buttons (Profile, Search, Mute, Options) */}
+                    <div className="grid grid-cols-4 gap-2 pt-2 text-center">
+                      {/* 1. Profile */}
+                      <div 
+                        onClick={() => setPublicProfileUsername(selectedProfileUsername)}
+                        className="flex flex-col items-center gap-1.5 cursor-pointer group"
+                      >
+                        <div className="h-12 w-12 rounded-full bg-neutral-200/70 hover:bg-neutral-300 dark:bg-neutral-850 dark:hover:bg-neutral-800 flex items-center justify-center text-neutral-800 dark:text-neutral-200 transition-transform group-hover:scale-105 active:scale-95 shadow-xs">
+                          <User className="h-5 w-5" />
+                        </div>
+                        <span className="text-[11px] font-medium text-neutral-700 dark:text-neutral-300">Profile</span>
+                      </div>
+
+                      {/* 2. Search */}
+                      <div 
+                        onClick={() => {
+                          setShowProfilePanel(false);
+                          setShowMsgSearchInChat(true);
+                        }}
+                        className="flex flex-col items-center gap-1.5 cursor-pointer group"
+                      >
+                        <div className="h-12 w-12 rounded-full bg-neutral-200/70 hover:bg-neutral-300 dark:bg-neutral-850 dark:hover:bg-neutral-800 flex items-center justify-center text-neutral-800 dark:text-neutral-200 transition-transform group-hover:scale-105 active:scale-95 shadow-xs">
+                          <Search className="h-5 w-5" />
+                        </div>
+                        <span className="text-[11px] font-medium text-neutral-700 dark:text-neutral-300">Search</span>
+                      </div>
+
+                      {/* 3. Mute */}
+                      <div 
+                        onClick={(e) => {
+                          if (activeChat?.id) {
+                            handleToggleMuteChat(e, activeChat.id);
+                          } else {
+                            showToast("Chat muted");
+                          }
+                        }}
+                        className="flex flex-col items-center gap-1.5 cursor-pointer group"
+                      >
+                        <div className="h-12 w-12 rounded-full bg-neutral-200/70 hover:bg-neutral-300 dark:bg-neutral-850 dark:hover:bg-neutral-800 flex items-center justify-center text-neutral-800 dark:text-neutral-200 transition-transform group-hover:scale-105 active:scale-95 shadow-xs">
+                          {activeChat?.muted ? <BellOff className="h-5 w-5 text-rose-500" /> : <Bell className="h-5 w-5" />}
+                        </div>
+                        <span className="text-[11px] font-medium text-neutral-700 dark:text-neutral-300">
+                          {activeChat?.muted ? 'Unmute' : 'Mute'}
+                        </span>
+                      </div>
+
+                      {/* 4. Options */}
+                      <div 
+                        onClick={() => setShowProfileOptionsModal(true)}
+                        className="flex flex-col items-center gap-1.5 cursor-pointer group"
+                      >
+                        <div className="h-12 w-12 rounded-full bg-neutral-200/70 hover:bg-neutral-300 dark:bg-neutral-850 dark:hover:bg-neutral-800 flex items-center justify-center text-neutral-800 dark:text-neutral-200 transition-transform group-hover:scale-105 active:scale-95 shadow-xs">
+                          <MoreHorizontal className="h-5 w-5" />
+                        </div>
+                        <span className="text-[11px] font-medium text-neutral-700 dark:text-neutral-300">Options</span>
+                      </div>
+                    </div>
+
+                    {/* Menu List Items (Matching the Screenshot: Customize, Disappearing Messages, Privacy & Safety, Nicknames, Create Group Chat) */}
+                    <div className="space-y-1 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-850 overflow-hidden p-1.5 shadow-sm">
+                      
+                      {/* Customize (Theme and font) */}
+                      <button 
+                        onClick={() => {
+                          setShowThemeModal(true);
+                        }}
+                        className="w-full flex items-center gap-3.5 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/60 transition-colors text-left cursor-pointer group"
+                      >
+                        <div className="h-7 w-7 rounded-full bg-gradient-to-tr from-pink-500 via-purple-500 to-indigo-500 shrink-0 shadow-xs flex items-center justify-center">
+                          <Palette className="h-3.5 w-3.5 text-white" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-neutral-900 dark:text-white">Customize</p>
+                          <p className="text-xs text-neutral-500 dark:text-neutral-400">Theme and font</p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+                      </button>
+
+                      {/* Disappearing Messages */}
+                      <button 
+                        onClick={() => {
+                          setShowChatCustomizationSheet(true);
+                          setChatCustomizationView('disappearing');
+                        }}
+                        className="w-full flex items-center gap-3.5 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/60 transition-colors text-left cursor-pointer group"
+                      >
+                        <div className="h-7 w-7 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center shrink-0 text-neutral-700 dark:text-neutral-300">
+                          <Clock className="h-4 w-4 stroke-[1.8]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-neutral-900 dark:text-white">Disappearing messages</p>
+                          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                            {activeChat && chatDisappearing[activeChat.id] ? (
+                              chatDisappearing[activeChat.id] === '24h' ? '24 Hours' :
+                              chatDisappearing[activeChat.id] === '48h' ? '48 Hours' :
+                              chatDisappearing[activeChat.id] === '7d' ? '7 Days' :
+                              chatDisappearing[activeChat.id] === '30d' ? '30 Days' :
+                              chatDisappearing[activeChat.id]?.startsWith('custom_') ? 'Custom' : 'Off'
+                            ) : 'Off'}
+                          </p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+                      </button>
+
+                      {/* Privacy & Safety */}
+                      <button 
+                        onClick={() => setShowPrivacySafetyModal(true)}
+                        className="w-full flex items-center gap-3.5 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/60 transition-colors text-left cursor-pointer group"
+                      >
+                        <div className="h-7 w-7 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center shrink-0 text-neutral-700 dark:text-neutral-300">
+                          <Lock className="h-4 w-4 stroke-[1.8]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-neutral-900 dark:text-white">Privacy & safety</p>
+                          <p className="text-xs text-neutral-500 dark:text-neutral-400">End-to-end encrypted • Safety controls</p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+                      </button>
+
+                      {/* Nicknames */}
+                      <button 
+                        onClick={() => {
+                          setEditingNicknameUser(selectedProfileUsername);
+                          setTempNicknameValue(chatNicknames[selectedProfileUsername] || '');
+                        }}
+                        className="w-full flex items-center gap-3.5 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/60 transition-colors text-left cursor-pointer group"
+                      >
+                        <div className="h-7 w-7 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center shrink-0 text-neutral-700 dark:text-neutral-300">
+                          <Edit3 className="h-4 w-4 stroke-[1.8]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-neutral-900 dark:text-white">Nicknames</p>
+                          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                            {chatNicknames[selectedProfileUsername] ? chatNicknames[selectedProfileUsername] : 'Set custom nickname'}
+                          </p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+                      </button>
+
+                      {/* Create a group chat */}
+                      <button 
+                        onClick={() => {
+                          setShowProfilePanel(false);
+                          setNewGroupPreselectedUser(selectedProfileUsername);
+                          setShowNewGroupModal(true);
+                        }}
+                        className="w-full flex items-center gap-3.5 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/60 transition-colors text-left cursor-pointer group"
+                      >
+                        <div className="h-7 w-7 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center shrink-0 text-neutral-700 dark:text-neutral-300">
+                          <Users className="h-4 w-4 stroke-[1.8]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-neutral-900 dark:text-white">Create a group chat</p>
+                          <p className="text-xs text-neutral-500 dark:text-neutral-400">Add participants with this contact</p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+                      </button>
+
+                    </div>
+
+                    {/* Shared Media Section (Matching Screenshot) */}
+                    <div className="space-y-3 pt-2">
+                      <div className="flex items-center justify-between px-1">
+                        <h3 className="text-sm font-bold text-neutral-900 dark:text-white">Shared media</h3>
+                        {(() => {
+                          const chatMsgs = activeChat?.id ? (messagesByChat[activeChat.id] || []) : [];
+                          const mediaItems = chatMsgs.filter(m => !m.deleted_for_me && !m.deleted_for_everyone && (m.media_url || m.type === 'image' || m.type === 'video'));
+                          return mediaItems.length > 0 ? (
+                            <span className="text-xs text-neutral-400">{mediaItems.length} files</span>
+                          ) : null;
+                        })()}
+                      </div>
+
+                      {(() => {
+                        const chatMsgs = activeChat?.id ? (messagesByChat[activeChat.id] || []) : [];
+                        const mediaItems = chatMsgs.filter(m => !m.deleted_for_me && !m.deleted_for_everyone && (m.media_url || m.type === 'image' || m.type === 'video'));
+
+                        if (mediaItems.length === 0) {
+                          return (
+                            <div className="p-8 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-850 text-center space-y-2">
+                              <ImageIcon className="h-8 w-8 text-neutral-400 mx-auto opacity-50 stroke-1" />
+                              <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                                No shared photos or videos yet in this chat
+                              </p>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                            {mediaItems.map((m, idx) => {
+                              const isVid = m.type === 'video' || m.media_url?.includes('.mp4') || m.media_url?.includes('video');
+                              const url = m.media_url || '';
+                              return (
+                                <div 
+                                  key={`shared_media_${m.id || idx}`}
+                                  onClick={() => setSharedMediaPreview({ url, type: isVid ? 'video' : 'image', title: m.text })}
+                                  className="relative aspect-square rounded-xl overflow-hidden bg-neutral-200 dark:bg-neutral-800 cursor-pointer group shadow-xs border border-black/5 dark:border-white/5 hover:opacity-90 transition-opacity"
+                                >
+                                  {isVid ? (
+                                    <video src={url} className="w-full h-full object-cover" muted />
+                                  ) : (
+                                    <img src={url} alt="Shared" className="w-full h-full object-cover" loading="lazy" />
+                                  )}
+
+                                  {/* Video Indicator Badge (matching screenshot's small play icon) */}
+                                  {isVid && (
+                                    <div className="absolute top-1.5 right-1.5 p-1 rounded-md bg-black/60 backdrop-blur-xs text-white">
+                                      <Play className="h-3 w-3 fill-white" />
+                                    </div>
+                                  )}
+
+                                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Direct Call & Call History Section */}
+                    <div className="space-y-3 pt-2">
+                      <h3 className="text-sm font-bold text-neutral-900 dark:text-white px-1">Audio & Video Calls</h3>
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => {
+                            setShowProfilePanel(false);
+                            handleStartCallWithUser(selectedProfileUsername, 'voice');
+                          }}
+                          className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-white dark:bg-neutral-900 hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-neutral-200 dark:border-neutral-800 text-neutral-900 dark:text-white font-semibold text-xs transition-colors cursor-pointer shadow-xs"
+                        >
+                          <Phone className="h-4 w-4 text-emerald-500" />
+                          <span>Voice Call</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowProfilePanel(false);
+                            handleStartCallWithUser(selectedProfileUsername, 'video');
+                          }}
+                          className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-white dark:bg-neutral-900 hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-neutral-200 dark:border-neutral-800 text-neutral-900 dark:text-white font-semibold text-xs transition-colors cursor-pointer shadow-xs"
+                        >
+                          <Video className="h-4 w-4 text-indigo-500" />
+                          <span>Video Call</span>
+                        </button>
+                      </div>
+
+                      {/* Call logs list */}
+                      {(() => {
+                        const userPairCalls = allUserCalls.filter(c => 
+                          c.partner_username === selectedProfileUsername || 
+                          c.caller === selectedProfileUsername || 
+                          c.receiver === selectedProfileUsername
+                        );
+
+                        if (userPairCalls.length > 0) {
+                          return (
+                            <div className="space-y-2 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-850 p-2 max-h-48 overflow-y-auto">
+                              {userPairCalls.slice(0, 5).map((call) => {
+                                const isMissed = call.status === 'missed' || call.status === 'declined';
+                                const isVideo = call.call_type === 'video';
+                                return (
+                                  <div
+                                    key={`profile_call_${call.id}`}
+                                    className="p-2.5 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/40 flex items-center justify-between gap-2"
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <div className={`p-1.5 rounded-lg shrink-0 ${
+                                        isMissed ? 'bg-rose-100 dark:bg-rose-950/40 text-rose-600' :
+                                        isVideo ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600' :
+                                        'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600'
+                                      }`}>
+                                        {isVideo ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" />}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 truncate">
+                                          {isVideo ? 'Video Call' : 'Voice Call'}
+                                        </p>
+                                        <p className="text-[10px] text-neutral-400 mt-0.5">
+                                          {call.timestamp} {call.duration_formatted ? `• ${call.duration_formatted}` : ''}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                                      isMissed ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-600' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
+                                    }`}>
+                                      {call.status}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </div>
+
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
       </main>
 
       {/* MOBILE bottom navigation tabs */}
@@ -8330,6 +9200,98 @@ export default function App() {
         </div>
       )}
 
+      {/* FOLLOWERS / FOLLOWING LIST MODAL */}
+      {showFollowListModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className={`w-full max-w-md rounded-3xl p-5 border shadow-2xl flex flex-col max-h-[85vh] ${themeMode === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200'}`}>
+            <div className="flex justify-between items-center pb-3 border-b border-neutral-100 dark:border-neutral-800">
+              <div>
+                <h3 className="font-bold text-base capitalize text-neutral-900 dark:text-white">
+                  {showFollowListModal.type === 'followers' ? 'Followers' : 'Following'}
+                </h3>
+                <p className="text-xs text-neutral-400">
+                  {showFollowListModal.username === userUsername ? 'Your profile' : showFollowListModal.username}
+                </p>
+              </div>
+              <button 
+                onClick={() => setShowFollowListModal(null)}
+                className="p-1.5 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 dark:text-neutral-400 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto py-3 space-y-2">
+              {(() => {
+                const rawList = showFollowListModal.type === 'followers' 
+                  ? (users[showFollowListModal.username]?.followers || [])
+                  : (users[showFollowListModal.username]?.following || []);
+                const list = Array.from(new Set(rawList));
+
+                if (list.length === 0) {
+                  return (
+                    <div className="py-12 text-center text-neutral-400 space-y-2">
+                      <Users className="h-10 w-10 mx-auto stroke-1 opacity-40" />
+                      <p className="text-sm font-medium">No {showFollowListModal.type} yet</p>
+                    </div>
+                  );
+                }
+
+                return list.map((uname: string, idx: number) => {
+                  const u = users[uname] || Object.values(users).find(item => item.username === uname);
+                  const isMe = uname === userUsername;
+                  const amIFollowing = u?.followers?.includes(userUsername) || false;
+
+                  return (
+                    <div 
+                      key={`follow_${showFollowListModal.type}_${uname}_${idx}`} 
+                      className="flex items-center justify-between p-2.5 rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
+                    >
+                      <div 
+                        className="flex items-center gap-3 min-w-0 cursor-pointer flex-1"
+                        onClick={() => {
+                          setShowFollowListModal(null);
+                          setSelectedProfileUsername(uname);
+                          setShowProfilePanel(true);
+                        }}
+                      >
+                        <div className="relative shrink-0">
+                          {renderAvatar(u?.avatar_seed || uname, u?.display_name || uname, u?.avatar_url, 'h-10 w-10 text-sm')}
+                          {u && isUserEffectivelyOnline(u) && (
+                            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-950"></span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-sm truncate text-neutral-900 dark:text-white">
+                            {u?.display_name || uname}
+                          </p>
+                          <p className="text-xs text-neutral-400 truncate">
+                            {uname}
+                          </p>
+                        </div>
+                      </div>
+
+                      {!isMe && (
+                        <button
+                          onClick={() => handleToggleFollowUser(uname)}
+                          className={`ml-2 px-3 py-1.5 rounded-xl font-bold text-xs transition-all shadow-xs shrink-0 cursor-pointer ${
+                            amIFollowing
+                              ? 'bg-neutral-100 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 dark:bg-neutral-800 dark:hover:bg-rose-950/30 dark:hover:text-rose-400 text-neutral-800 dark:text-neutral-200 border border-neutral-200 dark:border-neutral-700'
+                              : 'bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900'
+                          }`}
+                        >
+                          {amIFollowing ? 'Following' : 'Follow'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* WHATSAPP-STYLE MEDIA EDITOR MODAL (Crop, Customize, Brush, Text, HD Quality, Send to Recipient) */}
       <MediaEditorModal
         isOpen={!!pendingMediaEditorData}
@@ -8355,6 +9317,405 @@ export default function App() {
         onClose={() => setShowThemeModal(false)}
         onSelectTheme={handleSelectChatTheme}
       />
+
+      {/* NICKNAME EDIT MODAL */}
+      <AnimatePresence>
+        {editingNicknameUser && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              className="fixed inset-0 bg-black/60 backdrop-blur-xs" 
+              onClick={() => setEditingNicknameUser(null)} 
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-6 shadow-2xl z-10 space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-neutral-900 dark:text-white">Edit Nickname</h3>
+                <button 
+                  onClick={() => setEditingNicknameUser(null)}
+                  className="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                Set a custom nickname for <span className="font-semibold text-neutral-900 dark:text-neutral-200">{editingNicknameUser}</span> visible only to you.
+              </p>
+
+              <input
+                type="text"
+                value={tempNicknameValue}
+                onChange={(e) => setTempNicknameValue(e.target.value)}
+                placeholder="e.g. Bestie, Project Lead, 🖤 Student 📚"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-900 dark:text-white outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-white"
+                autoFocus
+              />
+
+              <div className="flex items-center gap-2 pt-2">
+                {chatNicknames[editingNicknameUser] && (
+                  <button
+                    onClick={async () => {
+                      if (!editingNicknameUser) return;
+                      const targetUser = editingNicknameUser;
+                      const updated = { ...chatNicknames };
+                      delete updated[targetUser];
+                      setChatNicknames(updated);
+                      try { localStorage.setItem('inolas_chat_nicknames', JSON.stringify(updated)); } catch (e) {}
+                      
+                      const targetChat = chats.find(c => c.username === targetUser || (c.type === 'dm' && c.participants?.includes(targetUser)) || c.id === activeChatId);
+                      if (targetChat) {
+                        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        const logMsgText = `You removed the nickname for @${targetUser}`;
+                        const logMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+                        const logSysMsg: Message = {
+                          id: logMsgId,
+                          chat_id: targetChat.id,
+                          created_at: Date.now(),
+                          sender: userUsername || 'me',
+                          text: logMsgText,
+                          type: 'system',
+                          timestamp: timeStr,
+                          reactions: [],
+                          read_by: []
+                        };
+                        setMessagesByChat(prev => ({
+                          ...prev,
+                          [targetChat.id]: [...(prev[targetChat.id] || []), logSysMsg]
+                        }));
+                        if (isFirebaseConfigured && db && auth) {
+                          try {
+                            await setDoc(doc(db, 'messages', logMsgId), {
+                              id: logMsgId,
+                              chat_id: targetChat.id,
+                              created_at: Date.now(),
+                              sender: userUsername || 'me',
+                              text: logMsgText,
+                              type: 'system',
+                              timestamp: timeStr,
+                              reactions: [],
+                              read_by: []
+                            });
+                          } catch (err) {}
+                        }
+                      }
+                      setEditingNicknameUser(null);
+                      showToast("Nickname removed");
+                    }}
+                    className="px-3 py-2 text-xs font-semibold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-colors cursor-pointer"
+                  >
+                    Reset
+                  </button>
+                )}
+                <div className="flex-1" />
+                <button
+                  onClick={() => setEditingNicknameUser(null)}
+                  className="px-4 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!editingNicknameUser) return;
+                    const targetUser = editingNicknameUser;
+                    const newNick = tempNicknameValue.trim();
+                    const updated = { ...chatNicknames };
+                    if (newNick) {
+                      updated[targetUser] = newNick;
+                    } else {
+                      delete updated[targetUser];
+                    }
+                    setChatNicknames(updated);
+                    try { localStorage.setItem('inolas_chat_nicknames', JSON.stringify(updated)); } catch (e) {}
+
+                    const targetChat = chats.find(c => c.username === targetUser || (c.type === 'dm' && c.participants?.includes(targetUser)) || c.id === activeChatId);
+                    if (targetChat) {
+                      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                      const logMsgText = newNick 
+                        ? `You set the nickname for @${targetUser} to "${newNick}"`
+                        : `You removed the nickname for @${targetUser}`;
+                      const logMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+                      const logSysMsg: Message = {
+                        id: logMsgId,
+                        chat_id: targetChat.id,
+                        created_at: Date.now(),
+                        sender: userUsername || 'me',
+                        text: logMsgText,
+                        type: 'system',
+                        timestamp: timeStr,
+                        reactions: [],
+                        read_by: []
+                      };
+                      setMessagesByChat(prev => ({
+                        ...prev,
+                        [targetChat.id]: [...(prev[targetChat.id] || []), logSysMsg]
+                      }));
+                      if (isFirebaseConfigured && db && auth) {
+                        try {
+                          await setDoc(doc(db, 'messages', logMsgId), {
+                            id: logMsgId,
+                            chat_id: targetChat.id,
+                            created_at: Date.now(),
+                            sender: userUsername || 'me',
+                            text: logMsgText,
+                            type: 'system',
+                            timestamp: timeStr,
+                            reactions: [],
+                            read_by: []
+                          });
+                        } catch (err) {}
+                      }
+                    }
+                    setEditingNicknameUser(null);
+                    showToast(newNick ? `Nickname set to "${newNick}"` : "Nickname cleared");
+                  }}
+                  className="px-4 py-2 text-xs font-bold bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 rounded-xl transition-all cursor-pointer shadow-xs"
+                >
+                  Save
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* SHARED MEDIA PREVIEW LIGHTBOX */}
+      <AnimatePresence>
+        {sharedMediaPreview && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              className="fixed inset-0" 
+              onClick={() => setSharedMediaPreview(null)} 
+            />
+            
+            <div className="relative z-10 max-w-4xl max-h-[90vh] flex flex-col items-center">
+              <div className="absolute -top-12 right-0 flex items-center gap-2">
+                <a 
+                  href={sharedMediaPreview.url} 
+                  download="shared-media"
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                  title="Download / Open Full Size"
+                >
+                  <Download className="h-5 w-5" />
+                </a>
+                <button 
+                  onClick={() => setSharedMediaPreview(null)}
+                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                  title="Close"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {sharedMediaPreview.type === 'video' ? (
+                <video 
+                  src={sharedMediaPreview.url} 
+                  controls 
+                  autoPlay 
+                  className="max-h-[80vh] max-w-full rounded-2xl shadow-2xl object-contain" 
+                />
+              ) : (
+                <img 
+                  src={sharedMediaPreview.url} 
+                  alt="Preview" 
+                  className="max-h-[80vh] max-w-full rounded-2xl shadow-2xl object-contain" 
+                />
+              )}
+
+              {sharedMediaPreview.title && (
+                <p className="text-white/80 text-xs mt-3 max-w-md text-center">
+                  {sharedMediaPreview.title}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* PROFILE OPTIONS ACTION SHEET */}
+      <AnimatePresence>
+        {showProfileOptionsModal && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              className="fixed inset-0 bg-black/50 backdrop-blur-xs" 
+              onClick={() => setShowProfileOptionsModal(false)} 
+            />
+            <motion.div 
+              initial={{ y: '100%' }} 
+              animate={{ y: 0 }} 
+              exit={{ y: '100%' }}
+              className="relative w-full max-w-sm rounded-t-3xl sm:rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-5 shadow-2xl z-10 space-y-3"
+            >
+              <div className="flex items-center justify-between pb-1 border-b border-neutral-100 dark:border-neutral-800">
+                <h3 className="text-sm font-bold text-neutral-900 dark:text-white">Contact Options</h3>
+                <button 
+                  onClick={() => setShowProfileOptionsModal(false)}
+                  className="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="space-y-1">
+                <button
+                  onClick={() => {
+                    setShowProfileOptionsModal(false);
+                    navigator.clipboard.writeText(window.location.origin);
+                    showToast("Profile link copied to clipboard");
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left text-xs font-semibold text-neutral-800 dark:text-neutral-200 transition-colors"
+                >
+                  <Share2 className="h-4 w-4 text-neutral-500" />
+                  <span>Share Contact Profile</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setShowProfileOptionsModal(false);
+                    handleToggleBlockUser(selectedProfileUsername);
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left text-xs font-semibold text-neutral-800 dark:text-neutral-200 transition-colors"
+                >
+                  {blockedUsers.includes(selectedProfileUsername) ? <UserCheck className="h-4 w-4 text-emerald-500" /> : <UserX className="h-4 w-4 text-neutral-500" />}
+                  <span>{blockedUsers.includes(selectedProfileUsername) ? 'Unblock User' : 'Block Contact'}</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setShowProfileOptionsModal(false);
+                    handleReportUser(selectedProfileUsername);
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/20 text-left text-xs font-semibold text-rose-600 dark:text-rose-400 transition-colors"
+                >
+                  <Flag className="h-4 w-4" />
+                  <span>Report Account</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* PRIVACY & SAFETY MODAL */}
+      <AnimatePresence>
+        {showPrivacySafetyModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              className="fixed inset-0 bg-black/60 backdrop-blur-xs" 
+              onClick={() => setShowPrivacySafetyModal(false)} 
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-md rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-6 shadow-2xl z-10 space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-5 w-5 text-emerald-500" />
+                  <h3 className="text-base font-bold text-neutral-900 dark:text-white">Privacy & Safety</h3>
+                </div>
+                <button 
+                  onClick={() => setShowPrivacySafetyModal(false)}
+                  className="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-700/60 space-y-1.5">
+                <p className="text-xs font-bold text-neutral-900 dark:text-white flex items-center gap-1.5">
+                  <Lock className="h-3.5 w-3.5 text-emerald-500" />
+                  End-to-End Encrypted
+                </p>
+                <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                  Messages and calls in this conversation are secured. Only you and {users[selectedProfileUsername]?.display_name || selectedProfileUsername} can read or listen to them.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <button
+                  onClick={() => {
+                    setShowPrivacySafetyModal(false);
+                    handleToggleBlockUser(selectedProfileUsername);
+                  }}
+                  className="w-full flex items-center justify-between p-3 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-750 transition-colors text-xs font-bold"
+                >
+                  <span>{blockedUsers.includes(selectedProfileUsername) ? 'Unblock User' : 'Block User'}</span>
+                  <ChevronRight className="h-4 w-4 text-neutral-400" />
+                </button>
+
+                <button
+                  onClick={() => {
+                    setShowPrivacySafetyModal(false);
+                    handleReportUser(selectedProfileUsername);
+                  }}
+                  className="w-full flex items-center justify-between p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 transition-colors text-xs font-bold"
+                >
+                  <span>Report Account or Messages</span>
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  onClick={() => setShowPrivacySafetyModal(false)}
+                  className="px-5 py-2 rounded-xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 text-xs font-bold"
+                >
+                  Done
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* NEW GROUP MODAL */}
+      <NewGroupModal
+        isOpen={showNewGroupModal}
+        onClose={() => {
+          setShowNewGroupModal(false);
+          setNewGroupPreselectedUser(null);
+        }}
+        currentUserUsername={userUsername}
+        users={users}
+        initialSelectedUsername={newGroupPreselectedUser}
+        onCreateGroup={handleCreateGroup}
+        renderAvatar={renderAvatar}
+      />
+
+      {/* GROUP DETAILS MODAL */}
+      {activeChat && activeChat.type === 'group' && (
+        <GroupDetailsModal
+          isOpen={showGroupDetailsModal}
+          onClose={() => setShowGroupDetailsModal(false)}
+          chat={activeChat}
+          currentUserUsername={userUsername}
+          users={users}
+          chatNicknames={chatNicknames}
+          renderAvatar={renderAvatar}
+          onLeaveGroup={handleLeaveGroup}
+          onAddParticipant={handleAddGroupParticipant}
+          onRemoveParticipant={handleRemoveGroupParticipant}
+        />
+      )}
 
       {/* SECURE CALL MODAL OVERLAY */}
       {activeCallSession && (

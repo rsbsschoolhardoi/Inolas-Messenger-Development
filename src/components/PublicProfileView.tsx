@@ -2,16 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { 
   MessageSquare, 
   Phone, 
-  ShieldCheck, 
   Lock, 
   ArrowRight, 
   Copy, 
   Sun, 
   Moon, 
-  CheckCircle2, 
-  Sparkles,
   Globe,
-  ArrowLeft
+  ArrowLeft,
+  UserPlus
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebaseClient';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
@@ -33,6 +31,8 @@ interface UserProfileData {
   online?: boolean;
   last_seen?: string;
   last_seen_timestamp?: number;
+  followers?: string[];
+  following?: string[];
 }
 
 export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
@@ -251,21 +251,22 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
               <div className="space-y-1">
                 <h1 className="text-xl sm:text-2xl font-black text-neutral-900 dark:text-white flex items-center justify-center gap-1.5 leading-tight tracking-tight break-all">
                   <span>{profile?.display_name}</span>
-                  <CheckCircle2 className="h-5 w-5 text-indigo-500 fill-indigo-500/20 shrink-0" />
                 </h1>
-                <p className="text-xs sm:text-sm text-neutral-400 dark:text-neutral-500 font-mono break-all">@{profile?.username}</p>
+                <p className="text-xs sm:text-sm text-neutral-400 dark:text-neutral-500 font-mono break-all">{profile?.username}</p>
               </div>
 
-              {/* Verified Security Badges */}
-              <div className="flex flex-wrap items-center justify-center gap-2 pt-1 text-[10px] sm:text-[11px]">
-                <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20 flex items-center gap-1 shrink-0">
-                  <ShieldCheck className="h-3.5 w-3.5" /> Verified User
-                </span>
-                <span className="px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-500/20 flex items-center gap-1 shrink-0">
-                  <Sparkles className="h-3.5 w-3.5" /> End-to-End Secure
-                </span>
+              {/* Followers/Following Stats */}
+              <div className="flex items-center justify-center gap-12 py-2 border-t border-b border-neutral-100 dark:border-neutral-800/80">
+                <div className="text-center">
+                  <span className="text-lg font-bold text-neutral-900 dark:text-white">{profile?.followers?.length || 0}</span>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-neutral-500 dark:text-neutral-400 mt-0.5">Followers</p>
+                </div>
+                <div className="text-center">
+                  <span className="text-lg font-bold text-neutral-900 dark:text-white">{profile?.following?.length || 0}</span>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-neutral-500 dark:text-neutral-400 mt-0.5">Following</p>
+                </div>
               </div>
- 
+
               {/* Bio Section with absolute safe heights */}
               <div className="p-4 sm:p-5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/40 border border-neutral-150 dark:border-neutral-800 text-left space-y-1.5 transition-colors">
                 <span className="text-[10px] uppercase font-bold tracking-widest text-neutral-400 dark:text-neutral-500 block">About / Status</span>
@@ -288,6 +289,16 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
  
               {/* Non-Interactive Action Buttons Preview (with Lock indicator) */}
               <div className="space-y-2 pt-1">
+                <button
+                  onClick={onGoToLogin}
+                  className="w-full py-3 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-between cursor-pointer transition-colors shadow-md"
+                >
+                  <div className="flex items-center gap-2">
+                    <UserPlus className="h-4 w-4 text-white" />
+                    <span>Follow</span>
+                  </div>
+                  <Lock className="h-3.5 w-3.5 text-white/70" />
+                </button>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <button
                     onClick={onGoToLogin}
