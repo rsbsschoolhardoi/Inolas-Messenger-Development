@@ -4989,6 +4989,126 @@ export default function App() {
     showToast(`Removed @${removeMemberUsername} from group`);
   };
 
+  const handleUpdateGroupInfo = async (chatId: string, updates: Partial<Chat>) => {
+    const selfUsername = userUsername || 'me';
+    const targetChat = chats.find(c => c.id === chatId);
+    if (!targetChat) return;
+
+    setChats(prev => prev.map(c => c.id === chatId ? { ...c, ...updates, updated_at: Date.now() } : c));
+
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    let updateText = `Group settings were updated`;
+    if (updates.name && updates.name !== targetChat.name) {
+      updateText = `Group name changed to "${updates.name}"`;
+    } else if (updates.group_description !== undefined && updates.group_description !== targetChat.group_description) {
+      updateText = `Group description updated`;
+    } else if (updates.group_notice !== undefined && updates.group_notice !== targetChat.group_notice) {
+      updateText = `Group announcement updated: "${updates.group_notice}"`;
+    } else if (updates.send_messages_permission) {
+      updateText = `Message permission set to: ${updates.send_messages_permission === 'admins' ? 'Admins only' : 'All members'}`;
+    }
+
+    const sysMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+    const sysMsg: Message = {
+      id: sysMsgId,
+      chat_id: chatId,
+      created_at: Date.now(),
+      sender: selfUsername,
+      text: updateText,
+      type: 'system',
+      timestamp: timeStr,
+      reactions: [],
+      read_by: [selfUsername]
+    };
+
+    setMessagesByChat(prev => ({
+      ...prev,
+      [chatId]: [...(prev[chatId] || []), sysMsg]
+    }));
+
+    if (isFirebaseConfigured && db && auth) {
+      try {
+        await setDoc(doc(db, 'chats', chatId), {
+          ...updates,
+          updated_at: Date.now()
+        }, { merge: true });
+
+        await setDoc(doc(db, 'messages', sysMsgId), {
+          id: sysMsgId,
+          chat_id: chatId,
+          created_at: Date.now(),
+          sender: selfUsername,
+          text: updateText,
+          type: 'system',
+          timestamp: timeStr,
+          reactions: [],
+          read_by: [selfUsername]
+        });
+      } catch (err) {}
+    }
+  };
+
+  const handleToggleGroupAdmin = async (chatId: string, targetUsername: string, makeAdmin: boolean) => {
+    const selfUsername = userUsername || 'me';
+    const targetChat = chats.find(c => c.id === chatId);
+    if (!targetChat) return;
+
+    const currentAdmins = targetChat.group_admins || [targetChat.admin || selfUsername];
+    let updatedAdmins: string[] = [];
+    if (makeAdmin) {
+      updatedAdmins = Array.from(new Set([...currentAdmins, targetUsername]));
+    } else {
+      updatedAdmins = currentAdmins.filter(a => a !== targetUsername);
+    }
+
+    setChats(prev => prev.map(c => c.id === chatId ? { ...c, group_admins: updatedAdmins, updated_at: Date.now() } : c));
+
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const adminMsgText = makeAdmin
+      ? `@${targetUsername} is now a Group Admin`
+      : `@${targetUsername} is no longer a Group Admin`;
+    const sysMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+    const sysMsg: Message = {
+      id: sysMsgId,
+      chat_id: chatId,
+      created_at: Date.now(),
+      sender: selfUsername,
+      text: adminMsgText,
+      type: 'system',
+      timestamp: timeStr,
+      reactions: [],
+      read_by: [selfUsername]
+    };
+
+    setMessagesByChat(prev => ({
+      ...prev,
+      [chatId]: [...(prev[chatId] || []), sysMsg]
+    }));
+
+    if (isFirebaseConfigured && db && auth) {
+      try {
+        await setDoc(doc(db, 'chats', chatId), {
+          group_admins: updatedAdmins,
+          updated_at: Date.now()
+        }, { merge: true });
+
+        await setDoc(doc(db, 'messages', sysMsgId), {
+          id: sysMsgId,
+          chat_id: chatId,
+          created_at: Date.now(),
+          sender: selfUsername,
+          text: adminMsgText,
+          type: 'system',
+          timestamp: timeStr,
+          reactions: [],
+          read_by: [selfUsername]
+        });
+      } catch (err) {}
+    }
+
+    showToast(makeAdmin ? `@${targetUsername} promoted to Admin` : `@${targetUsername} demoted from Admin`);
+  };
+
   // Sidebar controls
   const handleToggleMuteChat = (e: React.MouseEvent, chatId: string) => {
     e.stopPropagation();
@@ -5990,6 +6110,16 @@ export default function App() {
                         <span>Delete Chat</span>
                       </button>
                     </div>
+                  </div>
+                ) : activeChat.type === 'group' && activeChat.send_messages_permission === 'admins' && (activeChat.admin !== userUsername && !activeChat.group_admins?.includes(userUsername)) ? (
+                  <div className="p-4 bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/80 rounded-2xl text-center space-y-1 my-2">
+                    <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-neutral-800 dark:text-neutral-200">
+                      <Shield className="h-4 w-4 text-indigo-500" />
+                      <span>Announcement Mode</span>
+                    </div>
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                      Only group admins can send messages in this group.
+                    </p>
                   </div>
                 ) : (
                   <>
@@ -9710,10 +9840,14 @@ export default function App() {
           currentUserUsername={userUsername}
           users={users}
           chatNicknames={chatNicknames}
+          groupMessages={messagesByChat[activeChat.id] || []}
           renderAvatar={renderAvatar}
           onLeaveGroup={handleLeaveGroup}
           onAddParticipant={handleAddGroupParticipant}
           onRemoveParticipant={handleRemoveGroupParticipant}
+          onUpdateGroupInfo={handleUpdateGroupInfo}
+          onToggleAdmin={handleToggleGroupAdmin}
+          showToast={showToast}
         />
       )}
 

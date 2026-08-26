@@ -122,6 +122,9 @@ export interface Chat {
   admin?: string;
   group_admins?: string[];
   group_description?: string;
+  group_notice?: string;
+  edit_info_permission?: 'all' | 'admins';
+  send_messages_permission?: 'all' | 'admins';
   last_message_sender?: string;
   last_message_status?: 'sent' | 'delivered' | 'read';
 }

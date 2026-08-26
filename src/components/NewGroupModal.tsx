@@ -38,8 +38,6 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  if (!isOpen) return null;
-
   // Available users excluding current user (deduplicated by username/id)
   const candidateUsers = React.useMemo(() => {
     const map = new Map<string, UserData>();
@@ -53,6 +51,8 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
     });
     return Array.from(map.values());
   }, [users, currentUserUsername]);
+
+  if (!isOpen) return null;
 
   const filteredUsers = candidateUsers.filter((u) => {
     const q = searchQuery.toLowerCase().trim();
