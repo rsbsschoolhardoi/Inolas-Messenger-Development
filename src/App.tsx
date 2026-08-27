@@ -5699,50 +5699,50 @@ export default function App() {
       )}
 
       {/* SIDEBAR: Primary Navigation Panels (Chats, Discover, Settings) */}
-      <aside className={`hidden md:flex flex-col w-64 border-r shrink-0 h-full max-h-[100dvh] transition-colors ${themeMode === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-neutral-50 border-neutral-100'}`}>
+      <aside className={`hidden md:flex flex-col w-64 border-r shrink-0 h-full max-h-[100dvh] transition-colors ${themeMode === 'dark' ? 'bg-[#0f1422] border-slate-800/80' : 'bg-slate-50/80 border-slate-200/80'}`}>
         {/* Brand App Header */}
-        <div className="flex items-center gap-2.5 h-16 px-4 border-b border-neutral-200 dark:border-neutral-800">
-          <div className="h-8 w-8 rounded-xl bg-gradient-to-tr from-neutral-900 to-neutral-700 dark:from-white dark:to-neutral-200 text-white dark:text-neutral-950 font-zenoa font-bold text-sm flex items-center justify-center shadow-sm shrink-0">
+        <div className="flex items-center gap-2.5 h-16 px-4 border-b border-slate-200/80 dark:border-slate-800/80">
+          <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-600 to-violet-600 text-white font-zenoa font-bold text-base flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
             Z
           </div>
-          <span className="font-zenoa font-bold text-base tracking-[0.14em] uppercase text-neutral-900 dark:text-white truncate">
+          <span className="font-zenoa font-bold text-base tracking-[0.14em] uppercase text-slate-900 dark:text-white truncate">
             Zenoa
           </span>
           {isAuthenticated && (
             <div className="relative ml-auto">
               <button 
                 onClick={() => setShowStatusPopover(prev => !prev)}
-                className={`flex items-center gap-1.5 text-[10px] border px-2 py-0.5 rounded-full font-bold cursor-pointer transition-colors ${
+                className={`flex items-center gap-1.5 text-[10px] border px-2.5 py-1 rounded-full font-semibold cursor-pointer transition-colors shadow-2xs ${
                   myPresenceStatus === 'online' 
-                    ? 'bg-neutral-100 dark:bg-neutral-800 dark:bg-emerald-950/40 border-emerald-200/50 dark:border-emerald-900/50 text-neutral-900 dark:text-neutral-100'
+                    ? 'bg-emerald-500/10 dark:bg-emerald-500/15 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
                     : myPresenceStatus === 'away'
-                    ? 'bg-neutral-100 dark:bg-neutral-800 dark:bg-amber-950/40 border-amber-200/50 dark:border-amber-900/50 text-neutral-600 dark:text-neutral-400'
+                    ? 'bg-amber-500/10 dark:bg-amber-500/15 border-amber-500/30 text-amber-700 dark:text-amber-300'
                     : myPresenceStatus === 'busy'
-                    ? 'bg-neutral-100 dark:bg-rose-950/40 border-rose-200/50 dark:border-rose-900/50 text-neutral-900 dark:text-neutral-100'
-                    : 'bg-neutral-100 dark:bg-neutral-800 border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300'
+                    ? 'bg-rose-500/10 dark:bg-rose-500/15 border-rose-500/30 text-rose-700 dark:text-rose-300'
+                    : 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
                 }`}
                 title="Change Presence Status & Note"
               >
                 <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                  myPresenceStatus === 'online' ? 'bg-neutral-800 dark:bg-neutral-200' : myPresenceStatus === 'away' ? 'bg-neutral-100 dark:bg-neutral-800' : myPresenceStatus === 'busy' ? 'bg-neutral-800 dark:bg-neutral-200' : 'bg-neutral-400'
+                  myPresenceStatus === 'online' ? 'bg-emerald-500' : myPresenceStatus === 'away' ? 'bg-amber-500' : myPresenceStatus === 'busy' ? 'bg-rose-500' : 'bg-slate-400'
                 }`} />
                 <span className="capitalize">{myPresenceStatus}</span>
               </button>
 
               {/* Status & Activity Popover */}
               {showStatusPopover && (
-                <div className="absolute right-0 top-8 z-50 w-56 p-3 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-2xl space-y-3">
+                <div className="absolute right-0 top-9 z-50 w-56 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-3 backdrop-blur-md">
                   <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">Activity Status</span>
-                    <button onClick={() => setShowStatusPopover(false)} className="p-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800"><X className="h-3 w-3" /></button>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Activity Status</span>
+                    <button onClick={() => setShowStatusPopover(false)} className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-3 w-3" /></button>
                   </div>
 
                   <div className="space-y-1">
                     {[
-                      { status: 'online', label: 'Online', color: 'bg-neutral-800 dark:bg-neutral-200' },
-                      { status: 'away', label: 'Away', color: 'bg-neutral-100 dark:bg-neutral-800' },
-                      { status: 'busy', label: 'Do Not Disturb', color: 'bg-neutral-800 dark:bg-neutral-200' },
-                      { status: 'offline', label: 'Invisible', color: 'bg-neutral-400' },
+                      { status: 'online', label: 'Online', color: 'bg-emerald-500' },
+                      { status: 'away', label: 'Away', color: 'bg-amber-500' },
+                      { status: 'busy', label: 'Do Not Disturb', color: 'bg-rose-500' },
+                      { status: 'offline', label: 'Invisible', color: 'bg-slate-400' },
                     ].map(st => (
                       <button
                         key={st.status}
@@ -5751,27 +5751,27 @@ export default function App() {
                           setShowStatusPopover(false);
                           showToast(`Status set to ${st.label}`);
                         }}
-                        className={`w-full flex items-center justify-between p-2 rounded-xl text-xs font-semibold transition-colors ${
-                          myPresenceStatus === st.status ? 'bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
+                        className={`w-full flex items-center justify-between p-2 rounded-xl text-xs font-medium transition-colors ${
+                          myPresenceStatus === st.status ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-semibold border border-indigo-200/50 dark:border-indigo-800/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800/70 text-slate-700 dark:text-slate-300'
                         }`}
                       >
                         <span className="flex items-center gap-2.5">
-                          <span className={`h-2.5 w-2.5 rounded-full ${st.color}`} />
+                          <span className={`h-2 w-2 rounded-full ${st.color}`} />
                           <span>{st.label}</span>
                         </span>
-                        {myPresenceStatus === st.status && <Check className="h-3.5 w-3.5 text-neutral-900 dark:text-neutral-100" />}
+                        {myPresenceStatus === st.status && <Check className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />}
                       </button>
                     ))}
                   </div>
 
-                  <div className="border-t border-neutral-100 dark:border-neutral-800 pt-2 space-y-1.5">
-                    <label className="block text-[10px] uppercase font-bold text-neutral-500 dark:text-neutral-400">Custom Status Note</label>
+                  <div className="border-t border-slate-100 dark:border-slate-800 pt-2 space-y-1.5">
+                    <label className="block text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Custom Status Note</label>
                     <input 
-                      type="text"
+                      type="text" 
                       value={myCustomStatus}
                       onChange={e => setMyCustomStatus(e.target.value)}
                       placeholder="e.g. In a meeting"
-                      className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 outline-none focus:border-neutral-900 dark:border-neutral-100"
+                      className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/90 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100"
                     />
                   </div>
                 </div>
@@ -5784,16 +5784,16 @@ export default function App() {
         <nav className="flex-1 p-3 space-y-1">
           <button 
             onClick={() => { setActiveView('chats'); setShowProfilePanel(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeView === 'chats' ? 'bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100' : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white'}`}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeView === 'chats' ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'}`}
           >
             <MessageSquare className="h-5 w-5" />
             <span>Chats</span>
-            {totalUnreads > 0 && <span className="ml-auto bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-[10px] font-bold h-4 px-1.5 rounded-full flex items-center justify-center">{totalUnreads}</span>}
+            {totalUnreads > 0 && <span className="ml-auto bg-indigo-600 text-white text-[10px] font-bold h-4 px-1.5 rounded-full flex items-center justify-center shadow-xs">{totalUnreads}</span>}
           </button>
           
           <button 
             onClick={() => { setActiveView('search'); setShowProfilePanel(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeView === 'search' ? 'bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100' : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white'}`}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeView === 'search' ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'}`}
           >
             <Search className="h-5 w-5" />
             <span>Discover</span>
@@ -5801,7 +5801,7 @@ export default function App() {
 
           <button 
             onClick={() => { setActiveView('profile'); setShowProfilePanel(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeView === 'profile' ? 'bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100' : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white'}`}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeView === 'profile' ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'}`}
           >
             <User className="h-5 w-5" />
             <span>Profile</span>
@@ -5809,7 +5809,7 @@ export default function App() {
 
           <button 
             onClick={() => { setActiveView('settings'); setShowProfilePanel(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeView === 'settings' ? 'bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100' : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white'}`}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeView === 'settings' ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'}`}
           >
             <Palette className="h-5 w-5" />
             <span>Settings</span>
@@ -5817,15 +5817,15 @@ export default function App() {
         </nav>
 
         {/* Profile Card Footer */}
-        <div className="p-3 border-t border-neutral-200 dark:border-neutral-800">
+        <div className="p-3 border-t border-slate-200/80 dark:border-slate-800/80">
           <div 
             onClick={() => { setActiveView('profile'); setShowProfilePanel(false); }}
-            className="flex items-center gap-2 p-2 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 cursor-pointer hover:border-indigo-400 dark:hover:border-neutral-900 dark:border-neutral-100 transition-all group"
+            className="flex items-center gap-2.5 p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/80 cursor-pointer hover:border-indigo-400/60 dark:hover:border-indigo-500/50 transition-all group shadow-2xs"
           >
             {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-8 w-8 text-xs')}
             <div className="flex-1 min-w-0 text-left">
-              <p className="text-xs font-bold truncate group-hover:text-neutral-900 dark:text-neutral-100 dark:group-hover:text-neutral-500 dark:text-neutral-400 transition-colors">{userDisplayName}</p>
-              <p className="text-[10px] text-neutral-500 dark:text-neutral-400 truncate">@{userUsername}</p>
+              <p className="text-xs font-bold truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors text-slate-900 dark:text-white">{userDisplayName}</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">@{userUsername}</p>
             </div>
             <div className="flex items-center gap-1">
               <button 
@@ -5833,14 +5833,14 @@ export default function App() {
                   e.stopPropagation(); 
                   changeTheme(themeMode === 'light' ? 'dark' : 'light'); 
                 }}
-                className="p-1.5 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors" 
+                className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" 
                 title="Theme"
               >
-                {themeMode === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />}
+                {themeMode === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-amber-400" />}
               </button>
               <button 
                 onClick={(e) => { e.stopPropagation(); setActiveView('settings'); }}
-                className="p-1.5 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors" 
+                className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" 
                 title="Settings"
               >
                 <Menu className="h-4 w-4" />
@@ -5851,39 +5851,39 @@ export default function App() {
       </aside>
 
       {/* CENTER: Main working viewport */}
-      <main className="flex flex-1 h-full max-h-[100dvh] relative overflow-hidden bg-white dark:bg-neutral-950">
+      <main className="flex flex-1 h-full max-h-[100dvh] relative overflow-hidden bg-slate-50/50 dark:bg-[#0b0f19]">
         
         {/* VIEW 1: Chats History panel list & message chain */}
         {activeView === 'chats' && (
           <div className="flex flex-1 h-full relative">
             
             {/* Left Sub-sidebar: Chat rooms */}
-            <div className={`${mobileShowChat ? 'hidden' : 'flex'} md:flex flex-col w-full md:w-80 border-r border-neutral-100 dark:border-neutral-800 shrink-0 h-full`}>
-              <div className="p-4 border-b border-neutral-100 dark:border-neutral-800">
+            <div className={`${mobileShowChat ? 'hidden' : 'flex'} md:flex flex-col w-full md:w-80 border-r border-slate-200/80 dark:border-slate-800/80 shrink-0 h-full bg-white/70 dark:bg-[#0f1422]/90 backdrop-blur-md`}>
+              <div className="p-4 border-b border-slate-200/80 dark:border-slate-800/80">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <h1 className="font-zenoa text-xl md:text-2xl font-bold tracking-[0.14em] uppercase text-neutral-900 dark:text-white select-none transition-colors">
+                    <h1 className="font-zenoa text-xl md:text-2xl font-bold tracking-[0.14em] uppercase text-slate-900 dark:text-white select-none transition-colors">
                       Zenoa
                     </h1>
-                    <span className="h-1.5 w-1.5 rounded-full bg-neutral-900 dark:bg-neutral-100 dark:bg-indigo-400"></span>
+                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-600 dark:bg-indigo-400 shadow-xs shadow-indigo-500/50"></span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <button 
                       onClick={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')} 
-                      className="p-2 rounded-xl text-neutral-700 dark:text-neutral-300 dark:text-neutral-300 hover:text-neutral-900 dark:text-neutral-100 dark:hover:text-neutral-500 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800 transition-colors cursor-pointer" 
+                      className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800/80 bg-slate-100/80 dark:bg-slate-800/50 transition-colors cursor-pointer" 
                       title="Switch Theme"
                     >
-                      {themeMode === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />}
+                      {themeMode === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-amber-400" />}
                     </button>
                     <button 
                       onClick={() => setActiveView('settings')} 
-                      className="p-2 rounded-xl text-neutral-700 dark:text-neutral-300 dark:text-neutral-300 hover:text-neutral-900 dark:text-neutral-100 dark:hover:text-neutral-500 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800 transition-colors cursor-pointer" 
+                      className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800/80 bg-slate-100/80 dark:bg-slate-800/50 transition-colors cursor-pointer" 
                       title="Settings"
                     >
                       <Menu className="h-4 w-4" />
                     </button>
                     {/* Plus trigger to initiate conversation with custom user */}
-                    <button onClick={() => setActiveView('search')} className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/40 text-neutral-900 dark:text-neutral-100 transition-colors cursor-pointer" title="Start new chat">
+                    <button onClick={() => setActiveView('search')} className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs shadow-indigo-500/20 transition-all active:scale-95 cursor-pointer" title="Start new chat">
                       <Plus className="h-4 w-4" />
                     </button>
                     {/* New Group Button */}
@@ -5892,7 +5892,7 @@ export default function App() {
                         setNewGroupPreselectedUser(null);
                         setShowNewGroupModal(true);
                       }} 
-                      className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-900 dark:text-neutral-100 transition-colors cursor-pointer" 
+                      className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer" 
                       title="New Group Chat"
                     >
                       <Users className="h-4 w-4" />
@@ -5900,13 +5900,13 @@ export default function App() {
                   </div>
                 </div>
                 <div className="relative">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-neutral-500 dark:text-neutral-400" />
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <input 
                     type="text" 
                     value={chatSearchQuery}
                     onChange={e => setChatSearchQuery(e.target.value)}
-                    placeholder="Search chats..."
-                    className="w-full pl-9 pr-4 py-1.5 rounded-xl text-sm border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 outline-none focus:border-neutral-900 dark:border-neutral-100"
+                    placeholder="Search chats or people..."
+                    className="w-full pl-9 pr-4 py-2 rounded-xl text-xs font-medium border border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/90 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 transition-all"
                   />
                 </div>
               </div>
@@ -5915,7 +5915,7 @@ export default function App() {
               <div className="flex-1 overflow-y-auto p-2 space-y-1 pb-24 md:pb-2 overscroll-contain">
                 {filteredChats.length === 0 && (!chatSearchQuery.trim() || matchingContactsForSidebar.length === 0) ? (
                   <div className="p-8 text-center">
-                    <p className="text-sm text-neutral-500 dark:text-neutral-400">No chats or contacts found</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">No chats or contacts found</p>
                   </div>
                 ) : (
                   <>
@@ -5934,43 +5934,43 @@ export default function App() {
                         onTouchEnd={() => {
                           if ((window as any)._chatTouchTimer) clearTimeout((window as any)._chatTouchTimer);
                         }}
-                        className={`group w-full flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all relative ${chat.id === activeChatId ? 'bg-neutral-100/80 dark:bg-indigo-950/20 text-neutral-900 dark:text-neutral-100' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900'}`}
+                        className={`group w-full flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all relative ${chat.id === activeChatId ? 'bg-indigo-50/90 dark:bg-slate-900/90 border border-indigo-200/80 dark:border-indigo-500/30 text-slate-900 dark:text-white shadow-2xs' : 'hover:bg-slate-100/70 dark:hover:bg-slate-900/50 border border-transparent'}`}
                       >
                         <div className="relative">
                           {renderAvatar(chat.avatar_seed, chat.name, chat.avatar_url || users[chat.username]?.avatar_url, 'h-10 w-10 text-sm')}
-                          {isUserEffectivelyOnline(users[chat.username]) && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-950"></span>}
+                          {isUserEffectivelyOnline(users[chat.username]) && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-950"></span>}
                         </div>
 
                         <div className="flex-1 min-w-0 text-left">
                           <div className="flex justify-between items-baseline">
-                            <div className="flex items-center gap-1 min-w-0">
-                              <p className={`text-sm truncate ${chat.id === activeChatId ? 'font-bold' : 'font-semibold text-neutral-800 dark:text-neutral-200'}`}>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <p className={`text-sm truncate ${chat.id === activeChatId ? 'font-bold text-indigo-950 dark:text-white' : 'font-semibold text-slate-800 dark:text-slate-200'}`}>
                         {chat.type !== 'group' && chat.username && chatNicknames[chat.username] 
                           ? chatNicknames[chat.username] 
                           : chat.name}
                       </p>
-                              {chat.pinned && <Pin className="h-3 w-3 text-neutral-900 dark:text-neutral-100 rotate-45 shrink-0" />}
-                              {chat.muted && <VolumeX className="h-3 w-3 text-neutral-500 dark:text-neutral-400 shrink-0" />}
-                              {chat.archived && <Archive className="h-3 w-3 text-neutral-900 dark:text-neutral-100 shrink-0" />}
+                              {chat.pinned && <Pin className="h-3 w-3 text-amber-500 dark:text-amber-400 rotate-45 shrink-0" />}
+                              {chat.muted && <VolumeX className="h-3 w-3 text-slate-400 shrink-0" />}
+                              {chat.archived && <Archive className="h-3 w-3 text-slate-400 shrink-0" />}
                             </div>
-                            <span className="text-[10px] text-neutral-500 dark:text-neutral-400 shrink-0 ml-1">{chat.last_time}</span>
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium shrink-0 ml-1">{chat.last_time}</span>
                           </div>
                           <div className="flex justify-between items-center mt-1 min-w-0">
-                            <p className="text-xs text-neutral-500 dark:text-neutral-400 truncate pr-2 flex-1 min-w-0 flex items-center gap-1">
+                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate pr-2 flex-1 min-w-0 flex items-center gap-1">
                               {chat.last_message_sender === userUsername && chat.last_message && chat.last_message !== 'Chat history cleared' && (
                                 <span className="shrink-0 inline-flex items-center">
                                   {chat.last_message_status === 'read' ? (
                                     <CheckCheck className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400 stroke-[2.5]" />
                                   ) : chat.last_message_status === 'delivered' ? (
-                                    <CheckCheck className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500 stroke-[2]" />
+                                    <CheckCheck className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500 stroke-[2]" />
                                   ) : (
-                                    <Check className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500 stroke-[2]" />
+                                    <Check className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500 stroke-[2]" />
                                   )}
                                 </span>
                               )}
                               <span className="truncate">
                                 {chat.typing ? (
-                                  <span className="text-neutral-700 dark:text-neutral-300 font-medium animate-pulse">typing...</span>
+                                  <span className="text-indigo-600 dark:text-indigo-400 font-medium animate-pulse">typing...</span>
                                 ) : (
                                   chat.last_message && chat.last_message.length > 32 
                                     ? chat.last_message.slice(0, 32).trim() + '...' 
@@ -5980,13 +5980,13 @@ export default function App() {
                             </p>
                             <div className="flex items-center gap-1">
                               {chat.unread > 0 && (
-                                <span className="bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-[10px] font-bold h-4 px-1.5 rounded-full flex items-center justify-center shrink-0">
+                                <span className="bg-indigo-600 text-white text-[10px] font-bold h-4 px-1.5 rounded-full flex items-center justify-center shrink-0 shadow-xs">
                                   {chat.unread}
                                 </span>
                               )}
                               <button 
                                 onClick={(e) => { e.stopPropagation(); setSelectedChatForOptions(chat); }}
-                                className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-opacity text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-white"
+                                className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-opacity text-slate-400 hover:text-slate-700 dark:hover:text-white"
                                 title="Chat Options"
                               >
                                 <MoreVertical className="h-3.5 w-3.5" />
@@ -5999,8 +5999,8 @@ export default function App() {
 
                     {/* Matching People section in sidebar search */}
                     {chatSearchQuery.trim() !== '' && matchingContactsForSidebar.length > 0 && (
-                      <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800 mt-2 space-y-1">
-                        <p className="px-3 py-1 text-[11px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider text-left">
+                      <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800/80 mt-2 space-y-1">
+                        <p className="px-3 py-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-left">
                           People & Contacts
                         </p>
                         {matchingContactsForSidebar.map((user, idx) => (
@@ -6010,17 +6010,17 @@ export default function App() {
                               setChatSearchQuery('');
                               handleStartChatWithUser(user);
                             }}
-                            className="w-full flex items-center gap-3 p-3 rounded-2xl cursor-pointer hover:bg-neutral-100/60 dark:hover:bg-indigo-950/30 transition-all text-left"
+                            className="w-full flex items-center gap-3 p-3 rounded-2xl cursor-pointer hover:bg-indigo-50/60 dark:hover:bg-slate-900/60 transition-all text-left"
                           >
                             <div className="relative shrink-0">
                               {renderAvatar(user.avatar_seed, user.display_name, user.avatar_url, 'h-10 w-10 text-sm')}
-                              {isUserEffectivelyOnline(user) && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-950"></span>}
+                              {isUserEffectivelyOnline(user) && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-950"></span>}
                             </div>
                             <div className="flex-1 min-w-0 text-left">
-                              <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 truncate">{user.display_name}</p>
-                              <p className="text-xs text-neutral-500 dark:text-neutral-400 truncate">@{user.username}</p>
+                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">{user.display_name}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">@{user.username}</p>
                             </div>
-                            <button className="px-2.5 py-1 text-xs bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-semibold rounded-xl shrink-0">
+                            <button className="px-3 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shrink-0 shadow-xs shadow-indigo-500/20 active:scale-95 transition-all">
                               Chat
                             </button>
                           </div>
@@ -6037,9 +6037,9 @@ export default function App() {
               {activeChat ? (
                 <>
                   {/* Chat View Header */}
-              <div className="flex items-center justify-between h-16 px-4 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
+              <div className="flex items-center justify-between h-16 px-4 border-b border-slate-200/80 dark:border-slate-800/80 shrink-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-md">
                 <div className="flex items-center gap-3 min-w-0">
-                  <button onClick={() => setMobileShowChat(false)} className="md:hidden p-2 -ml-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"><ChevronLeft className="h-5 w-5" /></button>
+                  <button onClick={() => setMobileShowChat(false)} className="md:hidden p-2 -ml-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronLeft className="h-5 w-5" /></button>
                   <div 
                     className="relative shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
                     onClick={() => {
@@ -6055,7 +6055,7 @@ export default function App() {
                     }}
                   >
                     {renderAvatar(activeChat.avatar_seed, activeChat.name, activeChat.avatar_url || (activeChat.username ? users[activeChat.username]?.avatar_url : undefined), 'h-10 w-10 text-sm')}
-                    {activeChat.type !== 'group' && isUserEffectivelyOnline(users[activeChat.username]) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-950"></span>}
+                    {activeChat.type !== 'group' && isUserEffectivelyOnline(users[activeChat.username]) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-950"></span>}
                   </div>
                   <div className="min-w-0 text-left">
                     <h3 
@@ -6070,23 +6070,23 @@ export default function App() {
                           }
                         }
                       }} 
-                      className="font-bold text-sm cursor-pointer hover:underline truncate flex items-center gap-1.5"
+                      className="font-bold text-sm cursor-pointer hover:underline truncate flex items-center gap-1.5 text-slate-900 dark:text-white"
                     >
                       {activeChat.type !== 'group' && activeChat.username && chatNicknames[activeChat.username] ? (
                         <>
                           <span>{chatNicknames[activeChat.username]}</span>
-                          <span className="text-xs text-neutral-400 font-normal">({activeChat.name})</span>
+                          <span className="text-xs text-slate-400 font-normal">({activeChat.name})</span>
                         </>
                       ) : (
                         <span>{activeChat.name}</span>
                       )}
                       {activeChat.type === 'group' && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-800/40">
                           Group
                         </span>
                       )}
                     </h3>
-                    <p className="text-[10px] text-neutral-500 dark:text-neutral-400 truncate">
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
                       {activeChat.type === 'group' ? (
                         <span>
                           {(activeChat.participants || []).length} members • {
@@ -6097,24 +6097,24 @@ export default function App() {
                           }
                         </span>
                       ) : activeChat.activity_type === 'recording_voice' ? (
-                        <span className="text-neutral-900 dark:text-neutral-100 font-bold animate-pulse flex items-center gap-1">
+                        <span className="text-rose-600 dark:text-rose-400 font-medium animate-pulse flex items-center gap-1">
                           <Mic className="h-3 w-3" /> recording voice note...
                         </span>
                       ) : activeChat.typing || activeChat.activity_type === 'typing' ? (
-                        <span className="text-neutral-700 dark:text-neutral-300 font-bold flex items-center gap-1">
+                        <span className="text-indigo-600 dark:text-indigo-400 font-medium flex items-center gap-1">
                           <span>typing</span>
                           <span className="flex items-center gap-0.5 ml-0.5">
-                            <span className="h-1.5 w-1.5 rounded-full bg-neutral-600 dark:bg-neutral-300 animate-bounce [animation-delay:-0.3s]" />
-                            <span className="h-1.5 w-1.5 rounded-full bg-neutral-600 dark:bg-neutral-300 animate-bounce [animation-delay:-0.15s]" />
-                            <span className="h-1.5 w-1.5 rounded-full bg-neutral-600 dark:bg-neutral-300 animate-bounce" />
+                            <span className="h-1 w-1 rounded-full bg-indigo-600 dark:bg-indigo-400 animate-bounce [animation-delay:-0.3s]" />
+                            <span className="h-1 w-1 rounded-full bg-indigo-600 dark:bg-indigo-400 animate-bounce [animation-delay:-0.15s]" />
+                            <span className="h-1 w-1 rounded-full bg-indigo-600 dark:bg-indigo-400 animate-bounce" />
                           </span>
                         </span>
                       ) : activeChat.activity_type === 'in_call' ? (
-                        <span className="text-neutral-900 dark:text-neutral-100 font-bold flex items-center gap-1">
+                        <span className="text-indigo-600 dark:text-indigo-400 font-medium flex items-center gap-1">
                           <Phone className="h-3 w-3" /> in audio call...
                         </span>
                       ) : isUserEffectivelyOnline(users[activeChat.username]) ? (
-                        <span className="text-neutral-900 dark:text-neutral-100 font-medium">
+                        <span className="text-emerald-600 dark:text-emerald-400 font-medium">
                           online {users[activeChat.username]?.custom_status ? `• "${users[activeChat.username]?.custom_status}"` : ''}
                         </span>
                       ) : (
@@ -6130,14 +6130,14 @@ export default function App() {
                     <>
                       <button 
                         onClick={() => handleStartCall('voice')} 
-                        className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer active:scale-95" 
+                        className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-all cursor-pointer active:scale-95" 
                         title="Voice Call"
                       >
                         <Phone className="h-4 w-4" />
                       </button>
                       <button 
                         onClick={() => handleStartCall('video')} 
-                        className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer active:scale-95" 
+                        className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-all cursor-pointer active:scale-95" 
                         title="Video Call"
                       >
                         <Video className="h-4 w-4" />
@@ -6149,7 +6149,7 @@ export default function App() {
                   {activeChat.type === 'group' ? (
                     <button
                       onClick={() => setShowGroupDetailsModal(true)}
-                      className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-900 dark:text-neutral-100 transition-colors cursor-pointer mr-1"
+                      className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer mr-1"
                       title="Group Information & Members"
                     >
                       <Users className="h-4 w-4" />
@@ -6157,7 +6157,7 @@ export default function App() {
                   ) : activeChat.username && activeChat.username !== userUsername && !users[activeChat.username]?.followers?.includes(userUsername) && (
                     <button
                       onClick={() => handleToggleFollowUser(activeChat.username)}
-                      className="px-3.5 py-1.5 rounded-xl text-xs bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 font-bold transition-all cursor-pointer mr-1 active:scale-95 shadow-xs"
+                      className="px-3.5 py-1.5 rounded-xl text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-xs shadow-indigo-500/20 transition-all cursor-pointer mr-1 active:scale-95"
                       title="Click to Follow"
                     >
                       Follow
@@ -6167,14 +6167,14 @@ export default function App() {
                   {/* Search inside chat button */}
                   <button 
                     onClick={() => setShowMsgSearchInChat(!showMsgSearchInChat)} 
-                    className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer active:scale-95" 
+                    className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-all cursor-pointer active:scale-95" 
                     title="Search Messages"
                   >
                     <Search className="h-4 w-4" />
                   </button>
 
                   {/* 3-Dot Options */}
-                  <button onClick={() => setShowChatCustomizationSheet(true)} className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer" title="Options">
+                  <button onClick={() => setShowChatCustomizationSheet(true)} className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer" title="Options">
                     <MoreVertical className="h-4 w-4" />
                   </button>
                 </div>
@@ -6403,21 +6403,22 @@ export default function App() {
                   {showAttachMenu && (
                     <motion.div 
                       key="attach-menu-popover"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 10 }}
-                      className={`absolute bottom-16 left-4 z-40 p-3 rounded-2xl border shadow-2xl w-80 space-y-3 ${themeMode === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-100'}`}
+                      initial={{ opacity: 0, y: 10, scale: 0.96 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.96 }}
+                      transition={{ duration: 0.15, ease: 'easeOut' }}
+                      className={`absolute bottom-16 left-4 z-40 p-3.5 rounded-2xl border shadow-2xl w-80 space-y-3 backdrop-blur-xl ${themeMode === 'dark' ? 'bg-slate-900/95 border-slate-800' : 'bg-white/95 border-slate-200/90'}`}
                     >
                       {/* Media & Voice Quality Setting Pill Header */}
-                      <div className="space-y-1.5 pb-2 border-b border-neutral-100 dark:border-neutral-800">
+                      <div className="space-y-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] uppercase font-bold tracking-wider text-neutral-500 dark:text-neutral-400">Upload Quality</span>
-                          <div className="flex gap-1 bg-neutral-100 dark:bg-neutral-800 p-0.5 rounded-lg text-[10px] font-bold">
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 dark:text-slate-400">Upload Quality</span>
+                          <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-[10px] font-semibold">
                             {(['standard', 'hd', 'data_saver'] as const).map(q => (
                               <button
                                 key={q}
                                 onClick={() => { setMediaUploadQuality(q); showToast(`Upload quality: ${q.toUpperCase()}`); }}
-                                className={`px-2 py-0.5 rounded-md capitalize transition-colors ${mediaUploadQuality === q ? 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 shadow-xs' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-200'}`}
+                                className={`px-2 py-0.5 rounded-md capitalize transition-colors ${mediaUploadQuality === q ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`}
                               >
                                 {q === 'hd' ? 'HD High' : q === 'standard' ? 'Auto' : 'Saver'}
                               </button>
@@ -6425,14 +6426,14 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-1">
-                          <span className="text-[10px] uppercase font-bold tracking-wider text-neutral-500 dark:text-neutral-400">Mic Quality</span>
-                          <div className="flex gap-1 bg-neutral-100 dark:bg-neutral-800 p-0.5 rounded-lg text-[10px] font-bold">
+                        <div className="flex items-center justify-between pt-0.5">
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 dark:text-slate-400">Mic Quality</span>
+                          <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-[10px] font-semibold">
                             {(['hd', 'standard', 'compressed'] as const).map(q => (
                               <button
                                 key={q}
                                 onClick={() => { setVoiceRecordingQuality(q); showToast(`Voice quality: ${q.toUpperCase()}`); }}
-                                className={`px-2 py-0.5 rounded-md capitalize transition-colors ${voiceRecordingQuality === q ? 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 shadow-xs' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-200'}`}
+                                className={`px-2 py-0.5 rounded-md capitalize transition-colors ${voiceRecordingQuality === q ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`}
                               >
                                 {q === 'hd' ? 'HD 128k' : q === 'standard' ? 'Std 64k' : 'Compact'}
                               </button>
@@ -6442,50 +6443,50 @@ export default function App() {
                       </div>
 
                       <div className="grid grid-cols-4 gap-2">
-                        <button onClick={() => handleAttachMock('image')} className="flex flex-col items-center p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-transform active:scale-95">
-                          <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 mb-1">
+                        <button onClick={() => handleAttachMock('image')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
+                          <div className="p-2.5 rounded-2xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/40 mb-1">
                             <ImageIcon className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Photo</span>
                         </button>
 
-                        <button onClick={() => handleAttachMock('video')} className="flex flex-col items-center p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-transform active:scale-95">
-                          <div className="p-2.5 rounded-2xl bg-neutral-1000/10 text-neutral-700 dark:text-neutral-300 mb-1">
+                        <button onClick={() => handleAttachMock('video')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
+                          <div className="p-2.5 rounded-2xl bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 border border-purple-200/50 dark:border-purple-800/40 mb-1">
                             <Video className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Video</span>
                         </button>
 
-                        <button onClick={() => handleAttachMock('document')} className="flex flex-col items-center p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-transform active:scale-95">
-                          <div className="p-2.5 rounded-2xl bg-neutral-800 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 mb-1">
+                        <button onClick={() => handleAttachMock('document')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
+                          <div className="p-2.5 rounded-2xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 border border-amber-200/50 dark:border-amber-800/40 mb-1">
                             <FileText className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Document</span>
                         </button>
 
-                        <button onClick={() => handleAttachMock('voice')} className="flex flex-col items-center p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-transform active:scale-95">
-                          <div className="p-2.5 rounded-2xl bg-neutral-800 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 mb-1">
+                        <button onClick={() => handleAttachMock('voice')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
+                          <div className="p-2.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/40 mb-1">
                             <Mic className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Voice Note</span>
                         </button>
 
-                        <button onClick={() => handleAttachMock('location')} className="flex flex-col items-center p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-transform active:scale-95">
-                          <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 mb-1">
+                        <button onClick={() => handleAttachMock('location')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
+                          <div className="p-2.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200/50 dark:border-rose-800/40 mb-1">
                             <MapPin className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Location</span>
                         </button>
 
-                        <button onClick={() => handleAttachMock('contact')} className="flex flex-col items-center p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-transform active:scale-95">
-                          <div className="p-2.5 rounded-2xl bg-neutral-800 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 mb-1">
+                        <button onClick={() => handleAttachMock('contact')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
+                          <div className="p-2.5 rounded-2xl bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 border border-sky-200/50 dark:border-sky-800/40 mb-1">
                             <UserPlus className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Contact</span>
                         </button>
 
-                        <button onClick={() => handleAttachMock('poll')} className="flex flex-col items-center p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-transform active:scale-95">
-                          <div className="p-2.5 rounded-2xl bg-neutral-800 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 mb-1">
+                        <button onClick={() => handleAttachMock('poll')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
+                          <div className="p-2.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-800/40 mb-1">
                             <BarChart2 className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Poll</span>
@@ -6663,24 +6664,24 @@ export default function App() {
                         className="p-2 rounded-xl bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-300 transition-colors"
                         title="Preview Audio"
                       >
-                        {isPlayingVoicePreview ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 fill-current" />}
+                        {isPlayingVoicePreview ? <Pause className="h-4 w-4 text-indigo-600 dark:text-indigo-400" /> : <Play className="h-4 w-4 fill-current text-indigo-600 dark:text-indigo-400" />}
                       </button>
                     )}
 
                     <button 
                       onClick={handleSendVoiceMessage} 
-                      className="p-2.5 bg-neutral-900 dark:bg-neutral-100 hover:bg-rose-700 text-white dark:text-neutral-900 rounded-xl shadow-md shadow-rose-600/20 transition-all active:scale-95 flex items-center gap-1 font-bold text-xs"
+                      className="p-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/20 transition-all active:scale-95 flex items-center gap-1.5 font-bold text-xs cursor-pointer"
                     >
                       <span>Send Voice</span>
-                      <Send className="h-4 w-4" />
+                      <Send className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 p-1.5 pl-2 rounded-3xl bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/80 focus-within:border-neutral-900 dark:border-neutral-100/60 transition-all">
+                  <div className="flex items-center gap-2 p-1.5 pl-2.5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-sm focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all">
                     {/* Single Emoji, GIF & Sticker Button at the START (Left) of Input Box */}
                     <button 
                       onClick={() => { setShowUnifiedPicker(prev => !prev); setShowAttachMenu(false); }} 
-                      className={`p-2 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer ${showUnifiedPicker ? 'text-neutral-900 dark:text-neutral-100 bg-neutral-200 dark:bg-neutral-700' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:text-neutral-100'}`} 
+                      className={`p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${showUnifiedPicker ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50' : 'text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400'}`} 
                       title="Emojis, GIFs & Stickers"
                     >
                       <Smile className="h-5 w-5" />
@@ -6689,7 +6690,7 @@ export default function App() {
                     {/* Attachment Button */}
                     <button 
                       onClick={() => { setShowAttachMenu(prev => !prev); setShowUnifiedPicker(false); }} 
-                      className={`p-2 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer ${showAttachMenu ? 'text-neutral-900 dark:text-neutral-100 bg-neutral-200 dark:bg-neutral-700' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:text-neutral-300'}`} 
+                      className={`p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${showAttachMenu ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`} 
                       title="Attach File / Media"
                     >
                       <Paperclip className="h-5 w-5" />
@@ -6702,14 +6703,14 @@ export default function App() {
                       onChange={e => handleComposerChange(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
                       placeholder="Type a message..."
-                      className="flex-1 px-2 py-1.5 text-sm bg-transparent border-0 outline-none placeholder:text-neutral-500 dark:text-neutral-400 text-neutral-900 dark:text-neutral-100 min-w-0"
+                      className="flex-1 px-2 py-1.5 text-sm bg-transparent border-0 outline-none placeholder:text-slate-400 text-slate-900 dark:text-slate-100 min-w-0"
                     />
 
                     {/* Action button: Send or Voice Recording */}
                     {composerText.trim() ? (
                       <button 
                         onClick={handleSendMessage} 
-                        className="p-2.5 bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-900 dark:bg-neutral-100 dark:hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 rounded-full shadow-sm transition-transform active:scale-95 shrink-0 cursor-pointer"
+                        className="p-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-md shadow-indigo-600/20 transition-transform active:scale-95 shrink-0 cursor-pointer"
                         title="Send Message"
                       >
                         <Send className="h-4 w-4" />
@@ -6717,7 +6718,7 @@ export default function App() {
                     ) : (
                       <button 
                         onClick={startVoiceRecording} 
-                        className="p-2.5 bg-neutral-800 dark:bg-neutral-800 hover:bg-neutral-800 dark:bg-neutral-200/20 text-neutral-900 dark:text-neutral-100 rounded-full transition-colors shrink-0 cursor-pointer" 
+                        className="p-2.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors shrink-0 cursor-pointer" 
                         title="Record Voice Note"
                       >
                         <Mic className="h-4.5 w-4.5" />
