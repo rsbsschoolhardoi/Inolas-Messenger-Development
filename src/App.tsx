@@ -32,10 +32,12 @@ import {  NewGroupModal } from './components/NewGroupModal';
 import {  GroupDetailsModal } from './components/GroupDetailsModal';
 import { GoogleDriveLogo } from './components/GoogleDriveLogo';
 import { isUserEffectivelyOnline, getOnlineStatusText } from './presenceUtils';
-import {  getThemeById, DEFAULT_THEME_ID } from './chatThemes';
-import {  getMessageDateKey, formatChatDateDivider } from './dateUtils';
-import {  encryptMessageText, decryptMessageText, encryptFile, decryptFile } from './cryptoUtils';
-import {  storageManager } from './storageManager';
+import { getThemeById, DEFAULT_THEME_ID } from './chatThemes';
+import { getMessageDateKey, formatChatDateDivider } from './dateUtils';
+import { encryptMessageText, decryptMessageText, encryptFile, decryptFile } from './cryptoUtils';
+import { storageManager } from './storageManager';
+import { getDmChatId } from './chatUtils';
+import { OpeningAnimation } from './components/OpeningAnimation';
 import {  encryptVault, decryptVault } from './utils/crypto';
 import {  findVaultFile, uploadVaultFile, downloadVaultFile, DriveFileInfo, uploadMediaToDrive, getMediaUrlFromDrive, uploadPublicMediaToDrive, deleteVaultFile } from './lib/googleDrive';
 import {  compressImage } from './mediaCompressor';
@@ -604,9 +606,28 @@ export default function App() {
 
   // Real Presence & User Status
   const [myPresenceStatus, setMyPresenceStatus] = useState<'online' | 'away' | 'busy' | 'dnd' | 'offline'>('online');
-  const [myCustomStatus, setMyCustomStatus] = useState<string>('Available');
+  const [myCustomStatus, setMyCustomStatus] = useState<string>('Online');
   const [myActivityType, setMyActivityType] = useState<'none' | 'typing' | 'recording_voice' | 'in_call'>('none');
   const [showStatusPopover, setShowStatusPopover] = useState<boolean>(false);
+
+  // Opening Animation state for Google / OAuth / System login
+  const [isOpeningAnimationActive, setIsOpeningAnimationActive] = useState<boolean>(false);
+  const [openingAnimationData, setOpeningAnimationData] = useState<{ displayName: string; provider: string }>({
+    displayName: 'User',
+    provider: 'Google'
+  });
+
+  // Concurrent Single-Session Login Security States
+  const [currentSessionToken] = useState<string>(() => {
+    let token = sessionStorage.getItem('zenoa_active_session_token');
+    if (!token) {
+      token = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+      sessionStorage.setItem('zenoa_active_session_token', token);
+    }
+    return token;
+  });
+  const [showConcurrentLoginModal, setShowConcurrentLoginModal] = useState<boolean>(false);
+  const [concurrentLogoutCountdown, setConcurrentLogoutCountdown] = useState<number>(5);
 
   // Inbuilt Production Media Player State
   const [mediaPlayer, setMediaPlayer] = useState<{
@@ -1435,6 +1456,44 @@ export default function App() {
     };
   }, [isFirebaseConfigured, db, auth, userUsername, users]);
 
+  // Instant Multi-Tab Real-time Broadcast Accelerator for Messages
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return;
+    const bc = new BroadcastChannel('zenoa_realtime_messages');
+    bc.onmessage = (event) => {
+      const data = event.data;
+      if (data && data.chat_id && data.message) {
+        setMessagesByChat(prev => ({
+          ...prev,
+          [data.chat_id]: dedupeMessages([...(prev[data.chat_id] || []), data.message])
+        }));
+        setChats(prev => {
+          const exists = prev.some(c => c.id === data.chat_id);
+          if (!exists && data.chat) {
+            return [data.chat, ...prev];
+          }
+          return prev.map(c => {
+            if (c.id === data.chat_id) {
+              return {
+                ...c,
+                last_message: data.message.text || 'New message',
+                last_time: 'now',
+                updated_at: Date.now(),
+                last_message_sender: data.message.sender,
+                last_message_status: 'delivered' as const,
+                unread: (c.id === activeChatId) ? 0 : (c.unread || 0) + 1
+              };
+            }
+            return c;
+          });
+        });
+      }
+    };
+    return () => {
+      try { bc.close(); } catch(e) {}
+    };
+  }, [activeChatId]);
+
   // Synchronize messages for the active chat only
   useEffect(() => {
     if (!isFirebaseConfigured || !db || !activeChatId || !userUsername) {
@@ -1640,6 +1699,136 @@ export default function App() {
       syncPresence(false);
     };
   }, [userUsername, myPresenceStatus, myCustomStatus, myActivityType, isFirebaseConfigured, db]);
+
+  // Execute Automatic Logout when Concurrent Login Modal is triggered (5 second countdown)
+  const executeConcurrentLogout = async () => {
+    setShowConcurrentLoginModal(false);
+    try {
+      sessionStorage.removeItem('zenoa_active_session_token');
+      if (auth) {
+        await firebaseSignOut(auth).catch(() => {});
+      }
+    } catch (err) {
+      console.warn("Logout execution notice:", err);
+    }
+    setIsAuthenticated(false);
+    setUserUsername('');
+    setUserId('');
+    setUserDisplayName('');
+    setActiveCallSession(null);
+    showToast("Logged out: Account accessed from another device");
+  };
+
+  // 5-Second Countdown Effect for Concurrent Login Modal
+  useEffect(() => {
+    if (!showConcurrentLoginModal) {
+      setConcurrentLogoutCountdown(5);
+      return;
+    }
+
+    setConcurrentLogoutCountdown(5);
+    const timer = setInterval(() => {
+      setConcurrentLogoutCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          executeConcurrentLogout();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [showConcurrentLoginModal]);
+
+  // Register Active Session Token in Firestore & Listen for Multi-Device / Concurrent Login
+  useEffect(() => {
+    if (!isFirebaseConfigured || !db || !userUsername || !currentSessionToken) {
+      return;
+    }
+
+    const userDocRef = userId ? doc(db, 'users', userId) : doc(db, 'users', userUsername);
+
+    // Register active session token in Firestore
+    setDoc(userDocRef, {
+      active_session_token: currentSessionToken,
+      active_session_created_at: Date.now(),
+      last_login_device: navigator.userAgent || 'Web Browser'
+    }, { merge: true }).catch(err => console.warn("Session token registration notice:", err));
+
+    // Notify BroadcastChannel for same-device multi-tab synchronization
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        const sessionBc = new BroadcastChannel(`zenoa_session_sync_${userUsername.toLowerCase()}`);
+        sessionBc.postMessage({
+          type: 'NEW_LOGIN',
+          sessionToken: currentSessionToken
+        });
+        setTimeout(() => sessionBc.close(), 1000);
+      }
+    } catch {}
+
+    let broadcastChannel: BroadcastChannel | null = null;
+    let unsubscribeUserDoc: () => void = () => {};
+
+    // 1. Same-device multi-tab BroadcastChannel listener
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        broadcastChannel = new BroadcastChannel(`zenoa_session_sync_${userUsername.toLowerCase()}`);
+        broadcastChannel.onmessage = (event) => {
+          const data = event.data;
+          if (data && data.type === 'NEW_LOGIN' && data.sessionToken && data.sessionToken !== currentSessionToken) {
+            console.warn("New session started in another tab!");
+            setShowConcurrentLoginModal(true);
+          }
+        };
+      }
+    } catch (bcErr) {
+      console.warn("Session BroadcastChannel listener notice:", bcErr);
+    }
+
+    // 2. Cross-device / multi-browser Firestore snapshot listener
+    unsubscribeUserDoc = onSnapshot(
+      userDocRef,
+      (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data();
+        if (data && data.active_session_token && data.active_session_token !== currentSessionToken) {
+          console.warn("Concurrent login detected on another device/browser!", data.active_session_token, currentSessionToken);
+          setShowConcurrentLoginModal(true);
+        }
+      },
+      (err) => {
+        console.warn("Session snapshot listener notice:", err.message);
+      }
+    );
+
+    return () => {
+      unsubscribeUserDoc();
+      if (broadcastChannel) broadcastChannel.close();
+    };
+  }, [isFirebaseConfigured, db, userUsername, userId, currentSessionToken]);
+
+  // Monitor active call document status changes to close Call Modal on both sides if ended or declined
+  useEffect(() => {
+    if (!isFirebaseConfigured || !db || !activeCallSession?.id) return;
+
+    const callDocRef = doc(db, 'calls', activeCallSession.id);
+    const unsubscribeActiveCall = onSnapshot(callDocRef, (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.data();
+      if (data.status === 'ended' || data.status === 'declined') {
+        console.log("Active call ended remotely in Firestore:", data.status);
+        setActiveCallSession(null);
+      }
+    }, (err) => {
+      console.warn("Active call listener notice:", err);
+    });
+
+    return () => {
+      unsubscribeActiveCall();
+    };
+  }, [activeCallSession?.id, isFirebaseConfigured, db]);
 
   // Live Voice & Video Signaling Listener for Incoming Calls (Firestore + BroadcastChannel)
   useEffect(() => {
@@ -2212,6 +2401,11 @@ export default function App() {
           setSavedUsername(uName);
           setIsAuthenticated(true);
           setIsNewUserSetupPending(false);
+
+          // Trigger smooth Google opening animation
+          setOpeningAnimationData({ displayName: dName, provider });
+          setIsOpeningAnimationActive(true);
+
           confetti({ particleCount: 80, spread: 60, origin: { y: 0.8 } });
           showToast(`Welcome back, ${dName}!`);
         } else {
@@ -2238,6 +2432,11 @@ export default function App() {
         setUserAvatarSeed(userseed);
         setAuthMethod(provider);
         setIsAuthenticated(true);
+
+        // Trigger smooth opening animation
+        setOpeningAnimationData({ displayName: name, provider });
+        setIsOpeningAnimationActive(true);
+
         confetti({ particleCount: 80, spread: 60, origin: { y: 0.8 } });
         showToast(`Signed in successfully via ${provider === 'google' ? 'Google' : 'Facebook'}`);
       }, 800);
@@ -3348,7 +3547,22 @@ export default function App() {
       // Persist locally to sender device IndexedDB
       storageManager.saveMessages([newMsg]).catch(() => {});
 
-      if (isFirebaseConfigured && db && auth) {
+      // Dispatch via local BroadcastChannel accelerator for zero-latency multi-tab sync
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          const bc = new BroadcastChannel('zenoa_realtime_messages');
+          bc.postMessage({
+            chat_id: activeChatId,
+            message: newMsg,
+            chat: activeChat
+          });
+          setTimeout(() => { try { bc.close(); } catch(e){} }, 1000);
+        }
+      } catch (bcErr) {
+        console.warn("Message BroadcastChannel post notice:", bcErr);
+      }
+
+      if (isFirebaseConfigured && db) {
         try {
           const encryptedPayload = await encryptMessageText(text, activeChatId);
           await setDoc(doc(db, 'messages', newMsgId), {
@@ -4607,9 +4821,11 @@ export default function App() {
   const handleStartChatWithUser = async (user: UserData) => {
     const selfName = userUsername || 'me';
     const targetUserClean = user.username.trim().toLowerCase();
+    const canonicalChatId = getDmChatId(selfName, user.username);
     
     // Check if chat already exists by participant, username, or previous usernames
     const existingChat = chats.find(c => {
+      if (c.id === canonicalChatId) return true;
       if (c.id === `c_${user.username}`) return true;
       if (c.type === 'dm') {
         if (c.username?.toLowerCase() === targetUserClean) return true;
@@ -4619,7 +4835,7 @@ export default function App() {
       return false;
     });
 
-    const targetChatId = existingChat ? existingChat.id : `c_${user.username}`;
+    const targetChatId = existingChat ? existingChat.id : canonicalChatId;
 
     if (!existingChat) {
       const newChat: Chat = {
@@ -5576,8 +5792,53 @@ export default function App() {
 
   // MAIN RUNTIME APPLICATION
   return (
-    <div className={`w-full h-[100dvh] flex overflow-hidden select-none touch-manipulation font-['Inter'] transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-white' : 'bg-white text-neutral-800'}`}>
+    <div className={`w-full h-[100dvh] flex overflow-hidden select-none touch-manipulation font-sans transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-white' : 'bg-white text-neutral-800'}`}>
       
+      {/* Opening Entrance Animation Overlay (Google / Social / Email Sign-In) */}
+      <AnimatePresence>
+        {isOpeningAnimationActive && (
+          <motion.div 
+            key="opening-app-splash"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-white dark:bg-neutral-950 transition-all select-none"
+          >
+            <div className="flex flex-col items-center text-center p-8 space-y-6 max-w-sm">
+              <div className="relative flex items-center justify-center">
+                <div className="absolute inset-0 rounded-full bg-indigo-500/20 dark:bg-indigo-500/30 blur-2xl animate-pulse" />
+                <div className="h-20 w-20 rounded-3xl bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 flex items-center justify-center shadow-2xl relative z-10 animate-bounce">
+                  {openingAnimationData.provider === 'Google' ? (
+                    <svg className="w-10 h-10" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                    </svg>
+                  ) : (
+                    <span className="text-3xl font-extrabold tracking-tighter">Z</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <h2 className="text-xl font-bold tracking-tight text-neutral-900 dark:text-white">
+                  Welcome back, {openingAnimationData.displayName}!
+                </h2>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                  Signed in securely with {openingAnimationData.provider} • Connecting to Zenoa...
+                </p>
+              </div>
+
+              <div className="w-48 h-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden relative">
+                <div className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 animate-[pulse_1.5s_infinite]" style={{ width: '100%' }} />
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Toast Alert popover */}
       <AnimatePresence>
         {toastMessage && (
@@ -10103,6 +10364,58 @@ export default function App() {
           onAnswerCall={handleAnswerCall}
         />
       )}
+
+      {/* CONCURRENT / SINGLE SESSION MULTI-DEVICE LOGIN POPUP MODAL */}
+      <AnimatePresence>
+        {showConcurrentLoginModal && (
+          <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative w-full max-w-sm rounded-3xl bg-neutral-900 border border-neutral-800 p-6 shadow-2xl text-center space-y-5 overflow-hidden"
+            >
+              <div className="mx-auto w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 animate-pulse">
+                <AlertTriangle className="h-8 w-8" />
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-lg font-bold text-white tracking-tight">
+                  Logged In Elsewhere
+                </h3>
+                <p className="text-xs text-neutral-400 leading-relaxed px-2">
+                  Aapka account dusri device ya browser window par login hua hai. Suraksha ke liye is device par session automatically end ho raha hai.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-neutral-800/60 border border-neutral-700/50 flex items-center justify-between px-4">
+                <span className="text-xs font-medium text-neutral-300">Auto Logout In</span>
+                <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-400 text-xs font-bold font-mono">
+                  {concurrentLogoutCountdown}s
+                </span>
+              </div>
+
+              <button
+                onClick={executeConcurrentLogout}
+                className="w-full py-3 px-4 rounded-2xl bg-rose-600 hover:bg-rose-500 active:scale-[0.98] text-white text-xs font-bold tracking-wide transition-all shadow-lg shadow-rose-600/20 cursor-pointer"
+              >
+                Log Out Immediately
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* OPENING ANIMATION OVERLAY FOR GOOGLE / OAUTH LOGIN */}
+      <AnimatePresence>
+        {isOpeningAnimationActive && (
+          <OpeningAnimation
+            displayName={openingAnimationData.displayName}
+            provider={openingAnimationData.provider}
+            onComplete={() => setIsOpeningAnimationActive(false)}
+          />
+        )}
+      </AnimatePresence>
 
     </div>
   );

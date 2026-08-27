@@ -89,12 +89,13 @@ export const CallModal: React.FC<CallModalProps> = ({
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
-  const simulatedPartnerFeedRef = useRef<{ stream: MediaStream; cleanup: () => void } | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const isPeerConnectionInitializedRef = useRef<boolean>(false);
   const isSettingRemoteDescriptionRef = useRef<boolean>(false);
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const unsubscribeCallDocRef = useRef<(() => void) | null>(null);
+  const unsubscribeCandidatesRef = useRef<(() => void) | null>(null);
 
   // Audio Analyzers
   const localAudioCtxRef = useRef<AudioContext | null>(null);
@@ -286,197 +287,6 @@ export const CallModal: React.FC<CallModalProps> = ({
     }
   };
 
-  // Helper to generate a live, animated HD video stream for the remote participant
-  const createInteractivePartnerVideoStream = (
-    partnerName: string,
-    partnerAvatarUrl?: string,
-    partnerUsername?: string
-  ): { stream: MediaStream; cleanup: () => void } => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 640;
-    canvas.height = 480;
-    const ctx = canvas.getContext('2d');
-
-    let animationFrameId: number;
-    const startTime = Date.now();
-
-    // Try to load avatar image if available
-    let avatarImg: HTMLImageElement | null = null;
-    if (partnerAvatarUrl) {
-      avatarImg = new Image();
-      avatarImg.crossOrigin = 'anonymous';
-      avatarImg.src = partnerAvatarUrl;
-    }
-
-    const drawFrame = () => {
-      if (!ctx) return;
-      const t = (Date.now() - startTime) / 1000;
-      const w = canvas.width;
-      const h = canvas.height;
-
-      // 1. Dynamic subtle gradient background (simulating natural ambient room lighting & camera feed)
-      const grad = ctx.createLinearGradient(0, 0, w, h);
-      const colorShift1 = Math.sin(t * 0.5) * 8;
-      const colorShift2 = Math.cos(t * 0.4) * 10;
-      grad.addColorStop(0, `rgb(${20 + colorShift1}, ${24 + colorShift2}, ${36 + colorShift1})`);
-      grad.addColorStop(0.5, `rgb(${14 + colorShift2}, ${17 + colorShift1}, ${26 + colorShift2})`);
-      grad.addColorStop(1, `rgb(${10 + colorShift1}, ${12 + colorShift2}, ${18 + colorShift1})`);
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, w, h);
-
-      // 2. Ambient light bokeh particles
-      for (let i = 0; i < 4; i++) {
-        const bx = (w / 2) + Math.sin(t * 0.3 + i * 1.5) * (w * 0.35);
-        const by = (h / 2) + Math.cos(t * 0.25 + i * 1.2) * (h * 0.3);
-        const br = 70 + Math.sin(t + i) * 20;
-        const bGrad = ctx.createRadialGradient(bx, by, 0, bx, by, br);
-        bGrad.addColorStop(0, i % 2 === 0 ? 'rgba(99, 102, 241, 0.15)' : 'rgba(168, 85, 247, 0.12)');
-        bGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctx.fillStyle = bGrad;
-        ctx.beginPath();
-        ctx.arc(bx, by, br, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 3. Subtle floating breathing motion for the portrait
-      const centerX = w / 2;
-      const centerY = h / 2 - 12 + Math.sin(t * 1.2) * 4;
-      const radius = 72 + Math.sin(t * 0.8) * 2;
-
-      // Outer glowing pulse ring
-      const pulseRadius = radius + 14 + Math.sin(t * 2.5) * 5;
-      ctx.strokeStyle = 'rgba(99, 102, 241, 0.35)';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, pulseRadius, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // Outer dashed spinning ring
-      ctx.save();
-      ctx.translate(centerX, centerY);
-      ctx.rotate(t * 0.4);
-      ctx.setLineDash([8, 12]);
-      ctx.strokeStyle = 'rgba(168, 85, 247, 0.45)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(0, 0, radius + 8, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-
-      // Avatar Circle
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-      ctx.closePath();
-      ctx.clip();
-
-      if (avatarImg && avatarImg.complete && avatarImg.naturalWidth > 0) {
-        ctx.drawImage(avatarImg, centerX - radius, centerY - radius, radius * 2, radius * 2);
-      } else {
-        // Fallback stylish gradient avatar with initials
-        const avGrad = ctx.createLinearGradient(centerX - radius, centerY - radius, centerX + radius, centerY + radius);
-        avGrad.addColorStop(0, '#4f46e5');
-        avGrad.addColorStop(0.5, '#7c3aed');
-        avGrad.addColorStop(1, '#db2777');
-        ctx.fillStyle = avGrad;
-        ctx.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 44px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const initials = (partnerName || 'User').slice(0, 2).toUpperCase();
-        ctx.fillText(initials, centerX, centerY);
-      }
-      ctx.restore();
-
-      // White ring border around avatar
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // Live speaking waveform indicator
-      const waveY = centerY + radius + 30;
-      const numBars = 16;
-      const totalWidth = 130;
-      const barWidth = 4;
-      const gap = (totalWidth - (numBars * barWidth)) / (numBars - 1);
-      const startX = centerX - (totalWidth / 2);
-
-      for (let i = 0; i < numBars; i++) {
-        const barX = startX + i * (barWidth + gap);
-        const freq = Math.sin(t * 4 + i * 0.4) * 0.5 + 0.5;
-        const barHeight = 6 + freq * 16;
-        const barGrad = ctx.createLinearGradient(0, waveY - barHeight / 2, 0, waveY + barHeight / 2);
-        barGrad.addColorStop(0, '#38bdf8');
-        barGrad.addColorStop(1, '#818cf8');
-        ctx.fillStyle = barGrad;
-        ctx.beginPath();
-        ctx.roundRect(barX, waveY - barHeight / 2, barWidth, barHeight, 2);
-        ctx.fill();
-      }
-
-      // Name label banner
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-      ctx.beginPath();
-      ctx.roundRect(centerX - 110, h - 54, 220, 36, 18);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      // Green online dot in banner
-      ctx.fillStyle = '#10b981';
-      ctx.beginPath();
-      ctx.arc(centerX - 84, h - 36, 4.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Text in banner
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 13px sans-serif';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      const cleanName = partnerName.length > 16 ? partnerName.slice(0, 15) + '...' : partnerName;
-      ctx.fillText(cleanName, centerX - 72, h - 36);
-
-      // Watermark HD badge
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
-      ctx.font = 'bold 10px monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText('HD 720p • E2EE Encrypted', w - 16, 24);
-
-      animationFrameId = requestAnimationFrame(drawFrame);
-    };
-
-    drawFrame();
-
-    const stream = canvas.captureStream(30);
-
-    // Add audio track with gentle subtle tones
-    try {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const audioCtx = new AudioContextClass();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      gain.gain.value = 0.001;
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(440, audioCtx.currentTime);
-      osc.connect(gain);
-      const dst = gain.connect(audioCtx.createMediaStreamDestination()) as any;
-      osc.start();
-      dst.stream.getAudioTracks().forEach((track: MediaStreamTrack) => stream.addTrack(track));
-    } catch {}
-
-    const cleanup = () => {
-      cancelAnimationFrame(animationFrameId);
-      stream.getTracks().forEach(t => t.stop());
-    };
-
-    return { stream, cleanup };
-  };
-
   // Attach streams to current video/audio DOM elements
   const attachStreamsToElements = useCallback(() => {
     const isVideo = session.type === 'video';
@@ -563,6 +373,14 @@ export const CallModal: React.FC<CallModalProps> = ({
   // Cleanup helper
   const cleanupCall = useCallback(() => {
     stopAudioTone();
+    if (unsubscribeCallDocRef.current) {
+      unsubscribeCallDocRef.current();
+      unsubscribeCallDocRef.current = null;
+    }
+    if (unsubscribeCandidatesRef.current) {
+      unsubscribeCandidatesRef.current();
+      unsubscribeCandidatesRef.current = null;
+    }
     if (durationTimerRef.current) {
       clearInterval(durationTimerRef.current);
       durationTimerRef.current = null;
@@ -570,12 +388,6 @@ export const CallModal: React.FC<CallModalProps> = ({
     if (audioIntervalRef.current) {
       clearInterval(audioIntervalRef.current);
       audioIntervalRef.current = null;
-    }
-    if (simulatedPartnerFeedRef.current) {
-      try {
-        simulatedPartnerFeedRef.current.cleanup();
-      } catch {}
-      simulatedPartnerFeedRef.current = null;
     }
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
@@ -601,354 +413,294 @@ export const CallModal: React.FC<CallModalProps> = ({
     } catch (e) {}
   }, [stopAudioTone]);
 
-  // Main WebRTC Lifecycle & Firestore + BroadcastChannel Signaling Engine
-  useEffect(() => {
-    let isCancelled = false;
-    let unsubscribeCallDoc: () => void = () => {};
-    let unsubscribeCandidates: () => void = () => {};
-
-    // Tone feedback
-    if (session.status === 'dialing') {
-      startAudioTone('dialing');
-    } else if (session.status === 'ringing') {
-      startAudioTone('ringing');
-    } else {
-      stopAudioTone();
+  // Main stable WebRTC peer connection initializer
+  const initWebRTC = useCallback(async () => {
+    if (isPeerConnectionInitializedRef.current && peerConnectionRef.current) {
+      return;
     }
+    isPeerConnectionInitializedRef.current = true;
 
-    // Call duration timer
-    if (session.status === 'connected' || isRemoteConnected) {
-      wasConnectedRef.current = true;
-      if (!durationTimerRef.current) {
-        durationTimerRef.current = setInterval(() => {
-          setCallDuration(prev => prev + 1);
-        }, 1000);
+    const callDocRef = (isFirebaseConfigured && db && session.id) ? doc(db, 'calls', session.id) : null;
+
+    // 1. Acquire Local Media Stream
+    const localStream = await getLocalMediaStream(facingMode);
+    localStreamRef.current = localStream;
+
+    // Attach to preview immediately
+    attachStreamsToElements();
+    setupVoiceAnalyzer(localStream);
+
+    // 2. Initialize RTCPeerConnection
+    const pc = new RTCPeerConnection(ICE_SERVERS);
+    peerConnectionRef.current = pc;
+
+    // 3. Add all local media tracks to peer connection
+    localStream.getTracks().forEach(track => {
+      pc.addTrack(track, localStream);
+    });
+
+    // 4. Handle incoming remote media tracks
+    pc.ontrack = (event) => {
+      console.log("WebRTC ontrack event received:", event.track.kind, event.streams);
+
+      let remoteStream = remoteStreamRef.current;
+      if (!remoteStream) {
+        remoteStream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream();
+        remoteStreamRef.current = remoteStream;
       }
-    }
 
-    // Initialize BroadcastChannel for ultra-fast local multi-tab signaling accelerator
-    try {
-      if (typeof BroadcastChannel !== 'undefined') {
-        const channel = new BroadcastChannel(`zenoa_call_${session.id}`);
-        broadcastChannelRef.current = channel;
-      }
-    } catch (bcErr) {
-      console.warn("BroadcastChannel not supported in current environment:", bcErr);
-    }
-
-    const initWebRTC = async () => {
-      if (isPeerConnectionInitializedRef.current && peerConnectionRef.current) {
-        return;
-      }
-      isPeerConnectionInitializedRef.current = true;
-
-      const callDocRef = (isFirebaseConfigured && db && session.id) ? doc(db, 'calls', session.id) : null;
-
-      // 1. Acquire Local Media Stream
-      const localStream = await getLocalMediaStream(facingMode);
-      if (isCancelled) {
-        localStream.getTracks().forEach(t => t.stop());
-        return;
-      }
-      localStreamRef.current = localStream;
-
-      // Attach to preview immediately
-      attachStreamsToElements();
-      setupVoiceAnalyzer(localStream);
-
-      // 2. Initialize RTCPeerConnection
-      const pc = new RTCPeerConnection(ICE_SERVERS);
-      peerConnectionRef.current = pc;
-
-      // 3. Add all local media tracks to peer connection
-      localStream.getTracks().forEach(track => {
-        pc.addTrack(track, localStream);
-      });
-
-      // 4. Handle incoming remote media tracks
-      pc.ontrack = (event) => {
-        console.log("WebRTC ontrack event received:", event.track.kind, event.streams);
-        let remoteStream = remoteStreamRef.current;
-        if (!remoteStream) {
-          remoteStream = new MediaStream();
-          remoteStreamRef.current = remoteStream;
-        }
-
-        // Add track to remoteStream if not already included
+      if (event.streams && event.streams[0]) {
+        remoteStreamRef.current = event.streams[0];
+        remoteStream = event.streams[0];
+      } else {
         if (!remoteStream.getTracks().some(t => t.id === event.track.id)) {
           remoteStream.addTrack(event.track);
         }
+      }
 
-        if (event.streams && event.streams[0]) {
-          event.streams[0].getTracks().forEach(t => {
-            if (!remoteStream!.getTracks().some(existing => existing.id === t.id)) {
-              remoteStream!.addTrack(t);
-            }
-          });
-        }
+      // Bind streams to audio and video elements
+      attachStreamsToElements();
+      setupVoiceAnalyzer(localStream, remoteStream);
 
-        // Bind streams to audio and video elements
-        attachStreamsToElements();
-        setupVoiceAnalyzer(localStream, remoteStream);
+      setIsRemoteConnected(true);
+      wasConnectedRef.current = true;
+      stopAudioTone();
+    };
 
+    // 5. ICE Connection & Signaling State Monitoring
+    pc.oniceconnectionstatechange = () => {
+      console.log("ICE Connection State changed:", pc.iceConnectionState);
+      setIceState(pc.iceConnectionState);
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         setIsRemoteConnected(true);
         wasConnectedRef.current = true;
         stopAudioTone();
-      };
+        attachStreamsToElements();
+      }
+    };
 
-      // 5. ICE Connection & Signaling State Monitoring
-      pc.oniceconnectionstatechange = () => {
-        console.log("ICE Connection State changed:", pc.iceConnectionState);
-        setIceState(pc.iceConnectionState);
-        if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-          setIsRemoteConnected(true);
-          wasConnectedRef.current = true;
-          stopAudioTone();
-          attachStreamsToElements();
+    pc.onconnectionstatechange = () => {
+      console.log("Peer Connection State changed:", pc.connectionState);
+      if (pc.connectionState === 'connected') {
+        setIsRemoteConnected(true);
+        wasConnectedRef.current = true;
+        stopAudioTone();
+        attachStreamsToElements();
+      }
+    };
+
+    // 6. Handle local ICE candidates and dispatch to Firestore & BroadcastChannel
+    pc.onicecandidate = (event) => {
+      if (event.candidate && session.id) {
+        const candidateData = event.candidate.toJSON();
+        const candidateType = session.isIncoming ? 'calleeCandidates' : 'callerCandidates';
+        
+        // Dispatch via Firestore
+        if (callDocRef) {
+          const candidatesCol = collection(callDocRef, candidateType);
+          addDoc(candidatesCol, candidateData).catch(e => console.warn("ICE candidate push notice:", e));
         }
-      };
 
-      pc.onconnectionstatechange = () => {
-        console.log("Peer Connection State changed:", pc.connectionState);
-        if (pc.connectionState === 'connected') {
-          setIsRemoteConnected(true);
-          wasConnectedRef.current = true;
-          stopAudioTone();
-          attachStreamsToElements();
-        }
-      };
-
-      // 6. Handle local ICE candidates and dispatch to Firestore & BroadcastChannel
-      pc.onicecandidate = (event) => {
-        if (event.candidate && session.id) {
-          const candidateData = event.candidate.toJSON();
-          const candidateType = session.isIncoming ? 'calleeCandidates' : 'callerCandidates';
-          
-          // Dispatch via Firestore
-          if (callDocRef) {
-            const candidatesCol = collection(callDocRef, candidateType);
-            addDoc(candidatesCol, candidateData).catch(e => console.warn("ICE candidate push notice:", e));
-          }
-
-          // Dispatch via local BroadcastChannel accelerator
-          if (broadcastChannelRef.current) {
-            broadcastChannelRef.current.postMessage({
-              type: 'ice-candidate',
-              senderRole: session.isIncoming ? 'callee' : 'caller',
-              candidate: candidateData
-            });
-          }
-        }
-      };
-
-      // 7. Caller Flow: Create and push Offer
-      if (!session.isIncoming) {
-        try {
-          const offer = await pc.createOffer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: session.type === 'video'
+        // Dispatch via local BroadcastChannel accelerator
+        if (broadcastChannelRef.current) {
+          broadcastChannelRef.current.postMessage({
+            type: 'ice-candidate',
+            senderRole: session.isIncoming ? 'callee' : 'caller',
+            candidate: candidateData
           });
-          await pc.setLocalDescription(offer);
-
-          if (callDocRef) {
-            await updateDoc(callDocRef, {
-              offer: { type: offer.type, sdp: offer.sdp },
-              status: 'dialing',
-              created_at: session.startedAt || Date.now()
-            });
-          }
-
-          if (broadcastChannelRef.current) {
-            broadcastChannelRef.current.postMessage({
-              type: 'offer',
-              offer: { type: offer.type, sdp: offer.sdp }
-            });
-          }
-        } catch (offerErr) {
-          console.error("Failed to create WebRTC offer:", offerErr);
         }
       }
+    };
 
-      // 8. Callee Flow: If answered, handle existing offer or prepare answer
-      if (session.isIncoming && (session.status === 'connected' || isRemoteConnected)) {
-        if (callDocRef && !isSettingRemoteDescriptionRef.current) {
-          try {
-            const snap = await getDoc(callDocRef);
-            if (snap.exists()) {
-              const callData = snap.data();
-              if (callData.offer && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current) {
-                isSettingRemoteDescriptionRef.current = true;
-                await pc.setRemoteDescription(new RTCSessionDescription(callData.offer));
-                await processPendingCandidates(pc);
+    // 7. Caller Flow: Create and push Offer
+    if (!session.isIncoming) {
+      try {
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: session.type === 'video'
+        });
+        await pc.setLocalDescription(offer);
 
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-
-                await updateDoc(callDocRef, {
-                  answer: { type: answer.type, sdp: answer.sdp },
-                  status: 'connected',
-                  answered_at: Date.now()
-                });
-                isSettingRemoteDescriptionRef.current = false;
-
-                if (broadcastChannelRef.current) {
-                  broadcastChannelRef.current.postMessage({
-                    type: 'answer',
-                    answer: { type: answer.type, sdp: answer.sdp }
-                  });
-                }
-              }
-            }
-          } catch (calleeInitErr) {
-            isSettingRemoteDescriptionRef.current = false;
-            console.error("Callee answer initialization error:", calleeInitErr);
-          }
+        if (callDocRef) {
+          await updateDoc(callDocRef, {
+            offer: { type: offer.type, sdp: offer.sdp },
+            status: 'dialing',
+            created_at: session.startedAt || Date.now()
+          });
         }
+
+        if (broadcastChannelRef.current) {
+          broadcastChannelRef.current.postMessage({
+            type: 'offer',
+            offer: { type: offer.type, sdp: offer.sdp }
+          });
+        }
+      } catch (offerErr) {
+        console.error("Failed to create WebRTC offer:", offerErr);
       }
+    }
 
-      // 9. Listen to BroadcastChannel events
-      if (broadcastChannelRef.current) {
-        broadcastChannelRef.current.onmessage = async (e) => {
-          const msg = e.data;
-          if (!msg || !pc) return;
-
-          if (msg.type === 'offer' && session.isIncoming && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current) {
-            try {
+    // 8. Callee Flow: If answered, handle existing offer or prepare answer
+    if (session.isIncoming) {
+      if (callDocRef && !isSettingRemoteDescriptionRef.current) {
+        try {
+          const snap = await getDoc(callDocRef);
+          if (snap.exists()) {
+            const callData = snap.data();
+            if (callData.offer && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current) {
               isSettingRemoteDescriptionRef.current = true;
-              await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+              await pc.setRemoteDescription(new RTCSessionDescription(callData.offer));
               await processPendingCandidates(pc);
+
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
+
+              await updateDoc(callDocRef, {
+                answer: { type: answer.type, sdp: answer.sdp },
+                status: 'connected',
+                answered_at: Date.now()
+              });
               isSettingRemoteDescriptionRef.current = false;
+
               if (broadcastChannelRef.current) {
                 broadcastChannelRef.current.postMessage({
                   type: 'answer',
                   answer: { type: answer.type, sdp: answer.sdp }
                 });
               }
-            } catch (err) {
-              isSettingRemoteDescriptionRef.current = false;
-              console.warn("BC Offer handle notice:", err);
-            }
-          } else if (msg.type === 'answer' && !session.isIncoming && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current) {
-            try {
-              isSettingRemoteDescriptionRef.current = true;
-              await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
-              await processPendingCandidates(pc);
-              isSettingRemoteDescriptionRef.current = false;
-              setIsRemoteConnected(true);
-              wasConnectedRef.current = true;
-              stopAudioTone();
-            } catch (err) {
-              isSettingRemoteDescriptionRef.current = false;
-              console.warn("BC Answer handle notice:", err);
-            }
-          } else if (msg.type === 'ice-candidate') {
-            const expectedRole = session.isIncoming ? 'caller' : 'callee';
-            if (msg.senderRole === expectedRole && msg.candidate) {
-              addOrBufferCandidate(pc, msg.candidate);
             }
           }
-        };
+        } catch (calleeInitErr) {
+          isSettingRemoteDescriptionRef.current = false;
+          console.error("Callee answer initialization error:", calleeInitErr);
+        }
       }
+    }
 
-      // 10. Subscribe to Firestore Call Document updates
-      if (callDocRef) {
-        unsubscribeCallDoc = onSnapshot(
-          callDocRef,
-          async (snap) => {
-            if (!snap.exists()) return;
-            const data = snap.data();
-
-            // Handle remote hang up or decline
-            if (data.status === 'declined' || data.status === 'ended') {
-              handleCallEndedRemotely(data.status);
-              return;
-            }
-
-            // Caller detects Callee answered
-            if (!session.isIncoming && data.status === 'connected') {
-              setIsRemoteConnected(true);
-              wasConnectedRef.current = true;
-              stopAudioTone();
-              if (session.status !== 'connected') {
-                onAnswerCall();
+    // 9. Subscribe to Remote ICE Candidates from subcollection
+    if (callDocRef) {
+      const candidatesToListen = session.isIncoming ? 'callerCandidates' : 'calleeCandidates';
+      const candidatesCollection = collection(callDocRef, candidatesToListen);
+      unsubscribeCandidatesRef.current = onSnapshot(
+        candidatesCollection,
+        (snapshot) => {
+          snapshot.docChanges().forEach(async (change) => {
+            if (change.type === 'added') {
+              const candidateData = change.doc.data();
+              if (candidateData) {
+                addOrBufferCandidate(pc, candidateData);
               }
             }
+          });
+        },
+        (err) => {
+          console.warn("Call candidates listener notice:", err.message);
+        }
+      );
+    }
+  }, [facingMode, session.id, session.isIncoming, session.type, db, isFirebaseConfigured, session.startedAt, attachStreamsToElements]);
 
-            // Callee receives caller's offer
-            if (session.isIncoming && data.offer && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current && (session.status === 'connected' || isRemoteConnected)) {
+  // Lifecycles: dialing/ringing tones & Call duration timers
+  useEffect(() => {
+    if (session.status === 'dialing') {
+      startAudioTone('dialing');
+    } else if (session.status === 'ringing') {
+      startAudioTone('ringing');
+    } else if (session.status === 'connected' || isRemoteConnected) {
+      stopAudioTone();
+      wasConnectedRef.current = true;
+      if (!durationTimerRef.current) {
+        durationTimerRef.current = setInterval(() => {
+          setCallDuration(prev => prev + 1);
+        }, 1000);
+      }
+    } else {
+      stopAudioTone();
+    }
+  }, [session.status, isRemoteConnected, startAudioTone, stopAudioTone]);
+
+  // Main signaling listeners (Firestore snapshot + BroadcastChannel message handling)
+  useEffect(() => {
+    let isCancelled = false;
+
+    // Initialize BroadcastChannel
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        const channel = new BroadcastChannel(`zenoa_call_${session.id}`);
+        broadcastChannelRef.current = channel;
+
+        channel.onmessage = async (e) => {
+          const msg = e.data;
+          if (!msg || isCancelled) return;
+          const pc = peerConnectionRef.current;
+
+          if (msg.type === 'offer' && session.isIncoming) {
+            if (pc && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current) {
               try {
                 isSettingRemoteDescriptionRef.current = true;
-                await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+                await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
                 await processPendingCandidates(pc);
-
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer);
-
-                await updateDoc(callDocRef, {
-                  answer: { type: answer.type, sdp: answer.sdp },
-                  status: 'connected',
-                  answered_at: Date.now()
-                });
                 isSettingRemoteDescriptionRef.current = false;
-              } catch (e) {
+                if (broadcastChannelRef.current) {
+                  broadcastChannelRef.current.postMessage({
+                    type: 'answer',
+                    answer: { type: answer.type, sdp: answer.sdp }
+                  });
+                }
+              } catch (err) {
                 isSettingRemoteDescriptionRef.current = false;
-                console.warn("Offer handling notice:", e);
+                console.warn("BC Offer handle notice:", err);
               }
             }
-
-            // Caller receives callee's answer
-            if (!session.isIncoming && data.answer && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current) {
+          } else if (msg.type === 'answer' && !session.isIncoming) {
+            if (pc && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current) {
               try {
                 isSettingRemoteDescriptionRef.current = true;
-                await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+                await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
                 await processPendingCandidates(pc);
                 isSettingRemoteDescriptionRef.current = false;
                 setIsRemoteConnected(true);
                 wasConnectedRef.current = true;
                 stopAudioTone();
-              } catch (e) {
+              } catch (err) {
                 isSettingRemoteDescriptionRef.current = false;
-                console.warn("Answer handling notice:", e);
+                console.warn("BC Answer handle notice:", err);
               }
             }
-          },
-          (err) => {
-            console.warn("Call document listener notice:", err.message);
+          } else if (msg.type === 'hangup' || msg.type === 'ended' || msg.type === 'decline') {
+            handleCallEndedRemotely(msg.type === 'decline' ? 'declined' : 'ended');
+          } else if (msg.type === 'ice-candidate') {
+            const expectedRole = session.isIncoming ? 'caller' : 'callee';
+            if (msg.senderRole === expectedRole && msg.candidate && pc) {
+              addOrBufferCandidate(pc, msg.candidate);
+            }
           }
-        );
-
-        // 11. Subscribe to Remote ICE Candidates from subcollection
-        const candidatesToListen = session.isIncoming ? 'callerCandidates' : 'calleeCandidates';
-        const candidatesCollection = collection(callDocRef, candidatesToListen);
-        unsubscribeCandidates = onSnapshot(
-          candidatesCollection,
-          (snapshot) => {
-            snapshot.docChanges().forEach(async (change) => {
-              if (change.type === 'added') {
-                const candidateData = change.doc.data();
-                if (candidateData) {
-                  addOrBufferCandidate(pc, candidateData);
-                }
-              }
-            });
-          },
-          (err) => {
-            console.warn("Call candidates listener notice:", err.message);
-          }
-        );
+        };
       }
+    } catch (bcErr) {
+      console.warn("BroadcastChannel support warning:", bcErr);
+    }
 
-      // 12. Ensure media stream is present for remote view (simulation for demo/offline users or single-tab preview)
-      const fallbackTimer = setTimeout(() => {
-        if (!isCancelled && (!remoteStreamRef.current || remoteStreamRef.current.getVideoTracks().length === 0)) {
-          if (!simulatedPartnerFeedRef.current) {
-            const simulated = createInteractivePartnerVideoStream(session.partnerName, session.partnerAvatarUrl, session.partnerUsername);
-            simulatedPartnerFeedRef.current = simulated;
-            remoteStreamRef.current = simulated.stream;
-            attachStreamsToElements();
-            setupVoiceAnalyzer(localStream, simulated.stream);
+    // Initialize Firestore call document listener
+    const callDocRef = (isFirebaseConfigured && db && session.id) ? doc(db, 'calls', session.id) : null;
+    if (callDocRef) {
+      unsubscribeCallDocRef.current = onSnapshot(
+        callDocRef,
+        async (snap) => {
+          if (!snap.exists() || isCancelled) return;
+          const data = snap.data();
+          const pc = peerConnectionRef.current;
+
+          // Remote hang up or decline
+          if (data.status === 'declined' || data.status === 'ended') {
+            handleCallEndedRemotely(data.status);
+            return;
+          }
+
+          // Caller detects callee answered
+          if (!session.isIncoming && data.status === 'connected') {
             setIsRemoteConnected(true);
             wasConnectedRef.current = true;
             stopAudioTone();
@@ -956,25 +708,77 @@ export const CallModal: React.FC<CallModalProps> = ({
               onAnswerCall();
             }
           }
-        }
-      }, session.isIncoming ? 600 : 2000);
-    };
 
-    // If caller or answering incoming call, run WebRTC initialization
-    if (!session.isIncoming || session.status === 'connected') {
+          // Callee receives caller's offer
+          if (session.isIncoming && data.offer && pc && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current && session.status === 'connected') {
+            try {
+              isSettingRemoteDescriptionRef.current = true;
+              await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+              await processPendingCandidates(pc);
+
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+
+              await updateDoc(callDocRef, {
+                answer: { type: answer.type, sdp: answer.sdp },
+                status: 'connected',
+                answered_at: Date.now()
+              });
+              isSettingRemoteDescriptionRef.current = false;
+            } catch (e) {
+              isSettingRemoteDescriptionRef.current = false;
+              console.warn("Offer handling notice:", e);
+            }
+          }
+
+          // Caller receives callee's answer
+          if (!session.isIncoming && data.answer && pc && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current) {
+            try {
+              isSettingRemoteDescriptionRef.current = true;
+              await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+              await processPendingCandidates(pc);
+              isSettingRemoteDescriptionRef.current = false;
+              setIsRemoteConnected(true);
+              wasConnectedRef.current = true;
+              stopAudioTone();
+            } catch (e) {
+              isSettingRemoteDescriptionRef.current = false;
+              console.warn("Answer handling notice:", e);
+            }
+          }
+        },
+        (err) => {
+          console.warn("Call snapshot listener notice:", err.message);
+        }
+      );
+    }
+
+    // Trigger immediate WebRTC signaling for the Caller
+    if (!session.isIncoming) {
+      console.log("Caller triggering WebRTC initialization immediately...");
       initWebRTC();
     }
 
     return () => {
       isCancelled = true;
-      stopAudioTone();
-      unsubscribeCallDoc();
-      unsubscribeCandidates();
-      cleanupCall();
-      isPeerConnectionInitializedRef.current = false;
-      isSettingRemoteDescriptionRef.current = false;
     };
-  }, [session.status, session.id, session.isIncoming, isRemoteConnected]);
+  }, [session.id, session.isIncoming, initWebRTC]);
+
+  // Callee WebRTC Trigger
+  useEffect(() => {
+    if (session.isIncoming && session.status === 'connected' && !isPeerConnectionInitializedRef.current) {
+      console.log("Callee accepted call, starting peer connection...");
+      initWebRTC();
+    }
+  }, [session.status, session.isIncoming, initWebRTC]);
+
+  // Clean up all resources strictly when component unmounts
+  useEffect(() => {
+    return () => {
+      console.log("CallModal unmounted. Destroying WebRTC and active listeners...");
+      cleanupCall();
+    };
+  }, [cleanupCall]);
 
   // Format Duration string MM:SS or HH:MM:SS
   const formatTime = (secs: number) => {
@@ -1027,6 +831,7 @@ export const CallModal: React.FC<CallModalProps> = ({
 
     if (broadcastChannelRef.current) {
       broadcastChannelRef.current.postMessage({ type: 'hangup' });
+      broadcastChannelRef.current.postMessage({ type: 'ended' });
     }
 
     cleanupCall();
@@ -1034,7 +839,8 @@ export const CallModal: React.FC<CallModalProps> = ({
     if (isFirebaseConfigured && db && session.id) {
       try {
         await updateDoc(doc(db, 'calls', session.id), {
-          status: wasConnected ? 'answered' : (session.isIncoming ? 'declined' : 'unanswered'),
+          status: 'ended',
+          end_reason: wasConnected ? 'answered' : (session.isIncoming ? 'declined' : 'unanswered'),
           ended_at: Date.now(),
           duration: finalDuration,
           duration_seconds: finalDuration,
