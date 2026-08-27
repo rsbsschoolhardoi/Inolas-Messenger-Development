@@ -864,22 +864,53 @@ export default function App() {
 
     return Array.from(finalMap.values());
   }, [users]);
-  const [chats, setChats] = useState<Chat[]>(() => {
+  // Clean up legacy un-scoped cache keys to prevent data leakage across accounts
+  useEffect(() => {
     try {
-      const cached = localStorage.getItem('zenoa_cached_chats');
-      if (cached) return JSON.parse(cached);
+      localStorage.removeItem('zenoa_cached_chats');
+      localStorage.removeItem('zenoa_cached_messages');
     } catch {}
-    return [];
-  });
+  }, []);
+
+  const [chats, setChats] = useState<Chat[]>([]);
   const chatsRef = useRef<Chat[]>([]);
+
+  // Load user-scoped chats when username changes
+  useEffect(() => {
+    if (userUsername) {
+      try {
+        const cached = localStorage.getItem(`zenoa_cached_chats_${userUsername.toLowerCase()}`);
+        if (cached) {
+          setChats(JSON.parse(cached));
+        }
+      } catch {}
+    } else {
+      setChats([]);
+    }
+  }, [userUsername]);
+
   useEffect(() => { 
     chatsRef.current = chats; 
-    if (chats && chats.length > 0) {
-      try { localStorage.setItem('zenoa_cached_chats', JSON.stringify(chats)); } catch {}
+    if (userUsername && chats && chats.length > 0) {
+      try { localStorage.setItem(`zenoa_cached_chats_${userUsername.toLowerCase()}`, JSON.stringify(chats)); } catch {}
     }
-  }, [chats]);
+  }, [chats, userUsername]);
 
   const [messagesByChat, setMessagesByChat] = useState<Record<string, Message[]>>({});
+
+  // Load user-scoped messages when username changes
+  useEffect(() => {
+    if (userUsername) {
+      try {
+        const cached = localStorage.getItem(`zenoa_cached_messages_${userUsername.toLowerCase()}`);
+        if (cached) {
+          setMessagesByChat(JSON.parse(cached));
+        }
+      } catch {}
+    } else {
+      setMessagesByChat({});
+    }
+  }, [userUsername]);
 
   useEffect(() => {
     const loadMessages = async () => {
@@ -891,7 +922,7 @@ export default function App() {
             loadedMessages[chat.id] = msgs;
           }
         }
-        setMessagesByChat(loadedMessages);
+        setMessagesByChat(prev => ({ ...prev, ...loadedMessages }));
       } catch (err) {
         console.error("Failed to load messages from IndexedDB", err);
       }
@@ -905,8 +936,8 @@ export default function App() {
   const MESSAGE_PAGE_SIZE = 40;
 
   useEffect(() => {
-    if (messagesByChat && Object.keys(messagesByChat).length > 0) {
-      try { localStorage.setItem('zenoa_cached_messages', JSON.stringify(messagesByChat)); } catch {}
+    if (userUsername && messagesByChat && Object.keys(messagesByChat).length > 0) {
+      try { localStorage.setItem(`zenoa_cached_messages_${userUsername.toLowerCase()}`, JSON.stringify(messagesByChat)); } catch {}
       // Sync to High-Capacity IndexedDB in background
       try {
         const allMsgs = Object.values(messagesByChat).flat();
@@ -915,7 +946,7 @@ export default function App() {
         }
       } catch {}
     }
-  }, [messagesByChat]);
+  }, [messagesByChat, userUsername]);
   const [activeChatId, setActiveChatId] = useState<string>('');
 
   // Modals, Context Menus & WhatsApp Chat Controls
@@ -1301,7 +1332,17 @@ export default function App() {
         snapshot.forEach(docSnap => {
           const c = docSnap.data();
           if (c.id && !chatMap.has(c.id)) {
-            const otherUser = (c.participants || []).find((p: string) => !isSenderMe(p) && p !== userUsername && p !== userId) || (c.username !== userUsername ? c.username : '') || '';
+            const participants = Array.isArray(c.participants) ? c.participants : [];
+            const participantIds = Array.isArray(c.participant_ids) ? c.participant_ids : [];
+            
+            // Strict Zero-Trust Privacy Gate: Verify user is a participant or group member
+            const isParticipant = participants.some((p: string) => isSenderMe(p) || p === userUsername || p === userId) ||
+                                  participantIds.some((p: string) => p === userId || p === userUsername);
+            if (!isParticipant) {
+              return; // DROP: Current user is NOT a participant of this chat
+            }
+
+            const otherUser = participants.find((p: string) => !isSenderMe(p) && p !== userUsername && p !== userId) || (c.username !== userUsername ? c.username : '') || '';
             const uProfile = users[otherUser] || Object.values(users).find(u => u.username === otherUser || u.id === otherUser || u.previous_usernames?.includes(otherUser));
 
             const resolvedPartnerUsername = uProfile?.username || otherUser || c.username || '';
@@ -1321,7 +1362,9 @@ export default function App() {
               last_time: c.last_time || '',
               pinned: c.pinned || false,
               muted: c.muted || false,
-              typing: c.typing || false,
+              typing: (c.typing_username && c.typing_username !== userUsername && c.typing_updated_at && (Date.now() - c.typing_updated_at < 6000)) || (c.typing && c.typing_username !== userUsername) || false,
+              typing_username: c.typing_username && c.typing_username !== userUsername ? c.typing_username : undefined,
+              typing_updated_at: c.typing_updated_at,
               online: c.type === 'dm' ? isUserEffectivelyOnline(uProfile) : (c.online || false),
               last_seen: c.type === 'dm' ? (uProfile?.last_seen || '') : (c.last_seen || ''),
               activity_type: c.activity_type || 'none',
@@ -1395,6 +1438,19 @@ export default function App() {
   // Synchronize messages for the active chat only
   useEffect(() => {
     if (!isFirebaseConfigured || !db || !activeChatId || !userUsername) {
+      return;
+    }
+
+    // Zero-Trust Check: Confirm active chat belongs to current user
+    const currentChat = chats.find(c => c.id === activeChatId);
+    if (!currentChat) {
+      return;
+    }
+    const isParticipant = (currentChat.participants || []).some((p: string) => isSenderMe(p) || p === userUsername || p === userId) ||
+                          (currentChat.participant_ids || []).some((p: string) => p === userId || p === userUsername);
+    if (!isParticipant) {
+      console.warn("Unauthorized active chat access attempt blocked:", activeChatId);
+      setActiveChatId('');
       return;
     }
 
@@ -1489,17 +1545,23 @@ export default function App() {
           });
 
         if (activeMsgs.length > 0) {
-          // 1. Save all incoming relayed messages to local device IndexedDB
+          // 1. Save all incoming messages to local device IndexedDB
           storageManager.saveMessages(activeMsgs).catch(() => {});
 
-          // 2. Immediate cloud purge: Delete messages from Firestore relay after local consumption
+          // 2. Mark incoming unread messages as read in real-time
           snapshot.docs.forEach(docSnap => {
             const m = docSnap.data();
-            // Purge incoming messages from others or processed messages so zero copy stays in Firestore cloud
-            if (m.sender !== userUsername || m.read_by?.length > 0) {
-              deleteDoc(doc(db, 'messages', docSnap.id)).catch(() => {});
+            if (m.sender !== userUsername && (!m.read_by || !Array.isArray(m.read_by) || !m.read_by.includes(userUsername))) {
+              updateDoc(doc(db, 'messages', docSnap.id), {
+                read_by: arrayUnion(userUsername)
+              }).catch(() => {});
             }
           });
+
+          // Mark chat as read
+          setDoc(doc(db, 'chats', activeChatId), {
+            last_message_status: 'read'
+          }, { merge: true }).catch(() => {});
         }
 
         // Fetch all local messages from IndexedDB for this chat to combine history
@@ -1595,7 +1657,7 @@ export default function App() {
         snapshot.docChanges().forEach((change) => {
           if (change.type === 'added' || change.type === 'modified') {
             const callData = change.doc.data();
-            if (callData.status === 'dialing') {
+            if (callData.status === 'dialing' && (callData.receiver === userUsername || callData.receiver_uid === userId)) {
               const callerUserObj = users[callData.caller] || Object.values(users).find(u => u.username === callData.caller);
               setActiveCallSession({
                 id: callData.id,
@@ -1622,7 +1684,7 @@ export default function App() {
         localBroadcastChannel = new BroadcastChannel(`zenoa_incoming_calls_${userUsername}`);
         localBroadcastChannel.onmessage = (e) => {
           const callData = e.data;
-          if (callData && callData.status === 'dialing') {
+          if (callData && callData.status === 'dialing' && (callData.receiver === userUsername || callData.receiver_uid === userId)) {
             const callerUserObj = users[callData.caller] || Object.values(users).find(u => u.username === callData.caller);
             setActiveCallSession({
               id: callData.id,
@@ -3354,7 +3416,26 @@ export default function App() {
       setReplyToSender('');
     }
 
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    if (activeChatId && isFirebaseConfigured && db) {
+      setDoc(doc(db, 'chats', activeChatId), {
+        typing_username: null,
+        typing_updated_at: null
+      }, { merge: true }).catch(() => {});
+    }
+    try {
+      if (typeof BroadcastChannel !== 'undefined' && activeChatId) {
+        const bc = new BroadcastChannel('zenoa_typing_events');
+        bc.postMessage({ chatId: activeChatId, sender: userUsername, isTyping: false });
+        setTimeout(() => bc.close(), 500);
+      }
+    } catch (e) {}
+
     setComposerText('');
+    setMyActivityType('none');
     setShowEmojiPanel(false);
     setShowStickerPanel(false);
   };
@@ -3581,6 +3662,12 @@ export default function App() {
         if (activeChat) {
           await setDoc(doc(db, 'chats', activeChatId), {
             id: activeChatId,
+            type: activeChat.type,
+            name: activeChat.name,
+            username: activeChat.username,
+            avatar_seed: activeChat.avatar_seed,
+            avatar_url: activeChat.avatar_url || '',
+            participants: activeChat.participants,
             last_message: 'Voice Note (' + (durationFormatted || '0:05') + ')',
             last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
           }, { merge: true });
@@ -3871,6 +3958,12 @@ export default function App() {
           if (activeChat) {
             await setDoc(doc(db, 'chats', activeChatId), {
               id: activeChatId,
+              type: activeChat.type,
+              name: activeChat.name,
+              username: activeChat.username,
+              avatar_seed: activeChat.avatar_seed,
+              avatar_url: activeChat.avatar_url || '',
+              participants: activeChat.participants,
               last_message: file.name,
               last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
             }, { merge: true });
@@ -3929,6 +4022,21 @@ export default function App() {
           reactions: [],
           read_by: []
         });
+
+        const activeChat = chats.find(c => c.id === activeChatId);
+        if (activeChat) {
+          await setDoc(doc(db, 'chats', activeChatId), {
+            id: activeChatId,
+            type: activeChat.type,
+            name: activeChat.name,
+            username: activeChat.username,
+            avatar_seed: activeChat.avatar_seed,
+            avatar_url: activeChat.avatar_url || '',
+            participants: activeChat.participants,
+            last_message: `Location: ${locationTitle}`,
+            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
+          }, { merge: true });
+        }
       } catch (err) {
         console.warn("Firebase location send warning:", err);
       }
@@ -3982,6 +4090,21 @@ export default function App() {
           reactions: [],
           read_by: []
         });
+
+        const activeChat = chats.find(c => c.id === activeChatId);
+        if (activeChat) {
+          await setDoc(doc(db, 'chats', activeChatId), {
+            id: activeChatId,
+            type: activeChat.type,
+            name: activeChat.name,
+            username: activeChat.username,
+            avatar_seed: activeChat.avatar_seed,
+            avatar_url: activeChat.avatar_url || '',
+            participants: activeChat.participants,
+            last_message: `Contact: ${contactName}`,
+            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
+          }, { merge: true });
+        }
       } catch (err) {
         console.warn("Firebase contact send warning:", err);
       }
@@ -4042,6 +4165,21 @@ export default function App() {
           reactions: [],
           read_by: []
         });
+
+        const activeChat = chats.find(c => c.id === activeChatId);
+        if (activeChat) {
+          await setDoc(doc(db, 'chats', activeChatId), {
+            id: activeChatId,
+            type: activeChat.type,
+            name: activeChat.name,
+            username: activeChat.username,
+            avatar_seed: activeChat.avatar_seed,
+            avatar_url: activeChat.avatar_url || '',
+            participants: activeChat.participants,
+            last_message: `Poll: ${pollQuestion}`,
+            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
+          }, { merge: true });
+        }
       } catch (err) {
         console.warn("Firebase poll send warning:", err);
       }
@@ -4493,7 +4631,7 @@ export default function App() {
         avatar_url: user.avatar_url,
         participants: [selfName, user.username],
         unread: 0,
-        last_message: 'Chat started',
+        last_message: '',
         last_time: 'now',
         updated_at: Date.now(),
         last_message_sender: selfName,
@@ -4504,28 +4642,6 @@ export default function App() {
         online: isUserEffectivelyOnline(user),
         last_seen: user.last_seen
       };
-
-      if (isFirebaseConfigured && db && auth) {
-        try {
-          await setDoc(doc(db, 'chats', targetChatId), {
-            id: targetChatId,
-            type: 'dm',
-            name: user.display_name,
-            username: user.username,
-            avatar_seed: user.avatar_seed || user.username,
-            avatar_url: user.avatar_url || '',
-            participants: [selfName, user.username],
-            unread: 0,
-            last_message: 'Chat started',
-            last_time: 'now',
-            updated_at: Date.now(),
-            last_message_sender: selfName,
-            last_message_status: 'delivered' as const
-          }, { merge: true });
-        } catch (err) {
-          console.error("Error creating chat in Firebase:", err);
-        }
-      }
 
       setChats(prev => {
         if (prev.some(c => c.id === targetChatId)) return prev;
@@ -5108,6 +5224,89 @@ export default function App() {
 
     showToast(makeAdmin ? `@${targetUsername} promoted to Admin` : `@${targetUsername} demoted from Admin`);
   };
+
+  // --- REAL-TIME TYPING ENGINE ---
+  const typingTimeoutRef = useRef<any>(null);
+
+  const handleComposerChange = (text: string) => {
+    setComposerText(text);
+    setMyActivityType(text ? 'typing' : 'none');
+
+    const isTypingNow = text.trim().length > 0;
+
+    // 1. BroadcastChannel local multi-tab instant sync
+    try {
+      if (typeof BroadcastChannel !== 'undefined' && activeChatId) {
+        const bc = new BroadcastChannel('zenoa_typing_events');
+        bc.postMessage({ chatId: activeChatId, sender: userUsername, isTyping: isTypingNow });
+        setTimeout(() => bc.close(), 500);
+      }
+    } catch (e) {}
+
+    // 2. Firestore document typing update
+    if (activeChatId && isFirebaseConfigured && db) {
+      if (isTypingNow) {
+        if (!typingTimeoutRef.current) {
+          setDoc(doc(db, 'chats', activeChatId), {
+            typing_username: userUsername,
+            typing_updated_at: Date.now()
+          }, { merge: true }).catch(() => {});
+        }
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          setDoc(doc(db, 'chats', activeChatId), {
+            typing_username: null,
+            typing_updated_at: null
+          }, { merge: true }).catch(() => {});
+          try {
+            if (typeof BroadcastChannel !== 'undefined') {
+              const bc = new BroadcastChannel('zenoa_typing_events');
+              bc.postMessage({ chatId: activeChatId, sender: userUsername, isTyping: false });
+              setTimeout(() => bc.close(), 500);
+            }
+          } catch (e) {}
+          typingTimeoutRef.current = null;
+        }, 3500);
+      } else {
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = null;
+        }
+        setDoc(doc(db, 'chats', activeChatId), {
+          typing_username: null,
+          typing_updated_at: null
+        }, { merge: true }).catch(() => {});
+      }
+    }
+  };
+
+  useEffect(() => {
+    let bc: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel('zenoa_typing_events');
+        bc.onmessage = (e) => {
+          const { chatId, sender, isTyping } = e.data || {};
+          if (chatId && sender && sender !== userUsername) {
+            setChats(prev => prev.map(c => {
+              if (c.id === chatId) {
+                return {
+                  ...c,
+                  typing: isTyping,
+                  typing_username: isTyping ? sender : undefined
+                };
+              }
+              return c;
+            }));
+          }
+        };
+      }
+    } catch (err) {}
+
+    return () => {
+      if (bc) bc.close();
+    };
+  }, [userUsername]);
 
   // Sidebar controls
   const handleToggleMuteChat = (e: React.MouseEvent, chatId: string) => {
@@ -5759,13 +5958,13 @@ export default function App() {
                           <div className="flex justify-between items-center mt-1 min-w-0">
                             <p className="text-xs text-neutral-500 dark:text-neutral-400 truncate pr-2 flex-1 min-w-0 flex items-center gap-1">
                               {chat.last_message_sender === userUsername && chat.last_message && chat.last_message !== 'Chat history cleared' && (
-                                <span className="shrink-0">
+                                <span className="shrink-0 inline-flex items-center">
                                   {chat.last_message_status === 'read' ? (
-                                    <CheckCheck className="h-3.5 w-3.5 text-neutral-700 dark:text-neutral-300" />
+                                    <CheckCheck className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400 stroke-[2.5]" />
                                   ) : chat.last_message_status === 'delivered' ? (
-                                    <CheckCheck className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" />
+                                    <CheckCheck className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500 stroke-[2]" />
                                   ) : (
-                                    <Check className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" />
+                                    <Check className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500 stroke-[2]" />
                                   )}
                                 </span>
                               )}
@@ -5902,7 +6101,14 @@ export default function App() {
                           <Mic className="h-3 w-3" /> recording voice note...
                         </span>
                       ) : activeChat.typing || activeChat.activity_type === 'typing' ? (
-                        <span className="text-neutral-700 dark:text-neutral-300 font-bold animate-pulse">typing...</span>
+                        <span className="text-neutral-700 dark:text-neutral-300 font-bold flex items-center gap-1">
+                          <span>typing</span>
+                          <span className="flex items-center gap-0.5 ml-0.5">
+                            <span className="h-1.5 w-1.5 rounded-full bg-neutral-600 dark:bg-neutral-300 animate-bounce [animation-delay:-0.3s]" />
+                            <span className="h-1.5 w-1.5 rounded-full bg-neutral-600 dark:bg-neutral-300 animate-bounce [animation-delay:-0.15s]" />
+                            <span className="h-1.5 w-1.5 rounded-full bg-neutral-600 dark:bg-neutral-300 animate-bounce" />
+                          </span>
+                        </span>
                       ) : activeChat.activity_type === 'in_call' ? (
                         <span className="text-neutral-900 dark:text-neutral-100 font-bold flex items-center gap-1">
                           <Phone className="h-3 w-3" /> in audio call...
@@ -5919,6 +6125,26 @@ export default function App() {
                 </div>
                 
                 <div className="flex items-center gap-1.5 relative">
+                  {/* Voice & Video Call Buttons for 1-on-1 Chats */}
+                  {activeChat.type !== 'group' && (
+                    <>
+                      <button 
+                        onClick={() => handleStartCall('voice')} 
+                        className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer active:scale-95" 
+                        title="Voice Call"
+                      >
+                        <Phone className="h-4 w-4" />
+                      </button>
+                      <button 
+                        onClick={() => handleStartCall('video')} 
+                        className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer active:scale-95" 
+                        title="Video Call"
+                      >
+                        <Video className="h-4 w-4" />
+                      </button>
+                    </>
+                  )}
+
                   {/* Group Info Icon or Follow Text Button */}
                   {activeChat.type === 'group' ? (
                     <button
@@ -6063,6 +6289,7 @@ export default function App() {
                           senderName={senderName}
                           senderUsername={senderUsername}
                           isFirstInGroup={isFirstInGroup}
+                          isGroup={activeChat?.type === 'group'}
                           privacyReadReceipts={privacyReadReceipts}
                           isDelivered={isDelivered}
                           themeId={chatWallpapers[activeChatId] || DEFAULT_THEME_ID}
@@ -6076,6 +6303,21 @@ export default function App() {
                       </React.Fragment>
                     );
                   })
+                )}
+                {/* Real-Time Typing Indicator Bubble with 3 Jumping Dots */}
+                {(activeChat?.typing || activeChat?.activity_type === 'typing') && (
+                  <div className="flex items-center gap-2 my-2 select-none animate-fade-in">
+                    <div className="bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 px-3.5 py-2 rounded-2xl rounded-bl-xs border border-neutral-200/60 dark:border-neutral-700/60 shadow-2xs flex items-center gap-2">
+                      <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">
+                        {activeChat.type === 'group' && activeChat.typing_username ? `${getSenderDisplayName(activeChat.typing_username)} is typing` : 'typing'}
+                      </span>
+                      <div className="flex items-center gap-1 pl-0.5">
+                        <span className="h-2 w-2 rounded-full bg-neutral-600 dark:bg-neutral-300 animate-bounce [animation-delay:-0.3s]" />
+                        <span className="h-2 w-2 rounded-full bg-neutral-600 dark:bg-neutral-300 animate-bounce [animation-delay:-0.15s]" />
+                        <span className="h-2 w-2 rounded-full bg-neutral-600 dark:bg-neutral-300 animate-bounce" />
+                      </div>
+                    </div>
+                  </div>
                 )}
                 <div ref={messagesEndRef} />
               </div>
@@ -6457,10 +6699,7 @@ export default function App() {
                     <input 
                       type="text" 
                       value={composerText}
-                      onChange={e => {
-                        setComposerText(e.target.value);
-                        setMyActivityType(e.target.value ? 'typing' : 'none');
-                      }}
+                      onChange={e => handleComposerChange(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
                       placeholder="Type a message..."
                       className="flex-1 px-2 py-1.5 text-sm bg-transparent border-0 outline-none placeholder:text-neutral-500 dark:text-neutral-400 text-neutral-900 dark:text-neutral-100 min-w-0"

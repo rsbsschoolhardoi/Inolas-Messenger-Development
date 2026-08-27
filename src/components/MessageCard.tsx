@@ -18,6 +18,7 @@ interface MessageCardProps {
   senderName: string;
   senderUsername: string;
   isFirstInGroup: boolean;
+  isGroup?: boolean;
   privacyReadReceipts: boolean;
   isDelivered: boolean;
   themeId?: string;
@@ -38,6 +39,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
   senderName,
   senderUsername,
   isFirstInGroup,
+  isGroup = false,
   privacyReadReceipts,
   isDelivered,
   themeId,
@@ -167,8 +169,8 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                 : `${activeTheme.bubble.receivedBg || 'bg-white dark:bg-neutral-900'} ${activeTheme.bubble.receivedText || 'text-neutral-900 dark:text-neutral-100'} rounded-tl-xs ${activeTheme.bubble.borderStyle || 'border border-neutral-200/70 dark:border-neutral-800'} shadow-neutral-900/5`
           }`}
         >
-          {/* SENDER NAME AT TOP INSIDE CARD */}
-          {!isMe && isFirstInGroup && !msg.deleted_for_everyone && (
+          {/* SENDER NAME AT TOP INSIDE CARD (Group chats only) */}
+          {!isMe && isGroup && isFirstInGroup && !msg.deleted_for_everyone && (
             <div className="flex items-center gap-1 mb-1 pb-0.5 border-b border-black/5 dark:border-white/5 select-none">
               <span className={`text-[11px] font-bold ${isReceivedDark ? 'text-indigo-300' : 'text-neutral-900 dark:text-neutral-100'}`}>
                 {senderName}
@@ -562,15 +564,15 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                   <span className="ml-0.5 inline-flex items-center">
                     {(() => {
                       if (!privacyReadReceipts) {
-                        return <Check className={`h-3 w-3 stroke-[2] ${isSentDark ? 'text-white/80' : 'text-slate-600'}`} />;
+                        return <Check className="h-3.5 w-3.5 stroke-[2] text-neutral-400/90" />;
                       }
                       if (isRead) {
-                        return <CheckCheck className={`h-3 w-3 stroke-[2.5] ${isSentDark ? 'text-sky-300' : 'text-sky-600'}`} />;
+                        return <CheckCheck className="h-3.5 w-3.5 stroke-[2.5] text-sky-400 dark:text-sky-300 drop-shadow-[0_0_2px_rgba(56,189,248,0.4)]" />;
                       }
                       if (isDelivered) {
-                        return <CheckCheck className={`h-3 w-3 stroke-[2] ${isSentDark ? 'text-white/80' : 'text-slate-600'}`} />;
+                        return <CheckCheck className="h-3.5 w-3.5 stroke-[2] text-neutral-400 dark:text-neutral-500" />;
                       }
-                      return <Check className={`h-3 w-3 stroke-[2] ${isSentDark ? 'text-white/70' : 'text-slate-500'}`} />;
+                      return <Check className="h-3.5 w-3.5 stroke-[2] text-neutral-400 dark:text-neutral-500" />;
                     })()}
                   </span>
                 )}

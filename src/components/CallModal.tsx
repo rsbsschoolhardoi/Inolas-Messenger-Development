@@ -83,9 +83,9 @@ export const CallModal: React.FC<CallModalProps> = ({
   const durationTimerRef = useRef<any>(null);
   const callDurationRef = useRef<number>(0);
 
-  // Media Streams & Peer Connection Refs
-  const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  // Stable Media Streams & Peer Connection Refs (Never swap DOM refs directly in JSX!)
+  const mainVideoElementRef = useRef<HTMLVideoElement | null>(null);
+  const pipVideoElementRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
@@ -292,36 +292,42 @@ export const CallModal: React.FC<CallModalProps> = ({
     const remoteStream = remoteStreamRef.current;
 
     if (isVideo) {
-      if (isSwapped) {
-        // Local is Main, Remote is PiP
-        if (localVideoRef.current && localStream && localVideoRef.current.srcObject !== localStream) {
-          localVideoRef.current.srcObject = localStream;
-          localVideoRef.current.play().catch(() => {});
-        }
-        if (remoteVideoRef.current && remoteStream && remoteVideoRef.current.srcObject !== remoteStream) {
-          remoteVideoRef.current.srcObject = remoteStream;
-          remoteVideoRef.current.play().catch(() => {});
-        }
-      } else {
-        // Remote is Main, Local is PiP
-        if (remoteVideoRef.current && remoteStream && remoteVideoRef.current.srcObject !== remoteStream) {
-          remoteVideoRef.current.srcObject = remoteStream;
-          remoteVideoRef.current.play().catch(() => {});
-        }
-        if (localVideoRef.current && localStream && localVideoRef.current.srcObject !== localStream) {
-          localVideoRef.current.srcObject = localStream;
-          localVideoRef.current.play().catch(() => {});
+      // Main video element stream & PiP video element stream
+      const mainStream = isSwapped ? localStream : (remoteStream && remoteStream.getVideoTracks().length > 0 ? remoteStream : null);
+      const pipStream = isSwapped ? (remoteStream && remoteStream.getVideoTracks().length > 0 ? remoteStream : null) : localStream;
+
+      if (mainVideoElementRef.current) {
+        if (mainStream && mainVideoElementRef.current.srcObject !== mainStream) {
+          mainVideoElementRef.current.srcObject = mainStream;
+          mainVideoElementRef.current.play().catch(() => {});
+        } else if (!mainStream && mainVideoElementRef.current.srcObject !== null) {
+          mainVideoElementRef.current.srcObject = null;
         }
       }
-      // Detach audio element during video calls so video element handles audio natively without echo
-      if (remoteAudioRef.current && remoteAudioRef.current.srcObject) {
-        remoteAudioRef.current.srcObject = null;
+
+      if (pipVideoElementRef.current) {
+        if (pipStream && pipVideoElementRef.current.srcObject !== pipStream) {
+          pipVideoElementRef.current.srcObject = pipStream;
+          pipVideoElementRef.current.play().catch(() => {});
+        } else if (!pipStream && pipVideoElementRef.current.srcObject !== null) {
+          pipVideoElementRef.current.srcObject = null;
+        }
+      }
+
+      // Ensure remote audio track plays if present
+      if (remoteAudioRef.current && remoteStream && remoteStream.getAudioTracks().length > 0) {
+        if (remoteAudioRef.current.srcObject !== remoteStream) {
+          remoteAudioRef.current.srcObject = remoteStream;
+          remoteAudioRef.current.play().catch(() => {});
+        }
       }
     } else {
       // Voice mode: Remote Audio element handles remote sound
-      if (remoteAudioRef.current && remoteStream && remoteAudioRef.current.srcObject !== remoteStream) {
-        remoteAudioRef.current.srcObject = remoteStream;
-        remoteAudioRef.current.play().catch(() => {});
+      if (remoteAudioRef.current && remoteStream && remoteStream.getAudioTracks().length > 0) {
+        if (remoteAudioRef.current.srcObject !== remoteStream) {
+          remoteAudioRef.current.srcObject = remoteStream;
+          remoteAudioRef.current.play().catch(() => {});
+        }
       }
     }
   }, [isSwapped, session.type]);
@@ -1062,7 +1068,7 @@ export const CallModal: React.FC<CallModalProps> = ({
             {/* 1. Main View (Full Screen Video Feed) */}
             <div className="absolute inset-0 w-full h-full bg-neutral-900 flex items-center justify-center">
               <video 
-                ref={isSwapped ? localVideoRef : remoteVideoRef} 
+                ref={mainVideoElementRef} 
                 autoPlay 
                 playsInline 
                 muted={isSwapped} // mute if showing local camera in main view to avoid feedback loop
@@ -1136,7 +1142,7 @@ export const CallModal: React.FC<CallModalProps> = ({
                   title="Tap to swap main and mini camera view"
                 >
                   <video 
-                    ref={isSwapped ? remoteVideoRef : localVideoRef} 
+                    ref={pipVideoElementRef} 
                     autoPlay 
                     muted={!isSwapped} // mute local camera when in PiP
                     playsInline 

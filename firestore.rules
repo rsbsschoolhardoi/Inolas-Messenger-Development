@@ -2,9 +2,48 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Global Safety Net (default allow for seamless app usage and preview)
-    match /{document=**} {
-      allow read, write: if true;
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Users collection: signed-in users can read profiles; users can write their own profile
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (request.auth.uid == userId || resource.data.id == request.auth.uid);
+      match /{allPaths=**} {
+        allow read, create, update, delete: if isSignedIn();
+      }
+    }
+
+    // Username reservation lookup
+    match /usernames/{cleanUsername} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    // Chats collection
+    match /chats/{chatId} {
+      allow read, create, update, delete: if isSignedIn();
+      match /{allPaths=**} {
+        allow read, create, update, delete: if isSignedIn();
+      }
+    }
+
+    // Messages collection
+    match /messages/{messageId} {
+      allow read, create, update, delete: if isSignedIn();
+      match /{allPaths=**} {
+        allow read, create, update, delete: if isSignedIn();
+      }
+    }
+
+    // Calls collection with candidates subcollection
+    match /calls/{callId} {
+      allow read, create, update, delete: if isSignedIn();
+      match /{allPaths=**} {
+        allow read, create, update, delete: if isSignedIn();
+      }
     }
   }
 }

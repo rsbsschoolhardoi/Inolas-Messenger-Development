@@ -108,6 +108,8 @@ export interface Chat {
   pinned: boolean;
   muted: boolean;
   typing: boolean;
+  typing_username?: string;
+  typing_updated_at?: number;
   online: boolean;
   last_seen: string;
   custom_status?: string;
