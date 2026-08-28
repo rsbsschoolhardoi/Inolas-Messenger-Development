@@ -1,9 +1,7 @@
-Ôªø/**
- * Inolas Messenger Web Application
- * Multi-platform zero-knowledge end-to-end encrypted messaging & calling
- * Encoding: UTF-8 (‚úì Verified Unicode: ¬© 2026 Inolas Team ‚Äî ‚ö° High Performance)
- */
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { MediaPreviewLightbox } from './components/MediaPreviewLightbox';
+import { ProfileOptionsModal } from './components/ProfileOptionsModal';
+
 import {  
   MessageSquare, Search, LogOut, Pin, VolumeX, Check, CheckCheck, 
   Send, Paperclip, Smile, Image as ImageIcon, Video, FileText, Mic, 
@@ -10571,101 +10569,24 @@ export default function App() {
       </AnimatePresence>
 
       {/* SHARED MEDIA PREVIEW LIGHTBOX */}
-      <AnimatePresence>
-        {sharedMediaPreview && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
-              className="fixed inset-0" 
-              onClick={() => setSharedMediaPreview(null)} 
-            />
-            
-            <div className="relative z-10 max-w-4xl max-h-[90vh] flex flex-col items-center">
-              <div className="absolute -top-12 right-0 flex items-center gap-2">
-                <a 
-                  href={sharedMediaPreview.url} 
-                  download="shared-media"
-                  target="_blank" 
-                  rel="noreferrer"
-                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
-                  title="Download / Open Full Size"
-                >
-                  <Download className="h-5 w-5" />
-                </a>
-                <button 
-                  onClick={() => setSharedMediaPreview(null)}
-                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
-                  title="Close"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-
-              {sharedMediaPreview.type === 'video' ? (
-                <video 
-                  src={sharedMediaPreview.url} 
-                  controls 
-                  autoPlay 
-                  className="max-h-[80vh] max-w-full rounded-2xl shadow-2xl object-contain" 
-                />
-              ) : (
-                <img 
-                  src={sharedMediaPreview.url} 
-                  alt="Preview" 
-                  className="max-h-[80vh] max-w-full rounded-2xl shadow-2xl object-contain" 
-                />
-              )}
-
-              {sharedMediaPreview.title && (
-                <p className="text-white/80 text-xs mt-3 max-w-md text-center">
-                  {sharedMediaPreview.title}
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-      </AnimatePresence>
+      <MediaPreviewLightbox
+        media={sharedMediaPreview}
+        onClose={() => setSharedMediaPreview(null)}
+      />
 
       {/* PROFILE OPTIONS ACTION SHEET */}
-      <AnimatePresence>
-        {showProfileOptionsModal && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
-              className="fixed inset-0 bg-black/50 backdrop-blur-xs" 
-              onClick={() => setShowProfileOptionsModal(false)} 
-            />
-            <motion.div 
-              initial={{ y: '100%' }} 
-              animate={{ y: 0 }} 
-              exit={{ y: '100%' }}
-              className="relative w-full max-w-sm rounded-t-3xl sm:rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-5 shadow-2xl z-10 space-y-3"
-            >
-              <div className="flex items-center justify-between pb-1 border-b border-neutral-100 dark:border-neutral-800">
-                <h3 className="text-sm font-bold text-neutral-900 dark:text-white">Contact Options</h3>
-                <button 
-                  onClick={() => setShowProfileOptionsModal(false)}
-                  className="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="space-y-1">
-                <button
-                  onClick={() => {
-                    setShowProfileOptionsModal(false);
-                    navigator.clipboard.writeText(window.location.origin);
-                    showToast("Profile link copied to clipboard");
-                  }}
-                  className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left text-xs font-semibold text-neutral-800 dark:text-neutral-200 transition-colors"
-                >
-                  <Share2 className="h-4 w-4 text-neutral-500" />
-                  <span>Share Contact Profile</spxú‘RMè⁄0ΩÛ+F\ÄÉ7iÀV[®(Á∂´vWÍ’ÿb1±ëÌ,Hàˇ^«a´%	Í«©çd)~oﬁh¸ÊqΩ@ÎÀíuÂΩ	Lójò`ÙäîÿŒè„	ÃpÏ)pËøfoMÆøÏº2⁄}2í”8Á‰pÚæWVp-	ÃfC¯ëåÿ>:¥cáÑ¬£<w´1ÕÀ˛ßS(à;˜9HÊ√=À+"»	†<ñé	‘-l¯éΩÅ˙XSiâí
-ÛÑv∂ﬁ0çï∑úÿ´4…Ìv÷aÓ„Ò‡aÓõøÉÉ‹hœñjmH6ËKAluÅæÆ€XÆù™-c¬ê±nÿySwó «uÌ ⁄w£¥†J¢ªÍ|Ä¨æ¨
-€ól
-˚p‚\XbK≤€4B≤ÄY#˙~U¸ê≥†oô€qΩ¯ÛqGè:j†GaîQÃ¨Ç…\¯—)KbÁˇ%Á_qg¨ˇW"nç√∞µVº#˙Ó6M¶øÔ(x{ëÌMˇ>ÿŸí–˙ï≤ÇjÓŒ„«–]Õ\„8,Ö¯_«•çKıt	fIiÍ˜‹¥òVÈ‰yeY≤‘™‰Ô-:‘õöüÂa·ß¡‡   ˇˇ pÌó=
+      <ProfileOptionsModal
+        isOpen={showProfileOptionsModal}
+        onClose={() => setShowProfileOptionsModal(false)}
+        selectedProfileUsername={selectedProfileUsername}
+        isBlocked={blockedUsers.includes(selectedProfileUsername)}
+        onToggleBlock={(username: string) => handleToggleBlockUser(username)}
+        onReport={(username: string) => handleReportUser(username)}
+        onShare={() => {
+          navigator.clipboard.writeText(window.location.origin);
+          showToast("Profile link copied to clipboard");
+        }}
+      />
+    </div>
+  );
+}
