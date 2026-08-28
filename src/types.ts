@@ -18,6 +18,76 @@ export interface UserData {
   followers?: string[];
   following?: string[];
   is_private?: boolean;
+  is_verified?: boolean;
+  verified_type?: 'purple' | 'official' | 'system' | null;
+  is_service_account?: boolean;
+  service_category?: string;
+  is_banned?: boolean;
+  ban_reason?: string;
+  ban_timestamp?: number;
+  role?: 'user' | 'admin' | 'super_admin';
+  registered_at?: number;
+  mobile_number?: string;
+}
+
+export interface ReportItem {
+  id: string;
+  reportedUserId: string;
+  reportedUsername: string;
+  reportedDisplayName: string;
+  reportedAvatar?: string;
+  reporterUserId: string;
+  reporterUsername: string;
+  reporterDisplayName?: string;
+  reason: 'spam' | 'harassment' | 'impersonation' | 'fake_account' | 'inappropriate_content' | 'other';
+  details?: string;
+  timestamp: number;
+  status: 'pending' | 'resolved' | 'dismissed';
+  actionTaken?: 'dismissed' | 'warned' | 'verified' | 'banned';
+  resolvedBy?: string;
+  resolvedAt?: number;
+}
+
+export interface AuditLogItem {
+  id: string;
+  adminEmail: string;
+  adminUsername: string;
+  action: 'verify_user' | 'revoke_verification' | 'ban_user' | 'unban_user' | 'create_service_account' | 'send_broadcast' | 'dismiss_report' | 'update_user' | 'delete_group' | 'config_change';
+  targetId?: string;
+  targetUsername?: string;
+  details: string;
+  timestamp: number;
+  ip_address?: string;
+}
+
+export interface ServiceAccountData {
+  id: string;
+  username: string;
+  display_name: string;
+  bio: string;
+  avatar_seed: string;
+  avatar_url?: string;
+  created_at: number;
+  created_by: string;
+  service_category: 'System' | 'Security' | 'Support' | 'Announcements' | 'Updates';
+  badge_type: 'purple' | 'official' | 'system';
+  broadcast_count: number;
+  status: 'active' | 'paused';
+}
+
+export interface SystemBroadcast {
+  id: string;
+  sender_username: string;
+  sender_display_name: string;
+  sender_avatar?: string;
+  title: string;
+  content: string;
+  urgency: 'normal' | 'important' | 'security_alert' | 'maintenance';
+  created_at: number;
+  created_by: string;
+  read_by?: string[];
+  target_chat_id?: string;
+  photo_url?: string;
 }
 
 export interface FollowRequest {
@@ -119,6 +189,8 @@ export interface Message {
 export interface Chat {
   id: string;
   type: 'dm' | 'group';
+  is_group?: boolean;
+  isGroup?: boolean;
   name: string;
   username: string;
   avatar_seed: string;

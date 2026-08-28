@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Check, Sparkles, Heart, Cat, Palette, MessageSquare, Sun, Moon } from 'lucide-react';
+import { X, Check, Sparkles, Heart, Cat, Palette, MessageSquare, Sun, Moon, Lock } from 'lucide-react';
 import { CHAT_THEMES, ChatTheme, getThemeById } from '../chatThemes';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -7,6 +7,7 @@ interface ChatThemeModalProps {
   isOpen: boolean;
   activeChatName: string;
   currentThemeId: string;
+  isOfficialChannel?: boolean;
   onClose: () => void;
   onSelectTheme: (themeId: string, applyToAll?: boolean) => void;
 }
@@ -15,6 +16,7 @@ export const ChatThemeModal: React.FC<ChatThemeModalProps> = ({
   isOpen,
   activeChatName,
   currentThemeId,
+  isOfficialChannel = false,
   onClose,
   onSelectTheme
 }) => {
@@ -78,6 +80,13 @@ export const ChatThemeModal: React.FC<ChatThemeModalProps> = ({
               <X className="h-5 w-5" />
             </button>
           </div>
+
+          {isOfficialChannel && (
+            <div className="mx-4 mt-3 p-3 bg-purple-500/10 border border-purple-500/30 rounded-2xl flex items-center gap-2.5 text-xs text-purple-700 dark:text-purple-300 font-semibold shadow-xs">
+              <Lock className="h-4 w-4 shrink-0 text-purple-500" />
+              <span>Official Channel Theme Locked: Theme modification is disabled for official system broadcast channels.</span>
+            </div>
+          )}
 
           {/* Category Tabs */}
           <div className="p-3 border-b border-neutral-100 dark:border-neutral-800 flex gap-2 overflow-x-auto no-scrollbar shrink-0 bg-white dark:bg-neutral-900">
@@ -219,10 +228,15 @@ export const ChatThemeModal: React.FC<ChatThemeModalProps> = ({
 
               <button
                 onClick={handleApply}
-                className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold shadow-md shadow-indigo-600/20 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                disabled={isOfficialChannel}
+                className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-xs font-bold shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  isOfficialChannel
+                    ? 'bg-neutral-300 dark:bg-neutral-800 text-neutral-500 cursor-not-allowed shadow-none'
+                    : 'bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white shadow-indigo-600/20'
+                }`}
               >
                 <Check className="h-4 w-4" />
-                <span>Apply Theme</span>
+                <span>{isOfficialChannel ? 'Theme Locked' : 'Apply Theme'}</span>
               </button>
             </div>
           </div>

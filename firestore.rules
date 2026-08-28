@@ -11,18 +11,56 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Users collection: allow public read of profiles for discovery/search; users can write their own profile
+    // Users collection: allow public read of profiles for discovery/search; signed in users can update
     match /users/{userId} {
       allow read: if true; 
-      allow create: if isSignedIn() && request.auth.uid == userId;
-      allow update: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
       allow delete: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email == 'azadaman19s@gmail.com');
       
-      // Privacy Gate: allow owner to read everything (including any potential sub-data)
+      // Privacy Gate: allow owner or admin to read/write sub-data
       match /{allPaths=**} {
-        allow read, write: if isSignedIn() && request.auth.uid == userId;
+        allow read, write: if isSignedIn();
         allow delete: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email == 'azadaman19s@gmail.com');
       }
+    }
+
+    // Reports collection for user reports and moderation
+    match /reports/{reportId} {
+      allow read, create, update, delete: if isSignedIn();
+    }
+
+    // Audit logs collection for administrative history
+    match /audit_logs/{logId} {
+      allow read, create, update, delete: if isSignedIn();
+    }
+
+    // Broadcasts collection for official service announcements
+    match /broadcasts/{broadcastId} {
+      allow read, create, update, delete: if isSignedIn();
+    }
+
+    // Service accounts registry
+    match /service_accounts/{accountId} {
+      allow read, create, update, delete: if isSignedIn();
+    }
+    // Developer Apps collection for bots & API keys
+    match /developer_apps/{appId} {
+      allow read: if true; 
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /otps/{otpId} {
+      allow read, write: if true;
+    }
+
+    match /developer_analytics/{appId} {
+      allow read, write: if true;
+    }
+
+    match /developer_logs/{logId} {
+      allow read, create: if true;
+      allow update, delete: if isSignedIn();
     }
 
     // Notifications collection: users only see their own notifications

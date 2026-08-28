@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Users, Search, Check, AlertCircle, Sparkles, Plus } from 'lucide-react';
 import { UserData } from '../types';
+import { isServiceAccount } from '../presenceUtils';
+import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
 
 interface NewGroupModalProps {
   isOpen: boolean;
@@ -250,8 +252,11 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
                           'h-9 w-9 text-xs'
                         )}
                         <div className="min-w-0 text-left">
-                          <p className="text-xs font-bold text-neutral-900 dark:text-white truncate">
-                            {u.display_name}
+                          <p className="text-xs font-bold text-neutral-900 dark:text-white truncate flex items-center gap-1">
+                            <span>{u.display_name}</span>
+                            {(!!u.is_verified || isServiceAccount(u, u.username)) && (
+                              <PurpleVerifiedBadge size="xs"  />
+                            )}
                           </p>
                           <p className="text-[11px] text-neutral-400 truncate">@{u.username}</p>
                         </div>

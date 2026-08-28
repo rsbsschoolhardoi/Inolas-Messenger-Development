@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, CheckCircle2, AlertCircle, Eye, EyeOff, User, Mail, Lock, Calendar, 
-  ArrowRight, RefreshCw, Sun, Moon, ShieldCheck, Check, Sparkles, Key
+  ArrowRight, RefreshCw, Sun, Moon, ShieldCheck, Check, Sparkles, Key, Phone
 } from 'lucide-react';
 import { LegalModal, LegalDocType } from './LegalModal';
 
@@ -17,6 +17,7 @@ interface AuthFlowProps {
     dob: string;
     gender: string;
     password: string;
+    mobile_number?: string;
   }) => Promise<{ success: boolean; error?: string }>;
   onVerifyOtpSubmit: (code: string) => Promise<{ success: boolean; error?: string }>;
   onOAuthLogin: (provider: 'google' | 'facebook') => void;
@@ -27,6 +28,7 @@ interface AuthFlowProps {
   checkUsernameAvailability?: (username: string) => Promise<{ isTaken: boolean; reason?: string }>;
   isOnboarding?: boolean;
   initialRegStep?: number;
+  truecallerProfile?: any;
 }
 
 export const AuthFlow: React.FC<AuthFlowProps> = ({
@@ -42,9 +44,10 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   existingUsernames = [],
   checkUsernameAvailability,
   isOnboarding = false,
-  initialRegStep = 1
+  initialRegStep = 1,
+  truecallerProfile
 }) => {
-  const [mode, setMode] = useState<'login' | 'register'>(isOnboarding ? 'register' : initialMode);
+  const [mode, setMode] = useState<'login' | 'register'>(isOnboarding || truecallerProfile ? 'register' : initialMode);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
@@ -62,14 +65,18 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   const [otpCode, setOtpCode] = useState<string>('');
 
   // Register Form State
-  const [regEmail, setRegEmail] = useState<string>('');
-  const [regFullName, setRegFullName] = useState<string>('');
+  const [regEmail, setRegEmail] = useState<string>(truecallerProfile?.email || '');
+  const [regFullName, setRegFullName] = useState<string>(
+    truecallerProfile ? `${truecallerProfile.firstName} ${truecallerProfile.lastName}`.trim() : ''
+  );
   const [regUsername, setRegUsername] = useState<string>('');
   const [regDob, setRegDob] = useState<string>('');
-  const [regGender, setRegGender] = useState<string>('prefer_not');
+  const [regGender, setRegGender] = useState<string>(truecallerProfile?.gender?.toLowerCase() === 'm' ? 'male' : truecallerProfile?.gender?.toLowerCase() === 'f' ? 'female' : 'prefer_not');
   const [regPassword, setRegPassword] = useState<string>('');
   const [regConfirmPassword, setRegConfirmPassword] = useState<string>('');
   const [showRegPassword, setShowRegPassword] = useState<boolean>(false);
+  const [regMobile, setRegMobile] = useState<string>(truecallerProfile?.phoneNumber || '');
+  const [isTruecallerVerified, setIsTruecallerVerified] = useState<boolean>(!!truecallerProfile);
 
   // Legal & Compliance State (Important Checkbox)
   const [regAgreedToLegal, setRegAgreedToLegal] = useState<boolean>(true);
@@ -80,6 +87,30 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   const [isCheckingRegUsername, setIsCheckingRegUsername] = useState<boolean>(false);
   const [regUsernameAsyncTaken, setRegUsernameAsyncTaken] = useState<boolean>(false);
 
+  // Truecaller Deep Link Logic
+  const handleTruecallerVerification = () => {
+    const partnerKey = import.meta.env.VITE_TRUECALLER_PARTNER_KEY;
+    if (!partnerKey) {
+      setErrorMessage('Truecaller verification is not configured. Please add VITE_TRUECALLER_PARTNER_KEY to environment.');
+      return;
+    }
+
+    const nonce = Math.random().toString(36).substring(2);
+    const callbackUrl = window.location.origin + '/auth/truecaller-callback';
+    const partnerName = 'Zenoa';
+    const truecallerUrl = `truecallersdk://truesdk/web_verify?requestNonce=${nonce}&partnerKey=${partnerKey}&partnerName=${partnerName}&lang=en&title=Verify%20Account&skipConfirmation=true&callback=${encodeURIComponent(callbackUrl)}`;
+    
+    // Attempt to open Truecaller app
+    window.location.href = truecallerUrl;
+
+    // Fallback if app not installed after 2.5 seconds
+    setTimeout(() => {
+      if (document.hasFocus()) {
+        setErrorMessage('Truecaller app not detected. Please verify using standard email method.');
+      }
+    }, 2500);
+  };
+
   React.useEffect(() => {
     const clean = regUsername.trim().toLowerCase();
     setRegUsernameAsyncTaken(false);
@@ -88,7 +119,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
       return;
     }
 
-    if (existingUsernames.map(u => u.toLowerCase()).includes(clean)) {
+    if (existingUsernames.filter(Boolean).map(u => u.toLowerCase()).includes(clean)) {
       setRegUsernameAsyncTaken(true);
       setIsCheckingRegUsername(false);
       return;
@@ -124,7 +155,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
   const isUsernameAvailable = regUsername.length >= 3 && 
     /^[a-zA-Z0-9_]+$/.test(regUsername) && 
-    !existingUsernames.map(u => u.toLowerCase()).includes(regUsername.toLowerCase()) &&
+    !existingUsernames.filter(Boolean).map(u => u.toLowerCase()).includes(regUsername.toLowerCase()) &&
     !regUsernameAsyncTaken;
 
   // Handle Login
@@ -206,7 +237,8 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
       username: regUsername.trim().toLowerCase(),
       dob: regDob || '2000-01-01',
       gender: regGender,
-      password: regPassword
+      password: regPassword,
+      mobile_number: regMobile
     });
     setIsLoading(false);
 
@@ -506,6 +538,11 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                       className="w-full pl-10 pr-4 py-2.5 text-xs rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/40 outline-none focus:border-indigo-500 transition-colors"
                       required
                     />
+                    {isTruecallerVerified && (
+                      <div className="absolute right-3 bg-blue-500 text-white p-1 rounded-full shadow-sm" title="Verified via Truecaller">
+                        <Check className="h-3 w-3" />
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -554,7 +591,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3">
                   <button
                     type="button"
                     onClick={() => onOAuthLogin('google')}
@@ -571,14 +608,11 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => onOAuthLogin('facebook')}
-                    className="flex items-center justify-center gap-2 py-2.5 border border-neutral-200 dark:border-neutral-700 rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-800 text-xs font-bold transition-colors cursor-pointer"
+                    onClick={handleTruecallerVerification}
+                    className="flex items-center justify-center gap-2 py-2.5 bg-[#0087FF] text-white rounded-2xl hover:bg-[#0076E0] text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
                   >
-                    <svg viewBox="0 0 24 24" className="h-4 w-4">
-                      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" fill="#1877F2"/>
-                      <path d="M16.671 15.542l.532-3.469h-3.328V9.823c0-.949.465-1.874 1.956-1.874h1.514V5.013s-1.374-.235-2.686-.235c-2.741 0-4.533 1.662-4.533 4.669v2.626H7.078v3.469h3.047v8.385a12.09 12.09 0 003.75 0v-8.385h2.796z" fill="#ffffff"/>
-                    </svg>
-                    <span>Facebook</span>
+                    <Phone className="h-4 w-4" />
+                    <span>Verify with Truecaller</span>
                   </button>
                 </div>
               </form>

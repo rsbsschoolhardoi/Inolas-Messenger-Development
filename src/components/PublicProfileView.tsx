@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { 
+import { Shield, 
   MessageSquare, 
   Phone, 
   Lock, 
@@ -13,7 +13,9 @@ import {
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebaseClient';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { isUserEffectivelyOnline } from '../presenceUtils';
+import { isUserEffectivelyOnline, isServiceAccount } from '../presenceUtils';
+import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
+
 
 interface PublicProfileViewProps {
   username: string;
@@ -23,6 +25,8 @@ interface PublicProfileViewProps {
 }
 
 interface UserProfileData {
+  is_verified?: boolean;
+  is_service_account?: boolean;
   display_name?: string;
   username: string;
   avatar_url?: string;
@@ -49,7 +53,7 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
     let isMounted = true;
     const fetchProfile = async () => {
       setLoading(true);
-      const cleanName = username.replace(/^@/, '').trim().toLowerCase();
+      const cleanName = (username || '').replace(/^@/, '').trim().toLowerCase();
       
       if (isFirebaseConfigured && db) {
         try {
@@ -104,7 +108,7 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
       // Fallback if not found in db or db offline
       if (isMounted) {
         setProfile({
-          display_name: cleanName.charAt(0).toUpperCase() + cleanName.slice(1),
+          display_name: cleanName ? (cleanName.charAt(0).toUpperCase() + cleanName.slice(1)) : 'User',
           username: cleanName,
           avatar_seed: cleanName,
           bio: 'Hey there! I am using Zenoa for end-to-end encrypted messaging.',
@@ -134,8 +138,8 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
     if (!name) return 'Z';
     const parts = name.trim().split(/\s+/).filter(Boolean);
     if (parts.length >= 2) {
-      const f = parts[0].replace(/[^a-zA-Z0-9]/g, '').charAt(0).toUpperCase();
-      const s = parts[1].replace(/[^a-zA-Z0-9]/g, '').charAt(0).toUpperCase();
+      const f = (parts[0] || '').replace(/[^a-zA-Z0-9]/g, '').charAt(0).toUpperCase();
+      const s = (parts[1] || '').replace(/[^a-zA-Z0-9]/g, '').charAt(0).toUpperCase();
       if (f && s) return `${f}${s}`;
     }
     const clean = name.replace(/[^a-zA-Z0-9]/g, '');
@@ -230,7 +234,11 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
             <div className="px-5 sm:px-8 pb-8 text-center relative -mt-12 space-y-5">
               <div className="relative inline-block">
                 <div className="p-1 rounded-full bg-white dark:bg-neutral-900 shadow-xl border border-neutral-200/50 dark:border-neutral-800">
-                  {profile?.avatar_url ? (
+                  {isServiceAccount(profile, username) ? (
+                    <div className="h-24 w-24 rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-indigo-600 font-black text-3xl flex items-center justify-center shadow-inner border-2 border-white dark:border-neutral-900">
+                      <Shield className="w-10 h-10 text-white drop-shadow-md" />
+                    </div>
+                  ) : profile?.avatar_url ? (
                     <img
                       src={profile.avatar_url}
                       alt={profile.display_name}
@@ -251,6 +259,9 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
               <div className="space-y-1">
                 <h1 className="text-xl sm:text-2xl font-black text-neutral-900 dark:text-white flex items-center justify-center gap-1.5 leading-tight tracking-tight break-all">
                   <span>{profile?.display_name}</span>
+                  {(!!profile?.is_verified || isServiceAccount(profile, username)) && (
+                    <PurpleVerifiedBadge size="sm"  />
+                  )}
                 </h1>
                 <p className="text-xs sm:text-sm text-neutral-400 dark:text-neutral-500 font-mono break-all">{profile?.username}</p>
               </div>
@@ -289,6 +300,7 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
  
               {/* Non-Interactive Action Buttons Preview (with Lock indicator) */}
               <div className="space-y-2 pt-1">
+                {!isServiceAccount(profile, username) && (<>
                 <button
                   onClick={onGoToLogin}
                   className="w-full py-3 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-between cursor-pointer transition-colors shadow-md"
@@ -321,6 +333,7 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
                     <Lock className="h-3.5 w-3.5 text-neutral-400" />
                   </button>
                 </div>
+                </>)}
               </div>
             </div>
           </div>

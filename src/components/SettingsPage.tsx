@@ -37,11 +37,16 @@ import {
   Mail,
   User,
   Copy,
-  Key
+  Key,
+  Terminal
 } from 'lucide-react';
 import { storageManager, StorageEstimateInfo } from '../storageManager';
+import { DeveloperPortal } from './DeveloperPortal';
+import { UserData } from '../types';
 
 interface SettingsPageProps {
+  currentUser?: UserData;
+  onOpenAdminConsole?: () => void;
   themeMode: 'light' | 'dark';
   changeTheme: (theme: 'light' | 'dark') => void;
   chatColorTheme: string;
@@ -79,6 +84,7 @@ interface SettingsPageProps {
   noiseSuppression: boolean;
   setNoiseSuppression: (v: boolean) => void;
   isAccountPrivate: boolean;
+  isVerified?: boolean;
   setIsAccountPrivate: (v: boolean) => void;
   showToast: (msg: string) => void;
   userDisplayName: string;
@@ -102,9 +108,11 @@ interface SettingsPageProps {
   onDeleteBackupFromDrive: (password: string) => void;
 }
 
-type SettingsSection = 'main' | 'appearance' | 'notifications' | 'privacy' | 'chats' | 'storage' | 'account' | 'calls' | 'private_account';
+type SettingsSection = 'main' | 'appearance' | 'notifications' | 'privacy' | 'chats' | 'storage' | 'account' | 'calls' | 'private_account' | 'developer';
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
+  currentUser,
+  onOpenAdminConsole,
   themeMode,
   changeTheme,
   chatColorTheme,
@@ -140,6 +148,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   noiseSuppression,
   setNoiseSuppression,
   isAccountPrivate,
+  isVerified = false,
   setIsAccountPrivate,
   mediaUploadQuality,
   setMediaUploadQuality,
@@ -321,7 +330,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <div className="min-w-0 pb-1">
                     <h3 className="font-black text-xl text-neutral-900 dark:text-white truncate flex items-center justify-center sm:justify-start gap-1.5">
                       <span>{userDisplayName}</span>
-                      <CheckCircle2 className="h-4 w-4 text-indigo-500 shrink-0 fill-indigo-500/10" />
+                      {!!isVerified && (
+                        <CheckCircle2 className="h-4 w-4 text-purple-500 shrink-0 fill-purple-500/10" />
+                      )}
                     </h3>
                     <p className="text-xs font-mono font-semibold text-neutral-400 truncate">@{userUsername}</p>
                   </div>
@@ -335,6 +346,26 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <span>Customize Profile</span>
                 </button>
               </div>
+            </div>
+
+            <div className="bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-200/80 dark:border-neutral-800 overflow-hidden shadow-sm">
+              <button
+                onClick={() => {
+                  window.location.href = '/developer';
+                }}
+                className="w-full p-4.5 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors text-left cursor-pointer"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="p-2.5 rounded-2xl bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/50 dark:border-indigo-700/50">
+                    <Terminal className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-neutral-900 dark:text-white">Developer API</p>
+                    <p className="text-xs text-neutral-400">Create bots & manage your API keys</p>
+                  </div>
+                </div>
+                <ChevronRight className="h-4 w-4 text-neutral-400" />
+              </button>
             </div>
 
             {/* 1. Standalone Account option card right below the Profile card */}
@@ -485,13 +516,53 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <ChevronRight className="h-4 w-4 text-neutral-400" />
                 </button>
 
+                {/* Log Out Option (Right below Chats & Media) */}
+                <button
+                  onClick={handleLogout}
+                  className="w-full p-4 flex items-center justify-between hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-colors text-left cursor-pointer border-t border-neutral-100 dark:border-neutral-800/60 group"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="p-2.5 rounded-2xl bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200/50 dark:border-rose-900/40">
+                      <LogOut className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-rose-600 dark:text-rose-400">Log Out</p>
+                      <p className="text-xs text-neutral-400 dark:text-neutral-500">Sign out of your account on this device</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-rose-400 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+
               </div>
             </div>
+
+            {onOpenAdminConsole && (
+              <div className="pt-2">
+                <button
+                  onClick={onOpenAdminConsole}
+                  className="w-full p-4 rounded-3xl bg-neutral-900 dark:bg-neutral-950 border border-purple-900/60 text-purple-400 hover:bg-neutral-800 transition-all flex items-center justify-between cursor-pointer shadow-sm group"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="p-2.5 rounded-2xl bg-purple-950 text-purple-400 border border-purple-800">
+                      <Shield className="h-5 w-5 text-purple-400" />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-sm font-bold text-white uppercase tracking-wide flex items-center gap-1.5">
+                        <span>Zenoa Admin Console</span>
+                        <span className="px-1.5 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800 text-[10px] font-mono">RESTRICTED</span>
+                      </p>
+                      <p className="text-xs text-neutral-400">Manage purple verifications, service accounts & live telemetry</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-purple-400 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              </div>
+            )}
 
             {/* App Build Version Footer */}
             <div className="text-center py-2 space-y-1">
               <p className="text-[11px] font-semibold text-neutral-400">
-                Inolas Messenger v{APP_BUILD_INFO.version} ({APP_BUILD_INFO.commitTag})
+                Inolas Messenger v{APP_BUILD_INFO.version} ({APP_BUILD_INFO.buildId})
               </p>
               <p className="text-[10px] text-neutral-400/80">
                 End-to-End Encrypted • Zero-Knowledge Cloud Backup
@@ -875,7 +946,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div className="p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Enter Key to Send</h3>
+                  <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Enter Key,
+  Terminal to Send</h3>
                   <p className="text-xs text-neutral-400">Pressing Enter immediately sends message</p>
                 </div>
                 <input

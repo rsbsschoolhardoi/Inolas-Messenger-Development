@@ -1134,7 +1134,7 @@ export const CallModal: React.FC<CallModalProps> = ({
                       />
 
                       <div className="relative z-10">
-                        {renderCallAvatar(session.partnerAvatarSeed, session.partnerName[0], session.partnerAvatarUrl, 'h-28 w-28 text-3xl')}
+                        {renderCallAvatar(session.partnerAvatarSeed, (session.partnerName?.[0] || "C"), session.partnerAvatarUrl, 'h-28 w-28 text-3xl')}
                       </div>
                     </div>
 
@@ -1252,7 +1252,7 @@ export const CallModal: React.FC<CallModalProps> = ({
                 transition={{ duration: 2.5, repeat: isConnected ? Infinity : 0, ease: 'easeInOut' }}
                 className="relative z-10"
               >
-                {renderCallAvatar(session.partnerAvatarSeed, session.partnerName[0], session.partnerAvatarUrl, 'h-32 w-32 sm:h-36 sm:w-36 text-4xl')}
+                {renderCallAvatar(session.partnerAvatarSeed, (session.partnerName?.[0] || "C"), session.partnerAvatarUrl, 'h-32 w-32 sm:h-36 sm:w-36 text-4xl')}
               </motion.div>
             </div>
 

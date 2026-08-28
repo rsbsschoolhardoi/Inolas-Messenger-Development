@@ -6,6 +6,8 @@ export interface PresenceUser {
   activity_status?: string;
   last_seen?: string;
   last_seen_timestamp?: number;
+  is_service_account?: boolean;
+  username?: string;
 }
 
 /**
@@ -72,3 +74,14 @@ export const getOnlineStatusText = (user: PresenceUser | undefined | null): stri
   return 'offline';
 };
 
+
+export const isServiceAccount = (user: PresenceUser | any | undefined | null, explicitUsername?: string): boolean => {
+  if (!user && !explicitUsername) return false;
+  if (user?.is_service_account) return true;
+  
+  const uname = explicitUsername || user?.username;
+  if (!uname) return false;
+  
+  const normalized = uname.toLowerCase();
+  return normalized === 'zenoa' || normalized === 'sa_zenoa' || normalized === 'zenoa_official';
+};

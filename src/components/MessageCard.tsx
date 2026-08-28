@@ -6,6 +6,7 @@ import {
   Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, Video, VideoOff, Clock
 } from 'lucide-react';
 import { Message, UserData } from '../types';
+import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
 import { InlineVideoPlayer } from './InlineVideoPlayer';
 import { VoiceNotePlayer } from './VoiceNotePlayer';
 import { getThemeById } from '../chatThemes';
@@ -28,6 +29,8 @@ interface MessageCardProps {
   onOpenMediaPlayer: (type: 'image' | 'video' | 'document' | 'audio', url: string, meta: any) => void;
   onToast: (text: string) => void;
   driveAccessToken?: string | null;
+  isSenderVerified?: boolean;
+  isSenderServiceAccount?: boolean;
 }
 
 const EMOJIS = ['❤️', '👍', '🔥', '😂', '🎉', '👏', '😮', '🙏'];
@@ -49,6 +52,8 @@ export const MessageCard: React.FC<MessageCardProps> = ({
   onOpenMediaPlayer,
   onToast,
   driveAccessToken,
+  isSenderVerified = false,
+  isSenderServiceAccount = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [resolvedMediaUrl, setResolvedMediaUrl] = useState<string | null>(null);
@@ -56,7 +61,34 @@ export const MessageCard: React.FC<MessageCardProps> = ({
   
   const isRead = msg.read_by && msg.read_by.some(u => u !== (isMe ? 'me' : senderUsername));
   const activeTheme = getThemeById(themeId);
-  const isMediaOnly = (msg.type === 'image' || msg.type === 'video') && !msg.text;
+  // Fix service account text formatting
+  let displayMsgText = msg.text || '';
+  if (isSenderServiceAccount) {
+    if (displayMsgText.startsWith('📢 **[Direct Message]**\n\n')) {
+      displayMsgText = displayMsgText.replace('📢 **[Direct Message]**\n\n', '');
+    } else if (displayMsgText.startsWith('**[Direct Message]**\n\n')) {
+      displayMsgText = displayMsgText.replace('**[Direct Message]**\n\n', '');
+    } else if (displayMsgText.startsWith('📢 [Direct Message] ')) {
+      displayMsgText = displayMsgText.replace('📢 [Direct Message] ', '');
+    } else if (displayMsgText.startsWith('[Direct Message] ')) {
+      displayMsgText = displayMsgText.replace('[Direct Message] ', '');
+    }
+  }
+
+  const isMediaOnly = (msg.type === 'image' || msg.type === 'video') && !displayMsgText;
+
+  if (isSenderServiceAccount) {
+    if (displayMsgText.startsWith('📢 **[Direct Message]**\n\n')) {
+      displayMsgText = displayMsgText.replace('📢 **[Direct Message]**\n\n', '');
+    } else if (displayMsgText.startsWith('**[Direct Message]**\n\n')) {
+      displayMsgText = displayMsgText.replace('**[Direct Message]**\n\n', '');
+    } else if (displayMsgText.startsWith('📢 [Direct Message] ')) {
+      displayMsgText = displayMsgText.replace('📢 [Direct Message] ', '');
+    } else if (displayMsgText.startsWith('[Direct Message] ')) {
+      displayMsgText = displayMsgText.replace('[Direct Message] ', '');
+    }
+  }
+
 
   useEffect(() => {
     const resolveUrl = async (url: string | undefined | null, setter: (val: string | null) => void) => {
@@ -175,6 +207,9 @@ export const MessageCard: React.FC<MessageCardProps> = ({
               <span className={`text-[11px] font-bold ${isReceivedDark ? 'text-indigo-300' : 'text-neutral-900 dark:text-neutral-100'}`}>
                 {senderName}
               </span>
+              {(isSenderVerified || isSenderServiceAccount) && (
+                <PurpleVerifiedBadge size="xs"  />
+              )}
             </div>
           )}
 
@@ -207,21 +242,21 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                 <div 
                   onClick={() => onOpenMediaPlayer('image', displayMediaUrl!, {
                     title: msg.file_name || 'Photo Attachment',
-                    quality: msg.media_quality === 'hd' ? 'HD High' : 'Standard',
+                    quality: (msg.media_quality === 'hd' || isSenderServiceAccount) ? 'HD High' : 'Standard',
                     senderName,
                   })}
-                  className="relative rounded-2xl overflow-hidden max-w-xs mb-1 group/media cursor-pointer border border-neutral-200/50 dark:border-neutral-800/80 shadow-xs hover:shadow-md transition-all"
+                  className={`relative rounded-2xl overflow-hidden ${isSenderServiceAccount ? 'max-w-md' : 'max-w-xs'} mb-1 group/media cursor-pointer border border-neutral-200/50 dark:border-neutral-800/80 shadow-xs hover:shadow-md transition-all`}
                 >
                   <img 
                     src={displayMediaUrl} 
                     alt="Photo Attachment" 
-                    className="w-full max-h-64 object-cover rounded-xl group-hover/media:scale-102 transition-transform duration-300" 
+                    className={`w-full ${isSenderServiceAccount ? 'max-h-[600px] object-contain' : 'max-h-64 object-cover'} rounded-xl group-hover/media:scale-102 transition-transform duration-300`} 
                     referrerPolicy="no-referrer" 
                   />
                   <div className="absolute inset-0 bg-black/0 group-hover/media:bg-black/20 transition-colors flex items-center justify-center">
                     <Maximize2 className="h-5 w-5 text-white opacity-0 group-hover/media:opacity-100 transition-opacity drop-shadow" />
                   </div>
-                  {msg.media_quality === 'hd' && (
+                  {(msg.media_quality === 'hd' || isSenderServiceAccount) && (
                     <span className="absolute top-2 right-2 bg-black/70 text-white text-[9px] font-bold px-1.5 py-0.5 rounded backdrop-blur">
                       HD
                     </span>
@@ -239,7 +274,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                     onExpand={() => {
                       onOpenMediaPlayer('video', displayMediaUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', {
                         title: msg.file_name || 'Shared Video',
-                        quality: msg.media_quality === 'hd' ? 'HD 1080p' : 'Standard',
+                        quality: (msg.media_quality === 'hd' || isSenderServiceAccount) ? 'HD 1080p' : 'Standard',
                         senderName,
                       });
                     }}
@@ -392,7 +427,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                 >
                   <div className="flex items-center gap-2.5">
                     <div className="h-9 w-9 rounded-full bg-neutral-800 dark:bg-neutral-200 text-white dark:text-neutral-900 font-bold flex items-center justify-center text-xs shrink-0">
-                      {msg.contact_data.name.charAt(0).toUpperCase()}
+                      {(msg.contact_data?.name || "C").charAt(0).toUpperCase()}
                     </div>
                     <div className="text-left min-w-0 flex-1">
                       <p className="font-bold text-xs truncate">{msg.contact_data.name}</p>
@@ -507,11 +542,11 @@ export const MessageCard: React.FC<MessageCardProps> = ({
               )}
 
               {/* PLAIN TEXT CONTENT WITH SEE MORE / SEE LESS UNIFORM WRAPPING */}
-              {msg.text && msg.type === 'text' && (
+              {displayMsgText && msg.type === 'text' && (
                 <div className="text-xs leading-relaxed whitespace-pre-wrap break-words min-w-0 [overflow-wrap:anywhere] max-w-full overflow-hidden">
-                  {msg.text.length > MAX_TEXT_LENGTH && !isExpanded ? (
+                  {displayMsgText.length > MAX_TEXT_LENGTH && !isExpanded ? (
                     <>
-                      <span>{msg.text.slice(0, MAX_TEXT_LENGTH)}...</span>
+                      <span>{displayMsgText.slice(0, MAX_TEXT_LENGTH)}...</span>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -529,8 +564,8 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                     </>
                   ) : (
                     <>
-                      <span>{msg.text}</span>
-                      {msg.text.length > MAX_TEXT_LENGTH && (
+                      <span>{displayMsgText}</span>
+                      {displayMsgText.length > MAX_TEXT_LENGTH && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();

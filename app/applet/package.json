@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "node build.js",
     "start": "node dist/server.cjs",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "preview": "vite preview --port 3000"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
-    "axios": "^1.20.0",
     "canvas-confetti": "^1.9.3",
     "cors": "^2.8.6",
     "express": "^5.2.1",

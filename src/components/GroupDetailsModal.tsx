@@ -6,6 +6,8 @@ import {
   MessageSquare, Settings, AlertCircle, Save, Check, Volume2, VolumeX, Pin, Megaphone, UserCheck
 } from 'lucide-react';
 import { Chat, UserData, Message } from '../types';
+import { isServiceAccount } from '../presenceUtils';
+import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
 
 interface GroupDetailsModalProps {
   isOpen: boolean;
@@ -81,12 +83,13 @@ export const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
   const pollMessages = groupMessages.filter(m => m.type === 'poll');
 
   const filteredParticipants = participants.filter((username) => {
+    if (!username) return false;
     const q = memberSearchQuery.toLowerCase().trim();
     if (!q) return true;
     const u = users[username];
     const nickname = chatNicknames[username];
-    const nameStr = (nickname || u?.display_name || username).toLowerCase();
-    return nameStr.includes(q) || username.toLowerCase().includes(q);
+    const nameStr = (nickname || u?.display_name || username || '').toLowerCase();
+    return nameStr.includes(q) || (username && username.toLowerCase().includes(q));
   });
 
   const filteredToAdd = availableToAdd.filter((u) => {
@@ -428,8 +431,11 @@ export const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
                           <div className="flex items-center gap-2.5 min-w-0">
                             {renderAvatar(u.avatar_seed || u.username, u.display_name, u.avatar_url, 'h-8 w-8 text-xs')}
                             <div className="min-w-0">
-                              <p className="text-xs font-bold text-neutral-900 dark:text-white truncate">
-                                {u.display_name}
+                              <p className="text-xs font-bold text-neutral-900 dark:text-white truncate flex items-center gap-1">
+                                <span>{u.display_name}</span>
+                                {(!!u.is_verified || isServiceAccount(u, u.username)) && (
+                                  <PurpleVerifiedBadge size="xs"  />
+                                )}
                               </p>
                               <p className="text-[10px] text-neutral-400">@{u.username}</p>
                             </div>
@@ -474,8 +480,11 @@ export const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
                         )}
                         <div className="min-w-0 text-left">
                           <div className="flex items-center gap-1.5">
-                            <p className="text-xs font-bold text-neutral-900 dark:text-white truncate">
-                              {isSelf ? `${displayName} (You)` : displayName}
+                            <p className="text-xs font-bold text-neutral-900 dark:text-white truncate flex items-center gap-1">
+                              <span>{isSelf ? `${displayName} (You)` : displayName}</span>
+                              {u && (!!u.is_verified || isServiceAccount(u, u.username)) && (
+                                <PurpleVerifiedBadge size="xs"  />
+                              )}
                             </p>
                             {isUserAdmin && (
                               <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 text-[9px] font-bold border border-amber-300/40">
