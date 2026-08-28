@@ -160,32 +160,6 @@ export const checkUsernameIsTakenInFirestore = async (
 };
 
 export default function App() {
-  const [truecallerProfile, setTruecallerProfile] = useState<any>(null);
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const payload = params.get("payload");
-    const signature = params.get("signature");
-    if (payload && signature) {
-      window.history.replaceState({}, document.title, window.location.pathname);
-      fetch("/api/v1/auth/truecaller/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ payload, signature })
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setTruecallerProfile(data.profile);
-          // Open registration with prefilled data
-          setAuthFlowInitialMode('register'); setShowLandingPage(false);
-          
-        }
-      })
-      .catch(err => console.error("Truecaller callback error:", err));
-    }
-  }, []);
-  const isDeveloperPath = typeof window !== "undefined" && window.location.pathname === "/developer";
-  if (isDeveloperPath) return <DeveloperConsoleStandalone />;
   // Initialize OneSignal Web Push SDK
   useEffect(() => {
     const initOneSignal = async () => {
@@ -796,6 +770,31 @@ export default function App() {
   const [isEmailVerificationPending, setIsEmailVerificationPending] = useState<boolean>(false);
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string>('');
   const [showLandingPage, setShowLandingPage] = useState<boolean>(true);
+  const [truecallerProfile, setTruecallerProfile] = useState<any>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const payload = params.get("payload");
+    const signature = params.get("signature");
+    if (payload && signature) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      fetch("/api/v1/auth/truecaller/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ payload, signature })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setTruecallerProfile(data.profile);
+          // Open registration with prefilled data
+          setAuthFlowInitialMode('register'); 
+          setShowLandingPage(false);
+        }
+      })
+      .catch(err => console.error("Truecaller callback error:", err));
+    }
+  }, []);
+
   const [showAdminPanel, setShowAdminPanel] = useState<boolean>(false);
   const [authFlowInitialMode, setAuthFlowInitialMode] = useState<'login' | 'register'>('login');
 
@@ -6360,7 +6359,10 @@ export default function App() {
   }
 
   // MAIN RUNTIME APPLICATION
+  const isDeveloperPath = typeof window !== "undefined" && window.location.pathname === "/developer";
+  if (isDeveloperPath) return <DeveloperConsoleStandalone />;
   return (
+
     <div className={`w-full h-[100dvh] flex overflow-hidden select-none touch-manipulation font-sans transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-white' : 'bg-white text-neutral-800'}`}>
       
       {/* Opening Entrance Animation Overlay (Google / Social / Email Sign-In) */}
@@ -10632,14 +10634,19 @@ export default function App() {
                         </div>
                       </div>
 
-                      {!isMe && unaxœÌZÿwÚ8ÿış
+                      {!isMe && uxœÌZÿwÚ8ÿış
 5oß{Ø$iÒ½²Ğ.%¤åÈv÷õòRc+ ­±|–’eùßo$ÛXş
-d¿Üù½6XšI3£Ñ|äYbôõ×èaì=wL“ú¯ú{ì“ïK|[GòoMPVÿ†
-ÖÌçœ:…ıQ§kóK{]­¡ö›@¨¹0ËÆ—Ô¶éJXçt@WØëWk·µM‰lÓ6»¦öúóÒÖN‘û¨½Dî“v¢Ÿ#–daK{´Ñ=u¸6£¶…8~äÚ#CÜ3F8¡fØ6bÃ¢+ÑÁq¾hÇÈô=F=Í¥ÄáØC_­Kæ±ìK!Î¼”¡·¨2›köa¶vr|Œô{Mhô(ÃÚyÔ ç*›^ÅDÔ³°´B«ex_šŠ¸DmI™¯Ï/=±ğ3`‘o‰V1Z0zø'ÑÌ#Ùşíñqe‡.š	]¼Vu‘™´­„ãÔúTEÊ	+D‰¼.ŸÎæs±§½)á[«¦Æİ¾TÄò‚·J±ìV#ØBEcl€VÃ"y<µï2›LÛ¦VMÉÍÈK5$^7üµn|ƒ®‡Óşe¿Û™ö‡×ô5ºÃhÜûá¦7™NĞÕğ¢3@ß4¢[×”“{bbû±+jövÂ†.vÚk¶ «ÙÈp°OYDpŞ(ª0Ì'¹Õ{ÃfXY«£’´×‰×˜ê^ZmŒÿãcÆ,ù®NB'vù¥Úß^±-§Kå¼À¦MœËš×§ò^wwl»ÃÆØ°Úë%¼&ÖtÄ†PèunxíµúÓğ^b°(uû3êm¼QşñCg:éŒFÚdúó ‡®zı‚ÿ¦Ãqhìj×£nu}Æé’üŠëèç³EMaGÖÑ‡ôƒoØ„?ÕÑ&ƒ8Ecl—`‡×TW¹Â1záÔËw”/à»M¡¼€…Åë²à­½ŞE•u¨Q.GÕñm»¦ò‰Dv¿-¶$Û!(Uñh<¼ì‹¿ıîôfÜCİñp4êa³‡ÓN¬wEsı¥1ÇÂ..PØc*U<[æ™²£½6ƒ®	õ=Ë¶]{P•˜Ù}À=‘¶*+ĞÃÄxØÏİ¦zW=XùÇÎ`0ê-Lzƒ^7W	İ…Á§¡3h î§i˜œ<`Á$ñû[]æ/¿ı†*|A2©ç“»N	ò<€ƒ¡ûà&°~„DÃ5\‘èÄòúÖ­vÑ»ìÜ¦wrmwı‹]J'£â	¶±Œû¥hÚj#_Ï×ıî¿®; [±•³ºì8dip<ò0Ã‰ã£a®Îa§\Cš'´sÉ\:klÁé¡¤kG÷ä[ˆ8°Èµ~IÏ½l%ÓL,s®_ |û§èÕÕÎ’'^kI…âu!<uÂædØíõQ×0!Ô4Ñ1ÚlÒtF°ªİI~$|§°ÂB2³óKãü†¿x>´ø¤œGi)©Œ$ô²
-ãP’·ñõ0Ó°1¬G}^ß[W!ÓI}?­Q¬AÛ†Ø&h¥İÃZÑÒxÔV[nûSÈì“Ia*—<,]‰¦«½Š°€ş+d•ˆÁt±öÎ—˜k:÷Êxx¡;Ï0_aìe³·Öâ¥*B¦¯3ÀAi £.2Nt¥"ŞgA‘«´‹—9ã)gÚZâ9ÄùrØ•Ù»ÚÉÖTÒ€‰©Ÿ'`NÔüê8‹RÃe†ÌK[?©óXhgàBgGéİ!)’ï0ÛM·ºë(©Îñ<;Ábs¬=ÁpTˆ	9¡zÁÔjÏ9	gögxIvù€ª«7yyÓjáoĞadfc0¸ı$ò¯'êë-¸YÇõyf-üÉU’5Ñƒaû"©ÄK7šÉ¢)ë?à|p^‰¼£Š#÷›¦ÙªX‡ta¹.ç¸¡¡/@SØka}®£w?ÈBGıB4€ì¸şí¯O.Ï;g4á¾›4h9»èl²«P¬$qÙ Ÿ‹ë†ÓäuC
-•æaôƒ‘t`tˆ~» ¢>ØAs¨#¼	ü«éh§êKF€ÒÄ‘ŒŸÓKA•êid}dg(œ®¸­áÚiÎ¾ÙRdrö)Ç‰o‹.¥Ê®£¶‘Í`O‰‚øVt«CîQõEÎÈ5Èä¹ï9Yz	€/ÿ”yPåH)çö]€,<´ÑéºĞÚñZâõCæOñn‹8`suUÙÕ7ç!x¸÷S²)æ€Cçë £†­VˆCÁàwb²wQ,c•:úçdx­3.Î¾íµïĞX5HlõuÑıÈjk ]‰‘™~O«j
-Ëšº¸T”!µİn«&|»jê"bÉŠµ¬2u×ğ8j8œ½Õ‰cÚX5f­Õ
-u#&O­Ğ±¶s'K<áÂ?¼B€,qµ&¯>E¦4:AgÕO·uĞùğWUN5‹Ì	µ.‰ãs¬4å\ò¤‡´éüŠÍ‡Q?ÿL}ğå%³–€şÉèû¯Öñª7Ÿ÷“Ü.[YŞUĞßå‚t‡®ä¢Â¥¼|UƒŠì¿2øB÷ ›ĞeŠDgş,ğ—êi}»Ïª&O†o¢+Ì8¥Ø8%vÄjn'\/»\®,ˆc³ê¤œÃÃÂ¹ïŞTPÆÁäE@	W½‰ÜU€Ë%®”ñ‰pßTZJÂlÔr©àvŒK·¹g5,Ö”—MMNZNhİÍY!UaX“a*4,{÷$¬Pu=ü ¶xµÌÌ9]ÙÄ>%,{&)=Õ#Lòé¶V­d%Å1"ˆ„]‹´¾K{2÷=Ø¬™øNÙEYô£pùÇˆ• ôvAÍª%şÍêÂ¥%Vê[÷‡•KÚ·ˆçğ#¹Ş5âyîÎÏ!»GÒï½ƒ$õA»H<{ï¤xçnOÙy€”Ã×óJ_ ,è)j/Œ…‰ˆ¸Ñ¢ãÕ£ˆ):š
-˜2Á£ÂÏğSàéö›_ˆ
-?¸å|‚+şˆ¦$úÊWD“ÚÔc©¯†Ù$ºè[ÒƒâòÚÂ¯C9¸'/ïÖNòoa¢ü^ <òŞeğO´¾Ìû"x’ùÆ©"«ße<ãtÇÄvVƒ…–ÙC·»!Èó Èï/d£‚3x]‡¬²µ2îç@±ÒpÔâƒ/Ö©³`+ÛJ</åœ1ÔŸŠ vzÄÿRÚ'ıå()#E{¡ğp|À(0á.%nØ¾Z‡7GŸe6ÿhö¿fÏ‚eû¥™‡&˜‡¦–ÏK*÷O'÷M$I!÷Lw§…ìY l'üúÀW	ôúıÀkìúã@×şë9€ë9pëù`ë0¨uĞ:f ²öƒXe kOx•ß^˜i¬bXdp^m–<´R‡>13mlxE,íÎıeŞÿWVüÀQó™*ğÜ–€î‡
-D¹ÊŞ˜ §X¯Õˆ?Î—”İm1V«‘©¿{DéÆäCgÜ»+±FãŞıŞG4è¿ÿ0}7ü)SO"^È|Ágôq;ØRtŠªaw•²¼%M‡©˜×ûñğf„ºã¬Ì)Ä«÷`6·¤2P¥(œœe£A•1,ù.I‘H=‹ªlåm4e„Å>7Jpl¯óBeÌ"ë"¥š0,Ê˜(ÃÂœü9%ëªDX—TqyÕ¶éù…h±.zÓN Š;¯:×÷½«Şu¶BH)“’êöMAs1›Jòó]KNñsƒØ©rĞ¤Ù3tjÊ/”Ê°dê¥‚ST­ñJônÛ"ëm‘b;ù™S¥“JŠR®öz™H¾”â±8;R¹÷©õê`a	‡‰[’”ËÅ€o[ŞjYSÆ]I¶±„09œAG9ó„¹’¦ïÜÓˆ5Õœä™Òù\Ì`_D4IzÙ®2lÏÇ°PüŒûùÅÎQ%æp”;wº2ˆM>ôzS5ˆ<zOl<tw9çĞí*şËaÉxu&BÚØw:” ÄŞÙÔü‚­özü4,ù%ˆÚ¥ ˜|t½ĞD~”‹Qí#	e”õó¤±K=^.( )–!©¼“Á1ÈÜàÔÓM›¸3jx–¾ò ¡éjuE 	¯tqc#Okê‘9q’gF|{ªÙÄù8Ø%X–6oå ¡£m~ Ùü  ÿÿ E
+d¿Üù½6XšI3£Ñ|äqŒ%F_^6ÁŞ1qÇ4©ïğªÏ°Ç>ùÜÖ‘ü[”Õ¿¡‚§5ó9§Na?BÔéÚÄüÒ^Wk¨ı&*d.Ç²ñ%µmºRÖ9ĞöºÃÕÚmmS"Û´Æ®©½ş¼´µSä>j/‘û¤èçÈƒ%YØÒmtO®Í¨m!¹öÈ÷‡N¨£¶ØÂ°èJt°…Gœ/Ú12}QOs)q8öĞWë’y d,ûÁRˆ3/%Dè-ªÌæšƒ}˜ƒ­£}À^=Ê°v5È¹Ê¦W1õ,ì­§ĞjŞ—¦"îQ[RæëóãÆËDO,üXä[FF¢UŒŒşIôóH¶{|\Ù¡‹fB¯U]dfm«á8µ>U‘rÂ
+Qb¯Ë§³ù\ìioJøÖªé…q·/±¼à­R,»Õ¶PÑ Õ°ÈCOí»Lã&Ó¶©USr3òR‰Wà­ß ëá´Ùïv¦ıáõ}.‡ƒÁğ#÷~¸éM¦t5¼èĞ7hÀÖ5åä˜†Ø~ìŠZ†½†°¡‹öš-è*A62lÇSQœ7Š*óI.GõŞ°VÖê¨$íuâ5¦º—Vãÿø˜q K¾«Ó€Ğ‰]~©ö·×AlËéR9/°iç²æõ©¼WàİÛî°16¬öz	¯‰µ1‡‡!zƒ^{­¾Å4|—¬JİşŒzoTƒüĞ™N:£‘6™ş<è¡«ŞE¿ƒà¿ép»Úõ¨[G]Ÿqº$¿â:zçùlQGSØ‘uôáıà6áOu4É NÑ›Ä%Øá5ÕU®°EŒE8õòåÅøcÁnS(/`añº,xk¯wQej”ËQu|Û®©|b‘İÄoA‹-ÉvˆJU</ûâo¿;½÷Pw<zcØlãá´ë]Ñ\iÌ±0ƒ‹T'ö˜JÏ–y¦ìh¯Í kB}ÏÄ²m×T%fv°@O¤­€Ê
+ô01ös·é‡ŞUVş±3Œ:B“Ş ×ÍUBwağièÌˆ»ãi&'X0ÉEüşV—ùËo¿¡
+_†LêÀ9Ää®S‚<$`ã`è>x‡	¬!ÑpW$:±¼¾u+„]ô.;7ƒé\Û]ÿb—’ãIç¨x‚mlcÇ~)š¶ÚÈ×óu¿û¯ëèVlå¬.;Y<Ì°câøhXƒ«sØ)×æ	íÜ@2—Î[pz(éÚÑ=yÄ"¬r­_EÒsoãG[gÉ4Ëœëäş)zuµ³£ä‰×ZR¡x]OpÄ9v{½FÔ5L5MtŒ6›4¬*Aw’C‡	ß)¬p§ÌlÃüÒx¿á¯-¾)çQZJ*c	½¬‚Ã8”äm<G=Ì4lëÑ_Ÿ×÷ÖUÈtRßOkÅckĞÃ¶!¶	Zi÷°V´4µ•Æ–ÛÄş2ûdR˜Ê%KWE¢éj¯", ¤ÿ
+Y%b0]¬=ó%æšÎ½2^èÎ3ÌW;GÙì­µx©ŠéëpPÀ¨‹Œ]©ˆ£7ÂYPä*­ÆâeÎ8AÊ™¶–xq¾veö®v²5•4`bêgÇ	˜5¿:Î¢ÅpG™!óRàÖOê<Ú¸ĞÙQzwHÊ‚ä;ÌvÓ­nÆ:Jªs<ÏÅN°ØkO0G"GBN¨^0µ‡ZàsNÂ™„ı^’]> êêM^`Ş´Bøô@™Ùn?‰üë‰úzFnVÄq}YrC•dMô`Ø¾H*ñÒfò£hÊú8œW"ï¨âÈı¦i¶*Ö!]˜c®KÁ9nèB¨ÅĞöÚGXŸëèäÏ²Ğ‘Gƒ ;®£ûë“ËóÎÙM¸oÁ&ZÎ.:›ì*k„I\6èçâºá4yİB¥yı`$¢ß® €¨ÏvĞêoÿjzàÚ©ú’ ôq$£ ÃçôRP¥zYÙ
+ç†+nk¸vš³/d¶™œ}ÊqâÛ¢K©²ë¨md3Ø“c¢ ¾İê{T}‘3r2yî{Nd‡^à‹£À?eÔF9RÊ¹} $m´Fº®'´6E¼¤x`ıùS<…Û"Ø\]Uv5äÍ¹Aî=Á”l
+‡ùàäù:Èèƒa«âP0ø˜ì]ËX¥ş9^ëŒÇ‚³o;Dí;´A VÍ[}]t?²‡šÅ@Wbd¦ßÇªšÂ²¦..eHm·ÛªI ß®šºˆX²§b-+ÂŸLİ5<N …gouâ˜6DVYkµBİ‡‰çS+t¬íÜÉO¸ğ¯ K\­É«O‘)MƒNĞYõÓmt¾ üÕD•SÍ"sÂA­Kâø+M9—<é!m:¿bsÀaÔÏ?S|y	Ç¬% ò úş«u¼êÍçı$÷…ËV–wôw¹ İ¡+¹¨p)/_Õ §"û¯¾Ğ=À&t™"Ñ™?ü¥zZGßî³ªÉƒá›è
+3N)6NÉ…±šÛ	×Ë.—…+âØ¬:)çğ°pî;ƒ7”q0yĞDÂUo"wàr‰+e|"Ü7ƒ–Ò‚£ƒ£°'µ\*¸ãÆÒmFîYF‹5åeS“–Zw³'AVHUÖd˜
+ËŞ=	+T]?ˆ-^-33DNAW6±O	ËŞÂIJOõ“|º­Õcg+YIqŒ¢a—ÄÃ"­ïRçÌ}v Äk&ş‡SvQ=Â(\ş1be  ½]P³j‰³ºp©@‰•úÖıaEå’öß-â9|ÇH®ƒwx»sÄsÈî‘ô{ï I}Ğ.ÏŞ;)$Ş¹›ÄSv åğõ¼’ãzŠÚË ca""n´¨Áxõ(bŠ¦£¦ÌÅAğ¨ğ3üxºıæ—¢Ân9ŸàŠ?¢)‰¾òÑ¤6õXê«a6‰.ú–4Æ ¸¼„¶ğëPîÉË»µ“|à[˜(ÿ €¼wY ü­/ó¾d¾qªÈêw™'Ï8]Ã1±Õ`¡eöĞínò< ò{àGÀÙ¨ Æ^×!+ƒl­Œû9ĞE¬4µøàË5Aê,Ø
+BÂ6Ã…ÅKùç@õ§"¨ñÿ€”öÅI9JÊÁHÑ^(<ß0
+L¸B‰¶£¯Ö¡ÄÍÑçB™Í?šıï€Ù³`Ù~iæ¡	æ¡©åó’ÊıÓÉ}ÉCRÈ=“Çİic!{ Û	¿şğU½~?ğÚ»ş8Ğµ?äzàzÜz>Ø:j´…Y€¬ı VÀÚ^å·f«VEœW[€%­Ô¡‡OŒÀL^ËÅ_»s™÷ÿ•p@Ô|¦
+<·% û¡Q®²7&È)Ök5âó%ew[ŒÕjdê/ÂQº1ùĞ÷.ÂJ¬Ñ¸÷c¿÷úï?LßÊÔSˆ‚W2_ğ}Ü¶¢*FØ]¥,/GIS'ÁaªÆæõ~<¼¡î¸'+sÊñê=˜Í-©T)
+'§FÙ¨@PeKg¾K’E$RÏ¢j[yMÙ a±ÏÛë¼P³Èzç€H©&‹2&Ê°0'NÉº*Ö%U\^µmz~!Z`¬‹Ş´ÓˆâÎ«Îuç}ïªw­RÊ¤äº}SÄ\Ì¦’ü|×’S¼ÀÜ vª4iö„ò¥2,™z©àUk¼}‡Û¶ÈºÁ@[¤ØN~æTé¤’¢”«½^&’/¥x,ÎTî}j=…ºBXÂaâ–$eÇ²F1àÛ–·ZVà”qW’m,!LgĞQÎ|#a®¤é;÷4bM5'y¦t>óØÑM’^¶«Ûó1,?ãşF~±sT‰9åÎ®b“½ŞTb#ŞİEÎ9t»ŠÿrX2^…‰6öİ‚%±w65¿`«½?‹A~„D	b v)&]/4Q€åbTûHBeı<icìR—
+hŠeÈc*ïdpŒ278õtÓ&îŒ¥¯<H(DºZ]@Â+]ÜØÈÓšzdNœä™ß^‡*A6q¾ v	–¥Í[ÁGyHèhÛƒh6ÿ  ÿÿ Êì
