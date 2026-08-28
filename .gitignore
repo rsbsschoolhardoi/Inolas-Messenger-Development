@@ -10,4 +10,6 @@ __pycache__/
 .git/
 .venv/
 node_modules/
+dist/
 /app/__pycache__/
+
