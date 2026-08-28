@@ -10,7 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 export interface MediaEditorData {
   file: File;
   fileUrl: string;
-  mediaType: 'image' | 'video';
+  mediaType: 'image' | 'video' | 'document' | 'audio';
   fileName: string;
   fileSize: string;
   recipientName: string;
@@ -544,6 +544,7 @@ export const MediaEditorModal: React.FC<MediaEditorModalProps> = ({
       mediaQuality: qualityMode,
       fileName: finalName,
       fileSize: finalSize,
+      isDocument: data.mediaType === 'document' || data.mediaType === 'audio',
     });
     onClose();
   };
@@ -986,6 +987,23 @@ export const MediaEditorModal: React.FC<MediaEditorModalProps> = ({
                 </div>
               </div>
             </div>
+          </div>
+        ) : data.mediaType === 'document' ? (
+          /* DOCUMENT PREVIEW STAGE */
+          <div className="w-full max-w-sm bg-neutral-900 rounded-2xl p-8 flex flex-col items-center justify-center border border-neutral-800 shadow-2xl">
+            <FileText className="w-24 h-24 text-indigo-400 mb-6" />
+            <h3 className="text-white text-xl font-bold mb-2 text-center break-all">{data.fileName}</h3>
+            <p className="text-neutral-400 text-sm">{data.fileSize} • Document</p>
+          </div>
+        ) : data.mediaType === 'audio' ? (
+          /* AUDIO PREVIEW STAGE */
+          <div className="w-full max-w-sm bg-neutral-900 rounded-2xl p-8 flex flex-col items-center justify-center border border-neutral-800 shadow-2xl">
+            <div className="w-24 h-24 rounded-full bg-indigo-500/20 flex items-center justify-center mb-6">
+              <Volume2 className="w-12 h-12 text-indigo-400" />
+            </div>
+            <h3 className="text-white text-xl font-bold mb-2 text-center break-all">{data.fileName}</h3>
+            <p className="text-neutral-400 text-sm mb-6">{data.fileSize} • Audio</p>
+            <audio src={data.fileUrl} controls className="w-full" />
           </div>
         ) : (
           /* PHOTO PREVIEW STAGE WITH INTERACTIVE DRAWING & ANNOTATIONS */

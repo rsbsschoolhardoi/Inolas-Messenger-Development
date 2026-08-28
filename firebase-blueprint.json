@@ -1,49 +1,68 @@
 {
-  "collections": {
-    "users": {
-      "username": "string",
-      "display_name": "string",
-      "bio": "string",
-      "avatar_seed": "string",
-      "online": "boolean",
-      "last_seen": "string"
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile data",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "display_name": { "type": "string" },
+        "bio": { "type": "string" },
+        "avatar_seed": { "type": "string" },
+        "avatar_url": { "type": "string" },
+        "online": { "type": "boolean" },
+        "last_seen": { "type": "string" },
+        "last_seen_timestamp": { "type": "number" },
+        "custom_status": { "type": "string" },
+        "activity_status": { "type": "string" },
+        "activity_type": { "type": "string" },
+        "followers": { "type": "array" },
+        "following": { "type": "array" },
+        "is_private": { "type": "boolean", "description": "Whether the account is private" }
+      }
     },
-    "chats": {
-      "id": "string",
-      "type": "string",
-      "name": "string",
-      "username": "string",
-      "avatar_seed": "string",
-      "participants": "array",
-      "unread": "number",
-      "last_message": "string",
-      "last_time": "string",
-      "pinned": "boolean",
-      "muted": "boolean",
-      "typing": "boolean",
-      "online": "boolean",
-      "last_seen": "string"
+    "FollowRequest": {
+      "title": "Follow Request",
+      "description": "Pending follow requests for private accounts",
+      "type": "object",
+      "properties": {
+        "fromId": { "type": "string" },
+        "toId": { "type": "string" },
+        "fromName": { "type": "string" },
+        "fromUsername": { "type": "string" },
+        "fromAvatar": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "declined"] },
+        "timestamp": { "type": "number" }
+      }
     },
-    "messages": {
-      "id": "string",
-      "chat_id": "string",
-      "sender": "string",
-      "text": "string",
-      "type": "string",
-      "media_url": "string",
-      "file_name": "string",
-      "file_size": "string",
-      "timestamp": "string",
-      "reply_to": "string",
-      "reply_preview": "string",
-      "reply_sender": "string",
-      "reactions": "array",
-      "read_by": "array",
-      "forwarded": "boolean",
-      "pinned": "boolean",
-      "edited": "boolean",
-      "deleted_for_everyone": "boolean",
-      "deleted_for_me": "boolean"
+    "Notification": {
+      "title": "Notification",
+      "description": "User notifications for social activities",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["follow_request", "follow_accept", "new_follower", "mention"] },
+        "fromId": { "type": "string" },
+        "fromName": { "type": "string" },
+        "fromUsername": { "type": "string" },
+        "fromAvatar": { "type": "string" },
+        "read": { "type": "boolean" },
+        "timestamp": { "type": "number" }
+      }
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "follow_requests/{requestId}": {
+      "schema": "FollowRequest",
+      "description": "Collection for managing follow requests"
+    },
+    "notifications/{notifId}": {
+      "schema": "Notification",
+      "description": "Collection for user notifications"
     }
   }
 }

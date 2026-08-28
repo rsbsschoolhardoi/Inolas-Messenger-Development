@@ -1033,7 +1033,7 @@ export const CallModal: React.FC<CallModalProps> = ({
         autoPlay 
         playsInline 
         muted={!isSpeakerOn}
-        className="hidden" 
+        className="opacity-0 pointer-events-none absolute w-px h-px" 
       />
 
       {/* Prominent Zenoa Top Header Bar */}

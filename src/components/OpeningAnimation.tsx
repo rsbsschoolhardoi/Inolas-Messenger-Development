@@ -20,7 +20,6 @@ export const OpeningAnimation: React.FC<OpeningAnimationProps> = ({
       setProgress(prev => {
         if (prev >= 100) {
           clearInterval(interval);
-          if (onComplete) onComplete();
           return 100;
         }
         return prev + 4;
@@ -28,7 +27,15 @@ export const OpeningAnimation: React.FC<OpeningAnimationProps> = ({
     }, 40);
 
     return () => clearInterval(interval);
-  }, [onComplete]);
+  }, []);
+
+  useEffect(() => {
+    if (progress >= 100) {
+      if (onComplete) {
+        onComplete();
+      }
+    }
+  }, [progress, onComplete]);
 
   return (
     <motion.div

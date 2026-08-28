@@ -31,7 +31,10 @@ import {
   CheckCircle2,
   Sliders,
   Cloud,
-  Upload
+  Upload,
+  Mail,
+  User,
+  Copy
 } from 'lucide-react';
 import { storageManager, StorageEstimateInfo } from '../storageManager';
 
@@ -72,6 +75,8 @@ interface SettingsPageProps {
   setCallDataSaver: (v: boolean) => void;
   noiseSuppression: boolean;
   setNoiseSuppression: (v: boolean) => void;
+  isAccountPrivate: boolean;
+  setIsAccountPrivate: (v: boolean) => void;
   showToast: (msg: string) => void;
   userDisplayName: string;
   userUsername: string;
@@ -79,6 +84,8 @@ interface SettingsPageProps {
   userAvatarUrl?: string;
   userEmail?: string;
   userUid?: string;
+  userPhone?: string;
+  authMethod?: string;
   renderAvatar: (seed?: string, name?: string, url?: string, sizeClasses?: string) => React.ReactNode;
   onOpenEditProfile: () => void;
   isDriveConnected: boolean;
@@ -92,7 +99,7 @@ interface SettingsPageProps {
   onDeleteBackupFromDrive: (password: string) => void;
 }
 
-type SettingsSection = 'main' | 'appearance' | 'notifications' | 'privacy' | 'chats' | 'storage' | 'account' | 'calls';
+type SettingsSection = 'main' | 'appearance' | 'notifications' | 'privacy' | 'chats' | 'storage' | 'account' | 'calls' | 'private_account';
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   themeMode,
@@ -129,6 +136,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   setCallDataSaver,
   noiseSuppression,
   setNoiseSuppression,
+  isAccountPrivate,
+  setIsAccountPrivate,
   mediaUploadQuality,
   setMediaUploadQuality,
   showToast,
@@ -138,6 +147,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   userAvatarUrl,
   userEmail,
   userUid,
+  userPhone,
+  authMethod,
   renderAvatar,
   onOpenEditProfile,
   isDriveConnected,
@@ -153,6 +164,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [section, setSection] = useState<SettingsSection>('main');
   const [storageInfo, setStorageInfo] = useState<StorageEstimateInfo | null>(null);
   const [isCleaningStorage, setIsCleaningStorage] = useState<boolean>(false);
+  const [pendingPrivacyState, setPendingPrivacyState] = useState<boolean | null>(null);
+  const [copiedUid, setCopiedUid] = useState<boolean>(false);
   const [vaultPassword, setVaultPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState<boolean>(false);
@@ -227,10 +240,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           )}
           <div>
             <h1 className="text-base md:text-lg font-bold text-neutral-900 dark:text-white capitalize">
-              {section === 'main' ? 'Settings & Preferences' : section}
+              {section === 'main' 
+                ? 'Settings & Preferences' 
+                : section === 'private_account' 
+                  ? 'Private Account' 
+                  : section}
             </h1>
             <p className="text-[11px] text-neutral-400">
-              {section === 'main' ? 'Manage your account, privacy, and preferences' : `Customize your ${section} settings`}
+              {section === 'main' 
+                ? 'Manage your account, privacy, and preferences' 
+                : section === 'private_account'
+                  ? 'Manage account visibility and access control'
+                  : `Customize your ${section} settings`}
             </p>
           </div>
         </div>
@@ -256,7 +277,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-indigo-500/20 via-transparent to-transparent" />
                 <span className="relative z-10 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-white/10 dark:bg-black/30 backdrop-blur-md text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  E2EE Protected Profile
+                  {isAccountPrivate ? 'Private Profile' : 'Public Profile'}
                 </span>
                 <button
                   onClick={onOpenEditProfile}
@@ -291,79 +312,23 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
             </div>
 
-            {/* 2. SECOND ITEM: GOOGLE DRIVE BACKUP CARD */}
-            <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4 overflow-hidden">
-              <div className="flex items-center justify-between gap-2.5 min-w-0">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200/60 dark:border-neutral-700/60 shrink-0">
-                    <GoogleDriveLogo className="h-6 w-6" />
+            {/* Stands standalone Account option card right below the Profile card */}
+            <div className="bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-200/80 dark:border-neutral-800 overflow-hidden shadow-sm">
+              <button
+                onClick={() => setSection('account')}
+                className="w-full p-4.5 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors text-left cursor-pointer"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200/50 dark:border-neutral-700/50">
+                    <User className="h-5 w-5" />
                   </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-bold text-sm text-neutral-900 dark:text-white truncate">Google Drive Backup</h3>
-                      {isDriveConnected ? (
-                        <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1 shrink-0">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                          Connected
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0">
-                          Not Connected
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 truncate">
-                      {isDriveConnected
-                        ? lastBackupDate ? `Last Sync: ${lastBackupDate}` : 'Ready for Cloud Backup'
-                        : 'Connect Google Drive for cloud backup & restore'}
-                    </p>
+                  <div>
+                    <p className="text-sm font-bold text-neutral-900 dark:text-white">Account</p>
+                    <p className="text-xs text-neutral-400">View and manage your connected credentials and profile details</p>
                   </div>
                 </div>
-                {isDriveConnected && (
-                  <button
-                    onClick={onDisconnectDrive}
-                    className="text-xs font-semibold text-neutral-400 hover:text-rose-500 transition-colors px-2 py-1 cursor-pointer shrink-0"
-                  >
-                    Disconnect
-                  </button>
-                )}
-              </div>
-
-              {isDriveConnected ? (
-                <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-1">
-                  <button
-                    onClick={() => {
-                      setPasswordModalAction('backup');
-                      setPasswordModalOpen(true);
-                    }}
-                    disabled={isBackingUp}
-                    className="py-2.5 px-2 sm:px-3 rounded-2xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 font-bold text-xs flex items-center justify-center gap-1.5 min-w-0 transition-all disabled:opacity-50 cursor-pointer shadow-xs"
-                  >
-                    {isBackingUp ? <RefreshCw className="h-4 w-4 animate-spin shrink-0" /> : <Upload className="h-4 w-4 shrink-0" />}
-                    <span className="truncate">Backup Now</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setPasswordModalAction('restore');
-                      setPasswordModalOpen(true);
-                    }}
-                    disabled={isRestoring}
-                    className="py-2.5 px-2 sm:px-3 rounded-2xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-900 dark:text-white font-bold text-xs flex items-center justify-center gap-1.5 min-w-0 transition-all border border-neutral-200 dark:border-neutral-700 disabled:opacity-50 cursor-pointer"
-                  >
-                    {isRestoring ? <RefreshCw className="h-4 w-4 animate-spin shrink-0" /> : <Download className="h-4 w-4 shrink-0" />}
-                    <span className="truncate">Restore Data</span>
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={onConnectDrive}
-                  className="w-full py-2.5 px-4 rounded-2xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer"
-                >
-                  <GoogleDriveLogo className="h-4 w-4 shrink-0" />
-                  <span>Connect Google Drive</span>
-                </button>
-              )}
+                <ChevronRight className="h-4 w-4 text-neutral-400" />
+              </button>
             </div>
 
             {/* Category Groups */}
@@ -405,6 +370,34 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <ChevronRight className="h-4 w-4 text-neutral-400" />
                 </button>
 
+                {/* Private Account (Dedicated Section) */}
+                <button
+                  onClick={() => setSection('private_account')}
+                  className="w-full p-4 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors text-left cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200/50 dark:border-neutral-700/50">
+                      <Lock className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-neutral-900 dark:text-white">Private Account</p>
+                      <p className="text-xs text-neutral-400">
+                        {isAccountPrivate ? 'Enabled · Followers must be approved' : 'Disabled · Profile is visible to everyone'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                      isAccountPrivate 
+                        ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900' 
+                        : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500'
+                    }`}>
+                      {isAccountPrivate ? 'Private' : 'Public'}
+                    </span>
+                    <ChevronRight className="h-4 w-4 text-neutral-400" />
+                  </div>
+                </button>
+
                 {/* Privacy & Security */}
                 <button
                   onClick={() => setSection('privacy')}
@@ -440,17 +433,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </button>
 
               </div>
-            </div>
-
-            {/* Logout Button */}
-            <div className="pt-2">
-              <button
-                onClick={handleLogout}
-                className="w-full p-4 rounded-3xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/40 text-rose-600 dark:text-rose-400 font-bold text-sm hover:bg-rose-100/60 dark:hover:bg-rose-900/30 transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
-              >
-                <LogOut className="h-4 w-4" />
-                <span>Log Out</span>
-              </button>
             </div>
           </div>
         )}
@@ -603,6 +585,130 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         )}
 
+        
+        {/* SECTION: PRIVATE ACCOUNT */}
+        {section === 'private_account' && (
+          <div className="space-y-6 animate-fade-in">
+            <div className="p-6 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-5">
+              <div className="flex items-center justify-between pb-4 border-b border-neutral-100 dark:border-neutral-800">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-200/50 dark:border-neutral-700/50">
+                    <Lock className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Account Privacy</h3>
+                    <p className="text-xs text-neutral-400">Manage who can see your profile and connect with you</p>
+                  </div>
+                </div>
+                <span className={`text-xs font-bold px-3 py-1 rounded-full ${
+                  isAccountPrivate 
+                    ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900' 
+                    : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border border-neutral-200/60 dark:border-neutral-700/60'
+                }`}>
+                  {isAccountPrivate ? 'Private' : 'Public'}
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-400">
+                  Select Visibility
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Public Option */}
+                  <div 
+                    onClick={() => {
+                      if (isAccountPrivate) {
+                        setPendingPrivacyState(false);
+                      }
+                    }}
+                    className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                      !isAccountPrivate 
+                        ? 'border-neutral-900 dark:border-white bg-neutral-50 dark:bg-neutral-800/60 shadow-xs' 
+                        : 'border-neutral-200/80 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700'
+                    }`}
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Eye className="h-4 w-4 text-neutral-700 dark:text-neutral-300" />
+                          <span className="font-bold text-sm text-neutral-900 dark:text-white">Public</span>
+                        </div>
+                        {!isAccountPrivate && (
+                          <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                        )}
+                      </div>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                        Your profile is visible to all users. Anyone can follow you and send direct messages without approval.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={!isAccountPrivate}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isAccountPrivate) setPendingPrivacyState(false);
+                      }}
+                      className={`w-full py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        !isAccountPrivate 
+                          ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-2xs' 
+                          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                      }`}
+                    >
+                      {!isAccountPrivate ? 'Active' : 'Switch to Public'}
+                    </button>
+                  </div>
+
+                  {/* Private Option */}
+                  <div 
+                    onClick={() => {
+                      if (!isAccountPrivate) {
+                        setPendingPrivacyState(true);
+                      }
+                    }}
+                    className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                      isAccountPrivate 
+                        ? 'border-neutral-900 dark:border-white bg-neutral-50 dark:bg-neutral-800/60 shadow-xs' 
+                        : 'border-neutral-200/80 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700'
+                    }`}
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Lock className="h-4 w-4 text-neutral-700 dark:text-neutral-300" />
+                          <span className="font-bold text-sm text-neutral-900 dark:text-white">Private</span>
+                        </div>
+                        {isAccountPrivate && (
+                          <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                        )}
+                      </div>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                        Only approved followers can view your profile and media. New followers must send a request.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isAccountPrivate}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!isAccountPrivate) setPendingPrivacyState(true);
+                      }}
+                      className={`w-full py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        isAccountPrivate 
+                          ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-2xs' 
+                          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                      }`}
+                    >
+                      {isAccountPrivate ? 'Active' : 'Switch to Private'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* SECTION: PRIVACY */}
         {section === 'privacy' && (
           <div className="space-y-6 animate-fade-in">
@@ -648,6 +754,31 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   }}
                   className="h-4 w-4 accent-neutral-900 dark:accent-white border-neutral-300 rounded cursor-pointer"
                 />
+              </div>
+
+              {/* Account Privacy Row (navigates to dedicated section) */}
+              <div 
+                onClick={() => setSection('private_account')}
+                className="pt-4 border-t border-neutral-100 dark:border-neutral-800/80 flex items-center justify-between cursor-pointer group"
+              >
+                <div>
+                  <h3 className="font-bold text-sm text-neutral-900 dark:text-white group-hover:text-neutral-600 dark:group-hover:text-neutral-300 transition-colors">
+                    Account Privacy
+                  </h3>
+                  <p className="text-xs text-neutral-400">
+                    {isAccountPrivate ? 'Private · Only approved followers can view profile' : 'Public · Anyone can view profile'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                    isAccountPrivate 
+                      ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900' 
+                      : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
+                  }`}>
+                    {isAccountPrivate ? 'Private' : 'Public'}
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+                </div>
               </div>
 
               {/* Blocked Users */}
@@ -924,122 +1055,48 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {/* SECTION: ACCOUNT */}
         {section === 'account' && (
           <div className="space-y-6 animate-fade-in">
-            {/* Cloud Vault Section */}
-            <div className="p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-5">
-              <div className="flex items-center gap-3">
-                <div className="p-3 rounded-2xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200/50 dark:border-neutral-700/50 shrink-0">
-                  <GoogleDriveLogo className="h-6 w-6" />
+            {/* Professional Account Card */}
+            <div className="rounded-2xl border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm overflow-hidden">
+              <div className="p-5 border-b border-neutral-150 dark:border-neutral-800/80 flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200/40 dark:border-neutral-700/40">
+                  <User className="h-5 w-5" />
                 </div>
-                <div>
-                  <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Google Drive Cloud Vault</h3>
-                  <p className="text-xs text-neutral-400">Zero-knowledge encrypted cloud backup</p>
+                <div className="text-left">
+                  <h2 className="text-base font-bold text-neutral-900 dark:text-white">Account Details</h2>
+                  <p className="text-xs text-neutral-400">View and manage your connected credentials</p>
                 </div>
               </div>
 
-              {!isDriveConnected ? (
-                <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-100 dark:border-neutral-800 space-y-3">
-                  <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-                    Connect your official Google Drive account to enable end-to-end encrypted cloud backups for all your chats and media.
-                  </p>
-                  <button
-                    onClick={onConnectDrive}
-                    className="w-full py-2.5 rounded-xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 font-bold text-xs flex items-center justify-center gap-2 transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer"
-                  >
-                    <GoogleDriveLogo className="h-4 w-4" />
-                    <span>Connect Google Drive</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                      <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Google Drive Connected</span>
-                    </div>
-                    <button
-                      onClick={onDisconnectDrive}
-                      className="text-[10px] font-bold text-neutral-400 hover:text-rose-500 transition-colors cursor-pointer"
-                    >
-                      Disconnect
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3 pt-1">
-                      <button
-                        onClick={() => {
-                          setPasswordModalAction('backup');
-                          setPasswordModalOpen(true);
-                        }}
-                        disabled={isBackingUp}
-                        className="py-3 rounded-2xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 font-bold text-xs flex items-center justify-center gap-2 transition-all hover:bg-neutral-800 dark:hover:bg-neutral-100 disabled:opacity-50 cursor-pointer shadow-xs"
-                      >
-                        {isBackingUp ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                        <span>Backup Now</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setPasswordModalAction('restore');
-                          setPasswordModalOpen(true);
-                        }}
-                        disabled={isRestoring}
-                        className="py-3 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-700 font-bold text-xs flex items-center justify-center gap-2 transition-all hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-50 cursor-pointer"
-                      >
-                        {isRestoring ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                        <span>Restore Vault</span>
-                      </button>
-                    </div>
-
-                    {lastBackupDate && (
-                      <div className="space-y-3 pt-2">
-                        <p className="text-[10px] text-center text-neutral-400 font-medium">
-                          Last Cloud Sync: {lastBackupDate}
-                        </p>
-                        <button
-                          onClick={() => {
-                            setPasswordModalAction('delete');
-                            setPasswordModalOpen(true);
-                          }}
-                          className="w-full py-2.5 rounded-xl border border-red-200 dark:border-red-900/30 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          <span>Delete Cloud Backup</span>
-                        </button>
-                      </div>
-                    )}
+              {/* Account details body */}
+              <div className="p-5 space-y-5">
+                {/* Profile Information */}
+                <div className="flex items-center gap-3.5 p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/20 border border-neutral-200/40 dark:border-neutral-800/40">
+                  {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-12 w-12 text-sm border border-neutral-200 dark:border-neutral-700')}
+                  <div className="min-w-0 flex-1 text-left">
+                    <p className="text-[10px] uppercase font-bold tracking-wider text-neutral-400">Connected Identity</p>
+                    <h4 className="text-sm font-bold text-neutral-900 dark:text-white truncate">{userDisplayName}</h4>
+                    <p className="text-xs font-mono text-neutral-400 mt-0.5">@{userUsername}</p>
                   </div>
                 </div>
-              )}
-            </div>
 
-            <div className="p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Local JSON Export</h3>
-                  <p className="text-xs text-neutral-400">Save a local encrypted backup file to your device</p>
-                </div>
-                <button
-                  onClick={handleExportChatData}
-                  className="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer shrink-0"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  <span>Export</span>
-                </button>
-              </div>
+                {/* Primary Credentials Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  {/* Email address */}
+                  <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/10 border border-neutral-150 dark:border-neutral-800/40 text-left">
+                    <p className="text-[10px] uppercase font-bold tracking-wider text-neutral-400">Email Address</p>
+                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 mt-1 truncate">
+                      {userEmail || 'Not available'}
+                    </p>
+                  </div>
 
-              <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800/80 flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Log Out</h3>
-                  <p className="text-xs text-neutral-400">Your profile and data remain safely stored</p>
+                  {/* Phone Number */}
+                  <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/10 border border-neutral-150 dark:border-neutral-800/40 text-left">
+                    <p className="text-[10px] uppercase font-bold tracking-wider text-neutral-400">Phone Number</p>
+                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 mt-1 truncate">
+                      {userPhone || 'Not Connected'}
+                    </p>
+                  </div>
                 </div>
-                <button
-                  onClick={handleLogout}
-                  className="px-4 py-2 bg-neutral-200 hover:bg-rose-600 hover:text-white dark:bg-neutral-800 dark:hover:bg-rose-600 dark:hover:text-white text-neutral-800 dark:text-neutral-200 font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  <span>Log Out</span>
-                </button>
               </div>
             </div>
           </div>
@@ -1060,6 +1117,75 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           handlePasswordModalSubmit(newPwd);
         }}
       />
+
+      {/* Privacy Change Confirmation Modal */}
+      {pendingPrivacyState !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md bg-white dark:bg-neutral-900 rounded-3xl p-6 shadow-2xl border border-neutral-200 dark:border-neutral-800 space-y-5 animate-scale-in">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white">
+                {pendingPrivacyState ? <Lock className="h-6 w-6" /> : <Eye className="h-6 w-6" />}
+              </div>
+              <div>
+                <h3 className="font-bold text-lg text-neutral-900 dark:text-white">
+                  Switch to {pendingPrivacyState ? 'Private' : 'Public'} Account?
+                </h3>
+                <p className="text-xs text-neutral-500">Please review what changes when you update your visibility.</p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/80 dark:border-neutral-700/80 space-y-2.5 text-xs text-neutral-700 dark:text-neutral-300">
+              {pendingPrivacyState ? (
+                <>
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold text-neutral-900 dark:text-white">•</span>
+                    <p>Only people you approve will be able to view your profile details, followers, and following lists.</p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold text-neutral-900 dark:text-white">•</span>
+                    <p>New users must send a follow request to connect with you or view your profile.</p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold text-neutral-900 dark:text-white">•</span>
+                    <p>Existing followers and active conversations will remain unaffected.</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold text-neutral-900 dark:text-white">•</span>
+                    <p>Anyone on Zenoa will be able to view your profile details and send you direct messages.</p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold text-neutral-900 dark:text-white">•</span>
+                    <p>Any pending follow requests will be automatically accepted.</p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                onClick={() => setPendingPrivacyState(null)}
+                className="flex-1 py-3 rounded-2xl border border-neutral-200 dark:border-neutral-700 font-bold text-xs text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setIsAccountPrivate(pendingPrivacyState);
+                  showToast(`Account is now ${pendingPrivacyState ? 'Private' : 'Public'}`);
+                  setPendingPrivacyState(null);
+                }}
+                className="flex-1 py-3 rounded-2xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 font-bold text-xs hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                Confirm Change
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

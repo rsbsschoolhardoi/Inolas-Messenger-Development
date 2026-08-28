@@ -2,24 +2,48 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // Global safety net catch-all: default-deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
     function isSignedIn() {
       return request.auth != null;
     }
 
-    // Users collection: signed-in users can read profiles; users can write their own profile
+    // Users collection: allow public read of profiles for discovery/search; users can write their own profile
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isSignedIn() && (request.auth.uid == userId || resource.data.id == request.auth.uid);
+      allow read: if true; 
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && request.auth.uid == userId;
+      allow delete: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email == 'azadaman19s@gmail.com');
+      
+      // Privacy Gate: allow owner to read everything (including any potential sub-data)
       match /{allPaths=**} {
-        allow read, create, update, delete: if isSignedIn();
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+        allow delete: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email == 'azadaman19s@gmail.com');
       }
+    }
+
+    // Notifications collection: users only see their own notifications
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // Follow requests collection: sender and recipient can see them
+    match /follow_requests/{requestId} {
+      allow read: if isSignedIn() && (resource == null || resource.data.toId == request.auth.uid || resource.data.fromId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.fromId == request.auth.uid;
+      allow update, delete: if isSignedIn() && (resource.data.toId == request.auth.uid || resource.data.fromId == request.auth.uid);
     }
 
     // Username reservation lookup
     match /usernames/{cleanUsername} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.uid == request.auth.uid;
     }
 
     // Chats collection

@@ -17,6 +17,30 @@ export interface UserData {
   previous_usernames?: string[];
   followers?: string[];
   following?: string[];
+  is_private?: boolean;
+}
+
+export interface FollowRequest {
+  id: string;
+  fromId: string;
+  toId: string;
+  fromName: string;
+  fromUsername: string;
+  fromAvatar: string;
+  status: 'pending' | 'accepted' | 'declined';
+  timestamp: number;
+}
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  type: 'follow_request' | 'follow_accept' | 'new_follower' | 'mention';
+  fromId: string;
+  fromName: string;
+  fromUsername: string;
+  fromAvatar: string;
+  read: boolean;
+  timestamp: number;
 }
 
 export interface Reaction {
@@ -129,6 +153,7 @@ export interface Chat {
   send_messages_permission?: 'all' | 'admins';
   last_message_sender?: string;
   last_message_status?: 'sent' | 'delivered' | 'read';
+  isLocalPending?: boolean;
 }
 
 export interface AuthState {

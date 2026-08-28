@@ -13,15 +13,16 @@ import {
 } from 'lucide-react';
 import {  motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
-import {  UserData, Chat, Message, PollData, CallData, CallHistoryRecord } from './types';
+import {  UserData, Chat, Message, PollData, CallData, CallHistoryRecord, FollowRequest, AppNotification } from './types';
 import {  SEED_USERS, SEED_CHATS, SEED_MESSAGES } from './data';
 import {  isFirebaseConfigured, db, auth } from './firebaseClient';
 import {  MessageCard } from './components/MessageCard';
 import {  InlineVideoPlayer } from './components/InlineVideoPlayer';
 import {  VoiceNotePlayer } from './components/VoiceNotePlayer';
-import {  SettingsPage } from './components/SettingsPage';
+import { SettingsPage } from './components/SettingsPage';
 import {  MediaEditorModal, MediaEditorData } from './components/MediaEditorModal';
 import {  ImageCropperModal } from './components/ImageCropperModal';
+import { NotificationsModal } from './components/NotificationsModal';
 import {  ChatThemeModal } from './components/ChatThemeModal';
 import {  UnifiedEmojiPicker } from './components/UnifiedEmojiPicker';
 import {  LandingPage } from './components/LandingPage';
@@ -54,6 +55,53 @@ import {
   signOut as firebaseSignOut, onAuthStateChanged, 
   GoogleAuthProvider, FacebookAuthProvider, signInWithPopup, sendEmailVerification, sendPasswordResetEmail 
 } from 'firebase/auth';
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null, authInstance: any) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: authInstance?.currentUser?.uid,
+      email: authInstance?.currentUser?.email,
+      emailVerified: authInstance?.currentUser?.emailVerified,
+      isAnonymous: authInstance?.currentUser?.isAnonymous,
+      tenantId: authInstance?.currentUser?.tenantId,
+      providerInfo: authInstance?.currentUser?.providerData?.map((provider: any) => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 export const checkUsernameIsTakenInFirestore = async (
   dbRef: any,
@@ -260,10 +308,19 @@ export default function App() {
   const [isDriveConnected, setIsDriveConnected] = useState<boolean>(() => {
     return localStorage.getItem('zenoa_drive_connected') === 'true';
   });
+  const [dismissedDriveBackupCard, setDismissedDriveBackupCard] = useState<boolean>(() => {
+    return localStorage.getItem('zenoa_drive_dismissed') === 'true';
+  });
+  
   const [driveAccessToken, setDriveAccessToken] = useState<string | null>(null);
   const [isBackingUp, setIsBackingUp] = useState<boolean>(false);
   const [isRestoring, setIsRestoring] = useState<boolean>(false);
   const [lastBackupInfo, setLastBackupInfo] = useState<DriveFileInfo | null>(null);
+  
+  
+  const [hasSavedPassword, setHasSavedPassword] = useState<boolean>(() => {
+    return !!localStorage.getItem('zenoa_vault_key');
+  });
 
 
   useEffect(() => {
@@ -285,7 +342,7 @@ export default function App() {
     // Find or create chat if needed
     let targetChat = chats.find(c => c.type === 'dm' && c.username === targetUsername);
     if (!targetChat) {
-      const newChatId = 'chat_' + [userUsername, targetUsername].sort().join('_');
+      const newChatId = getDmChatId(userUsername, targetUsername);
       targetChat = {
         id: newChatId,
         type: 'dm',
@@ -301,7 +358,8 @@ export default function App() {
         muted: false,
         typing: false,
         online: isUserEffectivelyOnline(targetUserObj),
-        last_seen: targetUserObj?.last_seen || ''
+        last_seen: targetUserObj?.last_seen || '',
+        isLocalPending: true
       };
       setChats(prev => [targetChat!, ...prev]);
     }
@@ -405,7 +463,7 @@ export default function App() {
         const callTypeLabel = callMeta.callType === 'video' ? 'Video' : 'Voice';
         let logText = '';
         if (callMeta.status === 'answered') {
-          logText = `${callTypeLabel} Call ‚Ä¢ ${callMeta.durationFormatted}`;
+          logText = `${callTypeLabel} Call \u2022 ${callMeta.durationFormatted}`;
         } else {
           logText = activeCallSession.isIncoming ? `Missed ${callTypeLabel} Call` : `Unanswered ${callTypeLabel} Call`;
         }
@@ -520,6 +578,11 @@ export default function App() {
   const [showUnifiedPicker, setShowUnifiedPicker] = useState<boolean>(false);
   const [showEmojiPanel, setShowEmojiPanel] = useState<boolean>(false);
   const [showStickerPanel, setShowStickerPanel] = useState<boolean>(false);
+
+  const [isAccountPrivate, setIsAccountPrivate] = useState<boolean>(false);
+  const [followRequests, setFollowRequests] = useState<FollowRequest[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [showNotificationsPanel, setShowNotificationsPanel] = useState<boolean>(false);
 
   // Profile & Settings State
   const [settingsSection, setSettingsSection] = useState<'main' | 'appearance' | 'notifications' | 'privacy' | 'chats' | 'account' | 'communication'>('main');
@@ -1119,6 +1182,10 @@ export default function App() {
   useEffect(() => {
     if (!isFirebaseConfigured || !db || !userUsername || !activeChatId) return;
     
+    // GUARD: Do NOT update Firestore if active chat has not been created on database yet (isLocalPending)
+    const activeChat = chats.find(c => c.id === activeChatId);
+    if (activeChat?.isLocalPending) return;
+    
     const unreadMsgs = (messagesByChat[activeChatId] || []).filter(
       m => m.sender !== userUsername && (!m.read_by || !m.read_by.includes(userUsername))
     );
@@ -1149,6 +1216,8 @@ export default function App() {
   useEffect(() => {
     let unsubscribeUsers: (() => void) | null = null;
     let unsubscribeAuth: (() => void) | null = null;
+    let unsubscribeNotifications: (() => void) | null = null;
+    let unsubscribeFollowRequests: (() => void) | null = null;
 
     async function initFirebase() {
       if (!isFirebaseConfigured || !db || !auth) {
@@ -1186,7 +1255,8 @@ export default function App() {
                   username_change_timestamps: p.username_change_timestamps || [],
                   previous_usernames: p.previous_usernames || [],
                   followers: Array.isArray(p.followers) ? p.followers : [],
-                  following: Array.isArray(p.following) ? p.following : []
+                  following: Array.isArray(p.following) ? p.following : [],
+                  is_private: !!p.is_private
                 };
                 // Store strictly one canonical entry per user document using docSnap.id or primary username
                 const primaryKey = (docSnap.id || rawUsername).toLowerCase();
@@ -1230,6 +1300,7 @@ export default function App() {
                   setUserBio(profile.bio || '');
                   setUserAvatarSeed(profile.avatar_seed || uName);
                   setUserAvatarUrl(profile.avatar_url || '');
+                  setIsAccountPrivate(!!profile.is_private);
                   setUserNameChanges(profile.name_change_timestamps || []);
                   setUserUsernameChanges(profile.username_change_timestamps || []);
                   setSavedDisplayName(dName);
@@ -1237,6 +1308,27 @@ export default function App() {
                   setAuthMethod(userObj.providerData[0]?.providerId || 'email');
                   setIsAuthenticated(true);
                   setIsNewUserSetupPending(false);
+        // 3. Notification listener
+        if (userObj) {
+          unsubscribeNotifications = onSnapshot(
+            query(collection(db, 'notifications'), where('userId', '==', userObj.uid)),
+            (snap) => {
+              const list: AppNotification[] = [];
+              snap.forEach(d => list.push({ id: d.id, ...d.data() } as AppNotification));
+              setNotifications(list.sort((a, b) => b.timestamp - a.timestamp));
+            }
+          );
+
+          unsubscribeFollowRequests = onSnapshot(
+            query(collection(db, 'follow_requests'), where('toId', '==', userObj.uid), where('status', '==', 'pending')),
+            (snap) => {
+              const list: FollowRequest[] = [];
+              snap.forEach(d => list.push({ id: d.id, ...d.data() } as FollowRequest));
+              setFollowRequests(list);
+            }
+          );
+        }
+
                 } else {
                   setAuthMethod(userObj.providerData[0]?.providerId || 'email');
                   setPendingUserAuth(userObj);
@@ -1278,6 +1370,8 @@ export default function App() {
     return () => {
       if (unsubscribeUsers) unsubscribeUsers();
       if (unsubscribeAuth) unsubscribeAuth();
+      if (unsubscribeNotifications) unsubscribeNotifications();
+      if (unsubscribeFollowRequests) unsubscribeFollowRequests();
     };
   }, []);
 
@@ -1404,8 +1498,10 @@ export default function App() {
           }
         });
         const fetchedChats = Array.from(chatMap.values());
-        if (fetchedChats.length > 0) {
-          fetchedChats.sort((a, b) => {
+        setChats(prev => {
+          const localPending = prev.filter(c => c.isLocalPending && !chatMap.has(c.id));
+          const merged = [...fetchedChats, ...localPending];
+          merged.sort((a, b) => {
             if (a.pinned && !b.pinned) return -1;
             if (!a.pinned && b.pinned) return 1;
             const timeA = a.updated_at || 0;
@@ -1413,37 +1509,39 @@ export default function App() {
             if (timeA !== timeB) return timeB - timeA;
             return a.id > b.id ? -1 : 1;
           });
-          setChats(fetchedChats);
+          return merged;
+        });
           
-          setChatWallpapers(prev => {
-            const next = { ...prev };
-            let changed = false;
-            fetchedChats.forEach(c => {
-              if (c.theme && c.theme !== next[c.id]) {
-                next[c.id] = c.theme;
-                changed = true;
-              }
-            });
-            if (changed) {
-              try { localStorage.setItem('zenoa_chat_wallpapers', JSON.stringify(next)); } catch {}
-              return next;
+        setChatWallpapers(prev => {
+          const next = { ...prev };
+          let changed = false;
+          fetchedChats.forEach(c => {
+            if (c.theme && c.theme !== next[c.id]) {
+              next[c.id] = c.theme;
+              changed = true;
             }
-            return prev;
           });
+          if (changed) {
+            try { localStorage.setItem('zenoa_chat_wallpapers', JSON.stringify(next)); } catch {}
+            return next;
+          }
+          return prev;
+        });
 
-          setChatDisappearing(prev => {
-            const next = { ...prev };
-            let changed = false;
-            fetchedChats.forEach(c => {
-              if (c.disappearing_messages && c.disappearing_messages !== next[c.id]) {
-                next[c.id] = c.disappearing_messages;
-                changed = true;
-              }
-            });
-            return changed ? next : prev;
+        setChatDisappearing(prev => {
+          const next = { ...prev };
+          let changed = false;
+          fetchedChats.forEach(c => {
+            if (c.disappearing_messages && c.disappearing_messages !== next[c.id]) {
+              next[c.id] = c.disappearing_messages;
+              changed = true;
+            }
           });
-        } else if (!chatsRef.current || chatsRef.current.length === 0) {
-          setChats([]);
+          return changed ? next : prev;
+        });
+
+        if (fetchedChats.length === 0) {
+          setChats(prev => prev.filter(c => c.isLocalPending));
         }
       },
       (err) => {
@@ -2344,15 +2442,18 @@ export default function App() {
           online: true,
           last_seen: 'online'
         }, { merge: true });
+      } catch (err: any) {
+        handleFirestoreError(err, OperationType.WRITE, `users/${targetUid}`, auth);
+      }
 
+      try {
         await setDoc(doc(db, 'usernames', cleanUsername), {
           uid: targetUid,
           username: cleanUsername,
           created_at: now
         });
       } catch (err: any) {
-        console.error("Account setup setDoc error:", err);
-        return { success: false, error: 'Database error saving account details. Please try again.' };
+        handleFirestoreError(err, OperationType.WRITE, `usernames/${cleanUsername}`, auth);
       }
     }
 
@@ -3370,22 +3471,7 @@ export default function App() {
   };
 
   // Chat/Messenger Business Logic
-  const activeChat = chats.find(c => c.id === activeChatId) || chats[0] || {
-    id: '',
-    type: 'dm',
-    name: 'Zenoa',
-    username: 'zenoa',
-    avatar_seed: 'Z',
-    participants: [],
-    unread: 0,
-    last_message: '',
-    last_time: '',
-    pinned: false,
-    muted: false,
-    typing: false,
-    online: false,
-    last_seen: ''
-  };
+  const activeChat = chats.find(c => c.id === activeChatId) || null;
   const activeMessages = dedupeMessages(messagesByChat[activeChatId] || []);
 
   // Filter messages based on chat search
@@ -3413,39 +3499,95 @@ export default function App() {
     return chat.name.toLowerCase().includes(query) || (chat.username && chat.username.toLowerCase().includes(query));
   });
 
-  // Global user search (for Discover view)
+  // Global user search (for Discover view) with smart relevance ranking
   const globalSearchResults = useMemo(() => {
     const q = globalSearchQuery.toLowerCase().trim();
     if (!q) return [];
     const cleanCurrentU = (userUsername || '').trim().toLowerCase();
     const cleanCurrentId = (userId || '').trim().toLowerCase();
+    const myUserData = users[userUsername] || {};
+    const myFollowing = myUserData.following || [];
+    const myFollowers = myUserData.followers || [];
 
-    return uniqueUserList.filter(user => {
-      const uName = (user.username || '').toLowerCase();
-      const uId = (user.id || '').toLowerCase();
-      const dName = (user.display_name || '').toLowerCase();
-      const bio = (user.bio || '').toLowerCase();
+    return uniqueUserList
+      .filter(user => {
+        const uName = (user.username || '').toLowerCase();
+        const uId = (user.id || '').toLowerCase();
 
-      // Only filter out the logged in user themselves
-      if ((cleanCurrentU && uName === cleanCurrentU) || (cleanCurrentId && uId === cleanCurrentId)) {
-        return false;
-      }
+        // Only filter out the logged in user themselves
+        if ((cleanCurrentU && uName === cleanCurrentU) || (cleanCurrentId && uId === cleanCurrentId)) {
+          return false;
+        }
+        return true;
+      })
+      .map(user => {
+        const uName = (user.username || '').toLowerCase();
+        const dName = (user.display_name || '').toLowerCase();
+        const bio = (user.bio || '').toLowerCase();
+        let score = 0;
 
-      return uName.includes(q) || dName.includes(q) || bio.includes(q);
-    });
-  }, [globalSearchQuery, uniqueUserList, userUsername, userId]);
+        // Exact username matches gets the highest score
+        if (uName === q) {
+          score += 100;
+        } else if (uName.startsWith(q)) {
+          score += 80;
+        } else if (uName.includes(q)) {
+          score += 40;
+        }
 
-  // Active contacts list (all real registered users except current active user)
+        // Display name matches
+        if (dName === q) {
+          score += 50;
+        } else if (dName.startsWith(q)) {
+          score += 30;
+        } else if (dName.includes(q)) {
+          score += 20;
+        }
+
+        // Bio match
+        if (bio.includes(q)) {
+          score += 10;
+        }
+
+        // Friendship / follow status boosts results to rank mutual contacts higher
+        const iFollowThem = myFollowing.includes(user.username);
+        const theyFollowMe = myFollowers.includes(user.username) || (user.following || []).includes(userUsername);
+        if (iFollowThem && theyFollowMe) {
+          score += 25; // Mutual boost
+        } else if (iFollowThem || theyFollowMe) {
+          score += 15; // Single follow boost
+        }
+
+        return { user, score };
+      })
+      .filter(item => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(item => item.user);
+  }, [globalSearchQuery, uniqueUserList, userUsername, userId, users]);
+
+  // Active contacts list (Only mutual followers: I follow them and they follow me)
   const activeContactsList = useMemo(() => {
     const cleanCurrentU = (userUsername || '').trim().toLowerCase();
     const cleanCurrentId = (userId || '').trim().toLowerCase();
+    const myUserData = users[userUsername] || {};
+    const myFollowing = myUserData.following || [];
+    const myFollowers = myUserData.followers || [];
 
     return uniqueUserList.filter(user => {
-      const uName = (user.username || '').toLowerCase();
+      const uName = user.username || '';
+      const uNameLower = uName.toLowerCase();
       const uId = (user.id || '').toLowerCase();
-      return (cleanCurrentU ? uName !== cleanCurrentU : true) && (cleanCurrentId ? uId !== cleanCurrentId : true);
+      
+      if ((cleanCurrentU && uNameLower === cleanCurrentU) || (cleanCurrentId && uId === cleanCurrentId)) {
+        return false;
+      }
+
+      // Mutual follow check: I follow them AND they follow me (or are in each other's following lists)
+      const iFollowThem = myFollowing.includes(uName);
+      const theyFollowMe = myFollowers.includes(uName) || (user.following || []).includes(userUsername);
+      return iFollowThem && theyFollowMe;
     });
-  }, [uniqueUserList, userUsername, userId]);
+  }, [uniqueUserList, userUsername, userId, users]);
 
   // Sidebar matching contacts for quick chat initiation
   const matchingContactsForSidebar = useMemo(() => {
@@ -3490,6 +3632,7 @@ export default function App() {
 
   // Send message
   const handleSendMessage = async () => {
+    if (!activeChatId || !activeChat) return;
     const text = composerText.trim();
     if (!text && !editMessageId) return;
 
@@ -3582,15 +3725,26 @@ export default function App() {
           });
 
           // Update chat last message
+          let currentActiveChat = activeChat;
+          if (currentActiveChat.isLocalPending) {
+             currentActiveChat = { ...currentActiveChat };
+             delete currentActiveChat.isLocalPending;
+          }
           await setDoc(doc(db, 'chats', activeChatId), {
             id: activeChatId,
-            type: activeChat.type,
-            name: activeChat.name,
-            username: activeChat.username,
-            avatar_seed: activeChat.avatar_seed,
-            participants: activeChat.participants,
+            type: currentActiveChat.type,
+            name: currentActiveChat.name,
+            username: currentActiveChat.username,
+            avatar_seed: currentActiveChat.avatar_seed,
+            participants: currentActiveChat.participants,
             last_message: text,
-            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
+            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
+            unread: 0,
+            pinned: false,
+            muted: false,
+            typing: false,
+            online: false,
+            last_seen: ''
           }, { merge: true });
         } catch (err) {
           console.warn("Message delivery notice:", err);
@@ -3874,16 +4028,27 @@ export default function App() {
 
         const activeChat = chats.find(c => c.id === activeChatId);
         if (activeChat) {
+          let currentActiveChat = activeChat;
+          if (currentActiveChat.isLocalPending) {
+             currentActiveChat = { ...currentActiveChat };
+             delete currentActiveChat.isLocalPending;
+          }
           await setDoc(doc(db, 'chats', activeChatId), {
             id: activeChatId,
-            type: activeChat.type,
-            name: activeChat.name,
-            username: activeChat.username,
-            avatar_seed: activeChat.avatar_seed,
-            avatar_url: activeChat.avatar_url || '',
-            participants: activeChat.participants,
+            type: currentActiveChat.type,
+            name: currentActiveChat.name,
+            username: currentActiveChat.username,
+            avatar_seed: currentActiveChat.avatar_seed,
+            avatar_url: currentActiveChat.avatar_url || '',
+            participants: currentActiveChat.participants,
             last_message: 'Voice Note (' + (durationFormatted || '0:05') + ')',
-            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
+            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
+            unread: 0,
+            pinned: false,
+            muted: false,
+            typing: false,
+            online: false,
+            last_seen: ''
           }, { merge: true });
         }
       } catch (err) {
@@ -3938,7 +4103,7 @@ export default function App() {
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const newMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
 
-    const finalType = result.isDocument ? 'document' : pendingMediaEditorData.mediaType;
+    const finalType = result.isDocument ? 'document' : pendingMediaEditorData.mediaType === 'audio' ? 'voice' : pendingMediaEditorData.mediaType;
 
     const newMsg: Message = {
       id: newMsgId,
@@ -3947,7 +4112,8 @@ export default function App() {
       sender: userUsername || 'me',
       text: result.caption || result.fileName,
       type: finalType,
-      media_url: !result.isDocument ? (finalMediaUrl || (finalType === 'video' ? 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' : undefined)) : undefined,
+      media_url: (!result.isDocument && finalType !== 'voice') ? (finalMediaUrl || (finalType === 'video' ? 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' : undefined)) : undefined,
+      audio_url: finalType === 'voice' ? finalMediaUrl : undefined,
       file_name: result.fileName,
       file_size: finalFileSize,
       media_quality: result.mediaQuality,
@@ -3956,11 +4122,12 @@ export default function App() {
       read_by: []
     };
 
-    if (newMsg.media_url) {
-      localMediaCacheRef.current[newMsg.id] = newMsg.media_url;
-      if (result.fileName) localMediaCacheRef.current[result.fileName] = newMsg.media_url;
+    if (newMsg.media_url || newMsg.audio_url) {
+      const urlToCache = newMsg.media_url || newMsg.audio_url || '';
+      localMediaCacheRef.current[newMsg.id] = urlToCache;
+      if (result.fileName) localMediaCacheRef.current[result.fileName] = urlToCache;
       // Persist in high-capacity IndexedDB
-      storageManager.saveMedia(newMsg.id, newMsg.media_url, {
+      storageManager.saveMedia(newMsg.id, urlToCache, {
         chat_id: activeChatId,
         fileName: result.fileName,
       }).catch(() => {});
@@ -3972,14 +4139,26 @@ export default function App() {
     if (isFirebaseConfigured && db && auth) {
       try {
         let firestoreMediaUrl: string | null = null;
-        if (isDriveConnected && driveAccessToken && newMsg.media_url) {
+        let firestoreAudioUrl: string | null = null;
+        const sourceUrl = newMsg.media_url || newMsg.audio_url;
+
+        if (isDriveConnected && driveAccessToken && sourceUrl) {
           // Encrypt before Drive upload
-          const blob = await fetch(newMsg.media_url).then(r => r.blob());
+          const blob = await fetch(sourceUrl).then(r => r.blob());
           const encryptedBlob = await encryptFile(blob, activeChatId);
           const driveUrl = await uploadPublicMediaToDrive(driveAccessToken, encryptedBlob, `${result.fileName}.enc`);
-          firestoreMediaUrl = `enc:${driveUrl}`;
-        } else {
-          firestoreMediaUrl = await safeFirestoreUrl(newMsg.media_url, result.fileName, `chat_media/${activeChatId}/${newMsgId}_${result.fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
+          if (newMsg.type === 'voice') {
+            firestoreAudioUrl = `enc:${driveUrl}`;
+          } else {
+            firestoreMediaUrl = `enc:${driveUrl}`;
+          }
+        } else if (sourceUrl) {
+          const uploadedUrl = await safeFirestoreUrl(sourceUrl, result.fileName, `chat_media/${activeChatId}/${newMsgId}_${result.fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
+          if (newMsg.type === 'voice') {
+            firestoreAudioUrl = uploadedUrl;
+          } else {
+            firestoreMediaUrl = uploadedUrl;
+          }
         }
 
         await setDoc(doc(db, 'messages', newMsgId), {
@@ -3990,6 +4169,7 @@ export default function App() {
           text: result.caption || result.fileName,
           type: newMsg.type,
           media_url: firestoreMediaUrl,
+          audio_url: firestoreAudioUrl,
           file_name: result.fileName,
           file_size: result.fileSize,
           media_quality: result.mediaQuality,
@@ -4002,16 +4182,27 @@ export default function App() {
 
         const activeChat = chats.find(c => c.id === activeChatId);
         if (activeChat) {
+          let currentActiveChat = activeChat;
+          if (currentActiveChat.isLocalPending) {
+             currentActiveChat = { ...currentActiveChat };
+             delete currentActiveChat.isLocalPending;
+          }
           await setDoc(doc(db, 'chats', activeChatId), {
             id: activeChatId,
-            type: activeChat.type,
-            name: activeChat.name,
-            username: activeChat.username,
-            avatar_seed: activeChat.avatar_seed,
-            participants: activeChat.participants,
+            type: currentActiveChat.type,
+            name: currentActiveChat.name,
+            username: currentActiveChat.username,
+            avatar_seed: currentActiveChat.avatar_seed,
+            participants: currentActiveChat.participants,
             last_message: result.caption ? `[${pendingMediaEditorData.mediaType.toUpperCase()}] ${result.caption}` : `[${pendingMediaEditorData.mediaType.toUpperCase()}]`,
             last_time: 'now',
-            updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
+            updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
+            unread: 0,
+            pinned: false,
+            muted: false,
+            typing: false,
+            online: false,
+            last_seen: ''
           }, { merge: true });
         }
       } catch (err) {
@@ -4065,14 +4256,14 @@ export default function App() {
           setMobileShowChat(false);
         }
         setSelectedChatForOptions(null);
-        showToast('Chat & local history deleted üóëÔ∏è');
+        showToast('Chat & local history deleted \u{1F5D1}\uFE0F');
         closeConfirm();
       }
     });
   };
 
   // --- REAL FILE UPLOAD HANDLER ---
-  const handleRealFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, mediaType: 'image' | 'video' | 'document' | 'audio') => {
+  const handleRealFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, mediaType: 'image' | 'video' | 'document' | 'audio' | 'document' | 'audio') => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -4088,109 +4279,22 @@ export default function App() {
     reader.onload = async (e) => {
       const rawResult = e.target?.result as string;
 
-      // FOR PHOTOS & VIDEOS: Intercept & Open WhatsApp-Style Editor First
-      if (mediaType === 'image' || mediaType === 'video') {
-        const activeChat = chats.find(c => c.id === activeChatId);
-        setPendingMediaEditorData({
-          file,
-          fileUrl: rawResult,
-          mediaType,
-          fileName: file.name,
-          fileSize: sizeStr,
-          recipientName: activeChat?.name || 'Contact',
-          recipientUsername: activeChat?.username || 'user',
-          recipientAvatarSeed: activeChat?.avatar_seed,
-          recipientAvatarUrl: activeChat?.avatar_url,
-        });
-        setShowAttachMenu(false);
-        if (event.target) event.target.value = '';
-        return;
-      }
-
-      let processedResult = rawResult;
-
-      const newMsg: Message = {
-        id: newMsgId,
-        chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
-        sender: userUsername || 'me',
-        text: file.name,
-        type: mediaType === 'audio' ? 'voice' : mediaType,
-        media_url: undefined,
-        audio_url: mediaType === 'audio' ? processedResult : undefined,
-        file_name: file.name,
-        file_size: sizeStr,
-        media_quality: mediaUploadQuality,
-        timestamp: timeStr,
-        reactions: [],
-        read_by: []
-      };
-
-      // Persist to local device IndexedDB
-      storageManager.saveMessages([newMsg]).catch(() => {});
-
-      if (isFirebaseConfigured && db && auth) {
-        try {
-          let firestoreMediaUrl: string | null = null;
-          let firestoreAudioUrl: string | null = null;
-
-          if (isDriveConnected && driveAccessToken) {
-            // 1. Encrypt & Upload to Google Drive (Shared with link)
-            if (newMsg.type === 'voice' && file) {
-              const encryptedBlob = await encryptFile(file, activeChatId);
-              const driveUrl = await uploadPublicMediaToDrive(driveAccessToken, encryptedBlob, `v_${newMsgId}.enc`);
-              firestoreAudioUrl = `enc:${driveUrl}`;
-            } else if (newMsg.type === 'document' && file) {
-              const encryptedBlob = await encryptFile(file, activeChatId);
-              const driveUrl = await uploadPublicMediaToDrive(driveAccessToken, encryptedBlob, `${file.name}.enc`);
-              firestoreMediaUrl = `enc:${driveUrl}`;
-            }
-          } else {
-            // Fallback to Firebase (No encryption for now in fallback)
-            firestoreMediaUrl = await safeFirestoreUrl(newMsg.media_url, file.name, `chat_media/${activeChatId}/${newMsgId}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
-            firestoreAudioUrl = await safeFirestoreUrl(newMsg.audio_url, file.name, `audio_uploads/${activeChatId}/${newMsgId}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
-          }
-
-          await setDoc(doc(db, 'messages', newMsgId), {
-            id: newMsgId,
-            chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
-            sender: userUsername || 'me',
-            text: file.name,
-            type: newMsg.type,
-            media_url: firestoreMediaUrl,
-            audio_url: firestoreAudioUrl,
-            file_name: file.name,
-            file_size: sizeStr,
-            media_quality: mediaUploadQuality,
-            timestamp: timeStr,
-            reactions: [],
-            read_by: [],
-            forwarded: false,
-            pinned: false
-          });
-
-          const activeChat = chats.find(c => c.id === activeChatId);
-          if (activeChat) {
-            await setDoc(doc(db, 'chats', activeChatId), {
-              id: activeChatId,
-              type: activeChat.type,
-              name: activeChat.name,
-              username: activeChat.username,
-              avatar_seed: activeChat.avatar_seed,
-              avatar_url: activeChat.avatar_url || '',
-              participants: activeChat.participants,
-              last_message: file.name,
-              last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
-            }, { merge: true });
-          }
-        } catch (err) {
-          console.warn("Firebase file upload warning:", err);
-        }
-      }
-
-      setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-      setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [${file.name}]`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
+      // Intercept ALL files & Open WhatsApp-Style Editor/Confirmation First
+      const activeChat = chats.find(c => c.id === activeChatId);
+      setPendingMediaEditorData({
+        file,
+        fileUrl: rawResult,
+        mediaType: mediaType as 'image' | 'video' | 'document' | 'audio',
+        fileName: file.name,
+        fileSize: sizeStr,
+        recipientName: activeChat?.name || 'Contact',
+        recipientUsername: activeChat?.username || 'user',
+        recipientAvatarSeed: activeChat?.avatar_seed,
+        recipientAvatarUrl: activeChat?.avatar_url,
+      });
       setShowAttachMenu(false);
-      showToast(`${mediaType.toUpperCase()} uploaded (${mediaUploadQuality.toUpperCase()} Quality)`);
+      if (event.target) event.target.value = '';
+      return;
     };
     reader.readAsDataURL(file);
 
@@ -4239,16 +4343,27 @@ export default function App() {
 
         const activeChat = chats.find(c => c.id === activeChatId);
         if (activeChat) {
+          let currentActiveChat = activeChat;
+          if (currentActiveChat.isLocalPending) {
+             currentActiveChat = { ...currentActiveChat };
+             delete currentActiveChat.isLocalPending;
+          }
           await setDoc(doc(db, 'chats', activeChatId), {
             id: activeChatId,
-            type: activeChat.type,
-            name: activeChat.name,
-            username: activeChat.username,
-            avatar_seed: activeChat.avatar_seed,
-            avatar_url: activeChat.avatar_url || '',
-            participants: activeChat.participants,
+            type: currentActiveChat.type,
+            name: currentActiveChat.name,
+            username: currentActiveChat.username,
+            avatar_seed: currentActiveChat.avatar_seed,
+            avatar_url: currentActiveChat.avatar_url || '',
+            participants: currentActiveChat.participants,
             last_message: `Location: ${locationTitle}`,
-            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
+            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
+            unread: 0,
+            pinned: false,
+            muted: false,
+            typing: false,
+            online: false,
+            last_seen: ''
           }, { merge: true });
         }
       } catch (err) {
@@ -4307,16 +4422,27 @@ export default function App() {
 
         const activeChat = chats.find(c => c.id === activeChatId);
         if (activeChat) {
+          let currentActiveChat = activeChat;
+          if (currentActiveChat.isLocalPending) {
+             currentActiveChat = { ...currentActiveChat };
+             delete currentActiveChat.isLocalPending;
+          }
           await setDoc(doc(db, 'chats', activeChatId), {
             id: activeChatId,
-            type: activeChat.type,
-            name: activeChat.name,
-            username: activeChat.username,
-            avatar_seed: activeChat.avatar_seed,
-            avatar_url: activeChat.avatar_url || '',
-            participants: activeChat.participants,
+            type: currentActiveChat.type,
+            name: currentActiveChat.name,
+            username: currentActiveChat.username,
+            avatar_seed: currentActiveChat.avatar_seed,
+            avatar_url: currentActiveChat.avatar_url || '',
+            participants: currentActiveChat.participants,
             last_message: `Contact: ${contactName}`,
-            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
+            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
+            unread: 0,
+            pinned: false,
+            muted: false,
+            typing: false,
+            online: false,
+            last_seen: ''
           }, { merge: true });
         }
       } catch (err) {
@@ -4382,16 +4508,27 @@ export default function App() {
 
         const activeChat = chats.find(c => c.id === activeChatId);
         if (activeChat) {
+          let currentActiveChat = activeChat;
+          if (currentActiveChat.isLocalPending) {
+             currentActiveChat = { ...currentActiveChat };
+             delete currentActiveChat.isLocalPending;
+          }
           await setDoc(doc(db, 'chats', activeChatId), {
             id: activeChatId,
-            type: activeChat.type,
-            name: activeChat.name,
-            username: activeChat.username,
-            avatar_seed: activeChat.avatar_seed,
-            avatar_url: activeChat.avatar_url || '',
-            participants: activeChat.participants,
+            type: currentActiveChat.type,
+            name: currentActiveChat.name,
+            username: currentActiveChat.username,
+            avatar_seed: currentActiveChat.avatar_seed,
+            avatar_url: currentActiveChat.avatar_url || '',
+            participants: currentActiveChat.participants,
             last_message: `Poll: ${pollQuestion}`,
-            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
+            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
+            unread: 0,
+            pinned: false,
+            muted: false,
+            typing: false,
+            online: false,
+            last_seen: ''
           }, { merge: true });
         }
       } catch (err) {
@@ -4773,7 +4910,34 @@ export default function App() {
               pinned: false
             });
 
-            const targetChat = chats.find(c => c.id === targetChatId);
+            let targetChat = chats.find(c => c.id === targetChatId);
+            
+            // If the chat doesn't exist locally, we MUST create it so the recipient receives it!
+            if (!targetChat) {
+              const u1 = userUsername || 'me';
+              // Parse the other user's username from the dm ID
+              const clean1 = u1.trim().toLowerCase().replace(/^@/, '');
+              const parts = targetChatId.replace('dm_', '').split('_');
+              const u2 = parts.find(p => p !== clean1) || parts[0];
+              
+              targetChat = {
+                id: targetChatId,
+                type: 'dm',
+                name: u2, // We don't have the full name, but the recipient's UI will resolve it
+                username: u2,
+                avatar_seed: u2,
+                participants: [u1, u2],
+                unread: 0,
+                last_message: '',
+                last_time: 'now',
+                pinned: false,
+                muted: false,
+                typing: false,
+                online: false,
+                last_seen: ''
+              };
+            }
+
             if (targetChat) {
               await setDoc(doc(db, 'chats', targetChatId), {
                 id: targetChatId,
@@ -4797,16 +4961,41 @@ export default function App() {
         }));
 
         // Update target chat summary
-        setChats(prev => prev.map(c => {
-          if (c.id === targetChatId) {
-            return {
-              ...c,
+        setChats(prev => {
+          const exists = prev.some(c => c.id === targetChatId);
+          if (!exists) {
+            const u1 = userUsername || 'me';
+            const clean1 = u1.trim().toLowerCase().replace(/^@/, '');
+            const parts = targetChatId.replace('dm_', '').split('_');
+            const u2 = parts.find(p => p !== clean1) || parts[0];
+            return [{
+              id: targetChatId,
+              type: 'dm',
+              name: u2,
+              username: u2,
+              avatar_seed: u2,
+              participants: [u1, u2],
+              unread: 0,
               last_message: `You: ${originalMsg.text || `[${originalMsg.type}]`}`,
-              last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
-            };
+              last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
+              pinned: false,
+              muted: false,
+              typing: false,
+              online: false,
+              last_seen: ''
+            }, ...prev];
           }
-          return c;
-        }));
+          return prev.map(c => {
+            if (c.id === targetChatId) {
+              return {
+                ...c,
+                last_message: `You: ${originalMsg.text || `[${originalMsg.type}]`}`,
+                last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
+              };
+            }
+            return c;
+          });
+        });
       }
 
       showToast(`Forwarded to ${forwardTargets.length} chat(s)`);
@@ -4818,6 +5007,18 @@ export default function App() {
   };
 
   // Discover start chat (Resilient deduplication & identity preservation)
+  const handleDeleteUserFirestore = async (targetUserId: string) => {
+    if (!isFirebaseConfigured || !db || userEmail !== 'azadaman19s@gmail.com') return;
+    if (!window.confirm('Are you sure you want to delete this user profile from Firestore? This is permanent.')) return;
+    try {
+      await deleteDoc(doc(db, 'users', targetUserId));
+      console.log('User profile deleted from Firestore:', targetUserId);
+    } catch (err) {
+      console.error('Failed to delete user profile:', err);
+      alert('Error deleting user');
+    }
+  };
+
   const handleStartChatWithUser = async (user: UserData) => {
     const selfName = userUsername || 'me';
     const targetUserClean = user.username.trim().toLowerCase();
@@ -4856,7 +5057,8 @@ export default function App() {
         muted: false,
         typing: false,
         online: isUserEffectivelyOnline(user),
-        last_seen: user.last_seen
+        last_seen: user.last_seen,
+        isLocalPending: true
       };
 
       setChats(prev => {
@@ -4875,33 +5077,148 @@ export default function App() {
     setGlobalSearchQuery('');
   };
 
-  // Redirect to chat if authenticated and viewing a public profile URL
+  // Open profile details panel when viewing a public profile URL (stalking/viewing instead of starting a chat)
   useEffect(() => {
     if (isAuthenticated && publicProfileUsername) {
       const cleanUsername = publicProfileUsername.replace(/^@/, '').trim();
       if (cleanUsername) {
-        const existingUser = Object.values(users).find(u => u.username.toLowerCase() === cleanUsername.toLowerCase());
-        if (existingUser) {
-          handleStartChatWithUser(existingUser);
-        } else {
-          const newUser: UserData = {
-            username: cleanUsername,
-            display_name: cleanUsername.charAt(0).toUpperCase() + cleanUsername.slice(1),
-            bio: 'Hey there! I am using Zenoa for end-to-end encrypted messaging.',
-            avatar_seed: cleanUsername,
-            online: true,
-            last_seen: 'Recently active'
-          };
-          handleStartChatWithUser(newUser);
-        }
+        setSelectedProfileUsername(cleanUsername);
+        setShowProfilePanel(true);
         setPublicProfileUsername(null);
         try { window.history.pushState({}, '', '/'); } catch(e){}
       }
     }
-  }, [isAuthenticated, publicProfileUsername, users]);
+  }, [isAuthenticated, publicProfileUsername]);
+
+
+  // --- PRIVACY & NOTIFICATION HANDLERS ---
+  const handleTogglePrivacy = async (val: boolean) => {
+    setIsAccountPrivate(val);
+    if (isFirebaseConfigured && db && userId) {
+      try {
+        await updateDoc(doc(db, 'users', userId), { is_private: val });
+      } catch (err) {
+        console.error("Failed to update privacy:", err);
+      }
+    }
+  };
+
+  const createNotification = async (targetId: string, type: AppNotification['type']) => {
+    if (!isFirebaseConfigured || !db || !userId) return;
+    try {
+      const notifRef = doc(collection(db, 'notifications'));
+      const notifData: Omit<AppNotification, 'id'> = {
+        userId: targetId,
+        type,
+        fromId: userId,
+        fromName: userDisplayName,
+        fromUsername: userUsername,
+        fromAvatar: userAvatarSeed,
+        read: false,
+        timestamp: Date.now()
+      };
+      await setDoc(notifRef, notifData);
+    } catch (err) {
+      console.error("Notif creation error:", err);
+    }
+  };
+
+  const handleSendFollowRequest = async (targetUser: UserData) => {
+    if (!isFirebaseConfigured || !db || !userId || !targetUser.id) return;
+    try {
+      // Check if already requested
+      const q = query(collection(db, 'follow_requests'), 
+        where('fromId', '==', userId), 
+        where('toId', '==', targetUser.id),
+        where('status', '==', 'pending')
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        showToast("Already requested");
+        return;
+      }
+
+      const reqRef = doc(collection(db, 'follow_requests'));
+      await setDoc(reqRef, {
+        fromId: userId,
+        toId: targetUser.id,
+        fromName: userDisplayName,
+        fromUsername: userUsername,
+        fromAvatar: userAvatarSeed,
+        status: 'pending',
+        timestamp: Date.now()
+      });
+      
+      // Create notification for target
+      await createNotification(targetUser.id, 'follow_request');
+      showToast("Follow request sent");
+    } catch (err) {
+      console.error("Follow request error:", err);
+    }
+  };
+
+  const handleAcceptFollowRequest = async (request: FollowRequest) => {
+    if (!isFirebaseConfigured || !db || !userId) return;
+    try {
+      // 1. Add to followers/following arrays
+      const targetUserRef = doc(db, 'users', request.fromId);
+      const myUserRef = doc(db, 'users', userId);
+
+      await updateDoc(myUserRef, {
+        followers: arrayUnion(request.fromUsername)
+      });
+      await updateDoc(targetUserRef, {
+        following: arrayUnion(userUsername)
+      });
+
+      // 2. Mark request as accepted (or just delete)
+      await deleteDoc(doc(db, 'follow_requests', request.id));
+
+      // 3. Notify them
+      await createNotification(request.fromId, 'follow_accept');
+      showToast(`Accepted ${request.fromUsername}`);
+    } catch (err) {
+      console.error("Accept error:", err);
+    }
+  };
+
+  const handleDeclineFollowRequest = async (requestId: string) => {
+    if (!isFirebaseConfigured || !db) return;
+    try {
+      await deleteDoc(doc(db, 'follow_requests', requestId));
+      showToast("Request declined");
+    } catch (err) {
+      console.error("Decline error:", err);
+    }
+  };
+
+  const markNotificationsAsRead = async () => {
+    if (!isFirebaseConfigured || !db || !userId) return;
+    const unread = notifications.filter(n => !n.read);
+    for (const n of unread) {
+      try {
+        await updateDoc(doc(db, 'notifications', n.id), { read: true });
+      } catch (err) {}
+    }
+  };
 
   // Follow/Unfollow
-  const handleToggleFollowUser = async (targetUsername: string) => {
+  const handleFollow = async (targetUser: UserData) => {
+    if (!isAuthenticated) {
+      showToast('Please login to follow users');
+      return;
+    }
+    const targetUsername = targetUser.username;
+    const amIFollowing = targetUser.followers?.includes(userUsername) || false;
+
+    if (targetUser.is_private && !amIFollowing && targetUsername !== userUsername) {
+      handleSendFollowRequest(targetUser);
+      return;
+    }
+    await handleToggleFollowUserInternal(targetUsername);
+  };
+
+  const handleToggleFollowUserInternal = async (targetUsername: string) => {
     if (!userUsername || !isAuthenticated) {
       showToast('Please login to follow users');
       return;
@@ -5461,6 +5778,10 @@ export default function App() {
 
     // 2. Firestore document typing update
     if (activeChatId && isFirebaseConfigured && db) {
+      // GUARD: If chat is local-only pending, do NOT write typing status to database
+      const activeChat = chats.find(c => c.id === activeChatId);
+      if (activeChat?.isLocalPending) return;
+
       if (isTypingNow) {
         if (!typingTimeoutRef.current) {
           setDoc(doc(db, 'chats', activeChatId), {
@@ -5602,8 +5923,8 @@ export default function App() {
   };
 
   // Emoji preset array
-  const EMOJIS = ['‚ù§Ô∏è', 'üëç', 'üî•', 'üòÇ', 'üòÆ', 'üò¢', 'üëè', 'üéâ', 'üí°', '‚úÖ', '‚ú®', '‚òï'];
-  const STICKERS = ['üê± Meow!', 'üê∂ Woof!', 'üçï Pizza Party', 'üöÄ To the Moon!', 'üëë Royal', 'üéâ Congrats!', 'üí§ Sleepy', 'üéØ Nailed It'];
+  const EMOJIS = ['\u2764\uFE0F', '\u{1F44D}', '\u{1F525}', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F44F}', '\u{1F389}', '\u{1F4A1}', '\u2705', '\u2728', '\u2615'];
+  const STICKERS = ['\u{1F431} Meow!', '\u{1F436} Woof!', '\u{1F355} Pizza Party', '\u{1F680} To the Moon!', '\u{1F451} Royal', '\u{1F389} Congrats!', '\u{1F4A4} Sleepy', '\u{1F3AF} Nailed It'];
   const GIFS = [
     'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExZ3NteTJrNWptdnF3YXpyZXB6azNpaW44eDRscGFhbW14amgyZHhqNyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3ntq5fv6uy1ko/giphy.gif',
     'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExZ3g5MHNxZWF2bThnbWpyajc1czM0ZmlmdmE5ZWlycjE1MGQzMWQ4YiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/X38toIoDTfCda/giphy.gif',
@@ -5827,7 +6148,7 @@ export default function App() {
                   Welcome back, {openingAnimationData.displayName}!
                 </h2>
                 <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                  Signed in securely with {openingAnimationData.provider} ‚Ä¢ Connecting to Zenoa...
+                  Signed in securely with {openingAnimationData.provider} \u2022 Connecting to Zenoa...
                 </p>
               </div>
 
@@ -5989,6 +6310,20 @@ export default function App() {
                 }`} />
                 <span className="capitalize">{myPresenceStatus}</span>
               </button>
+              
+              <button 
+                onClick={() => {
+                  setShowNotificationsPanel(true);
+                  markNotificationsAsRead();
+                }}
+                className="relative p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-all active:scale-95 cursor-pointer ml-1"
+                title="Notifications"
+              >
+                <Bell className="h-4.5 w-4.5 stroke-[2.2]" />
+                {(notifications.filter(n => !n.read).length > 0 || followRequests.length > 0) && (
+                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500 border-2 border-white dark:border-slate-900 animate-pulse" />
+                )}
+              </button>
 
               {/* Status & Activity Popover */}
               {showStatusPopover && (
@@ -6057,7 +6392,7 @@ export default function App() {
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeView === 'search' ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'}`}
           >
             <Search className="h-5 w-5" />
-            <span>Discover</span>
+            <span>Search</span>
           </button>
 
           <button 
@@ -6126,27 +6461,23 @@ export default function App() {
                     <h1 className="font-zenoa text-xl md:text-2xl font-bold tracking-[0.14em] uppercase text-slate-900 dark:text-white select-none transition-colors">
                       Zenoa
                     </h1>
-                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-600 dark:bg-indigo-400 shadow-xs shadow-indigo-500/50"></span>
                   </div>
                   <div className="flex items-center gap-1.5">
+                    {/* Notification Bell */}
                     <button 
-                      onClick={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')} 
-                      className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800/80 bg-slate-100/80 dark:bg-slate-800/50 transition-colors cursor-pointer" 
-                      title="Switch Theme"
+                      onClick={() => {
+                        setShowNotificationsPanel(true);
+                        markNotificationsAsRead();
+                      }}
+                      className="relative p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all active:scale-95 cursor-pointer"
+                      title="Notifications & Follow Requests"
                     >
-                      {themeMode === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-amber-400" />}
+                      <Bell className="h-4 w-4" />
+                      {(notifications.filter(n => !n.read).length > 0 || followRequests.length > 0) && (
+                        <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500 border-2 border-white dark:border-slate-900 animate-pulse" />
+                      )}
                     </button>
-                    <button 
-                      onClick={() => setActiveView('settings')} 
-                      className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800/80 bg-slate-100/80 dark:bg-slate-800/50 transition-colors cursor-pointer" 
-                      title="Settings"
-                    >
-                      <Menu className="h-4 w-4" />
-                    </button>
-                    {/* Plus trigger to initiate conversation with custom user */}
-                    <button onClick={() => setActiveView('search')} className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs shadow-indigo-500/20 transition-all active:scale-95 cursor-pointer" title="Start new chat">
-                      <Plus className="h-4 w-4" />
-                    </button>
+
                     {/* New Group Button */}
                     <button 
                       onClick={() => {
@@ -6350,7 +6681,7 @@ export default function App() {
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
                       {activeChat.type === 'group' ? (
                         <span>
-                          {(activeChat.participants || []).length} members ‚Ä¢ {
+                          {(activeChat.participants || []).length} members \u2022 {
                             (activeChat.participants || [])
                               .map(p => p === userUsername ? 'You' : (chatNicknames[p] || users[p]?.display_name || p))
                               .slice(0, 3)
@@ -6376,7 +6707,7 @@ export default function App() {
                         </span>
                       ) : isUserEffectivelyOnline(users[activeChat.username]) ? (
                         <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                          online {users[activeChat.username]?.custom_status ? `‚Ä¢ "${users[activeChat.username]?.custom_status}"` : ''}
+                          Online {users[activeChat.username]?.custom_status && users[activeChat.username]?.custom_status?.toLowerCase() !== 'online' ? `\u2022 "${users[activeChat.username]?.custom_status}"` : ''}
                         </span>
                       ) : (
                         <span>{getOnlineStatusText(users[activeChat.username])}</span>
@@ -6417,7 +6748,7 @@ export default function App() {
                     </button>
                   ) : activeChat.username && activeChat.username !== userUsername && !users[activeChat.username]?.followers?.includes(userUsername) && (
                     <button
-                      onClick={() => handleToggleFollowUser(activeChat.username)}
+                      onClick={() => handleFollow(users[activeChat.username.toLowerCase()])}
                       className="px-3.5 py-1.5 rounded-xl text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-xs shadow-indigo-500/20 transition-all cursor-pointer mr-1 active:scale-95"
                       title="Click to Follow"
                     >
@@ -6794,16 +7125,27 @@ export default function App() {
 
                             const activeChat = chats.find(c => c.id === activeChatId);
                             if (activeChat) {
-                              await setDoc(doc(db, 'chats', activeChatId), {
-                                id: activeChatId,
-                                type: activeChat.type,
-                                name: activeChat.name,
-                                username: activeChat.username,
-                                avatar_seed: activeChat.avatar_seed,
-                                participants: activeChat.participants,
-                                last_message: '[GIF]',
-                                last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
-                              }, { merge: true });
+                              let currentActiveChat = activeChat;
+                            if (currentActiveChat.isLocalPending) {
+                               currentActiveChat = { ...currentActiveChat };
+                               delete currentActiveChat.isLocalPending;
+                            }
+                            await setDoc(doc(db, 'chats', activeChatId), {
+                              id: activeChatId,
+                              type: currentActiveChat.type,
+                              name: currentActiveChat.name,
+                              username: currentActiveChat.username,
+                              avatar_seed: currentActiveChat.avatar_seed,
+                              participants: currentActiveChat.participants,
+                              last_message: '[GIF]',
+                              last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
+                              unread: 0,
+                              pinned: false,
+                              muted: false,
+                              typing: false,
+                              online: false,
+                              last_seen: ''
+                            }, { merge: true });
                             }
                           } catch (err) {
                             console.error("Error inserting GIF in Firebase:", err);
@@ -6844,16 +7186,27 @@ export default function App() {
 
                             const activeChat = chats.find(c => c.id === activeChatId);
                             if (activeChat) {
-                              await setDoc(doc(db, 'chats', activeChatId), {
-                                id: activeChatId,
-                                type: activeChat.type,
-                                name: activeChat.name,
-                                username: activeChat.username,
-                                avatar_seed: activeChat.avatar_seed,
-                                participants: activeChat.participants,
-                                last_message: '[Sticker]',
-                                last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const
-                              }, { merge: true });
+                            let currentActiveChat = activeChat;
+                            if (currentActiveChat.isLocalPending) {
+                               currentActiveChat = { ...currentActiveChat };
+                               delete currentActiveChat.isLocalPending;
+                            }
+                            await setDoc(doc(db, 'chats', activeChatId), {
+                              id: activeChatId,
+                              type: currentActiveChat.type,
+                              name: currentActiveChat.name,
+                              username: currentActiveChat.username,
+                              avatar_seed: currentActiveChat.avatar_seed,
+                              participants: currentActiveChat.participants,
+                              last_message: '[Sticker]',
+                              last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
+                              unread: 0,
+                              pinned: false,
+                              muted: false,
+                              typing: false,
+                              online: false,
+                              last_seen: ''
+                            }, { merge: true });
                             }
                           } catch (err) {
                             console.error("Error inserting sticker in Firebase:", err);
@@ -7009,7 +7362,7 @@ export default function App() {
   {/* VIEW 2: Discover Users panel */}
   {activeView === 'search' && (
           <div className="flex-1 h-full flex flex-col p-4 md:p-6 max-w-2xl mx-auto w-full pb-24 md:pb-6 overscroll-contain">
-            <h1 className="text-2xl font-bold tracking-tight mb-2 text-left">Discover people</h1>
+            <h1 className="text-2xl font-bold tracking-tight mb-2 text-left">Search people</h1>
             <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-6 text-left">Find friends, designers, and developer colleagues. Start an instant chat conversation.</p>
             <div className="relative mb-6 shrink-0">
               <Search className="absolute left-4 top-3.5 h-5 w-5 text-neutral-500 dark:text-neutral-400" />
@@ -7040,7 +7393,7 @@ export default function App() {
                       {activeContactsList.map((user, idx) => (
                         <div 
                           key={`contact_user_${user.id || user.username}_${idx}`}
-                          onClick={() => handleStartChatWithUser(user)}
+                          onClick={() => { setSelectedProfileUsername(user.username); setShowProfilePanel(true); }}
                           className="p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 flex items-center justify-between gap-3 cursor-pointer hover:border-neutral-900 dark:border-neutral-100 hover:bg-neutral-100/10 transition-all text-left group"
                         >
                           <div className="flex items-center gap-3 min-w-0">
@@ -7054,7 +7407,10 @@ export default function App() {
                               {user.bio && <p className="text-xs text-neutral-700 dark:text-neutral-300 truncate mt-0.5">{user.bio}</p>}
                             </div>
                           </div>
-                          <button className="px-3 py-1 bg-neutral-900 dark:bg-neutral-100 group-hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 rounded-xl text-xs font-semibold shadow-sm transition-colors shrink-0">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleStartChatWithUser(user); }}
+                            className="px-3 py-1 bg-neutral-900 dark:bg-neutral-100 group-hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 rounded-xl text-xs font-semibold shadow-sm transition-colors shrink-0"
+                          >
                             Chat
                           </button>
                         </div>
@@ -7076,7 +7432,7 @@ export default function App() {
                     globalSearchResults.map((user, idx) => (
                       <div 
                         key={`search_user_${user.id || user.username}_${idx}`}
-                        onClick={() => handleStartChatWithUser(user)}
+                        onClick={() => { setSelectedProfileUsername(user.username); setShowProfilePanel(true); }}
                         className="p-3.5 rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 flex items-center justify-between cursor-pointer hover:border-neutral-900 dark:border-neutral-100 hover:shadow-md transition-all text-left"
                       >
                         <div className="flex items-center gap-3 min-w-0">
@@ -7090,7 +7446,10 @@ export default function App() {
                             {user.bio && <p className="text-xs text-neutral-700 dark:text-neutral-300 truncate">{user.bio}</p>}
                           </div>
                         </div>
-                        <button className="px-3.5 py-1.5 bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 rounded-xl text-xs font-semibold shadow-md transition-colors shrink-0 ml-4">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleStartChatWithUser(user); }}
+                          className="px-3.5 py-1.5 bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 rounded-xl text-xs font-semibold shadow-md transition-colors shrink-0 ml-4"
+                        >
                           Chat
                         </button>
                       </div>
@@ -7110,48 +7469,22 @@ export default function App() {
             <div className="sticky top-0 z-10 backdrop-blur-md bg-white/85 dark:bg-neutral-900/85 border-b border-neutral-200/80 dark:border-neutral-800 px-4 md:px-8 py-3.5 flex items-center justify-between">
               {/* Left: Username in clean plain text */}
               <div className="flex items-center gap-2">
-                <Lock className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
+                {isAccountPrivate && <Lock className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />}
                 <h1 className="text-base md:text-lg font-bold tracking-tight text-neutral-900 dark:text-white">
                   <span>{userUsername || 'username'}</span>
                 </h1>
               </div>
 
-              {/* Right: Quick actions & Instagram 3 Parallel Lines (Menu) button */}
-              <div className="flex items-center gap-1.5 md:gap-2">
-                <button
-                  onClick={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
-                  className="p-2 rounded-xl text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:text-neutral-100 dark:hover:text-neutral-500 dark:text-neutral-400 transition-colors cursor-pointer"
-                  title="Switch Theme"
-                >
-                  {themeMode === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5 text-neutral-500 dark:text-neutral-400" />}
-                </button>
-
-                <button
-                  onClick={() => {
-                    if (navigator.clipboard) {
-                      const shareLink = `${window.location.origin}/u/${userUsername}`;
-                      navigator.clipboard.writeText(shareLink);
-                      confetti({ particleCount: 50, spread: 60, origin: { y: 0.3 } });
-                      showToast(`Profile link copied: ${shareLink}`);
-                    }
-                    setShowShareProfileModal(true);
-                  }}
-                  className="p-2 rounded-xl text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:text-neutral-100 dark:hover:text-neutral-500 dark:text-neutral-400 transition-colors"
-                  title="Share Profile"
-                >
-                  <Share2 className="h-5 w-5" />
-                </button>
-
-                {/* THE 3 PARALLEL LINES (HAMBURGER / MENU) SETTINGS BUTTON */}
+              {/* Right: Only the Hamburger Menu Settings Button */}
+              <div className="flex items-center">
                 <button
                   onClick={() => {
                     setActiveView('settings');
                   }}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-neutral-100 dark:bg-indigo-950/40 text-neutral-900 dark:text-neutral-100 hover:bg-neutral-200 dark:hover:bg-indigo-900/50 border border-indigo-200/60 dark:border-indigo-800/60 font-semibold text-xs transition-all shadow-sm active:scale-95 cursor-pointer"
+                  className="p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 transition-all active:scale-95 cursor-pointer"
                   title="Settings & Privacy"
                 >
-                  <Menu className="h-5 w-5 stroke-[2.5]" />
-                  <span className="hidden sm:inline font-bold">Settings</span>
+                  <Menu className="h-5 w-5 stroke-[2.25]" />
                 </button>
               </div>
             </div>
@@ -7160,95 +7493,91 @@ export default function App() {
             <div className="max-w-3xl mx-auto p-4 md:p-8 space-y-6">
               
               {/* Instagram Profile Header: Avatar, Stats & Bio */}
-              <div className="bg-white dark:bg-neutral-900 rounded-3xl p-6 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-6">
-                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
-                  {/* Avatar with gradient story ring & camera quick change button */}
-                  <div className="relative group shrink-0">
-                    <div className="p-1 rounded-full bg-neutral-900 dark:bg-neutral-100 shadow-md">
-                      <div className="p-1 rounded-full bg-white dark:bg-neutral-900">
-                        {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-24 w-24 text-3xl shadow-inner')}
+              <div className="bg-white dark:bg-neutral-900 rounded-3xl p-6 md:p-8 border border-neutral-200/80 dark:border-neutral-800 shadow-md space-y-6">
+                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 md:gap-8">
+                  {/* Professional Avatar with Status Ring */}
+                  <div className="relative shrink-0">
+                    <div className="p-1 rounded-full bg-gradient-to-tr from-neutral-200 via-neutral-100 to-neutral-200 dark:from-neutral-800 dark:via-neutral-900 dark:to-neutral-800 shadow-md">
+                      <div className="p-0.5 rounded-full bg-white dark:bg-neutral-900">
+                        {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-24 w-24 md:h-28 md:w-28 text-3xl md:text-4xl shadow-inner')}
                       </div>
                     </div>
                     <button
                       onClick={handleOpenEditProfile}
-                      className="absolute bottom-1 right-1 p-2 rounded-full bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 shadow-lg border-2 border-white dark:border-neutral-900 transition-transform hover:scale-110 active:scale-95 cursor-pointer"
+                      className="absolute bottom-1 right-1 p-2 rounded-full bg-neutral-900 dark:bg-white hover:bg-neutral-800 dark:hover:bg-neutral-100 text-white dark:text-neutral-900 shadow-lg border-2 border-white dark:border-neutral-900 transition-transform hover:scale-105 active:scale-95 cursor-pointer"
                       title="Change profile picture"
                     >
-                      <Camera className="h-3.5 w-3.5" />
+                      <Camera className="h-4 w-4" />
                     </button>
                   </div>
 
-                  {/* Profile Info & Stat Counters */}
-                  <div className="flex-1 text-center sm:text-left space-y-4 w-full">
-                    {/* Top Row: Display name & username */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  {/* Profile Details Area */}
+                  <div className="flex-1 text-center sm:text-left space-y-4 min-w-0 w-full">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
-                        <h2 className="text-xl font-bold text-neutral-900 dark:text-white flex items-center justify-center sm:justify-start gap-2">
+                        <h2 className="text-xl md:text-2xl font-black text-neutral-900 dark:text-white flex items-center justify-center sm:justify-start gap-2">
                           <span>{userDisplayName || 'User'}</span>
+                          <CheckCircle2 className="h-5 w-5 text-indigo-500 fill-indigo-500/10 shrink-0" />
                         </h2>
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{userUsername}</p>
+                        <p className="text-xs font-mono font-bold text-neutral-400 mt-1">@{userUsername}</p>
                       </div>
 
-                      {/* Online Status Pill */}
-                      <div className="flex items-center justify-center sm:justify-end gap-1.5 text-xs text-neutral-900 dark:text-neutral-100 font-medium">
-                        <span className="h-2 w-2 rounded-full bg-neutral-800 dark:bg-neutral-200 animate-pulse"></span>
-                        <span>Active Now</span>
-                      </div>
+
                     </div>
 
-                    {/* Stats Row: ONLY Followers and Following */}
-                    <div className="grid grid-cols-2 gap-4 py-3 border-y border-neutral-100 dark:border-neutral-800/80 text-center max-w-xs mx-auto sm:mx-0">
-                      <div 
-                        className="space-y-0.5 cursor-pointer hover:opacity-80 transition-opacity p-2 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
+                    {/* Highly Professional Stats Section */}
+                    <div className="flex items-center justify-center sm:justify-start gap-8 py-3 border-y border-neutral-100 dark:border-neutral-800/60 max-w-sm mx-auto sm:mx-0">
+                      <button 
+                        className="flex items-baseline gap-1.5 hover:opacity-80 transition-opacity"
                         onClick={() => setShowFollowListModal({ type: 'followers', username: userUsername })}
                       >
-                        <span className="text-lg md:text-xl font-bold text-neutral-900 dark:text-white">{users[userUsername]?.followers?.length || 0}</span>
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Followers</p>
-                      </div>
-                      <div 
-                        className="space-y-0.5 cursor-pointer hover:opacity-80 transition-opacity p-2 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
+                        <span className="text-lg font-black text-neutral-900 dark:text-white">
+                          {users[userUsername]?.followers?.length || 0}
+                        </span>
+                        <span className="text-xs text-neutral-400 font-semibold uppercase tracking-wider">Followers</span>
+                      </button>
+
+                      <button 
+                        className="flex items-baseline gap-1.5 hover:opacity-80 transition-opacity"
                         onClick={() => setShowFollowListModal({ type: 'following', username: userUsername })}
                       >
-                        <span className="text-lg md:text-xl font-bold text-neutral-900 dark:text-white">{users[userUsername]?.following?.length || 0}</span>
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Following</p>
-                      </div>
+                        <span className="text-lg font-black text-neutral-900 dark:text-white">
+                          {users[userUsername]?.following?.length || 0}
+                        </span>
+                        <span className="text-xs text-neutral-400 font-semibold uppercase tracking-wider">Following</span>
+                      </button>
                     </div>
 
-                    {/* Bio Section */}
-                    <div className="space-y-1 text-xs text-neutral-700 dark:text-neutral-300">
-                      <p className="font-medium whitespace-pre-line leading-relaxed">
-                        {userBio || "Hey there! I am using Zenoa for ultra-fast, secure communication."}
+                    {/* Professional Biography */}
+                    <div className="space-y-2 text-xs md:text-sm text-neutral-700 dark:text-neutral-300">
+                      <p className="font-semibold whitespace-pre-line leading-relaxed italic text-neutral-600 dark:text-neutral-400">
+                        "{userBio || "Hey there! I am using Zenoa for ultra-fast, secure communication."}"
                       </p>
-                      <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 pt-1 text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">
-                        {userEmail && <span className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" /> {userEmail}</span>}
-                        {userPhone && <span className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" /> {userPhone}</span>}
-                      </div>
+                      {/* Strictly NO email shown here. Email is housed securely in the Settings -> Accounts Center */}
+                      {userPhone && (
+                        <div className="flex items-center justify-center sm:justify-start gap-1.5 pt-1 text-[11px] text-neutral-400 font-semibold">
+                          <Phone className="h-3.5 w-3.5" />
+                          <span>{userPhone}</span>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Instagram Action Buttons Bar */}
-                    <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 pt-2">
+                    {/* Action Buttons row (Without Settings button to avoid redundancy) */}
+                    <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 pt-3">
                       <button
                         onClick={handleOpenEditProfile}
-                        className="flex-1 sm:flex-initial px-5 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                        className="px-5 py-2.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-800 dark:text-neutral-200 font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer"
                       >
                         <Edit2 className="h-3.5 w-3.5" />
-                        <span>Edit profile</span>
+                        <span>Edit Profile</span>
                       </button>
 
                       <button
                         onClick={() => setShowShareProfileModal(true)}
-                        className="flex-1 sm:flex-initial px-5 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                        className="px-5 py-2.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-800 dark:text-neutral-200 border border-neutral-200/50 dark:border-neutral-700/50 font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer"
                       >
                         <Share2 className="h-3.5 w-3.5" />
-                        <span>Share profile</span>
-                      </button>
-
-                      <button
-                        onClick={() => setActiveView('settings')}
-                        className="px-3.5 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                        title="Open Settings"
-                      >
-                        <Menu className="h-4 w-4" />
+                        <span>Share Profile</span>
                       </button>
                     </div>
 
@@ -7257,9 +7586,22 @@ export default function App() {
               </div>
 
               {/* Google Drive Integration Card (Shown on Profile ONLY BEFORE Integration) */}
-              {!isDriveConnected && (
-                <div className="bg-white dark:bg-neutral-900 rounded-3xl p-6 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4 animate-fade-in">
-                  <div className="flex items-center gap-3.5">
+              {!isDriveConnected && !dismissedDriveBackupCard && (
+                <div className="bg-white dark:bg-neutral-900 rounded-3xl p-6 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4 animate-fade-in relative">
+                  {/* Close button to dismiss */}
+                  <button
+                    onClick={() => {
+                      setDismissedDriveBackupCard(true);
+                      localStorage.setItem('zenoa_drive_dismissed', 'true');
+                      showToast('Drive backup card dismissed. You can always access it from the top-right menu.');
+                    }}
+                    className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-colors cursor-pointer"
+                    title="Dismiss backup prompt"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+
+                  <div className="flex items-center gap-3.5 pr-8">
                     <div className="p-3 rounded-2xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200/60 dark:border-neutral-700/60 shrink-0">
                       <GoogleDriveLogo className="h-7 w-7" />
                     </div>
@@ -7468,7 +7810,7 @@ export default function App() {
                               onClick={() => setCurrentMediaFolder(null)}
                               className="px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-900 dark:bg-neutral-100 hover:text-white dark:text-neutral-900 dark:hover:bg-neutral-900 dark:bg-neutral-100 transition-all text-xs font-bold text-neutral-700 dark:text-neutral-300 flex items-center gap-1 cursor-pointer"
                             >
-                              ‚Üê Back to folders
+                              \u2190 Back to folders
                             </button>
                             <span className="text-xs font-bold text-neutral-800 dark:text-neutral-200">{folderTitle} ({activeItems.length})</span>
                           </div>
@@ -7553,7 +7895,7 @@ export default function App() {
                                         {item.file_name || item.text || (currentMediaFolder === 'audio' ? 'Voice Recording' : 'Document Attachment')}
                                       </p>
                                       <p className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-0.5">
-                                        Shared by @{item.sender} ‚Ä¢ {item.timestamp} {item.file_size ? `‚Ä¢ ${item.file_size}` : ''}
+                                        Shared by @{item.sender} \u2022 {item.timestamp} {item.file_size ? `\u2022 ${item.file_size}` : ''}
                                       </p>
                                     </div>
                                   </div>
@@ -7777,7 +8119,7 @@ export default function App() {
                                         <span>{isVideo ? 'Video Call' : 'Voice Call'}</span>
                                       </div>
 
-                                      <span className="text-neutral-300 dark:text-neutral-700">‚Ä¢</span>
+                                      <span className="text-neutral-300 dark:text-neutral-700">\u2022</span>
 
                                       <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
                                         {call.timestamp}
@@ -7785,7 +8127,7 @@ export default function App() {
 
                                       {call.duration_formatted && (
                                         <>
-                                          <span className="text-neutral-300 dark:text-neutral-700">‚Ä¢</span>
+                                          <span className="text-neutral-300 dark:text-neutral-700">\u2022</span>
                                           <span className="text-[11px] font-mono font-medium text-neutral-500 dark:text-neutral-400">
                                             {call.duration_formatted}
                                           </span>
@@ -7856,6 +8198,8 @@ export default function App() {
 
             </div>
 
+            
+
           </div>
         )}
 
@@ -7896,6 +8240,8 @@ export default function App() {
             setCallDataSaver={setCallDataSaver}
             noiseSuppression={noiseSuppression}
             setNoiseSuppression={setNoiseSuppression}
+            isAccountPrivate={isAccountPrivate}
+            setIsAccountPrivate={handleTogglePrivacy}
             mediaUploadQuality={mediaUploadQuality}
             setMediaUploadQuality={setMediaUploadQuality}
             showToast={showToast}
@@ -7905,6 +8251,8 @@ export default function App() {
             userAvatarUrl={userAvatarUrl}
             userEmail={userEmail}
             userUid={userId}
+            userPhone={userPhone}
+            authMethod={authMethod}
             renderAvatar={renderAvatar}
             onOpenEditProfile={handleOpenEditProfile}
             isDriveConnected={isDriveConnected}
@@ -7921,7 +8269,14 @@ export default function App() {
 
             {/* Full-Screen Profile & Chat Details View (Matching Instagram/Messenger Details Screen) */}
             <AnimatePresence>
-              {showProfilePanel && (
+              {showProfilePanel && (() => {
+
+    const selectedUser = users[selectedProfileUsername?.toLowerCase() || ''] || null;
+    const isMe = selectedProfileUsername?.toLowerCase() === userUsername?.toLowerCase();
+    const amIFollowing = selectedUser?.followers?.includes(userUsername) || false;
+    const isPrivateAndLocked = selectedUser?.is_private && !amIFollowing && !isMe;
+
+ return (
                 <motion.div 
                   key="full-profile-screen"
                   initial={{ opacity: 0, y: 20 }}
@@ -7955,17 +8310,76 @@ export default function App() {
                   <div className="flex-1 w-full max-w-xl mx-auto px-4 py-6 pb-20 space-y-6">
                     
                     {/* OWN PROFILE REDESIGN (When viewing self profile) */}
-                    {selectedProfileUsername === userUsername ? (
+                    
+                    {/* PRIVATE ACCOUNT LOCKED VIEW */}
+                    {isPrivateAndLocked ? (
+                      <div className="space-y-6">
+                        <div className="bg-white dark:bg-neutral-900 rounded-3xl p-8 border border-neutral-200 dark:border-neutral-800 shadow-xl text-center space-y-6">
+                          <div className="flex flex-col items-center space-y-4">
+                            <div className="p-1 rounded-full bg-gradient-to-tr from-neutral-200 to-neutral-100 dark:from-neutral-800 dark:to-neutral-900 shadow-lg">
+                              {renderAvatar(selectedUser?.avatar_seed, selectedUser?.display_name, selectedUser?.avatar_url, 'h-24 w-24 text-3xl opacity-50 grayscale-[0.5]')}
+                            </div>
+                            <div className="space-y-1">
+                              <h2 className="text-2xl font-black text-neutral-900 dark:text-white">@{selectedUser?.username}</h2>
+                              <p className="text-xs font-semibold text-neutral-500 uppercase tracking-widest flex items-center justify-center gap-1.5">
+                                <Shield className="h-3.5 w-3.5" />
+                                Private Account
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-3 border-y border-neutral-100 dark:border-neutral-800 py-6">
+                            <div className="text-center">
+                              <span className="text-lg font-black text-neutral-900 dark:text-white block">{selectedUser?.followers?.length || 0}</span>
+                              <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Followers</span>
+                            </div>
+                            <div className="text-center">
+                              <span className="text-lg font-black text-neutral-900 dark:text-white block">{selectedUser?.following?.length || 0}</span>
+                              <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Following</span>
+                            </div>
+                            <div className="text-center">
+                              <span className="text-lg font-black text-neutral-900 dark:text-white block">0</span>
+                              <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Posts</span>
+                            </div>
+                          </div>
+
+                          <div className="py-8 space-y-4 flex flex-col items-center">
+                            <div className="w-16 h-16 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-neutral-400">
+                              <Lock className="h-8 w-8" />
+                            </div>
+                            <div className="space-y-2">
+                              <h3 className="text-base font-black text-neutral-900 dark:text-white">This Account is Private</h3>
+                              <p className="text-xs text-neutral-500 max-w-[280px] mx-auto leading-relaxed">
+                                Inhone apne account ko private karke rakha hai. Unki profile aur activity dekhne ke liye unhe follow karein.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800">
+                            {followRequests.some(r => r.toId === selectedUser?.id) ? (
+                              <button className="w-full py-3.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-400 text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 cursor-default">
+                                <RefreshCw className="h-4 w-4 animate-spin-slow" />
+                                Requested
+                              </button>
+                            ) : (
+                              <button 
+                                onClick={() => handleFollow(selectedUser!)}
+                                className="w-full py-3.5 rounded-2xl bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all shadow-xl cursor-pointer"
+                              >
+                                Follow to Connect
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : selectedProfileUsername === userUsername ? (
                       <div className="space-y-6">
                         {/* Cover Banner & Identity Header */}
                         <div className="relative rounded-3xl overflow-hidden border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xl">
                           {/* Mesh Gradient Cover */}
                           <div className="h-32 w-full bg-gradient-to-r from-neutral-900 via-indigo-950 to-neutral-900 relative p-4 flex justify-between items-start">
                             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-indigo-500/20 via-transparent to-transparent" />
-                            <span className="relative z-10 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-white/10 dark:bg-black/30 backdrop-blur-md text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                              Active Session ‚Ä¢ E2EE
-                            </span>
+
                             <button
                               onClick={handleOpenEditProfile}
                               className="relative z-10 p-2 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-md text-white transition-all active:scale-95 cursor-pointer"
@@ -8094,7 +8508,7 @@ export default function App() {
                             className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl hover:bg-neutral-100 dark:hover:bg-neutral-800/60 transition-colors text-left cursor-pointer group"
                           >
                             <div className="h-9 w-9 rounded-xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-neutral-800 dark:text-neutral-200 shrink-0 font-bold">
-                              ‚öôÔ∏è
+                              \u2699\uFE0F
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-bold text-neutral-900 dark:text-white">Account Settings</p>
@@ -8195,7 +8609,7 @@ export default function App() {
                       {selectedProfileUsername !== userUsername && (
                         <div className="pt-1 w-full max-w-xs">
                           <button
-                            onClick={() => handleToggleFollowUser(selectedProfileUsername)}
+                            onClick={() => handleFollow(selectedUser!)}
                             className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-98 ${
                               users[selectedProfileUsername]?.followers?.includes(userUsername)
                                 ? 'bg-neutral-200/80 hover:bg-neutral-300 dark:bg-neutral-850 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-300/80 dark:border-neutral-750'
@@ -8212,10 +8626,17 @@ export default function App() {
 
                     {/* 4 Quick Action Circular Buttons (Profile, Search, Mute, Options) */}
                     <div className="grid grid-cols-4 gap-2 pt-2 text-center">
-                      {/* 1. Profile */}
+                      {/* 1. Profile Link Copy */}
                       <div 
-                        onClick={() => setPublicProfileUsername(selectedProfileUsername)}
+                        onClick={() => {
+                          if (navigator.clipboard) {
+                            const shareLink = `${window.location.origin}/u/${selectedProfileUsername}`;
+                            navigator.clipboard.writeText(shareLink);
+                            showToast(`Copied profile link to clipboard!`);
+                          }
+                        }}
                         className="flex flex-col items-center gap-1.5 cursor-pointer group"
+                        title="Copy public profile link"
                       >
                         <div className="h-12 w-12 rounded-full bg-neutral-200/70 hover:bg-neutral-300 dark:bg-neutral-850 dark:hover:bg-neutral-800 flex items-center justify-center text-neutral-800 dark:text-neutral-200 transition-transform group-hover:scale-105 active:scale-95 shadow-xs">
                           <User className="h-5 w-5" />
@@ -8324,7 +8745,7 @@ export default function App() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-neutral-900 dark:text-white">Privacy & safety</p>
-                          <p className="text-xs text-neutral-500 dark:text-neutral-400">End-to-end encrypted ‚Ä¢ Safety controls</p>
+                          <p className="text-xs text-neutral-500 dark:text-neutral-400">End-to-end encrypted \u2022 Safety controls</p>
                         </div>
                         <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
                       </button>
@@ -8490,7 +8911,7 @@ export default function App() {
                                           {isVideo ? 'Video Call' : 'Voice Call'}
                                         </p>
                                         <p className="text-[10px] text-neutral-400 mt-0.5">
-                                          {call.timestamp} {call.duration_formatted ? `‚Ä¢ ${call.duration_formatted}` : ''}
+                                          {call.timestamp} {call.duration_formatted ? `\u2022 ${call.duration_formatted}` : ''}
                                         </p>
                                       </div>
                                     </div>
@@ -8511,7 +8932,7 @@ export default function App() {
 
                   </div>
                 </motion.div>
-              )}
+              );})()}
             </AnimatePresence>
       </main>
 
@@ -8539,7 +8960,7 @@ export default function App() {
             className={`relative flex flex-col items-center justify-center gap-1 px-4 py-1.5 rounded-2xl transition-all active:scale-90 cursor-pointer ${activeView === 'search' ? 'text-neutral-900 dark:text-neutral-100 font-bold' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:text-neutral-200 dark:hover:text-neutral-300'}`}
           >
             <Search className="h-5 w-5 stroke-[2.2]" />
-            <span className="text-[10px] tracking-tight">Discover</span>
+            <span className="text-[10px] tracking-tight">Search</span>
             {activeView === 'search' && <span className="absolute bottom-0.5 h-1 w-6 bg-neutral-900 dark:bg-neutral-100 dark:bg-indigo-400 rounded-full"></span>}
           </button>
 
@@ -9049,7 +9470,7 @@ export default function App() {
                   <button
                     onClick={() => setMediaRotation(r => (r + 90) % 360)}
                     className="p-1.5 rounded-lg hover:bg-white/20 transition-colors cursor-pointer"
-                    title="Rotate 90¬∞"
+                    title="Rotate 90\u00B0"
                   >
                     <RotateCw className="h-4 w-4" />
                   </button>
@@ -9327,7 +9748,7 @@ export default function App() {
                 </div>
                 <div className="space-y-1">
                   <h4 className="font-bold text-xl">{mediaPlayer.title}</h4>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400">Size: {mediaPlayer.size || '1.5 MB'} ‚Ä¢ Document Attachment</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">Size: {mediaPlayer.size || '1.5 MB'} \u2022 Document Attachment</p>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3 w-full pt-2">
@@ -9373,7 +9794,7 @@ export default function App() {
             
             {/* Quick Emoji Reaction Bar */}
             <div className="p-4 bg-neutral-50 dark:bg-neutral-950/80 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-around gap-1">
-              {['üëç', '‚ù§Ô∏è', 'üòÇ', 'üòÆ', 'üò¢', 'üôè', 'üöÄ', 'üî•'].map(emoji => (
+              {['\u{1F44D}', '\u2764\uFE0F', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}', '\u{1F680}', '\u{1F525}'].map(emoji => (
                 <button
                   key={emoji}
                   onClick={() => {
@@ -9904,7 +10325,7 @@ export default function App() {
 
                       {!isMe && (
                         <button
-                          onClick={() => handleToggleFollowUser(uname)}
+                          onClick={() => handleFollow(users[uname.toLowerCase()])}
                           className={`ml-2 px-3 py-1.5 rounded-xl font-bold text-xs transition-all shadow-xs shrink-0 cursor-pointer ${
                             amIFollowing
                               ? 'bg-neutral-100 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 dark:bg-neutral-800 dark:hover:bg-rose-950/30 dark:hover:text-rose-400 text-neutral-800 dark:text-neutral-200 border border-neutral-200 dark:border-neutral-700'
@@ -9922,6 +10343,19 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* NOTIFICATIONS & FOLLOW REQUESTS MODAL */}
+      <NotificationsModal
+        isOpen={showNotificationsPanel}
+        onClose={() => setShowNotificationsPanel(false)}
+        notifications={notifications}
+        followRequests={followRequests}
+        onAcceptFollowRequest={handleAcceptFollowRequest}
+        onDeclineFollowRequest={handleDeclineFollowRequest}
+        onMarkAllAsRead={markNotificationsAsRead}
+        renderAvatar={renderAvatar}
+        themeMode={themeMode}
+      />
 
       {/* WHATSAPP-STYLE MEDIA EDITOR MODAL (Crop, Customize, Brush, Text, HD Quality, Send to Recipient) */}
       <MediaEditorModal
@@ -9984,7 +10418,7 @@ export default function App() {
                 type="text"
                 value={tempNicknameValue}
                 onChange={(e) => setTempNicknameValue(e.target.value)}
-                placeholder="e.g. Bestie, Project Lead, üñ§ Student üìö"
+                placeholder="e.g. Bestie, Project Lead, \u{1F5A4} Student \u{1F4DA}"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-900 dark:text-white outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-white"
                 autoFocus
               />
@@ -10000,7 +10434,7 @@ export default function App() {
                       setChatNicknames(updated);
                       try { localStorage.setItem('inolas_chat_nicknames', JSON.stringify(updated)); } catch (e) {}
                       
-                      const targetChat = chats.find(c => c.username === targetUser || (c.type === 'dm' && c.participants?.includes(targetUser)) || c.id === activeChatId);
+                      const targetChat = chats.find(c => c.username === targetUser || (c.type === 'dm' && c.participants?.includes(targetUser)));
                       if (targetChat) {
                         const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                         const logMsgText = `You removed the nickname for @${targetUser}`;
@@ -10065,7 +10499,7 @@ export default function App() {
                     setChatNicknames(updated);
                     try { localStorage.setItem('inolas_chat_nicknames', JSON.stringify(updated)); } catch (e) {}
 
-                    const targetChat = chats.find(c => c.username === targetUser || (c.type === 'dm' && c.participants?.includes(targetUser)) || c.id === activeChatId);
+                    const targetChat = chats.find(c => c.username === targetUser || (c.type === 'dm' && c.participants?.includes(targetUser)));
                     if (targetChat) {
                       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                       const logMsgText = newNick 
@@ -10229,194 +10663,14 @@ export default function App() {
                   onClick={() => {
                     setShowProfileOptionsModal(false);
                     handleReportUser(selectedProfileUsername);
-                  }}
-                  className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/20 text-left text-xs font-semibold text-rose-600 dark:text-rose-400 transition-colors"
-                >
-                  <Flag className="h-4 w-4" />
-                  <span>Report Account</span>
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* PRIVACY & SAFETY MODAL */}
-      <AnimatePresence>
-        {showPrivacySafetyModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
-              className="fixed inset-0 bg-black/60 backdrop-blur-xs" 
-              onClick={() => setShowPrivacySafetyModal(false)} 
-            />
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }} 
-              animate={{ scale: 1, opacity: 1 }} 
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="relative w-full max-w-md rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-6 shadow-2xl z-10 space-y-4"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-5 w-5 text-emerald-500" />
-                  <h3 className="text-base font-bold text-neutral-900 dark:text-white">Privacy & Safety</h3>
-                </div>
-                <button 
-                  onClick={() => setShowPrivacySafetyModal(false)}
-                  className="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-700/60 space-y-1.5">
-                <p className="text-xs font-bold text-neutral-900 dark:text-white flex items-center gap-1.5">
-                  <Lock className="h-3.5 w-3.5 text-emerald-500" />
-                  End-to-End Encrypted
-                </p>
-                <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-relaxed">
-                  Messages and calls in this conversation are secured. Only you and {users[selectedProfileUsername]?.display_name || selectedProfileUsername} can read or listen to them.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <button
-                  onClick={() => {
-                    setShowPrivacySafetyModal(false);
-                    handleToggleBlockUser(selectedProfileUsername);
-                  }}
-                  className="w-full flex items-center justify-between p-3 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-750 transition-colors text-xs font-bold"
-                >
-                  <span>{blockedUsers.includes(selectedProfileUsername) ? 'Unblock User' : 'Block User'}</span>
-                  <ChevronRight className="h-4 w-4 text-neutral-400" />
-                </button>
-
-                <button
-                  onClick={() => {
-                    setShowPrivacySafetyModal(false);
-                    handleReportUser(selectedProfileUsername);
-                  }}
-                  className="w-full flex items-center justify-between p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 transition-colors text-xs font-bold"
-                >
-                  <span>Report Account or Messages</span>
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="pt-2 flex justify-end">
-                <button
-                  onClick={() => setShowPrivacySafetyModal(false)}
-                  className="px-5 py-2 rounded-xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 text-xs font-bold"
-                >
-                  Done
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* NEW GROUP MODAL */}
-      <NewGroupModal
-        isOpen={showNewGroupModal}
-        onClose={() => {
-          setShowNewGroupModal(false);
-          setNewGroupPreselectedUser(null);
-        }}
-        currentUserUsername={userUsername}
-        users={users}
-        initialSelectedUsername={newGroupPreselectedUser}
-        onCreateGroup={handleCreateGroup}
-        renderAvatar={renderAvatar}
-      />
-
-      {/* GROUP DETAILS MODAL */}
-      {activeChat && activeChat.type === 'group' && (
-        <GroupDetailsModal
-          isOpen={showGroupDetailsModal}
-          onClose={() => setShowGroupDetailsModal(false)}
-          chat={activeChat}
-          currentUserUsername={userUsername}
-          users={users}
-          chatNicknames={chatNicknames}
-          groupMessages={messagesByChat[activeChat.id] || []}
-          renderAvatar={renderAvatar}
-          onLeaveGroup={handleLeaveGroup}
-          onAddParticipant={handleAddGroupParticipant}
-          onRemoveParticipant={handleRemoveGroupParticipant}
-          onUpdateGroupInfo={handleUpdateGroupInfo}
-          onToggleAdmin={handleToggleGroupAdmin}
-          showToast={showToast}
-        />
-      )}
-
-      {/* SECURE CALL MODAL OVERLAY */}
-      {activeCallSession && (
-        <CallModal
-          session={activeCallSession}
-          userUsername={userUsername}
-          userDisplayName={userDisplayName}
-          db={db}
-          isFirebaseConfigured={isFirebaseConfigured}
-          onEndCall={handleEndCall}
-          onAnswerCall={handleAnswerCall}
-        />
-      )}
-
-      {/* CONCURRENT / SINGLE SESSION MULTI-DEVICE LOGIN POPUP MODAL */}
-      <AnimatePresence>
-        {showConcurrentLoginModal && (
-          <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="relative w-full max-w-sm rounded-3xl bg-neutral-900 border border-neutral-800 p-6 shadow-2xl text-center space-y-5 overflow-hidden"
-            >
-              <div className="mx-auto w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 animate-pulse">
-                <AlertTriangle className="h-8 w-8" />
-              </div>
-
-              <div className="space-y-2">
-                <h3 className="text-lg font-bold text-white tracking-tight">
-                  Logged In Elsewhere
-                </h3>
-                <p className="text-xs text-neutral-400 leading-relaxed px-2">
-                  Aapka account dusri device ya browser window par login hua hai. Suraksha ke liye is device par session automatically end ho raha hai.
-                </p>
-              </div>
-
-              <div className="p-3 rounded-2xl bg-neutral-800/60 border border-neutral-700/50 flex items-center justify-between px-4">
-                <span className="text-xs font-medium text-neutral-300">Auto Logout In</span>
-                <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-400 text-xs font-bold font-mono">
-                  {concurrentLogoutCountdown}s
-                </span>
-              </div>
-
-              <button
-                onClick={executeConcurrentLogout}
-                className="w-full py-3 px-4 rounded-2xl bg-rose-600 hover:bg-rose-500 active:scale-[0.98] text-white text-xs font-bold tracking-wide transition-all shadow-lg shadow-rose-600/20 cursor-pointer"
-              >
-                Log Out Immediately
-              </button>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* OPENING ANIMATION OVERLAY FOR GOOGLE / OAUTH LOGIN */}
-      <AnimatePresence>
-        {isOpeningAnimationActive && (
-          <OpeningAnimation
-            displayName={openingAnimationData.displayName}
-            provider={openingAnimationData.provider}
-            onComplete={() => setIsOpeningAnimationActive(false)}
-          />
-        )}
-      </AnimatePresence>
-
-    </div>
-  );
-}
+                  }xúÃYko"π˝>ø¢îìô’6è$dí‹êCò\$QHfwEW¶€Äoªeõ ÀÊøﬂr?†&0ôπ“ %t€ÂnªÍ‘©/Ô†q}¢TóLh}oÊßæCüŒÅi:QéKπ¶F$p¡¸I1ÂıúπcÒLÂŸ`‰H°®S´ÄG‰”YvÙ¥V)T@”πv|:‘—’\¡PpÌ(:a·{—h∏‡∏?g=tÑCZÆòfÇ;ÆÖT{Öì\§GíÎÛ/>•è8vé`ÊÌA˘¬¢ãs~qK!54\´œÀ·`A˙º<òj-
+3Áeè=gœÀaˆ^ Õ‰D?æºK∆úMà¶7í* ]zÒ.ûYñÉõ€ˆ◊FÛºá~„KÎÓ\˜.¯≠ºZ^Xùºa©∆bv#Ÿ3q}2§zq-<‚√˚˜!Ω/‹VZiC6ß0Æ®v*∑±u#ˇù*ÕÜã‰6@%Á¥∞V‰t∆8⁄ñ¯ıÂD@\¶gPÅóóºâñë´Z‰ËúÈ≠€x@Ô¿'ÓS˘ØÒ€ì"¿ë©D‡ÓÂü"x”gÓS}˘·#‘/ ü–∑Í¯√ê¯ä~ÃÌ¢¸)ó¯œT:≠˝æ≥æ‚E’ﬂw”‹Êwl÷¢§>—ÏôBÃ#2wfŒƒ[ë∆≤*w6F‡D^éwúN—ª}Á›| §áÿâæV3	'‰∆Op<péAçâ'f·”ˇv™@u©≥@ fˆZp‘< 7Bz@ıåRæg!Å≠œ0‘y`Yâk˚cF}Ø9¶ÓSñ¢j®¡ZDätBÒ®∫\egç”´√U¢hD±kzMÎyÕ∞°-ˆ.bºN	!{^⁄(Ø@m·pDÑy(ôœ˜z«ÎÒ)p™+,ÖÀÃƒâ(˙dÜW≈2á»⁄Hí#˛µkŸ∂`Y3bSÓëƒ◊‘‚ø\{≈iŸ¸ÊS4ï∏IµT≥!;(†*	€;ajCaæÆ#Ú^pX2~`˛ÔË	-Ó9Z8¯ÖóÆ\öz˚;ˆ°ZÊèŸc÷2«L„Œßƒcì§@%÷#^S•»à*deê^}Ö§zÃ∏Ç#61‰DRtw*©WÇ˜∞”p—r™PÍAQü∫x∂)ÜÃß˜8»q„è`‹PÅOˇ1∑œ?∞AÚ_œA‚ûAHô“7"p/tR⁄EcªÅ9òç˛bŒÿNKãl%íYWçQâ>Ω£ëO?˚8£êîd}F!¸ôœ.t.î‰sÈîWW+VO_ß€Ö∞Xò˘T≥dÃP·©/Ló£/ÍÌ®„Æ?ı®⁄®;¯ˆÔy∏Ã‡>ú¡˛ÁıÌÀ¶¨ﬂáÒY
+~ÀFcma›Èo°·_	zQeÒ+°.Sª•´∂√JÆ¿´‡…b09™º°Ç˚1<fk4Cc	ΩæYˇèxÆùÉ».â)(∑Eáù1˘£‘À )y˘ú¶»'
+„©à^}F¸çfºú˛:5u∑ı'\›ˆÓoä≈tóŒÆPYA®Â’sôÍî◊√Ç:#±6Ä±¢ﬂ∆&±3-ÙÅbâH∏Îà1B˙‡Ë)ŸC`‚ —˚çTB*ı0qXEˇïhòNDìj=Wö˝‘Î¢áp˚^2'∆§B”P™æå8/5¥ñƒbF⁄x&ö»˙2}ó»î3ˆâlsŸ∫k¥;˝Ççñƒ5ugsL¥ie¨ÔJzP®◊Î∞?2ÿœv:Œ√]]RMòØ≤ˆÕZ∏ óv≥úùc€ñX‘≈-÷SõœÃÌn∆MÜå^–Eˆ0Ú8üπMÀÖ I¥æúƒWüfW)}2Ô—‰ïèÈ’€ç©©C…sÎë¨d√Ûnà‘ÃeHÂ:ë∆—Î©Ï≤[:¡ÿdYMºæ¯>ú∂˘P$Ks√Ÿ5Q*Ÿ&å'Ú—P(éß(›	¢tÑ™r=ø
+>àëÙ˚≠Ê˝möçN'~ÔkÎ∂”¯fq ,*˙h;SEdÅnfÚ WëdΩ∏8≠› x›ï`j -ÎÍKoíqµ/LR”¥h
+>d#S˙‘ó∂—¨˙±“3ªNTﬂÊ†ƒ’å ¥ÿzd´ÓõΩ.*ˇ∂’ΩÉ2Ù€›´NÌ—Ô∑{]∏æÔ‹µùÀ÷◊v≥ùﬁUª7Ω[yΩãáã}Ω#Fåø©!˚pj>è;ue◊ÌÕì|{síOMR˝»]⁄ëØw
+∑7#∑ˆ"∞©&´¥Á∞ò˜ÿ˚(ñ&còÒƒ
+Mj‹ò¨xË£»òyÂﬂ◊{úÃ2≈
+|ÊTèal˛Âz¶qû^)WÛ]ÕÏ–ï_Á‰¶ó[ƒ	¶ôlYi√ßRﬂIF8rZ6c>¡ΩûX2Êü–∞44˝Qæıgßl/⁄‰Ù÷∂z’ù•Õ°Ößúç©¥Âù÷vßµ∂≠˜òc€æ<ÃN¢í≈õ*…¿£œÃ•∞ 0êbÜ§	3∆h	æ!O	ñè¨˝©$OàCx¢‡≥EﬁL÷Èòœ¡ 	Õ Lãiç±êI∆—S~^{']Ld›È$Í0⁄=ÍS‘∂‹°Zù~C
+˜aÍªçÕ…	ıÿtíµ“a•≤w—0˛Ö`Sç`ÿ¯´^˛·∆ö•∞f ıû”Nyê.ÄèlEQº9¡ÖK7pãMÉƒQãŸˆæ¡h
+ÀUYIÁ‘ùj⁄ÃΩøXG˚®ì√–HV≤:Æ‰;!ÂÑπ∆YHÈŒR˙…c∆üã}Êƒ√gÃ£È.¢;!edá¯*y≥±ûG	ÈÇtÂ´“¢‡–3‡ò!/˙ãÇämÂÈœ≠D{7≠.&–Ë∂Øw&—H“Ω/Ω[∏ÍıLRÜ^„˛Óﬂq⁄±S™ï3®»H˜€MQH5Úbô≥zÈO‰$/1Â/yˆ§ ê‚M(7¨K¶≥ã¶b¯TßÀ´ˆÜ£X*¨ÚwËe/¨´_ﬁ˝  ˇˇ ìŒêõ
