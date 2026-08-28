@@ -2517,7 +2517,13 @@ export default function App() {
           setIsAuthenticated(false);
         }
       } catch (err: any) {
-        setErrorMessage(err.message || `An error occurred starting ${provider} login.`);
+        if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+          console.info('OAuth popup was closed or cancelled by user.');
+        } else if (err.code === 'auth/popup-blocked') {
+          setErrorMessage('Login popup was blocked by browser. Please allow popups.');
+        } else {
+          setErrorMessage(err.message || `An error occurred starting ${provider} login.`);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -3148,16 +3154,19 @@ export default function App() {
           showToast('Failed to obtain Google Drive access token');
         }
       } catch (err: any) {
-        console.error('Drive connection error:', err);
-        if (err.code === 'auth/popup-blocked') {
-          showToast('Popup blocked. Please allow popups to connect Google Drive.');
-        } else if (err.code === 'auth/popup-closed-by-user') {
-          showToast('Connection cancelled. The login window was closed.');
+        if (err.code === 'auth/popup-closed-by-user') {
+          console.info('Google Drive sign-in popup was closed by user.');
+          showToast('Connection cancelled.');
         } else if (err.code === 'auth/cancelled-popup-request') {
-          showToast('A previous login request is still pending or was cancelled.');
+          console.info('Google Drive popup request was cancelled or superseded.');
+        } else if (err.code === 'auth/popup-blocked') {
+          console.warn('Google Drive popup was blocked by browser.');
+          showToast('Popup blocked. Please allow popups to connect Google Drive.');
         } else if (err.code === 'auth/missing-project-id') {
+          console.error('Drive connection configuration error:', err);
           showToast('Configuration Error: Firebase Project ID is missing.');
         } else {
+          console.error('Drive connection error:', err);
           showToast(`Connection failed: ${err.message || 'Unknown error'}`);
         }
       }
@@ -10653,15 +10662,4 @@ export default function App() {
                     setShowProfileOptionsModal(false);
                     handleToggleBlockUser(selectedProfileUsername);
                   }}
-                  className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left text-xs font-semibold text-neutral-800 dark:text-neutral-200 transition-colors"
-                >
-                  {blockedUsers.includes(selectedProfileUsername) ? <UserCheck className="h-4 w-4 text-emerald-500" /> : <UserX className="h-4 w-4 text-neutral-500" />}
-                  <span>{blockedUsers.includes(selectedProfileUsername) ? 'Unblock User' : 'Block Contact'}</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setShowProfileOptionsModal(false);
-                    handleReportUser(selectedProfileUsername);
-                  }xœlÁjÃ0†ïy
-‘[Kë²BØ½”½ã(­™c[isÉ»/m¶um*ˆO¿$~	,Â8ãV·øDÓ;Ã,c…AÏ`¯;ñçÔûk188ĞÃºÚ‹@E® Öák}K_s%3Œ‡ÏÕ¡!Ï"bk+rõL//êgÏeâ }´lÉCBLN6¼¥ÃÀ6‡ÿD§)¯Gr¥RwÄNûÍ'vJc¦p!/p¡.dÕ3Ó¢SÈÚoa![:ûyºëÜIWcòËKo[Í¸Ñœ5òÕ[2&É7   ÿÿ D•‚Ã
+                  className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left text-xs font-semibold text-neutral-800 dark:text-neutral-200 transitionxœ”RÁnâ0½ó#.ÀÁM¤…JKËy·UW•öjìIc1±‘=$Ä¿×Ih·… ª–,ÙoæÙofPœıœ­ùpX‘SkÔÏ}¸1VQ¥1*Fıè]në¨•%à²ú²,P­A‘áOÄgıBŒa7ã–è%i1IÓ>$s˜¶¤W	+Œ7Â±Ch6ÒÎ¿/wğlÔà Jüj®KgY*³¤yùâË,YUÌ.F.Cm¤C¥³K2j=;G0›Ã¡#  ÿ-Üî$öaÃÆÙğÛiIÃ\RÀÑ]'­V>áÆy®‹¹ZuıØÕÓãØ‰¼"‚œp†±B¡eôğ"7âÔÛ»ÊjÔbOP¸-úéêEx0N´ôëégôç$MÆi;_ÂœÛÓ>@;/–fåH·hC¸MOïü‡ÆŠÆ°ÁÔ=ß1v¶ ô¼4^^õİI~cº«k;¥bøk»œãÚl?ƒYRºº›³ÈYêèmdY²°¦”ŒZ…mÎ{zø±×{  ÿÿ ’E–

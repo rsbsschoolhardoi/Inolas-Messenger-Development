@@ -9,6 +9,7 @@ import {
   Shield,
   PhoneCall,
   ChevronRight,
+  ChevronDown,
   ArrowLeft,
   Moon,
   Sun,
@@ -34,7 +35,8 @@ import {
   Upload,
   Mail,
   User,
-  Copy
+  Copy,
+  Key
 } from 'lucide-react';
 import { storageManager, StorageEstimateInfo } from '../storageManager';
 
@@ -173,6 +175,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [hasSavedPassword, setHasSavedPassword] = useState<boolean>(() => {
     return localStorage.getItem('zenoa_has_master_password') === 'true';
   });
+  const [isRefreshingStorage, setIsRefreshingStorage] = useState<boolean>(false);
+  const [isCompressionDropdownOpen, setIsCompressionDropdownOpen] = useState<boolean>(false);
 
   const handlePasswordModalSubmit = (pwd: string) => {
     localStorage.setItem('zenoa_has_master_password', 'true');
@@ -194,6 +198,22 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       setStorageInfo(info);
     } catch (e) {
       console.warn("Storage stats fetch error:", e);
+    }
+  };
+
+  const handleRefreshStorageStats = async () => {
+    setIsRefreshingStorage(true);
+    try {
+      const info = await storageManager.getStorageEstimate();
+      setStorageInfo(info);
+      showToast('Storage statistics updated');
+    } catch (e) {
+      console.warn("Storage stats fetch error:", e);
+      showToast('Failed to calculate storage');
+    } finally {
+      setTimeout(() => {
+        setIsRefreshingStorage(false);
+      }, 500);
     }
   };
 
@@ -244,14 +264,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 ? 'Settings & Preferences' 
                 : section === 'private_account' 
                   ? 'Private Account' 
-                  : section}
+                  : section === 'storage'
+                    ? 'Google Drive & Storage'
+                    : section}
             </h1>
             <p className="text-[11px] text-neutral-400">
               {section === 'main' 
                 ? 'Manage your account, privacy, and preferences' 
                 : section === 'private_account'
                   ? 'Manage account visibility and access control'
-                  : `Customize your ${section} settings`}
+                  : section === 'storage'
+                    ? 'Google Drive encrypted cloud vault & local storage quota'
+                    : `Customize your ${section} settings`}
             </p>
           </div>
         </div>
@@ -312,7 +336,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
             </div>
 
-            {/* Stands standalone Account option card right below the Profile card */}
+            {/* 1. Standalone Account option card right below the Profile card */}
             <div className="bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-200/80 dark:border-neutral-800 overflow-hidden shadow-sm">
               <button
                 onClick={() => setSection('account')}
@@ -325,6 +349,34 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <div>
                     <p className="text-sm font-bold text-neutral-900 dark:text-white">Account</p>
                     <p className="text-xs text-neutral-400">View and manage your connected credentials and profile details</p>
+                  </div>
+                </div>
+                <ChevronRight className="h-4 w-4 text-neutral-400" />
+              </button>
+            </div>
+
+            {/* 2. Standalone Google Drive & Storage Card (Right below Account) */}
+            <div className="bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-200/80 dark:border-neutral-800 overflow-hidden shadow-sm">
+              <button
+                onClick={() => setSection('storage')}
+                className="w-full p-4.5 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors text-left cursor-pointer"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200/50 dark:border-neutral-700/50">
+                    <GoogleDriveLogo className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-neutral-900 dark:text-white">Google Drive & Storage</p>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        isDriveConnected 
+                          ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300' 
+                          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500'
+                      }`}>
+                        {isDriveConnected ? 'Connected' : 'Not Connected'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-neutral-400">Encrypted cloud backups, restore data, and local storage utilization</p>
                   </div>
                 </div>
                 <ChevronRight className="h-4 w-4 text-neutral-400" />
@@ -415,7 +467,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <ChevronRight className="h-4 w-4 text-neutral-400" />
                 </button>
 
-                {/* Chats & Storage */}
+                {/* Chats & Media */}
                 <button
                   onClick={() => setSection('chats')}
                   className="w-full p-4 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors text-left cursor-pointer"
@@ -425,8 +477,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       <MessageSquare className="h-5 w-5" />
                     </div>
                     <div>
-                      <p className="text-sm font-bold text-neutral-900 dark:text-white">Chats & Storage</p>
-                      <p className="text-xs text-neutral-400">Media auto-download, enter key, storage management</p>
+                      <p className="text-sm font-bold text-neutral-900 dark:text-white">Chats & Media</p>
+                      <p className="text-xs text-neutral-400">Media auto-download, enter key, conversation preferences</p>
                     </div>
                   </div>
                   <ChevronRight className="h-4 w-4 text-neutral-400" />
@@ -857,29 +909,133 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {/* SECTION: STORAGE & DATA */}
         {section === 'storage' && (
           <div className="space-y-6 animate-fade-in">
-            {/* Storage Quota Gauge */}
+            {/* Google Drive Vault & Cloud Backup Card */}
+            <div className="p-6 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-6">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-neutral-100 dark:border-neutral-800">
+                <div className="flex items-center gap-3.5">
+                  <div className="p-3 rounded-2xl bg-neutral-100 dark:bg-neutral-800/90 border border-neutral-200/60 dark:border-neutral-700/60 shrink-0">
+                    <GoogleDriveLogo className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-base text-neutral-900 dark:text-white">Google Drive Backup</h3>
+                      <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                        isDriveConnected 
+                          ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60' 
+                          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 border border-neutral-200/60 dark:border-neutral-700/60'
+                      }`}>
+                        {isDriveConnected ? 'Connected' : 'Disconnected'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+                      Client-side encrypted backup vault stored in your personal Google Drive application storage
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status & Metadata Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-800/80 space-y-1">
+                  <p className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Last Cloud Sync</p>
+                  <p className="text-sm font-bold text-neutral-900 dark:text-white">
+                    {lastBackupDate || 'No backups created yet'}
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-800/80 space-y-1">
+                  <p className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Master Password Security</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-1.5">
+                      <Lock className="h-3.5 w-3.5 text-emerald-500" />
+                      <span>{hasSavedPassword ? 'Configured & Active' : 'Not Set (Set During Backup)'}</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                {!isDriveConnected ? (
+                  <button
+                    onClick={onConnectDrive}
+                    className="px-6 py-3 rounded-2xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer shadow-sm active:scale-98"
+                  >
+                    <GoogleDriveLogo className="h-4 w-4" />
+                    <span>Connect Google Drive</span>
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => {
+                        setPasswordModalAction('backup');
+                        setPasswordModalOpen(true);
+                      }}
+                      disabled={isBackingUp || isRestoring}
+                      className="px-5 py-2.5 rounded-2xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 text-xs font-bold transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 shadow-sm active:scale-98"
+                    >
+                      {isBackingUp ? (
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Upload className="h-3.5 w-3.5" />
+                      )}
+                      <span>{isBackingUp ? 'Creating Backup...' : 'Back Up Now'}</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setPasswordModalAction('restore');
+                        setPasswordModalOpen(true);
+                      }}
+                      disabled={isBackingUp || isRestoring}
+                      className="px-5 py-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-800 dark:text-white text-xs font-bold transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 active:scale-98"
+                    >
+                      {isRestoring ? (
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Download className="h-3.5 w-3.5" />
+                      )}
+                      <span>{isRestoring ? 'Restoring Data...' : 'Restore from Drive'}</span>
+                    </button>
+
+                    <button
+                      onClick={onDisconnectDrive}
+                      disabled={isBackingUp || isRestoring}
+                      className="px-4 py-2.5 rounded-2xl border border-neutral-200 dark:border-neutral-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 hover:border-rose-300 dark:hover:border-rose-800 text-neutral-600 dark:text-neutral-400 hover:text-rose-600 dark:hover:text-rose-400 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer ml-auto"
+                      title="Disconnect Google Drive account"
+                    >
+                      <span>Disconnect</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Storage Quota Gauge with Working Refresh Button */}
             <div className="p-6 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-3">
                   <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200/50 dark:border-neutral-700/50">
                     <Database className="h-5 w-5" />
                   </div>
                   <div>
                     <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Device Storage Utilization</h3>
-                    <p className="text-xs text-neutral-400">High-capacity IndexedDB engine active</p>
+                    <p className="text-xs text-neutral-400">High-capacity IndexedDB local database engine</p>
                   </div>
                 </div>
                 <button
-                  onClick={refreshStorageStats}
-                  className="p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors cursor-pointer"
-                  title="Refresh storage statistics"
+                  onClick={handleRefreshStorageStats}
+                  disabled={isRefreshingStorage}
+                  className="px-3 py-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border border-neutral-200/80 dark:border-neutral-700/80 transition-all cursor-pointer disabled:opacity-50 active:scale-95 flex items-center gap-1.5 text-xs font-semibold"
+                  title="Recalculate and refresh storage statistics"
                 >
-                  <RefreshCw className="h-4 w-4" />
+                  <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingStorage ? 'animate-spin text-neutral-900 dark:text-white' : ''}`} />
+                  <span>{isRefreshingStorage ? 'Refreshing...' : 'Refresh'}</span>
                 </button>
               </div>
 
               {/* Progress Bar */}
-              <div className="space-y-2">
+              <div className="space-y-2 pt-1">
                 <div className="flex justify-between items-baseline">
                   <span className="text-2xl font-extrabold text-neutral-900 dark:text-white">
                     {storageInfo?.usageFormatted || '0 B'}
@@ -894,9 +1050,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     style={{ width: `${Math.max(2, Math.min(100, storageInfo?.percentUsed || 1))}%` }}
                   />
                 </div>
-                <div className="flex justify-between text-[11px] text-neutral-400 font-medium pt-1">
+                <div className="flex justify-between text-[11px] text-neutral-400 font-medium pt-0.5">
                   <span>{storageInfo?.percentUsed || 0.1}% used</span>
-                  <span className="text-neutral-700 dark:text-neutral-300 font-semibold">Virtually unlimited local space</span>
+                  <span className="text-neutral-700 dark:text-neutral-300 font-semibold">Local IndexedDB Storage</span>
                 </div>
               </div>
 
@@ -915,7 +1071,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   </p>
                 </div>
                 <div className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-100 dark:border-neutral-800">
-                  <p className="text-[11px] font-medium text-neutral-400">Space Saved (Avg)</p>
+                  <p className="text-[11px] font-medium text-neutral-400">Space Saved</p>
                   <p className="text-base font-bold text-neutral-900 dark:text-white mt-0.5">
                     ~82% Compressed
                   </p>
@@ -923,78 +1079,126 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
             </div>
 
-            {/* Smart Media Compression Settings */}
-            <div className="p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4">
-              <div className="flex items-center gap-2">
-                <Zap className="h-4 w-4 text-neutral-700 dark:text-neutral-300" />
-                <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Smart Media Compression</h3>
+            {/* Smart Media Compression - Sleek Dropdown Selection */}
+            <div className="p-6 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200/50 dark:border-neutral-700/50">
+                    <Zap className="h-5 w-5 text-amber-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Smart Media Compression</h3>
+                    <p className="text-xs text-neutral-400">Optimize media before transfer to save bandwidth and storage</p>
+                  </div>
+                </div>
               </div>
-              <p className="text-xs text-neutral-400">
-                Automatically optimize photos, voice notes, and media before transmission to drastically expand available capacity.
-              </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                {[
+              {/* Interactive Dropdown Selector */}
+              {(() => {
+                const presets = [
                   {
                     id: 'standard' as const,
-                    title: 'Standard (Recommended)',
+                    title: 'Standard Balanced (Recommended)',
                     badge: '80% Saved',
-                    desc: 'Optimized 1280px WebP, imperceptible compression'
+                    desc: 'Optimized 1280px WebP with crisp visual clarity and fast transmission.'
                   },
                   {
                     id: 'hd' as const,
-                    title: 'HD Crisp',
+                    title: 'HD Crisp Quality',
                     badge: '40% Saved',
-                    desc: '1920px Full HD resolution with high bitrate'
+                    desc: '1920px Full HD preserving maximum resolution and fine details.'
                   },
                   {
                     id: 'data_saver' as const,
                     title: 'Ultra Data Saver',
                     badge: '90% Saved',
-                    desc: 'Ultra lightweight, minimal data usage'
+                    desc: 'Ultra lightweight 800px compression for minimal data and storage usage.'
                   }
-                ].map((mode) => (
-                  <button
-                    key={mode.id}
-                    onClick={() => {
-                      if (setMediaUploadQuality) {
-                        setMediaUploadQuality(mode.id);
-                        showToast(`Media quality set to ${mode.title}`);
-                      }
-                    }}
-                    className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
-                      (mediaUploadQuality || 'standard') === mode.id
-                        ? 'border-neutral-900 dark:border-white bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white'
-                        : 'border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 text-neutral-700 dark:text-neutral-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-neutral-900 dark:text-white">{mode.title}</span>
-                      {(mediaUploadQuality || 'standard') === mode.id && (
-                        <CheckCircle2 className="h-4 w-4 text-neutral-900 dark:text-white shrink-0" />
-                      )}
-                    </div>
-                    <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-neutral-200 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200">
-                      {mode.badge}
-                    </span>
-                    <p className="text-[11px] text-neutral-400 mt-1.5">{mode.desc}</p>
-                  </button>
-                ))}
-              </div>
+                ];
+                const activePreset = presets.find(p => p.id === (mediaUploadQuality || 'standard')) || presets[0];
+
+                return (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsCompressionDropdownOpen(!isCompressionDropdownOpen)}
+                      className="w-full p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200/80 dark:border-neutral-700/80 hover:border-neutral-300 dark:hover:border-neutral-600 transition-all flex items-center justify-between text-left cursor-pointer focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:focus:ring-white/10"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-neutral-900 dark:text-white">
+                            {activePreset.title}
+                          </span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-neutral-200 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200">
+                            {activePreset.badge}
+                          </span>
+                        </div>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400">{activePreset.desc}</p>
+                      </div>
+                      <ChevronDown className={`h-5 w-5 text-neutral-400 transition-transform duration-200 shrink-0 ml-3 ${
+                        isCompressionDropdownOpen ? 'rotate-180 text-neutral-900 dark:text-white' : ''
+                      }`} />
+                    </button>
+
+                    {isCompressionDropdownOpen && (
+                      <div className="mt-2 p-2 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-xl space-y-1 z-20">
+                        {presets.map((preset) => {
+                          const isSelected = (mediaUploadQuality || 'standard') === preset.id;
+                          return (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              onClick={() => {
+                                if (setMediaUploadQuality) {
+                                  setMediaUploadQuality(preset.id);
+                                  showToast(`Media compression: ${preset.title}`);
+                                }
+                                setIsCompressionDropdownOpen(false);
+                              }}
+                              className={`w-full p-3.5 rounded-xl text-left transition-all flex items-start justify-between gap-3 cursor-pointer ${
+                                isSelected
+                                  ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white font-medium'
+                                  : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/40 text-neutral-700 dark:text-neutral-300'
+                              }`}
+                            >
+                              <div className="space-y-0.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-bold text-neutral-900 dark:text-white">
+                                    {preset.title}
+                                  </span>
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-neutral-200 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200">
+                                    {preset.badge}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-neutral-400">{preset.desc}</p>
+                              </div>
+                              {isSelected && (
+                                <CheckCircle2 className="h-4 w-4 text-neutral-900 dark:text-white shrink-0 mt-0.5" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Storage Management & Cleanup Tools */}
-            <div className="p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4">
-              <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Storage Optimization Tools</h3>
-              <p className="text-xs text-neutral-400">
-                Safely manage cached files and reclaim disk space without losing chat history.
-              </p>
+            <div className="p-6 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4">
+              <div>
+                <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Storage Optimization Tools</h3>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Safely manage cached files and reclaim disk space without losing chat history.
+                </p>
+              </div>
 
               <div className="flex flex-wrap gap-2.5 pt-1">
                 <button
                   onClick={handleClearCachedMediaAction}
                   disabled={isCleaningStorage}
-                  className="px-4 py-2.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-xs font-bold text-neutral-800 dark:text-white transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-xs font-bold text-neutral-800 dark:text-white transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50 active:scale-98"
                 >
                   <Trash2 className="h-3.5 w-3.5 text-neutral-500" />
                   <span>Clear Cached Media Files</span>
@@ -1003,7 +1207,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 <button
                   onClick={handleOptimizeStorageAction}
                   disabled={isCleaningStorage}
-                  className="px-4 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-xs font-bold text-white dark:text-neutral-900 transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-xs font-bold text-white dark:text-neutral-900 transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50 active:scale-98"
                 >
                   <Sparkles className="h-3.5 w-3.5" />
                   <span>Optimize & Compact Database</span>
