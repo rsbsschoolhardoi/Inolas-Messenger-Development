@@ -22,6 +22,8 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
   const [appName, setAppName] = useState('');
   const [botUsername, setBotUsername] = useState('');
   const [webhookUrl, setWebhookUrl] = useState('');
+  const [redirectUris, setRedirectUris] = useState<string[]>([]);
+  const [newRedirectUri, setNewRedirectUri] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   
   // Test/Automation State
@@ -76,6 +78,7 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
       if (activeTab === 'settings') {
         setWebhookUrl(selectedApp.webhook_url || '');
         setAppName(selectedApp.app_name || '');
+        setRedirectUris(selectedApp.redirect_uris || []);
       } else if (activeTab === 'analytics') {
         const res = await fetch('/api/v1/apps/analytics', {
           headers: { 'Authorization': `Bearer ${selectedApp.api_key}` }
@@ -149,7 +152,8 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
         },
         body: JSON.stringify({
           webhook_url: webhookUrl,
-          app_name: appName
+          app_name: appName,
+          redirect_uris: redirectUris
         })
       });
       if (res.ok) {
@@ -583,6 +587,48 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
                             Zenoa will send a POST request to this URL whenever a user sends a message to your bot.
                           </p>
                         </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">SSO Redirect URIs</label>
+                          <div className="flex gap-2 mb-2">
+                            <input 
+                              type="url" 
+                              value={newRedirectUri}
+                              onChange={e => setNewRedirectUri(e.target.value)}
+                              className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                              placeholder="https://your-app.com/callback"
+                            />
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                if (newRedirectUri && !redirectUris.includes(newRedirectUri)) {
+                                  setRedirectUris([...redirectUris, newRedirectUri]);
+                                  setNewRedirectUri('');
+                                }
+                              }}
+                              className="px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-xl text-[10px] font-bold"
+                            >
+                              Add
+                            </button>
+                          </div>
+                          <div className="space-y-1">
+                            {redirectUris.map((uri, idx) => (
+                              <div key={idx} className="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-lg text-[10px] font-mono">
+                                <span className="truncate">{uri}</span>
+                                <button 
+                                  type="button"
+                                  onClick={() => setRedirectUris(redirectUris.filter((_, i) => i !== idx))}
+                                  className="text-rose-500 hover:text-rose-600 font-bold ml-2"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                            {redirectUris.length === 0 && (
+                              <p className="text-[10px] text-slate-400 italic">No redirect URIs added for SSO.</p>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
                       <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800">
@@ -708,6 +754,20 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
   "recipient": "username",
   "code": "123456"
 }`}</pre>
+                              </div>
+                           </div>
+
+                           {/* SSO Authentication */}
+                           <div className="space-y-3 pt-4 border-t border-slate-800">
+                              <div className="flex items-center gap-2">
+                                 <span className="px-2 py-0.5 bg-indigo-500 text-white rounded text-[10px] font-black">SSO</span>
+                                 <code className="text-xs font-bold text-slate-600 dark:text-slate-400">/auth/sso</code>
+                              </div>
+                              <p className="text-xs text-slate-500">Redirect users to this URL to initiate Zenoa One-Tap SSO. Users will be prompted to authorize your application.</p>
+                              <div className="bg-slate-950 rounded-xl p-4 text-[11px] font-mono text-slate-300">
+                                 <p className="text-indigo-400 mb-2">Login URL:</p>
+                                 <pre className="whitespace-pre-wrap">{`${window.location.origin}/auth/sso?client_id=${selectedApp.api_key}&redirect_uri=YOUR_CALLBACK&state=XYZ`}</pre>
+                                 <p className="text-slate-500 mt-4 italic text-[10px]">Returns: payload (base64) & signature (hex) to your callback.</p>
                               </div>
                            </div>
                         </div>

@@ -1,3 +1,4 @@
+import { SSOLogin } from "./components/SSOLogin";
 import { DeveloperConsoleStandalone } from './components/DeveloperConsoleStandalone';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MediaPreviewLightbox } from './components/MediaPreviewLightbox';
@@ -6360,6 +6361,52 @@ export default function App() {
 
   // MAIN RUNTIME APPLICATION
   const isDeveloperPath = typeof window !== "undefined" && window.location.pathname === "/developer";
+  const isSSOPath = typeof window !== "undefined" && window.location.pathname === "/auth/sso";
+  if (isSSOPath) {
+    if (!isAuthenticated && !showLandingPage) {
+      return (
+        <AuthFlow
+          initialMode={authFlowInitialMode}
+          onBackToLanding={() => {
+            setShowLandingPage(true);
+          }}
+          onLoginSubmit={handleAuthFlowLogin}
+          onRegisterSubmit={handleAuthFlowRegister}
+          onVerifyOtpSubmit={handleAuthFlowVerifyOtp}
+          truecallerProfile={truecallerProfile}
+          onOAuthLogin={handleOAuthLogin}
+          onForgotPassword={handleForgotPassword}
+          themeMode={themeMode}
+          onToggleTheme={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
+          existingUsernames={uniqueUserList.map(u => u.username).filter((un): un is string => typeof un === 'string' && un.trim() !== '')}
+          checkUsernameAvailability={handleCheckUsernameAvailability}
+          isOnboarding={onboardingStep > 0}
+          initialRegStep={onboardingStep}
+        />
+      );
+    }
+    if (onboardingStep > 0 && onboardingStep < 3) {
+      return (
+        <AccountSetup
+          currentUser={currentUser!}
+          onComplete={() => setOnboardingStep(3)}
+          isOnboarding={onboardingStep > 0}
+          initialRegStep={onboardingStep}
+        />
+      );
+    }
+    return (
+      <SSOLogin 
+        themeMode={themeMode}
+        currentUser={currentUser}
+        onLoginRequest={() => {
+          setShowLandingPage(false);
+          setAuthFlowInitialMode('login');
+        }}
+        onLogout={handleLogout}
+      />
+    );
+  }
   if (isDeveloperPath) return <DeveloperConsoleStandalone />;
   return (
 
@@ -10605,48 +10652,12 @@ export default function App() {
                   const isMe = uname === userUsername;
                   const amIFollowing = u?.followers?.includes(userUsername) || false;
 
-                  return (
-                    <div 
-                      key={`follow_${showFollowListModal.type}_${uname}_${idx}`} 
-                      className="flex items-center justify-between p-2.5 rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
-                    >
-                      <div 
-                        className="flex items-center gap-3 min-w-0 cursor-pointer flex-1"
-                        onClick={() => {
-                          setShowFollowListModal(null);
-                          setSelectedProfileUsername(uname);
-                          setShowProfilePanel(true);
-                        }}
-                      >
-                        <div className="relative shrink-0">
-                          {renderAvatar(u?.avatar_seed || uname, u?.display_name || uname, u?.avatar_url, 'h-10 w-10 text-sm')}
-                          {u && isUserEffectivelyOnline(u) && (
-                            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-950"></span>
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-bold text-sm truncate text-neutral-900 dark:text-white">
-                            {u?.display_name || uname}
-                          </p>
-                          <p className="text-xs text-neutral-400 truncate">
-                            {uname}
-                          </p>
-                        </div>
-                      </div>
-
-                      {!isMe && uxœÌZÿwÚ8ÿış
-5oß{Ø$iÒ½²Ğ.%¤åÈv÷õòRc+ ­±|–’eùßo$ÛXş
-d¿Üù½6XšI3£Ñ|äqŒ%F_^6ÁŞ1qÇ4©ïğªÏ°Ç>ùÜÖ‘ü[”Õ¿¡‚§5ó9§Na?BÔéÚÄüÒ^Wk¨ı&*d.Ç²ñ%µmºRÖ9ĞöºÃÕÚmmS"Û´Æ®©½ş¼´µSä>j/‘û¤èçÈƒ%YØÒmtO®Í¨m!¹öÈ÷‡N¨£¶ØÂ°èJt°…Gœ/Ú12}QOs)q8öĞWë’y d,ûÁRˆ3/%Dè-ªÌæšƒ}˜ƒ­£}À^=Ê°v5È¹Ê¦W1õ,ì­§ĞjŞ—¦"îQ[RæëóãÆËDO,üXä[FF¢UŒŒşIôóH¶{|\Ù¡‹fB¯U]dfm«á8µ>U‘rÂ
-Qb¯Ë§³ù\ìioJøÖªé…q·/±¼à­R,»Õ¶PÑ Õ°ÈCOí»Lã&Ó¶©USr3òR‰Wà­ß ëá´Ùïv¦ıáõ}.‡ƒÁğ#÷~¸éM¦t5¼èĞ7hÀÖ5åä˜†Ø~ìŠZ†½†°¡‹öš-è*A62lÇSQœ7Š*óI.GõŞ°VÖê¨$íuâ5¦º—Vãÿø˜q K¾«Ó€Ğ‰]~©ö·×AlËéR9/°iç²æõ©¼WàİÛî°16¬öz	¯‰µ1‡‡!zƒ^{­¾Å4|—¬JİşŒzoTƒüĞ™N:£‘6™ş<è¡«ŞE¿ƒà¿ép»Úõ¨[G]Ÿqº$¿â:zçùlQGSØ‘uôáıà6áOu4É NÑ›Ä%Øá5ÕU®°EŒE8õòåÅøcÁnS(/`añº,xk¯wQej”ËQu|Û®©|b‘İÄoA‹-ÉvˆJU</ûâo¿;½÷Pw<zcØlãá´ë]Ñ\iÌ±0ƒ‹T'ö˜JÏ–y¦ìh¯Í kB}ÏÄ²m×T%fv°@O¤­€Ê
-ô01ös·é‡ŞUVş±3Œ:B“Ş ×ÍUBwağièÌˆ»ãi&'X0ÉEüşV—ùËo¿¡
-_†LêÀ9Ää®S‚<$`ã`è>x‡	¬!ÑpW$:±¼¾u+„]ô.;7ƒé\Û]ÿb—’ãIç¨x‚mlcÇ~)š¶ÚÈ×óu¿û¯ëèVlå¬.;Y<Ì°câøhXƒ«sØ)×æ	íÜ@2—Î[pz(éÚÑ=yÄ"¬r­_EÒsoãG[gÉ4Ëœëäş)zuµ³£ä‰×ZR¡x]OpÄ9v{½FÔ5L5MtŒ6›4¬*Aw’C‡	ß)¬p§ÌlÃüÒx¿á¯-¾)çQZJ*c	½¬‚Ã8”äm<G=Ì4lëÑ_Ÿ×÷ÖUÈtRßOkÅckĞÃ¶!¶	Zi÷°V´4µ•Æ–ÛÄş2ûdR˜Ê%KWE¢éj¯", ¤ÿ
-Y%b0]¬=ó%æšÎ½2^èÎ3ÌW;GÙì­µx©ŠéëpPÀ¨‹Œ]©ˆ£7ÂYPä*­ÆâeÎ8AÊ™¶–xq¾veö®v²5•4`bêgÇ	˜5¿:Î¢ÅpG™!óRàÖOê<Ú¸ĞÙQzwHÊ‚ä;ÌvÓ­nÆ:Jªs<ÏÅN°ØkO0G"GBN¨^0µ‡ZàsNÂ™„ı^’]> êêM^`Ş´Bøô@™Ùn?‰üë‰úzFnVÄq}YrC•dMô`Ø¾H*ñÒfò£hÊú8œW"ï¨âÈı¦i¶*Ö!]˜c®KÁ9nèB¨ÅĞöÚGXŸëèäÏ²Ğ‘Gƒ ;®£ûë“ËóÎÙM¸oÁ&ZÎ.:›ì*k„I\6èçâºá4yİB¥yı`$¢ß® €¨ÏvĞêoÿjzàÚ©ú’ ôq$£ ÃçôRP¥zYÙ
-ç†+nk¸vš³/d¶™œ}ÊqâÛ¢K©²ë¨md3Ø“c¢ ¾İê{T}‘3r2yî{Nd‡^à‹£À?eÔF9RÊ¹} $m´Fº®'´6E¼¤x`ıùS<…Û"Ø\]Uv5äÍ¹Aî=Á”l
-‡ùàäù:Èèƒa«âP0ø˜ì]ËX¥ş9^ëŒÇ‚³o;Dí;´A VÍ[}]t?²‡šÅ@Wbd¦ßÇªšÂ²¦..eHm·ÛªI ß®šºˆX²§b-+ÂŸLİ5<N …gouâ˜6DVYkµBİ‡‰çS+t¬íÜÉO¸ğ¯ K\­É«O‘)MƒNĞYõÓmt¾ üÕD•SÍ"sÂA­Kâø+M9—<é!m:¿bsÀaÔÏ?S|y	Ç¬% ò úş«u¼êÍçı$÷…ËV–wôw¹ İ¡+¹¨p)/_Õ §"û¯¾Ğ=À&t™"Ñ™?ü¥zZGßî³ªÉƒá›è
-3N)6NÉ…±šÛ	×Ë.—…+âØ¬:)çğ°pî;ƒ7”q0yĞDÂUo"wàr‰+e|"Ü7ƒ–Ò‚£ƒ£°'µ\*¸ãÆÒmFîYF‹5åeS“–Zw³'AVHUÖd˜
-ËŞ=	+T]?ˆ-^-33DNAW6±O	ËŞÂIJOõ“|º­Õcg+YIqŒ¢a—ÄÃ"­ïRçÌ}v Äk&ş‡SvQ=Â(\ş1be  ½]P³j‰³ºp©@‰•úÖıaEå’öß-â9|ÇH®ƒwx»sÄsÈî‘ô{ï I}Ğ.ÏŞ;)$Ş¹›ÄSv åğõ¼’ãzŠÚË ca""n´¨Áxõ(bŠ¦£¦ÌÅAğ¨ğ3üxºıæ—¢Ân9ŸàŠ?¢)‰¾òÑ¤6õXê«a6‰.ú–4Æ ¸¼„¶ğëPîÉË»µ“|à[˜(ÿ €¼wY ü­/ó¾d¾qªÈêw™'Ï8]Ã1±Õ`¡eöĞínò< ò{àGÀÙ¨ Æ^×!+ƒl­Œû9ĞE¬4µøàË5Aê,Ø
-BÂ6Ã…ÅKùç@õ§"¨ñÿ€”öÅI9JÊÁHÑ^(<ß0
-L¸B‰¶£¯Ö¡ÄÍÑçB™Í?šıï€Ù³`Ù~iæ¡	æ¡©åó’ÊıÓÉ}ÉCRÈ=“Çİic!{ Û	¿şğU½~?ğÚ»ş8Ğµ?äzàzÜz>Ø:j´…Y€¬ı VÀÚ^å·f«VEœW[€%­Ô¡‡OŒÀL^ËÅ_»s™÷ÿ•p@Ô|¦
-<·% û¡Q®²7&È)Ök5âó%ew[ŒÕjdê/ÂQº1ùĞ÷.ÂJ¬Ñ¸÷c¿÷úï?LßÊÔSˆ‚W2_ğ}Ü¶¢*FØ]¥,/GIS'ÁaªÆæõ~<¼¡î¸'+sÊñê=˜Í-©T)
-'§FÙ¨@PeKg¾K’E$RÏ¢j[yMÙ a±ÏÛë¼P³Èzç€H©&‹2&Ê°0'NÉº*Ö%U\^µmz~!Z`¬‹Ş´ÓˆâÎ«Îuç}ïªw­RÊ¤äº}SÄ\Ì¦’ü|×’S¼ÀÜ vª4iö„ò¥2,™z©àUk¼}‡Û¶ÈºÁ@[¤ØN~æTé¤’¢”«½^&’/¥x,ÎTî}j=…ºBXÂaâ–$eÇ²F1àÛ–·ZVà”qW’m,!LgĞQÎ|#a®¤é;÷4bM5'y¦t>óØÑM’^¶«Ûó1,?ãşF~±sT‰9åÎ®b“½ŞTb#ŞİEÎ9t»ŠÿrX2^…‰6öİ‚%±w65¿`«½?‹A~„D	b v)&]/4Q€åbTûHBeı<icìR—
-hŠeÈc*ïdpŒ278õtÓ&îŒ¥¯<H(DºZ]@Â+]ÜØÈÓšzdNœä™ß^‡*A6q¾ v	–¥Í[ÁGyHèhÛƒh6ÿ  ÿÿ Êì
+xœÌ[mwÚFş¾¿bâ“S ‹„íÄiKM²ã„]l(¦=YGHc˜ZHZÍÈ˜PşûŞIh$8mw9Ç6š¹w^îÛÜgtPöãcøªş-×Ÿs‹< eB÷xÕZ¾smÛ]Ş>_Ó¹»¼}BÙ•k¶ÎVŞ@_àñ…X›Ï›¢MÛ ôH[Gw6~D„áÕLì0ì£ßÊÈİJ›b¶ÄØAvªŸ!ß[Úé£æîö›Ó™æà€ù†­#Ëğï›¹ïĞ	ßJqÍtm×§GÊ…½.Xn™pvlffxÚ´ ¶Ô‘øÔõ5Ï%¢““k'êµğëtlbŞ·ÖÕj½FëBB„(fã¼^ªN`Ûµwğa›[Cß½#6ş@±ÏµXºÜÉ“FŒCÃÁv•ùAÓfSĞU$ûHú’}lŒ<`Dç>qîµã£b^„Ö>»ñÛ3üjğF7Ä·[Š±…~ÿ‰]ÖtX„z¶±ºåéˆ%ğí:ªÌµ“c´ä¿~d]TjE{óè›o¡\¬İ»;4,İ^›8 ãïU»ävÿÔ3Y Æ”ºvÀ0šºŒ¹°+ŸÌæşÎ…«,Ss&€Ò.:‹Ôv
+mS×9i§ñ—å9¢[bêÎ@äç¾¬2É—ˆå¼:İ_ã‘û”êùÜK9¢ë0mêÚV¬$c°#Ñ°İJ,Ñ*¶\:×g¥”ÁyÃÛíb)4½Ğ—ÇÇÛ-ì\áW-§T7QgAïú¡W˜[´Xÿ-cì?·M,’UpúIÜÔCÂNp>ÀÎ’eåvö¹áX6ƒ¢<±ÎÜ¾»Ä~Ç ¸Z»)uàD3ëÏpä=BD÷VÚ‰ädp(eL+09uğA:7,wÉ;âÀ•=—Ex„ŒE/Ü
+qf¥„½AÉ½OÀx¶G£ïRÌÌ°A¬U4½JˆBw­§Šh± é1!,4^¤z’Á…ùÊöü}ÊñòqebN²tûwÇÇ•²h¦dñƒ,UL”â^î$Ş†D”'eË”¨°·ô“UÏ•»}¨ğí…O•²xºPÑP
+ü&×¶©U3ãæÆË4¤7ú¶n|‹®“Şe¯Óô×côºôûƒhÔıéCw<£«ÁE»¾mÄ_»D—à~T$CÛixØi‰D6E&2˜dÉ<ª€ñÆQ%ÊvòÕ;Ã¦XÚ«#“´Ö©Ç„*L¨Gø?¦ÈÒÏò2 tb]Êı­uÛ]2ç6y¡dUõÉ¼W`İmÛnÓ6¬Öz©½‡	‡œhµRiWBÃæxA Ôí×¸·ñZVøÇ÷íÉ¸=jãÉ¯ı.ºê^ôÚ~M£HÙÕïzuÔ¸à.ÈHÕŞú×Ñ<²Ş_ ŸÃ&lUGcXb.a“x2óšl*WØ"F×"ÌõÕ†òìü±ÀÛ$ÊØX²/Zë]Tyƒ*9Â´]æãˆõÆ¿sZl	¶CP*âáhpÙã{É‡QuFƒá°;g&íDî’äzc†¹<\ :îc2U²Zê›¢£µ6Ã®±ø&m»|P1ç}À=±´B*+”ÃØxØÏÜ&ï»W]ØùÇv¿?ls)Œ»ınG)„ÎÜ`“È˜$t'Ë4àÌar‘<¿ÑãÄ²Âæ„"Óuà¢Âë¤ Éè8œºÖaëGH4<Ãã‰N2^Ïºáƒ]t/Ûú“[±·ÛŞÅ.!'‹Vˆ8‚$±KŞ´•†ZÎ×½Î¿®Û [îÊyY¶²€wècŠ'GÃL§\CšÇ¥ÃáT6kÌÂ†;ò8°Èµ¾ğ¤§ø¶!zô´—™ôú|árÁëŠ; âÀš»µ^#×3L5Mt7Kg„»JÑ(èğ#a;+Ü ä)SÛ0ï¯à;üµÀò¡%ğ!å<Ê’É˜a„n^ÀQJó6"j6†ıè?œÕ÷–UÄtRßOjÅsKp{—°qòÂx¤	pQ¾nJ'…™\ò°t•'šö*Æ|ô/ü*°´‰µ_j­ÙÜ+gá».ÏPñ|ş"‡6§€ƒ² ¦"scA±©œ7æ/ó„)§êŞìãS°K«÷´“ôEG4KH$n~uœG)’âò÷qªøüysí%˜ĞË£¬wÊ‚ä[¥÷¸8Sb'Ø¬BÛcÌGÏ‘‰Tíç¯•„ş)^]6 Ëêµ*0o¢Ë!ô@(™Ún¯xşµr='//âxËí…_2‡"É«èÁ°Tâ…¯ägŞ”·0>8¯xŞQÅ±ùM²lU¬Cº0ÃL+ÌĞƒP‹ç )ì·°>ÓÑ[ÈŸ	d¡CßıBÔ‡ì¸ş¬O.ÏÚ/7hÌœ4lyyÑŞäw!i#
+Hü²A?ã×§éë†*Uaôƒ‘trY¶#  7`;hëpkûjú`Ú©ü@êãHN FÀÜKN•éiämdg(äWï§ÈcÚ©Â/D¶«œ~RñMÑ¥TÙuÔ6²tå˜¨üŞÜ¡ê3ÅÌµèUMÑ-:äƒ”¡Ğ>EÔBŠQÊ¹ $-´Fº®§¤6E¼¤x ıˆùS²„›"p®<v5â-|EÀü,Évá0‚<_‡1z Øj…8.(ü–/ö6e´RGÿ®uÊ¸aÁÙ·¢ö#Ú  «æqW_İì!f¾Ÿ™êwÄ±ª&×¬©ÑÛÔjµd•@¾]5Åk1ÑS±nO¦î>#€B‡Ñ7:qL¢­&¬µZ¡l¸Á$ë©•¼ŠÖNxÌ¸}8x‰ YâjM\}òLiv‚ÌªŸnê ó9à¯&ªœj™b]'`XjR\òd§´İÙq³~şÕÀ–pÌZú§ <_'»Ş|Şoä7ÙÊâ¶‚ş.6¤;îRl*ÚÊ‹W5è©ˆş+ƒÍu°‰»Èè4˜†öR=­£ïöÙÕxEaú&ºÂ”‚QrÇ)¹°#Vs»àzÙå27eNœ¨U'å>æÆ}k°¦$€2*.šˆ›jürO€Ë®”ññpß”ZJ††BWµ|T0;ÊŒ…×ŒÍ³Œ6kŠË¦&#-'´n§+NVHUÖD˜ŠKß®¸ª¸‹WËÔ‘“Ó•-ìSJ³7°@`£gz¸J>İÔê‰±•ì¤8F„Q‚ĞKâcÖw\çÌ<â5å¿á”—E(
+—¿ŒX @n®YµøÏ´ÎM*b¥¾5ØQùHû{ÿî1‚ë`¯áŸ§zÿâ=‚~oÔyÿìíIñNoâŸ²ó I‡¯ï—¿@XĞSÔ^~£å”Ub¦øh:*`*¨Uágô*ğtûÎO¢¢nŠWpÅ/Ñ¤D?W»’yk¨*Q¿çaœ*¡-|;¤À=ª¼[;QßÂDù¼ xä½K9àŸj}¡z#x’{Ç)#«¯RJ9Ã1±—`¡föínò4 ò5ğ#ä…l”“c¯ë•A¶VÆıèÂwÍZ|ğ)`M˜:s¶‚°Mqáˆ‡â%uÀ9Cı©j§Eü? ¥}qÒ_’)ö…ÂÃñM£@…» ¿a;z¾FÜ}.³ùÇ@³ÿ0{,Û/Í<4Á<4µ|ZR¹:¹o"yH
+¹gò¸;m,„`O`;á×Ÿ ¾J ××¯]°ë]ûC®§ ®§À­§ƒ­Ã Ö!@ëP˜u ÈÚb•¬=á•º½0Ó8X%°*>Èà¼Ú,qhe%8|fÚØğ‹˜íÎıEŞÿWVüÀ^ó™)ğÜ–€î‡
+x¹ÊŞ˜@Q¬wŞH^Î—”İm1Öy#WõğÒñûö¨{UbGİŸ{İ¨ß{÷~òvğK®
+†x xÙç•éS÷q;Ù‚wòª®w™²¼%K‡™X×»ÑàÃuF]Q1¨(ÄËw 6¯¤2P¦(\œeãA™1*ù1M“9‡ÿ}¡r4É¢bŸRpl­U¡2aõÎ!‘TMeŒ¥iÃÁõšÒuU<¬ª¤¼jÛôôB´PYİI»×çÅWíëö»îU÷:_!$•I‰uû$!ˆ_M%ıúî\,ñ3ƒØ™rĞ´ÚstrRJåXrõRá)*×x¥ú×m‘vÃ‰¶H±•~Í)Ó	!Å)Wk½H%_RñX’ÉÜûÔzrqõ1„°”Á$-iÊ¶eÀ·-oµ¬Ğ(“®4ÛH@gØQÎüAÀ\AÓsîÜ˜5Óœæ™¸³_À¾˜>lô¢]fØQ! ÿšô7ÔÅÎq%æ`–;·;"ˆßw»9ˆEÿx5ğv9+èvÿ)XrVMÕÿ8sª;¤ DßÚ®y­Öz~á44ù#¤JC±‹`ññõB…øQlFÖ Q6P6Âë³òBšâ1Ä1¥:ãÌæúºioê¾¥/}H(xºZ]@ÂKßØˆÓÚõÉŒ8é3#¹½D‚lâÜö¥ÍÛTHdhÛƒh6ÿ  ÿÿ Ç¿m

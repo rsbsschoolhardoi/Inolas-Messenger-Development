@@ -284,15 +284,69 @@ app.get('/api/v1/apps/logs', authenticateApiKey, async (req: any, res: any) => {
 // 6. Update Settings
 app.post('/api/v1/apps/update', authenticateApiKey, async (req: any, res: any) => {
   try {
-    const { webhook_url, app_name } = req.body;
+    const { webhook_url, app_name, redirect_uris } = req.body;
     if (!db) throw new Error("DB not ready");
     const updateData: any = {};
     if (webhook_url !== undefined) updateData.webhook_url = webhook_url;
     if (app_name !== undefined) updateData.app_name = app_name;
+    if (redirect_uris !== undefined) updateData.redirect_uris = redirect_uris;
     await updateDoc(doc(db, 'developer_apps', req.appData.id), updateData);
     return res.status(200).json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed.' });
+  }
+});
+
+// SSO Configuration & Verification
+app.get('/api/v1/sso/config', async (req: any, res: any) => {
+  try {
+    const { client_id } = req.query;
+    if (!client_id) return res.status(400).json({ error: 'Missing client_id' });
+    if (!db) throw new Error("DB not ready");
+    
+    const appsRef = collection(db, 'developer_apps');
+    const q = query(appsRef, where('api_key', '==', client_id));
+    const snap = await getDocs(q);
+    
+    if (snap.empty) return res.status(404).json({ error: 'Application not found' });
+    
+    const appData = snap.docs[0].data();
+    return res.json({
+      app_name: appData.app_name,
+      bot_username: appData.bot_username,
+      redirect_uris: appData.redirect_uris || []
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+app.post('/api/v1/sso/authorize', async (req: any, res: any) => {
+  try {
+    const { client_id, user_data, redirect_uri } = req.body;
+    if (!client_id || !user_data || !redirect_uri) return res.status(400).json({ error: 'Missing parameters' });
+    
+    // In a real SSO, we would verify the redirect_uri against the registered ones
+    // and sign the user_data with the app's secret or a global private key.
+    
+    const ssoPayload = {
+      ...user_data,
+      iss: 'zenoa_sso',
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 300 // 5 min expiry
+    };
+    
+    // Simple "signing" for demonstration using the partner key or a generic secret
+    const secret = process.env.VITE_TRUECALLER_PARTNER_KEY || 'zenoa_sso_secret';
+    const signature = crypto.createHmac('sha256', secret).update(JSON.stringify(ssoPayload)).digest('hex');
+    
+    return res.json({
+      success: true,
+      payload: Buffer.from(JSON.stringify(ssoPayload)).toString('base64'),
+      signature: signature
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'SSO Authorization failed' });
   }
 });
 
