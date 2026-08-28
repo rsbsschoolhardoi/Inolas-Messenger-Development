@@ -1,53 +1,27 @@
-# Single-container production image for a full, stateful Reflex app.
-# Serves the exported frontend and the Reflex backend behind ONE public port
-# via Caddy, so WebSockets (/_event) and HTTP share the same origin.
-
-FROM python:3.12-slim AS base
-
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    NODE_OPTIONS=--max-old-space-size=2048 \
-    PORT=8080 \
-    BACKEND_PORT=8000
-
-# Build-time public origin: baked into the exported frontend bundle.
-ARG API_URL=http://localhost:8080
-ARG APP_BASE_URL=${API_URL}
-ENV API_URL=${API_URL} \
-    APP_BASE_URL=${APP_BASE_URL}
-
-# System deps: curl/unzip for the Reflex bun/node bootstrap, caddy as front door.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-        build-essential curl unzip ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https \
- && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-        | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg \
- && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-        > /etc/apt/sources.list.d/caddy-stable.list \
- && apt-get update \
- && apt-get install -y --no-install-recommends caddy \
- && rm -rf /var/lib/apt/lists/*
+# Production Multi-Stage Dockerfile for Vite React Application
+FROM node:20-alpine AS builder
 
 WORKDIR /app
-
-# Dependencies first for layer caching.
-COPY requirements.txt ./
-RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
-
-# Application source (rxconfig.py + the `app` package are already part of the
-# project, so no scaffolding/initialization step is needed or wanted here).
+COPY package*.json ./
+RUN npm install
 COPY . .
+RUN npm run build
 
-# Export the static frontend bundle into .web/build/client.
-# API_URL/APP_BASE_URL come from the build args above and are baked in.
-RUN API_URL=${API_URL} APP_BASE_URL=${APP_BASE_URL} \
-    reflex export --frontend-only --no-zip --loglevel info
+# Serve stage with lightweight Nginx
+FROM nginx:alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-RUN chmod +x ./start.sh || true
+RUN echo 'server { \
+    listen 80; \
+    listen 8080; \
+    server_name _; \
+    root /usr/share/nginx/html; \
+    index index.html; \
+    location / { \
+        try_files $uri $uri/ /index.html; \
+    } \
+}' > /etc/nginx/conf.d/default.conf
 
-EXPOSE 8080
+EXPOSE 80 8080 3000
+CMD ["nginx", "-g", "daemon off;"]
 
-# Caddy on $PORT + `reflex run --env prod --backend-only` on $BACKEND_PORT.
-CMD ["bash", "./start.sh"]
