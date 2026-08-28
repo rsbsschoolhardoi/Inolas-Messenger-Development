@@ -1,3 +1,8 @@
+ï»¿/**
+ * Inolas Messenger Web Application
+ * Multi-platform zero-knowledge end-to-end encrypted messaging & calling
+ * Encoding: UTF-8 (âœ“ Verified Unicode: Â© 2026 Inolas Team â€” âš¡ High Performance)
+ */
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {  
   MessageSquare, Search, LogOut, Pin, VolumeX, Check, CheckCheck, 
@@ -1316,6 +1321,9 @@ export default function App() {
               const list: AppNotification[] = [];
               snap.forEach(d => list.push({ id: d.id, ...d.data() } as AppNotification));
               setNotifications(list.sort((a, b) => b.timestamp - a.timestamp));
+            },
+            (err) => {
+              console.warn('Notifications snapshot notice:', err.message);
             }
           );
 
@@ -1325,6 +1333,9 @@ export default function App() {
               const list: FollowRequest[] = [];
               snap.forEach(d => list.push({ id: d.id, ...d.data() } as FollowRequest));
               setFollowRequests(list);
+            },
+            (err) => {
+              console.warn('Follow requests snapshot notice:', err.message);
             }
           );
         }
@@ -10654,12 +10665,7 @@ export default function App() {
                   className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left text-xs font-semibold text-neutral-800 dark:text-neutral-200 transition-colors"
                 >
                   <Share2 className="h-4 w-4 text-neutral-500" />
-                  <span>Share Contact Profile</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setShowProfileOptionsModal(false);
-                    handleToggleBlockUser(selectedProfileUsername);
-                  }}
-                  className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left text-xs font-semibold text-neutral-800 dark:text-neutral-200 transitionxœ”RÁnâ0½ó#.ÀÁM¤…JKËy·UW•öjìIc1±‘=$Ä¿×Ih·… ª–,ÙoæÙofžPŽœýœ­ùpX‘SkÔÏ}¸1VQ¥1*Fýè]në¨•%Žà²ú²,P­A‘áOÄgýBŒa7ãž–è%i1IÓ>$s˜¶¤W	+ŽŒ7Â±Ch6ÒÎ¿/wðlÔà Jüj®KgY*³¤yùâË,YUÌ.F.Cm¤C¥³K2j=;G0›Ã¡#  ÿ-Üî$öaÃÆÙðÛiIÃ\RÀÑ]'­V>áÆy®‹¹ZuýØÕÓãØ‰¼"‚œp†±B¡eôð"7âÔÛ»ÊjÔbOP¸-úéêEx0N´ôëégôç$MÆi;_ÂœÛÓ>@;/–fåH·hC¸MOïü‡ÆŠÆ°ÁÔ=ß1v¶ ô¼4^^õÝI~cº«žk;¥bøk»œãÚl?ƒYRººž›³ÈYêèmdY²°¦”ŒZ…mÎ{zø±×{  ÿÿ ’E–
+                  <span>Share Contact Profile</spxœÔRMÚ0½ó+F\€ƒ7iËV[¨(ç¶«vWêÕØb1±‘í,Hˆÿ^Ça«%	êÇ©d)~oÞhüæq½@ëË’uå½	L—j˜`ôŠ”ØÎã	Ìpì)pè¿foM®¿ì¼2Ú}2’Ó8çäpò¾WVp-	ÌfCø‘ŒØ>:´c‡„Â£<w«1ÍËþ§S(ˆ;÷9HæÃ=Ë+"È	 <–Ž	Ô-løŽ½úXSi‰’
+ó„v¶Þ0•·œØ«4ÉívÖaîãñàaî›¿ƒƒÜhÏ–jmH6èKAlu¾®ÛX®ª-cÂ±nØySw— ÇuíÊÚw£´ J¢»ê|€¬¾¬
+Û—l
+ûpâ\XbK²Û4B²€Y#ú~Uðü³ o™Ûq½øóqG:j Ga”QÌ¬‚É\øÑ)Kbçÿ%ç_qg¬ÿW"nÃ°µV¼#úî6M¦¿ï(x{‘íMÿ>ØÙ’Ðú•²‚ðjîÎãÇÐ]Í\ã8,…ø_Ç¥Kõt	fIiê÷Ü´˜VéäyeY²Ôªäï-:Ô›šŸåaá§Áà   ÿÿ pí—=

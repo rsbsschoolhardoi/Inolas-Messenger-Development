@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GoogleDriveLogo } from './GoogleDriveLogo';
 import { VaultPasswordModal } from './VaultPasswordModal';
+import { APP_BUILD_INFO } from '../version';
 import {
   Palette,
   Bell,
@@ -485,6 +486,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </button>
 
               </div>
+            </div>
+
+            {/* App Build Version Footer */}
+            <div className="text-center py-2 space-y-1">
+              <p className="text-[11px] font-semibold text-neutral-400">
+                Inolas Messenger v{APP_BUILD_INFO.version} ({APP_BUILD_INFO.commitTag})
+              </p>
+              <p className="text-[10px] text-neutral-400/80">
+                End-to-End Encrypted • Zero-Knowledge Cloud Backup
+              </p>
             </div>
           </div>
         )}

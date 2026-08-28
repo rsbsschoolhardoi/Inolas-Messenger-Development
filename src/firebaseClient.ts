@@ -1,11 +1,18 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { initializeFirestore, getFirestore, setLogLevel } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  getFirestore,
+  setLogLevel,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  memoryLocalCache
+} from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import firebaseConfig from '../firebase-applet-config.json';
 
-// Silence verbose internal Firebase SDK network retry warnings
+// Silence verbose internal Firebase SDK network retry and offline warnings
 try {
-  setLogLevel('error');
+  setLogLevel('silent');
 } catch (e) {
   // ignore if not supported
 }
@@ -59,16 +66,29 @@ if (isFirebaseConfigured) {
       initializedDb = initializeFirestore(
         initializedApp,
         {
+          localCache: persistentLocalCache({
+            tabManager: persistentMultipleTabManager(),
+          }),
           experimentalAutoDetectLongPolling: true,
         },
         databaseId
       );
     } catch (e) {
-      console.warn("initializeFirestore already called or failed, falling back to getFirestore:", e);
-      initializedDb = getFirestore(initializedApp, databaseId);
+      try {
+        initializedDb = initializeFirestore(
+          initializedApp,
+          {
+            localCache: memoryLocalCache(),
+            experimentalAutoDetectLongPolling: true,
+          },
+          databaseId
+        );
+      } catch (err2) {
+        initializedDb = getFirestore(initializedApp, databaseId);
+      }
     }
 
-    console.log(`Firestore initialized for project: ${initializedApp.options.projectId}, database: ${databaseId}`);
+    console.log(`Firestore initialized with offline cache for project: ${initializedApp.options.projectId}, database: ${databaseId}`);
   } catch (err) {
     console.error("Firebase startup failed:", err);
   }
