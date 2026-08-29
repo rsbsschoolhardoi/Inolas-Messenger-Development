@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { UserData } from '../types';
 import { apiFetch } from '../lib/fetchInterceptor';
+import { collection, query, where, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '../firebaseClient';
 
 interface SSOApp {
   id: string;
@@ -50,10 +52,10 @@ const handleFetchResponse = async (res: Response, originalRequest?: () => Promis
       // fallback
     }
     // If it reaches here, the retry failed or couldn't be attempted
-    throw new Error('Please open this application in a "New Tab" to allow secure cookies.');
+    return { success: false, error: 'Please open this application in a "New Tab" to allow secure cookies. Browsers block 3rd-party cookies in iframes.' };
   }
   if (!res.ok) {
-    throw new Error(`Server returned status ${res.status}: ${text.substring(0, 100)}`);
+    return { success: false, error: `Server returned status ${res.status}: ${text.substring(0, 100)}` };
   }
   try {
     return JSON.parse(text);
@@ -105,13 +107,13 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     const ownerName = currentUser?.username || 'developer_user';
     setIsLoading(true);
     try {
-      const url = `/api/v1/sso/apps?owner=${encodeURIComponent(ownerName)}`;
-      const res = await apiFetch(url);
-      const data = await handleFetchResponse(res, () => apiFetch(url));
-      if (data.success && Array.isArray(data.apps)) {
-        setApps(data.apps);
+      if (db) {
+        const ssoRef = collection(db, 'sso_applications');
+        const q = query(ssoRef, where('owner', '==', ownerName));
+        const snap = await getDocs(q);
+        const firestoreApps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as SSOApp[];
+        setApps(firestoreApps);
       } else {
-        // Fallback default demo client if empty
         setApps([]);
       }
     } catch (err: any) {
@@ -207,54 +209,53 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     const ownerName = currentUser?.username || 'developer_user';
 
     try {
+      if (!db) throw new Error("Database not connected.");
+
       if (editingAppId) {
         // Update
-        const res = await apiFetch('/api/v1/sso/apps/update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: editingAppId,
-            app_name: appName.trim(),
-            app_description: appDescription.trim(),
-            website_url: websiteUrl.trim(),
-            logo_url: logoUrl.trim(),
-            redirect_uris: redirectUrisList,
-            scopes: selectedScopes
-          })
+        const docRef = doc(db, 'sso_applications', editingAppId);
+        await updateDoc(docRef, {
+          app_name: appName.trim(),
+          app_description: appDescription.trim(),
+          website_url: websiteUrl.trim(),
+          logo_url: logoUrl.trim(),
+          redirect_uris: redirectUrisList,
+          scopes: selectedScopes
         });
-        const data = await handleFetchResponse(res);
-        if (data.success) {
-          showNotification('success', 'OAuth application updated successfully!');
-          resetForm();
-          setActiveTab('apps');
-          fetchApps();
-        } else {
-          showNotification('error', data.error || 'Failed to update app');
-        }
+        showNotification('success', 'OAuth application updated successfully!');
+        resetForm();
+        setActiveTab('apps');
+        fetchApps();
       } else {
         // Create
-        const res = await apiFetch('/api/v1/sso/apps/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            owner: ownerName,
-            app_name: appName.trim(),
-            app_description: appDescription.trim(),
-            website_url: websiteUrl.trim(),
-            logo_url: logoUrl.trim(),
-            redirect_uris: redirectUrisList,
-            scopes: selectedScopes
-          })
-        });
-        const data = await handleFetchResponse(res);
-        if (data.success) {
-          showNotification('success', 'OAuth 2.0 credentials generated successfully!');
-          resetForm();
-          setActiveTab('apps');
-          fetchApps();
-        } else {
-          showNotification('error', data.error || 'Failed to create app');
-        }
+        const randomId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        const randomSec = Array.from(window.crypto.getRandomValues(new Uint8Array(24))).map(b => b.toString(16).padStart(2, '0')).join('');
+        const clientId = `zenoa_oauth_${randomId}`;
+        const clientSecret = `zenoa_sec_${randomSec}`;
+        
+        const docId = `sso_${randomId}`;
+        const newApp = {
+          owner: ownerName,
+          app_name: appName.trim(),
+          app_description: appDescription.trim(),
+          website_url: websiteUrl.trim(),
+          logo_url: logoUrl.trim(),
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uris: redirectUrisList,
+          scopes: selectedScopes,
+          type: 'sso_oauth_client',
+          created_at: Date.now(),
+          status: 'active'
+        };
+
+        const docRef = doc(collection(db, 'sso_applications'), docId);
+        await setDoc(docRef, newApp);
+        
+        showNotification('success', 'OAuth 2.0 credentials generated successfully!');
+        resetForm();
+        setActiveTab('apps');
+        fetchApps();
       }
     } catch (err: any) {
       showNotification('error', err?.message || 'Network error occurred');
@@ -270,18 +271,16 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     }
 
     try {
-      const res = await apiFetch('/api/v1/sso/apps/regenerate-secret', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: app.id, client_id: app.client_id })
+      if (!db) throw new Error("Database not connected.");
+      const randomSec = Array.from(window.crypto.getRandomValues(new Uint8Array(24))).map(b => b.toString(16).padStart(2, '0')).join('');
+      const newSecret = `zenoa_sec_${randomSec}`;
+      
+      await updateDoc(doc(db, 'sso_applications', app.id), {
+        client_secret: newSecret
       });
-      const data = await handleFetchResponse(res);
-      if (data.success) {
-        showNotification('success', 'New Client Secret generated successfully!');
-        fetchApps();
-      } else {
-        showNotification('error', data.error || 'Failed to regenerate secret');
-      }
+      
+      showNotification('success', 'New Client Secret generated successfully!');
+      fetchApps();
     } catch (err: any) {
       showNotification('error', err?.message || 'Request failed');
     }
@@ -294,18 +293,10 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     }
 
     try {
-      const res = await apiFetch('/api/v1/sso/apps/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: app.id, client_id: app.client_id })
-      });
-      const data = await handleFetchResponse(res);
-      if (data.success) {
-        showNotification('success', 'Application deleted successfully');
-        fetchApps();
-      } else {
-        showNotification('error', data.error || 'Failed to delete app');
-      }
+      if (!db) throw new Error("Database not connected.");
+      await deleteDoc(doc(db, 'sso_applications', app.id));
+      showNotification('success', 'Application deleted successfully');
+      fetchApps();
     } catch (err: any) {
       showNotification('error', err?.message || 'Delete request failed');
     }
