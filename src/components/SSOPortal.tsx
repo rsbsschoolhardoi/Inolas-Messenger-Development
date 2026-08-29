@@ -30,10 +30,20 @@ interface SSOPortalProps {
   onOpenConsentPreview?: (clientId: string, redirectUri: string) => void;
 }
 
-const handleFetchResponse = async (res: Response): Promise<any> => {
+const handleFetchResponse = async (res: Response, originalRequest?: () => Promise<Response>): Promise<any> => {
   const text = await res.text();
   if (res.status === 405 || text.includes('__cookie_check') || text.includes('<!DOCTYPE html') || text.includes('<html>')) {
-    throw new Error('Connection verification required in iframe. Please open this app in a "New Tab" using the button in the top-right corner to allow authorization cookies.');
+    try {
+      await fetch('/__cookie_check.html', { credentials: 'include' });
+      await new Promise(r => setTimeout(r, 400));
+      if (originalRequest) {
+        const retryRes = await originalRequest();
+        const retryText = await retryRes.text();
+        return JSON.parse(retryText);
+      }
+    } catch (e) {
+      // fallback
+    }
   }
   if (!res.ok) {
     throw new Error(`Server returned status ${res.status}: ${text.substring(0, 100)}`);
