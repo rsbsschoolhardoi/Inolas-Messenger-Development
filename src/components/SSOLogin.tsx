@@ -26,6 +26,7 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthorizing, setIsAuthorizing] = useState(false);
+  const [wizardStep, setWizardStep] = useState<1 | 2>(1);
   
   // Callback Result State (When redirect_uri is /auth/sso for testing)
   const [callbackData, setCallbackData] = useState<{ 
@@ -127,7 +128,14 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         })
       });
 
-      const data = await response.json();
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error('Authorization check failed. Browsers require you to open this application in a "New Tab" to allow secure login cookies.');
+      }
+      
       if (data.success) {
         // Build final destination callback URL
         try {
@@ -346,47 +354,13 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
       >
         <div className="bg-white dark:bg-neutral-900 rounded-[2.5rem] p-6 sm:p-8 shadow-2xl border border-slate-200/80 dark:border-neutral-800 overflow-hidden relative">
           
-          {/* Top Header & Dev Toggle */}
+          {/* Top Header */}
           <div className="flex items-center justify-between mb-6 pb-3 border-b border-neutral-100 dark:border-neutral-800">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[11px] font-bold text-neutral-500 dark:text-neutral-400">Zenoa Single Sign-On</span>
+              <span className="text-[11px] font-bold text-neutral-500 dark:text-neutral-400">Zenoa</span>
             </div>
-            <button 
-              onClick={() => setShowDevDetails(!showDevDetails)}
-              className="text-[11px] font-semibold text-violet-600 dark:text-violet-400 hover:underline cursor-pointer flex items-center gap-1"
-            >
-              <Code className="h-3 w-3" />
-              {showDevDetails ? 'Hide URL params' : 'OAuth Dev Info'}
-            </button>
           </div>
-
-          {/* Dev Info Expandable */}
-          <AnimatePresence>
-            {showDevDetails && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden mb-6"
-              >
-                <div className="p-3.5 bg-neutral-50 dark:bg-neutral-800/80 rounded-2xl text-[11px] space-y-2 border border-neutral-200/70 dark:border-neutral-700/60">
-                  <div className="flex justify-between">
-                    <span className="text-neutral-400">Client ID:</span>
-                    <span className="font-mono text-neutral-800 dark:text-neutral-200">{clientId}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-neutral-400">Redirect URI:</span>
-                    <span className="font-mono text-neutral-800 dark:text-neutral-200 truncate max-w-[200px]" title={redirectUri}>{redirectUri}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-neutral-400">State:</span>
-                    <span className="font-mono text-neutral-800 dark:text-neutral-200">{state || 'None'}</span>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
 
           {/* Shield Icon / App Branding */}
           <div className="flex justify-center mb-6 relative">
@@ -400,14 +374,14 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
 
           <div className="text-center mb-6">
             <h1 className="text-2xl font-black text-neutral-900 dark:text-white leading-tight">
-              Sign in to {appConfig?.app_name || 'Application'}
+              Continue to {appConfig?.app_name || 'Application'}
             </h1>
-            <p className="text-neutral-500 dark:text-neutral-400 text-xs mt-1.5">
-              Powered by <span className="text-violet-600 dark:text-violet-400 font-bold">Zenoa OAuth 2.0</span>
+            <p className="text-neutral-500 dark:text-neutral-400 text-sm mt-3">
+              Use your Zenoa account to securely log into <span className="font-bold text-neutral-800 dark:text-neutral-200">{appConfig?.app_name || 'this application'}</span>.
             </p>
             {appConfig?.website_url && (
-              <p className="text-[11px] text-slate-400 mt-1 flex items-center justify-center gap-1">
-                <Globe className="h-3 w-3" /> {appConfig.website_url}
+              <p className="text-[11px] text-slate-400 mt-2 flex items-center justify-center gap-1 hover:text-indigo-400">
+                <Globe className="h-3 w-3" /> <a href={appConfig.website_url} target="_blank" rel="noreferrer" className="hover:underline">{appConfig.website_url}</a>
               </p>
             )}
           </div>
@@ -436,43 +410,65 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
                 You will be redirected back here immediately after login.
               </p>
             </div>
-          ) : (
-            <div className="space-y-5">
-              {/* User Profile Card */}
-              <div className="p-3.5 bg-slate-50 dark:bg-neutral-800/50 rounded-2xl border border-slate-100 dark:border-neutral-800 flex items-center gap-3.5">
-                <div className="h-12 w-12 rounded-2xl bg-violet-100 dark:bg-violet-900/50 flex items-center justify-center overflow-hidden shrink-0">
-                  {currentUser.avatar_url ? (
-                    <img src={currentUser.avatar_url} alt="Profile" className="h-full w-full object-cover" />
-                  ) : (
-                    <Bot className="h-6 w-6 text-violet-600 dark:text-violet-400" />
-                  )}
+          ) : wizardStep === 1 ? (
+            <div className="space-y-4">
+              <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider text-center">Select Account</p>
+              
+              <div 
+                onClick={() => setWizardStep(2)}
+                className="group p-4 bg-slate-50 dark:bg-neutral-800/50 hover:bg-violet-50 dark:hover:bg-violet-900/20 rounded-2xl border border-slate-200 dark:border-neutral-700 hover:border-violet-300 dark:hover:border-violet-700 flex items-center justify-between cursor-pointer transition-all"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="h-12 w-12 rounded-2xl bg-violet-100 dark:bg-violet-900/50 flex items-center justify-center overflow-hidden shrink-0">
+                    {currentUser.avatar_url ? (
+                      <img src={currentUser.avatar_url} alt="Profile" className="h-full w-full object-cover" />
+                    ) : (
+                      <Bot className="h-6 w-6 text-violet-600 dark:text-violet-400" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0 text-left">
+                    <h4 className="font-bold text-sm text-neutral-900 dark:text-white truncate">{currentUser.display_name || currentUser.username}</h4>
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 truncate">@{currentUser.username}</p>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-bold text-sm text-neutral-900 dark:text-white truncate">{currentUser.display_name || currentUser.username}</h4>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400 truncate">@{currentUser.username}</p>
-                </div>
+                <ArrowRight className="h-5 w-5 text-neutral-400 group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors" />
+              </div>
+              
+              <div className="flex justify-center mt-2">
                 <button 
                   onClick={onLogout}
-                  className="p-2 text-neutral-400 hover:text-rose-500 transition-colors cursor-pointer rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                  title="Switch account / Logout"
+                  className="text-xs text-neutral-500 dark:text-neutral-400 hover:text-rose-500 dark:hover:text-rose-400 transition-colors font-medium flex items-center gap-1.5"
                 >
-                  <LogOut className="h-4 w-4" />
+                  <LogOut className="h-3 w-3" /> Use a different account
                 </button>
               </div>
-
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div className="flex items-center gap-2 mb-2">
+                <button 
+                  onClick={() => setWizardStep(1)}
+                  className="p-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-lg text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
+                  title="Back to accounts"
+                >
+                  <ArrowRight className="h-4 w-4 rotate-180" />
+                </button>
+                <span className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Permissions Requested</span>
+              </div>
+              
               {/* Scopes permissions */}
-              <div className="space-y-2.5 px-1">
-                <div className="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                  <span>Verify Identity (@{currentUser.username})</span>
+              <div className="space-y-3 p-4 bg-slate-50 dark:bg-neutral-800/30 rounded-2xl border border-slate-100 dark:border-neutral-800">
+                <div className="flex items-start gap-2.5 text-xs text-neutral-700 dark:text-neutral-300">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                  <span><strong>Verify Identity:</strong> Know who you are on Zenoa (@{currentUser.username})</span>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                  <span>Share Name & Avatar profile picture</span>
+                <div className="flex items-start gap-2.5 text-xs text-neutral-700 dark:text-neutral-300">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                  <span><strong>Basic Profile:</strong> View your name and profile picture</span>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                  <span>Verify Contact Email & Mobile Number</span>
+                <div className="flex items-start gap-2.5 text-xs text-neutral-700 dark:text-neutral-300">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                  <span><strong>Contact Info:</strong> View your email address and mobile number</span>
                 </div>
               </div>
 
@@ -480,26 +476,21 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
               <button 
                 onClick={handleAuthorize}
                 disabled={isAuthorizing}
-                className="w-full py-3.5 bg-violet-600 hover:bg-violet-700 text-white rounded-2xl text-xs font-bold shadow-lg shadow-violet-500/20 transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="w-full py-3.5 bg-violet-600 hover:bg-violet-700 text-white rounded-2xl text-xs font-bold shadow-lg shadow-violet-500/20 transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
               >
                 {isAuthorizing ? (
                   <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 ) : (
                   <>
-                    <span>Continue as {currentUser.display_name ? currentUser.display_name.split(' ')[0] : currentUser.username}</span>
+                    <span>Authorize & Continue</span>
                     <ArrowRight className="h-4 w-4" />
                   </>
                 )}
               </button>
 
-              <button 
-                onClick={() => {
-                  window.location.href = '/';
-                }}
-                className="w-full py-2.5 bg-transparent text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 rounded-2xl text-xs font-semibold transition-colors cursor-pointer text-center"
-              >
-                Cancel and return to Zenoa
-              </button>
+              <div className="text-[10px] text-neutral-500 dark:text-neutral-400 leading-relaxed text-center mt-3 border-t border-neutral-100 dark:border-neutral-800 pt-4">
+                By continuing, Zenoa will share your identity and profile data with <strong className="text-neutral-700 dark:text-neutral-200">{appConfig?.app_name || 'this application'}</strong> in accordance with their privacy policy and terms of service.
+              </div>
             </div>
           )}
 
