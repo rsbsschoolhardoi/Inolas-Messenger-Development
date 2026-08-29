@@ -1568,6 +1568,11 @@ app.post('/api/v1/auth/truecaller/verify', async (req: any, res: any) => {
   }
 });
 
+// Fallback for unmatched API routes to ensure they always return JSON instead of HTML
+app.use('/api', (req: any, res: any) => {
+  res.status(404).json({ success: false, error: `API endpoint not found: ${req.method} ${req.originalUrl}` });
+});
+
 async function startServer() {
   // Vite Middleware
   if (process.env.NODE_ENV !== "production") {
