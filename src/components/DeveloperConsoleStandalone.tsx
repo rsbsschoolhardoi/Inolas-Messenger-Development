@@ -31,14 +31,14 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     const [loginIdentifier, setLoginIdentifier] = useState('');
     const [loginPassword, setLoginPassword] = useState('');
     
-    // Registration Fields (Matching main app mandatory steps)
+    // Registration Fields
     const [regFullName, setRegFullName] = useState('');
     const [regUsername, setRegUsername] = useState('');
     const [regEmail, setRegEmail] = useState('');
     const [regPassword, setRegPassword] = useState('');
     const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
 
-    // Mobile / Truecaller Verification State
+    // Mobile / Verification State
     const [countryCode, setCountryCode] = useState('+91');
     const [mobileNumber, setMobileNumber] = useState('');
     const [isVerifyingTruecaller, setIsVerifyingTruecaller] = useState(false);
@@ -50,11 +50,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
             if (firebaseUser) {
                 try {
                     let userData: UserData | null = null;
-                    const isLocallyVerified = 
-                        localStorage.getItem(`zenoa_dev_verified_${firebaseUser.uid}`) === 'true' ||
-                        localStorage.getItem(`zenoa_dev_verified_${firebaseUser.email}`) === 'true' ||
-                        localStorage.getItem('zenoa_dev_global_verified') === 'true';
-                    
                     if (firebaseUser.displayName) {
                         const userDoc = await getDoc(doc(db, 'users', firebaseUser.displayName));
                         if (userDoc.exists()) {
@@ -78,16 +73,8 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                             is_truecaller_verified: true
                         };
                         setUser(verifiedUser);
-                        
-                        // Mark verified locally as well to prevent any future prompts
-                        localStorage.setItem(`zenoa_dev_verified_${firebaseUser.uid}`, 'true');
-                        localStorage.setItem(`zenoa_dev_verified_${firebaseUser.email}`, 'true');
-                        localStorage.setItem(`zenoa_dev_verified_${verifiedUser.username}`, 'true');
-                        localStorage.setItem('zenoa_dev_global_verified', 'true');
-
                         setView('portal');
                     } else {
-                        // Standard user resolution
                         const cleanUsername = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'developer_user';
                         const fallbackUser: UserData = {
                             id: firebaseUser.uid,
@@ -103,7 +90,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                             registered_at: Date.now()
                         };
                         
-                        // Save in database
                         if (db) {
                             try {
                                 await setDoc(doc(db, 'users', cleanUsername), fallbackUser, { merge: true });
@@ -113,8 +99,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                         }
                         
                         setUser(fallbackUser);
-                        localStorage.setItem(`zenoa_dev_verified_${firebaseUser.uid}`, 'true');
-                        localStorage.setItem('zenoa_dev_global_verified', 'true');
                         setView('portal');
                     }
                 } catch (err) {
@@ -137,8 +121,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
         setIsSubmittingAuth(true);
         try {
             let emailToUse = loginIdentifier.trim();
-            
-            // If user typed username instead of email, find their email
             if (!emailToUse.includes('@') && db) {
                 const userDoc = await getDoc(doc(db, 'users', emailToUse.toLowerCase()));
                 if (userDoc.exists() && userDoc.data().email) {
@@ -166,7 +148,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
 
         setIsSubmittingAuth(true);
         try {
-            // Check username availability
             if (db) {
                 const existing = await getDoc(doc(db, 'users', cleanUser));
                 if (existing.exists()) {
@@ -178,7 +159,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
 
             const cred = await createUserWithEmailAndPassword(auth, regEmail.trim(), regPassword);
             
-            // Set displayName in Firebase Auth so future logins resolve user smoothly
             try {
                 await updateProfile(cred.user, { displayName: cleanUser });
             } catch (e) {
@@ -193,7 +173,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                 mobile_number: '+919876543210',
                 is_business_verified: true,
                 is_truecaller_verified: true,
-                bio: 'Verified Zenoa Developer & Business Account',
+                bio: 'Verified Zenoa Developer Account',
                 avatar_seed: cleanUser,
                 online: true,
                 last_seen: 'Online',
@@ -203,12 +183,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
             if (db) {
                 await setDoc(doc(db, 'users', cleanUser), newUserData, { merge: true });
             }
-
-            // Persist verification locally so user is never prompted again
-            localStorage.setItem(`zenoa_dev_verified_${cred.user.uid}`, 'true');
-            localStorage.setItem(`zenoa_dev_verified_${regEmail.trim()}`, 'true');
-            localStorage.setItem(`zenoa_dev_verified_${cleanUser}`, 'true');
-            localStorage.setItem('zenoa_dev_global_verified', 'true');
 
             setUser(newUserData);
             setView('portal');
@@ -248,7 +222,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                     mobile_number: '+919876543210',
                     is_business_verified: true,
                     is_truecaller_verified: true,
-                    bio: 'Verified Zenoa Developer & Business Account',
+                    bio: 'Verified Zenoa Developer Account',
                     avatar_seed: cleanUsername,
                     online: true,
                     last_seen: 'Online',
@@ -256,10 +230,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                 };
                 await setDoc(userRef, currentUserData, { merge: true });
             }
-            
-            localStorage.setItem(`zenoa_dev_verified_${firebaseUser.uid}`, 'true');
-            localStorage.setItem(`zenoa_dev_verified_${cleanUsername}`, 'true');
-            localStorage.setItem('zenoa_dev_global_verified', 'true');
 
             setUser(currentUserData);
             setView('portal');
@@ -282,21 +252,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
         const formattedMobile = `${countryCode}${cleanDigits}`;
 
         try {
-            const partnerKey = import.meta.env.VITE_TRUECALLER_PARTNER_KEY;
-            
-            if (partnerKey && typeof window !== 'undefined') {
-                const nonce = Math.random().toString(36).substring(2);
-                const callbackUrl = window.location.origin + '/auth/truecaller-callback';
-                const truecallerUrl = `truecallersdk://truesdk/web_verify?requestNonce=${nonce}&partnerKey=${partnerKey}&partnerName=Zenoa&lang=en&title=Verify%20Developer%20Account&skipConfirmation=true&callback=${encodeURIComponent(callbackUrl)}`;
-                
-                try {
-                    window.location.href = truecallerUrl;
-                } catch (e) {
-                    console.warn("Truecaller deeplink note:", e);
-                }
-            }
-
-            // Real Firestore sync and user state persistence
             if (user && db) {
                 await updateDoc(doc(db, 'users', user.username), {
                     mobile_number: formattedMobile,
@@ -314,12 +269,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                 is_truecaller_verified: true
             };
 
-            if (user) {
-                localStorage.setItem(`zenoa_dev_verified_${user.id}`, 'true');
-                localStorage.setItem(`zenoa_dev_verified_${user.username}`, 'true');
-            }
-            localStorage.setItem('zenoa_dev_global_verified', 'true');
-
             setUser(updatedUser);
             setTruecallerSuccess(true);
 
@@ -335,10 +284,10 @@ export const DeveloperConsoleStandalone: React.FC = () => {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-[#0c0a14] flex items-center justify-center">
+            <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
                 <div className="flex flex-col items-center gap-4">
-                    <div className="h-10 w-10 border-2 border-violet-500/20 border-t-violet-400 rounded-full animate-spin"></div>
-                    <p className="text-xs font-mono text-purple-300/60 tracking-widest uppercase">Initializing Developer Portal...</p>
+                    <div className="h-8 w-8 border-2 border-zinc-700 border-t-zinc-200 rounded-full animate-spin"></div>
+                    <p className="text-xs font-mono text-zinc-400 tracking-widest uppercase">Initializing Developer Portal...</p>
                 </div>
             </div>
         );
@@ -347,17 +296,17 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     // 1. LANDING PAGE VIEW
     if (view === 'landing') {
         return (
-            <div className="min-h-screen bg-[#0c0a14] text-purple-50 flex flex-col selection:bg-violet-600 selection:text-white font-sans">
+            <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans">
                 {/* Top Navigation */}
-                <header className="border-b border-[#231c3f] bg-[#0c0a14]/90 backdrop-blur-md sticky top-0 z-50">
+                <header className="border-b border-zinc-800 bg-zinc-950/90 backdrop-blur-md sticky top-0 z-50">
                     <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                            <div className="h-8 w-8 rounded-xl bg-violet-600 flex items-center justify-center shadow-lg shadow-violet-600/30">
-                                <Terminal className="h-4 w-4 text-white" />
+                            <div className="h-8 w-8 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center">
+                                <Terminal className="h-4 w-4 text-zinc-100" />
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className="font-bold text-base tracking-tight text-white">Zenoa</span>
-                                <span className="text-[10px] font-mono uppercase bg-[#1d1735] text-purple-200 px-2.5 py-0.5 rounded-md border border-[#2e264f] font-semibold">Developer Suite</span>
+                                <span className="font-bold text-base tracking-tight text-zinc-100">Zenoa</span>
+                                <span className="text-[10px] font-mono uppercase bg-zinc-900 text-zinc-300 px-2.5 py-0.5 rounded-md border border-zinc-800 font-semibold">Developer Suite</span>
                             </div>
                         </div>
 
@@ -365,7 +314,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                             {user ? (
                                 <button
                                     onClick={() => setView('portal')}
-                                    className="px-4 py-2 text-xs font-semibold rounded-xl bg-violet-600 hover:bg-violet-500 text-white transition-all shadow-md shadow-violet-600/20 cursor-pointer flex items-center gap-1.5"
+                                    className="px-4 py-2 text-xs font-bold rounded-xl bg-zinc-100 hover:bg-white text-zinc-950 transition-all cursor-pointer flex items-center gap-1.5"
                                 >
                                     <span>Console Dashboard</span>
                                     <ArrowRight className="h-3.5 w-3.5" />
@@ -373,7 +322,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                             ) : (
                                 <button
                                     onClick={() => setView('auth')}
-                                    className="px-4 py-2 text-xs font-semibold rounded-xl bg-violet-600 hover:bg-violet-500 text-white transition-all shadow-md shadow-violet-600/20 cursor-pointer flex items-center gap-1.5"
+                                    className="px-4 py-2 text-xs font-bold rounded-xl bg-zinc-100 hover:bg-white text-zinc-950 transition-all cursor-pointer flex items-center gap-1.5"
                                 >
                                     <span>Get Started</span>
                                     <ArrowRight className="h-3.5 w-3.5" />
@@ -386,23 +335,23 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                 {/* Hero Section */}
                 <main className="flex-1 flex flex-col">
                     <section className="max-w-5xl mx-auto px-6 pt-20 pb-16 text-center">
-                        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-purple-300 text-xs font-medium mb-6">
-                            <ShieldCheck className="h-3.5 w-3.5 text-violet-400" />
+                        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-zinc-800 bg-zinc-900 text-zinc-300 text-xs font-medium mb-6">
+                            <ShieldCheck className="h-3.5 w-3.5 text-zinc-400" />
                             <span>Enterprise Identity & Transactional Infrastructure</span>
                         </div>
 
-                        <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-white tracking-tight leading-[1.15] max-w-4xl mx-auto">
+                        <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-zinc-100 tracking-tight leading-[1.15] max-w-4xl mx-auto">
                             Direct Transactional Messaging & Identity Platform
                         </h1>
 
-                        <p className="text-purple-200/70 text-base md:text-lg max-w-2xl mx-auto mt-6 leading-relaxed">
-                            Integrate 6-digit authentication delivery, webhook event streams, and OAuth 2.0 single sign-on into your external applications powered by verified business credentials.
+                        <p className="text-zinc-400 text-base md:text-lg max-w-2xl mx-auto mt-6 leading-relaxed">
+                            Integrate 6-digit authentication delivery, webhook event streams, and OAuth 2.0 single sign-on into your external applications powered by verified Service Accounts.
                         </p>
 
                         <div className="flex flex-wrap items-center justify-center gap-4 mt-10">
                             <button
                                 onClick={() => setView('auth')}
-                                className="px-8 py-3.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-semibold text-sm shadow-xl shadow-violet-600/25 transition-all flex items-center gap-2 cursor-pointer active:scale-98"
+                                className="px-8 py-3.5 rounded-xl bg-zinc-100 hover:bg-white text-zinc-950 font-bold text-sm transition-all flex items-center gap-2 cursor-pointer active:scale-98"
                             >
                                 <span>{user ? 'Open Developer Console' : 'Access Developer Console'}</span>
                                 <ArrowRight className="h-4 w-4" />
@@ -413,79 +362,41 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                     {/* Architecture Feature Grid */}
                     <section className="max-w-5xl mx-auto px-6 py-12 w-full">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {/* Feature 1 */}
-                            <div className="p-6 rounded-2xl border border-[#231c3f] bg-[#141022]/80 backdrop-blur-sm text-left">
-                                <div className="h-10 w-10 rounded-xl bg-[#211a3d] border border-[#33295b] flex items-center justify-center mb-4 text-violet-300">
+                            <div className="p-6 rounded-2xl border border-zinc-800 bg-zinc-900 text-left space-y-3">
+                                <div className="h-10 w-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-300">
                                     <Phone className="h-5 w-5" />
                                 </div>
-                                <h3 className="text-base font-bold text-white mb-2">Direct Phone OTP Delivery</h3>
-                                <p className="text-xs text-purple-200/60 leading-relaxed">
-                                    When an external user requests verification with their mobile number, the engine identifies their linked Zenoa profile and delivers the verification code to their direct message inbox.
+                                <h3 className="text-base font-bold text-zinc-100">Direct OTP Delivery</h3>
+                                <p className="text-xs text-zinc-400 leading-relaxed">
+                                    When an external user requests verification, the engine identifies their linked profile and delivers authentication codes via Service Account dispatches.
                                 </p>
                             </div>
 
-                            {/* Feature 2 */}
-                            <div className="p-6 rounded-2xl border border-[#231c3f] bg-[#141022]/80 backdrop-blur-sm text-left">
-                                <div className="h-10 w-10 rounded-xl bg-[#211a3d] border border-[#33295b] flex items-center justify-center mb-4 text-violet-300">
+                            <div className="p-6 rounded-2xl border border-zinc-800 bg-zinc-900 text-left space-y-3">
+                                <div className="h-10 w-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-300">
                                     <Shield className="h-5 w-5" />
                                 </div>
-                                <h3 className="text-base font-bold text-white mb-2">Verified Business Sender</h3>
-                                <p className="text-xs text-purple-200/60 leading-relaxed">
-                                    Messages originate from your authenticated, Truecaller-verified Zenoa business account, establishing authentic brand credibility.
+                                <h3 className="text-base font-bold text-zinc-100">Verified Service Account</h3>
+                                <p className="text-xs text-zinc-400 leading-relaxed">
+                                    Messages originate from your authenticated Service Account, establishing authentic brand credibility and zero-trust identity.
                                 </p>
                             </div>
 
-                            {/* Feature 3 */}
-                            <div className="p-6 rounded-2xl border border-[#231c3f] bg-[#141022]/80 backdrop-blur-sm text-left">
-                                <div className="h-10 w-10 rounded-xl bg-[#211a3d] border border-[#33295b] flex items-center justify-center mb-4 text-violet-300">
+                            <div className="p-6 rounded-2xl border border-zinc-800 bg-zinc-900 text-left space-y-3">
+                                <div className="h-10 w-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-300">
                                     <Code2 className="h-5 w-5" />
                                 </div>
-                                <h3 className="text-base font-bold text-white mb-2">REST APIs & Webhooks</h3>
-                                <p className="text-xs text-purple-200/60 leading-relaxed">
+                                <h3 className="text-base font-bold text-zinc-100">REST APIs & Webhooks</h3>
+                                <p className="text-xs text-zinc-400 leading-relaxed">
                                     Standard REST endpoints with HMAC-SHA256 signature verification for Node.js, Python, PHP, Go, and cURL integrations.
                                 </p>
                             </div>
                         </div>
                     </section>
-
-                    {/* Architecture Flow Preview */}
-                    <section className="max-w-4xl mx-auto px-6 py-12 w-full">
-                        <div className="rounded-2xl border border-[#231c3f] bg-[#110d1f] p-6 shadow-2xl">
-                            <div className="flex items-center justify-between border-b border-[#231c3f] pb-4 mb-6">
-                                <div className="flex items-center gap-2">
-                                    <div className="h-3 w-3 rounded-full bg-[#2a224a]"></div>
-                                    <div className="h-3 w-3 rounded-full bg-[#2a224a]"></div>
-                                    <div className="h-3 w-3 rounded-full bg-[#2a224a]"></div>
-                                    <span className="text-xs font-mono text-purple-300/60 ml-2">transactional_flow.spec</span>
-                                </div>
-                                <span className="text-[10px] font-mono text-emerald-300 bg-emerald-950/40 border border-emerald-800/40 px-2 py-0.5 rounded">STATUS: ACTIVE</span>
-                            </div>
-
-                            <div className="space-y-3 font-mono text-xs text-left">
-                                <div className="p-3 rounded-xl bg-[#18132c] border border-[#2a224a] flex items-start gap-3">
-                                    <span className="text-violet-400 font-bold">1. Request</span>
-                                    <span className="text-purple-100/90">Third-Party App calls POST /api/v1/otp/send with recipient mobile number (+91XXXXXXXXXX)</span>
-                                </div>
-                                <div className="p-3 rounded-xl bg-[#18132c] border border-[#2a224a] flex items-start gap-3">
-                                    <span className="text-violet-400 font-bold">2. Lookup</span>
-                                    <span className="text-purple-100/90">Zenoa Core resolves verified user account linked via Truecaller identity</span>
-                                </div>
-                                <div className="p-3 rounded-xl bg-[#18132c] border border-[#2a224a] flex items-start gap-3">
-                                    <span className="text-violet-400 font-bold">3. Delivery</span>
-                                    <span className="text-purple-100/90">Verification code delivered into recipient's direct chat inbox from your verified business profile</span>
-                                </div>
-                                <div className="p-3 rounded-xl bg-[#18132c] border border-[#2a224a] flex items-start gap-3">
-                                    <span className="text-emerald-400 font-bold">4. Verify</span>
-                                    <span className="text-purple-100/90">Third-Party App calls POST /api/v1/otp/verify -&gt; 200 OK verified</span>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
                 </main>
 
-                {/* Footer */}
-                <footer className="border-t border-[#231c3f] py-6 text-center text-xs text-purple-300/50">
-                    <p>Zenoa Developer & Business Operations Suite • Standard RESTful API & OAuth 2.0</p>
+                <footer className="border-t border-zinc-800 py-6 text-center text-xs text-zinc-500">
+                    <p>Zenoa Developer Operations Suite • Standard RESTful API & OAuth 2.0</p>
                 </footer>
             </div>
         );
@@ -494,221 +405,188 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     // 2. AUTHENTICATION MODAL VIEW
     if (view === 'auth') {
         return (
-            <div className="min-h-screen bg-[#0c0a14] text-purple-50 flex items-center justify-center p-4">
+            <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center p-4">
                 <motion.div 
                     initial={{ opacity: 0, scale: 0.98 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="w-full max-w-md bg-[#141022] border border-[#231c3f] rounded-3xl p-8 shadow-2xl backdrop-blur-xl"
+                    className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl"
                 >
-                    {/* Header */}
                     <div className="flex items-center justify-between mb-6">
-                        <button 
+                        <button
                             onClick={() => setView('landing')}
-                            className="text-xs font-semibold text-purple-300/70 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+                            className="text-xs font-semibold text-zinc-400 hover:text-zinc-100 flex items-center gap-1.5 transition-colors cursor-pointer"
                         >
-                            <ArrowLeft className="h-4 w-4" />
+                            <ArrowLeft className="h-3.5 w-3.5" />
                             <span>Back</span>
                         </button>
-                        <span className="text-[11px] font-mono uppercase tracking-wider text-purple-300/60 font-bold">Zenoa Identity</span>
+                        <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-400 font-bold">Zenoa Developer</span>
                     </div>
 
                     <div className="text-center mb-6">
-                        <div className="h-12 w-12 rounded-2xl bg-violet-600 flex items-center justify-center mx-auto mb-3 shadow-lg shadow-violet-600/30">
-                            <Terminal className="h-6 w-6 text-white" />
+                        <div className="h-12 w-12 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center mx-auto mb-3 text-zinc-100">
+                            <Terminal className="h-6 w-6" />
                         </div>
-                        <h2 className="text-xl font-bold text-white tracking-tight">Developer Authentication</h2>
-                        <p className="text-xs text-purple-200/60 mt-1">Sign in with your Zenoa account to manage your business identity</p>
+                        <h2 className="text-xl font-bold text-zinc-100">Developer Portal Access</h2>
+                        <p className="text-xs text-zinc-400 mt-1">Sign in to manage your Service Account credentials</p>
                     </div>
 
-                    {/* Active User Quick Card if already signed in */}
+                    {error && (
+                        <div className="mb-4 p-3 bg-rose-950/40 border border-rose-800/40 rounded-xl text-rose-300 text-xs text-center font-medium">
+                            {error}
+                        </div>
+                    )}
+
                     {user ? (
                         <div className="space-y-4">
-                            <div className="p-4 rounded-2xl bg-[#0e0a1b] border border-[#231c3f] flex items-center gap-3">
-                                <div className="h-10 w-10 rounded-xl bg-[#231a44] border border-[#332761] flex items-center justify-center text-violet-300 font-bold text-sm">
-                                    {user.display_name?.charAt(0) || 'U'}
+                            <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center gap-3">
+                                <div className="h-10 w-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-100 font-bold text-sm">
+                                    {user.username.slice(0, 2).toUpperCase()}
                                 </div>
-                                <div className="flex-1 min-w-0 text-left">
-                                    <p className="text-xs font-bold text-white truncate">{user.display_name}</p>
-                                    <p className="text-[11px] font-mono text-purple-300/60">@{user.username}</p>
+                                <div className="text-left">
+                                    <p className="text-xs font-bold text-zinc-100">{user.display_name || user.username}</p>
+                                    <p className="text-[11px] font-mono text-zinc-400">@{user.username}</p>
                                 </div>
-                                <ShieldCheck className="h-5 w-5 text-emerald-400" />
                             </div>
 
                             <button
-                                onClick={() => {
-                                    if (!user.mobile_number) {
-                                        setView('mobile_setup');
-                                    } else {
-                                        setView('portal');
-                                    }
-                                }}
-                                className="w-full bg-violet-600 hover:bg-violet-500 text-white font-semibold py-3.5 rounded-xl transition-all shadow-lg shadow-violet-600/20 flex items-center justify-center gap-2 cursor-pointer"
+                                onClick={() => setView('portal')}
+                                className="w-full bg-zinc-100 hover:bg-white text-zinc-950 font-bold py-3.5 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
                             >
-                                <span>Continue to Dashboard</span>
+                                <span>Continue to Console Dashboard</span>
                                 <ArrowRight className="h-4 w-4" />
-                            </button>
-
-                            <button
-                                onClick={async () => {
-                                    await signOut(auth);
-                                    sessionStorage.removeItem('zenoa_dev_sandbox_user');
-                                    setUser(null);
-                                }}
-                                className="w-full border border-[#231c3f] hover:bg-[#1f1938] text-purple-300/70 hover:text-white font-semibold py-3 rounded-xl text-xs transition-all cursor-pointer"
-                            >
-                                Sign In with Different Account
                             </button>
                         </div>
                     ) : (
                         <div>
-                            {/* Tabs */}
-                            <div className="flex rounded-xl bg-[#0b0815] p-1 border border-[#231c3f] mb-5">
+                            <div className="flex rounded-xl bg-zinc-950 p-1 border border-zinc-800 mb-5">
                                 <button
                                     onClick={() => { setAuthTab('login'); setError(''); }}
-                                    className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
                                         authTab === 'login' 
-                                            ? 'bg-[#231c3f] text-white shadow-sm' 
-                                            : 'text-purple-300/60 hover:text-purple-100'
+                                            ? 'bg-zinc-800 text-zinc-100 border border-zinc-700 shadow-sm' 
+                                            : 'text-zinc-400 hover:text-zinc-200'
                                     }`}
                                 >
                                     Sign In
                                 </button>
                                 <button
                                     onClick={() => { setAuthTab('register'); setError(''); }}
-                                    className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
                                         authTab === 'register' 
-                                            ? 'bg-[#231c3f] text-white shadow-sm' 
-                                            : 'text-purple-300/60 hover:text-purple-100'
+                                            ? 'bg-zinc-800 text-zinc-100 border border-zinc-700 shadow-sm' 
+                                            : 'text-zinc-400 hover:text-zinc-200'
                                     }`}
                                 >
-                                    Create Account
+                                    Register Account
                                 </button>
                             </div>
 
-                            {error && (
-                                <div className="mb-4 p-3 rounded-xl bg-rose-950/40 border border-rose-800/40 text-rose-300 text-xs text-left">
-                                    {error}
-                                </div>
-                            )}
-
                             {authTab === 'login' ? (
-                                <form onSubmit={handleLogin} className="space-y-3.5">
+                                <form onSubmit={handleLogin} className="space-y-3">
                                     <div>
-                                        <label className="block text-[11px] font-semibold text-purple-300/70 uppercase tracking-wider mb-1 text-left">Email or Username</label>
+                                        <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1 text-left">Email or Username</label>
                                         <div className="relative">
-                                            <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-purple-300/50" />
+                                            <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
                                             <input 
-                                                type="text"
+                                                type="text" 
                                                 value={loginIdentifier}
                                                 onChange={e => setLoginIdentifier(e.target.value)}
-                                                className="w-full bg-[#0c0a14] border border-[#231c3f] rounded-xl pl-10 pr-4 py-2.5 text-xs text-white focus:border-violet-500 outline-none transition-all"
-                                                placeholder="developer@zenoa.im or @username"
+                                                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-zinc-100 focus:border-zinc-700 outline-none transition-all"
+                                                placeholder="Enter username or email"
                                                 required
                                             />
                                         </div>
                                     </div>
-
                                     <div>
-                                        <label className="block text-[11px] font-semibold text-purple-300/70 uppercase tracking-wider mb-1 text-left">Password</label>
+                                        <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1 text-left">Password</label>
                                         <div className="relative">
-                                            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-purple-300/50" />
+                                            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
                                             <input 
-                                                type="password"
+                                                type="password" 
                                                 value={loginPassword}
                                                 onChange={e => setLoginPassword(e.target.value)}
-                                                className="w-full bg-[#0c0a14] border border-[#231c3f] rounded-xl pl-10 pr-4 py-2.5 text-xs text-white focus:border-violet-500 outline-none transition-all"
+                                                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-zinc-100 focus:border-zinc-700 outline-none transition-all"
                                                 placeholder="••••••••"
                                                 required
                                             />
                                         </div>
                                     </div>
-
                                     <button
                                         type="submit"
                                         disabled={isSubmittingAuth}
-                                        className="w-full bg-violet-600 hover:bg-violet-500 text-white font-semibold py-3 rounded-xl text-xs transition-all shadow-lg shadow-violet-600/20 flex items-center justify-center gap-2 cursor-pointer mt-2"
+                                        className="w-full bg-zinc-100 hover:bg-white text-zinc-950 font-bold py-3 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer mt-2 disabled:opacity-50"
                                     >
-                                        {isSubmittingAuth ? 'Authenticating...' : 'Sign In to Console'}
-                                        <ArrowRight className="h-4 w-4" />
+                                        {isSubmittingAuth ? <RefreshCw className="h-4 w-4 animate-spin" /> : <span>Sign In</span>}
                                     </button>
                                 </form>
                             ) : (
                                 <form onSubmit={handleRegister} className="space-y-3">
                                     <div>
-                                        <label className="block text-[11px] font-semibold text-purple-300/70 uppercase tracking-wider mb-1 text-left">Full Name</label>
+                                        <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1 text-left">Full Name</label>
                                         <input 
-                                            type="text"
+                                            type="text" 
                                             value={regFullName}
                                             onChange={e => setRegFullName(e.target.value)}
-                                            className="w-full bg-[#0c0a14] border border-[#231c3f] rounded-xl px-3.5 py-2.5 text-xs text-white focus:border-violet-500 outline-none transition-all"
-                                            placeholder="Jane Doe"
+                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 focus:border-zinc-700 outline-none transition-all"
+                                            placeholder="Developer Name"
                                             required
                                         />
                                     </div>
-
                                     <div>
-                                        <label className="block text-[11px] font-semibold text-purple-300/70 uppercase tracking-wider mb-1 text-left">Username</label>
+                                        <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1 text-left">Username</label>
                                         <input 
-                                            type="text"
+                                            type="text" 
                                             value={regUsername}
-                                            onChange={e => setRegUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                                            className="w-full bg-[#0c0a14] border border-[#231c3f] rounded-xl px-3.5 py-2.5 text-xs font-mono text-white focus:border-violet-500 outline-none transition-all"
-                                            placeholder="developer_id"
+                                            onChange={e => setRegUsername(e.target.value)}
+                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs font-mono text-zinc-100 focus:border-zinc-700 outline-none transition-all"
+                                            placeholder="developer_username"
                                             required
                                         />
                                     </div>
-
                                     <div>
-                                        <label className="block text-[11px] font-semibold text-purple-300/70 uppercase tracking-wider mb-1 text-left">Email Address</label>
+                                        <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1 text-left">Email Address</label>
                                         <input 
-                                            type="email"
+                                            type="email" 
                                             value={regEmail}
                                             onChange={e => setRegEmail(e.target.value)}
-                                            className="w-full bg-[#0c0a14] border border-[#231c3f] rounded-xl px-3.5 py-2.5 text-xs text-white focus:border-violet-500 outline-none transition-all"
-                                            placeholder="dev@example.com"
+                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 focus:border-zinc-700 outline-none transition-all"
+                                            placeholder="developer@company.com"
                                             required
                                         />
                                     </div>
-
                                     <div>
-                                        <label className="block text-[11px] font-semibold text-purple-300/70 uppercase tracking-wider mb-1 text-left">Password</label>
+                                        <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1 text-left">Password</label>
                                         <input 
-                                            type="password"
+                                            type="password" 
                                             value={regPassword}
                                             onChange={e => setRegPassword(e.target.value)}
-                                            className="w-full bg-[#0c0a14] border border-[#231c3f] rounded-xl px-3.5 py-2.5 text-xs text-white focus:border-violet-500 outline-none transition-all"
-                                            placeholder="At least 6 characters"
+                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 focus:border-zinc-700 outline-none transition-all"
+                                            placeholder="••••••••"
                                             required
-                                            minLength={6}
                                         />
                                     </div>
-
                                     <button
                                         type="submit"
                                         disabled={isSubmittingAuth}
-                                        className="w-full bg-violet-600 hover:bg-violet-500 text-white font-semibold py-3 rounded-xl text-xs transition-all shadow-lg shadow-violet-600/20 flex items-center justify-center gap-2 cursor-pointer mt-3"
+                                        className="w-full bg-zinc-100 hover:bg-white text-zinc-950 font-bold py-3 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer mt-3 disabled:opacity-50"
                                     >
-                                        {isSubmittingAuth ? 'Creating Account...' : 'Register Business Account'}
-                                        <ArrowRight className="h-4 w-4" />
+                                        {isSubmittingAuth ? <RefreshCw className="h-4 w-4 animate-spin" /> : <span>Create Account</span>}
                                     </button>
                                 </form>
                             )}
 
                             <div className="relative my-4">
-                                <div className="absolute inset-0 flex items-center">
-                                    <div className="w-full border-t border-[#231c3f]"></div>
-                                </div>
-                                <div className="relative flex justify-center text-[10px] uppercase">
-                                    <span className="bg-[#141022] px-2 text-purple-300/60 font-mono">Or</span>
+                                <div className="w-full border-t border-zinc-800"></div>
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                    <span className="bg-zinc-900 px-2 text-zinc-500 font-mono text-[10px]">Or</span>
                                 </div>
                             </div>
 
                             <button
-                                type="button"
                                 onClick={handleGoogleAuth}
-                                className="w-full bg-[#0c0a14] hover:bg-[#1c1631] border border-[#231c3f] text-purple-100 font-semibold py-2.5 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                                className="w-full bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 font-bold py-2.5 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
                             >
-                                <Chrome className="h-4 w-4 text-violet-400" />
+                                <Chrome className="h-4 w-4 text-zinc-400" />
                                 <span>Continue with Google</span>
                             </button>
                         </div>
@@ -718,99 +596,9 @@ export const DeveloperConsoleStandalone: React.FC = () => {
         );
     }
 
-    // 3. MANDATORY TRUECALLER BUSINESS MOBILE VERIFICATION VIEW
-    if (view === 'mobile_setup') {
-        return (
-            <div className="min-h-screen bg-[#0c0a14] text-purple-50 flex items-center justify-center p-4">
-                <motion.div 
-                    initial={{ opacity: 0, scale: 0.98 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="w-full max-w-md bg-[#141022] border border-[#231c3f] rounded-3xl p-8 shadow-2xl backdrop-blur-xl"
-                >
-                    <div className="text-center mb-6">
-                        <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto mb-3 text-emerald-400 shadow-lg shadow-emerald-500/10">
-                            <Phone className="h-6 w-6" />
-                        </div>
-                        <h2 className="text-xl font-bold text-white tracking-tight">Verify Business Mobile</h2>
-                        <p className="text-xs text-purple-200/60 mt-1">
-                            Mandatory identity verification via Truecaller for authenticated transactional messaging
-                        </p>
-                    </div>
-
-                    {error && (
-                        <div className="mb-4 p-3 rounded-xl bg-rose-950/40 border border-rose-800/40 text-rose-300 text-xs text-left">
-                            {error}
-                        </div>
-                    )}
-
-                    <div className="space-y-4">
-                        <div className="p-4 rounded-2xl bg-[#0e0a1b] border border-[#231c3f] text-left">
-                            <div className="flex items-center gap-2 text-xs font-semibold text-purple-200 mb-1">
-                                <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                                <span>Business Account Identity</span>
-                            </div>
-                            <p className="text-[11px] text-purple-300/60 leading-relaxed">
-                                Your Zenoa profile <span className="text-violet-300 font-mono">@{user?.username}</span> will be verified and authorized to dispatch automated OTPs to customers.
-                            </p>
-                        </div>
-
-                        <div>
-                            <label className="block text-[11px] font-semibold text-purple-300/70 uppercase tracking-wider mb-1.5 text-left">
-                                Business Mobile Number
-                            </label>
-                            <div className="flex gap-2">
-                                <select
-                                    value={countryCode}
-                                    onChange={e => setCountryCode(e.target.value)}
-                                    className="bg-[#0c0a14] border border-[#231c3f] rounded-xl px-3 py-3 text-xs font-mono text-white focus:border-emerald-500 outline-none transition-all cursor-pointer font-bold"
-                                >
-                                    <option value="+91">+91 (India)</option>
-                                    <option value="+1">+1 (United States)</option>
-                                    <option value="+44">+44 (United Kingdom)</option>
-                                    <option value="+971">+971 (UAE)</option>
-                                    <option value="+65">+65 (Singapore)</option>
-                                    <option value="+61">+61 (Australia)</option>
-                                    <option value="+49">+49 (Germany)</option>
-                                    <option value="+33">+33 (France)</option>
-                                    <option value="+81">+81 (Japan)</option>
-                                    <option value="+86">+86 (China)</option>
-                                </select>
-                                <input 
-                                    type="tel"
-                                    value={mobileNumber}
-                                    onChange={e => setMobileNumber(e.target.value.replace(/[^0-9]/g, ''))}
-                                    className="flex-1 bg-[#0c0a14] border border-[#231c3f] rounded-xl px-4 py-3 text-xs font-mono text-white focus:border-emerald-500 outline-none transition-all"
-                                    placeholder="Enter mobile number"
-                                    maxLength={15}
-                                />
-                            </div>
-                            <p className="text-[10px] text-purple-300/50 mt-1.5 text-left">
-                                Enter your real mobile number to verify and register your business sender identity.
-                            </p>
-                        </div>
-
-                        {/* Truecaller Verification Action */}
-                        <button
-                            onClick={handleTruecallerVerification}
-                            disabled={isVerifyingTruecaller || !mobileNumber.trim()}
-                            className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold py-3.5 rounded-xl text-xs transition-all shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 cursor-pointer active:scale-98"
-                        >
-                            {isVerifyingTruecaller ? (
-                                <RefreshCw className="h-4 w-4 animate-spin" />
-                            ) : (
-                                <ShieldCheck className="h-4 w-4" />
-                            )}
-                            <span>{isVerifyingTruecaller ? 'Verifying with Truecaller...' : 'Verify Phone Number via Truecaller'}</span>
-                        </button>
-                    </div>
-                </motion.div>
-            </div>
-        );
-    }
-
     // 4. ACTIVE DEVELOPER DASHBOARD PORTAL
     return (
-        <div className="min-h-screen bg-[#0c0a14] text-purple-50 flex flex-col font-sans">
+        <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans">
             <DeveloperPortal 
                 currentUser={user!} 
                 onBack={() => setView('landing')} 

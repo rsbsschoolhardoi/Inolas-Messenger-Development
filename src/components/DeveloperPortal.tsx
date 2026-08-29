@@ -1,13 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebaseClient';
 import { 
-  Terminal, Plus, Key, Copy, Check, ArrowLeft, Bot, Shield, Code, Server, 
-  BarChart3, History, Lock, FileText, ExternalLink, Activity, ArrowRight, 
-  RefreshCw, Eye, EyeOff, Globe, Link2, Sparkles, AlertCircle, PlayCircle,
-  Layers, CheckCircle2, ShieldCheck, Cpu, Database, Send, Webhook, Radio,
-  MessageSquare, Sliders, CheckSquare, Zap, Clock, Smartphone, MessageCircle, AlertTriangle,
-  Download, Package, FileCode
+  Terminal, Plus, Key, Copy, Check, ArrowLeft, Shield, Code, Server, 
+  BarChart3, History, Lock, FileText, RefreshCw, Eye, EyeOff, Globe,
+  ShieldCheck, Webhook, Radio, Sliders, Zap, Download
 } from 'lucide-react';
 import { UserData } from '../types';
 
@@ -16,25 +13,7 @@ interface DeveloperPortalProps {
   onBack: () => void;
 }
 
-type TabType = 'apps' | 'otp' | 'bot' | 'webhooks' | 'broadcast' | 'sso' | 'analytics' | 'logs' | 'docs' | 'settings';
-
-interface BotRule {
-  id: string;
-  trigger: string;
-  action: 'reply' | 'send_otp' | 'forward_webhook';
-  response: string;
-  enabled: boolean;
-}
-
-interface ActiveOtpItem {
-  key: string;
-  recipient: string;
-  code: string;
-  created_at: number;
-  expires_at: number;
-  status: string;
-  remaining_seconds: number;
-}
+type TabType = 'apps' | 'otp' | 'webhooks' | 'broadcast' | 'sso' | 'analytics' | 'logs' | 'docs' | 'settings';
 
 export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, onBack }) => {
   const [apps, setApps] = useState<any[]>([]);
@@ -53,40 +32,10 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
   // Settings & Edit State
   const [webhookUrl, setWebhookUrl] = useState('');
   const [redirectUris, setRedirectUris] = useState<string[]>([]);
-  const [newRedirectUri, setNewRedirectUri] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
   const [isRegeneratingSecret, setIsRegeneratingSecret] = useState(false);
-  
-  // Automated OTP Engine State
-  const [otpRecipient, setOtpRecipient] = useState('demo_zenoa_user');
-  const [otpExpiryMins, setOtpExpiryMins] = useState(10);
-  const [selectedTemplateType, setSelectedTemplateType] = useState('standard_otp');
-  const [otpCodeToVerify, setOtpCodeToVerify] = useState('');
-  const [activeOtps, setActiveOtps] = useState<ActiveOtpItem[]>([]);
-  const [isSendingOtp, setIsSendingOtp] = useState(false);
-  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
-  const [otpActionFeedback, setOtpActionFeedback] = useState<any>(null);
 
-  // Bot Automation & Rules State
-  const [botRules, setBotRules] = useState<BotRule[]>([
-    { id: '1', trigger: '/start', action: 'reply', response: 'Welcome. I am your automated verified assistant. Type /otp to verify or /help for commands.', enabled: true },
-    { id: '2', trigger: '/otp', action: 'send_otp', response: 'Initiating secure one-time verification code request...', enabled: true },
-    { id: '3', trigger: '/help', action: 'reply', response: 'Available Commands:\n- /start - Begin conversation\n- /otp - Request authentication OTP\n- /status - Check service health\n- /help - Command index', enabled: true },
-    { id: '4', trigger: 'hi', action: 'reply', response: 'Hello. How can I assist your account today?', enabled: true }
-  ]);
-  const [newRuleTrigger, setNewRuleTrigger] = useState('');
-  const [newRuleResponse, setNewRuleResponse] = useState('');
-  const [newRuleAction, setNewRuleAction] = useState<'reply' | 'send_otp' | 'forward_webhook'>('reply');
-  const [isSavingRules, setIsSavingRules] = useState(false);
-
-
-  // Broadcast Messaging State
-  const [broadcastRecipients, setBroadcastRecipients] = useState('user1, user2, user3');
-  const [broadcastMessage, setBroadcastMessage] = useState('Important system notice: Platform maintenance update.');
-  const [isBroadcasting, setIsBroadcasting] = useState(false);
-  const [broadcastResult, setBroadcastResult] = useState<any>(null);
-  
   // Code Snippet & Auto-Generated SDK State
   const [codeLang, setCodeLang] = useState<'node' | 'python' | 'php' | 'curl' | 'go' | 'button'>('node');
   const [sdkTab, setSdkTab] = useState<'ts' | 'python' | 'env' | 'html' | 'curl'>('ts');
@@ -112,18 +61,18 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast(`Downloaded auto-generated ${filename}!`);
+    showToast(`Downloaded ${filename}!`);
   };
 
   const generateTsSdk = (app: any) => {
     if (!app) return '';
-    const cid = app.client_id || app.api_key || 'zen_client_sandbox';
+    const cid = app.client_id || app.api_key || 'zen_client_prod';
     const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
     return `/**
- * Auto-Generated Zenoa SDK for ${app.app_name}
+ * Auto-Generated Zenoa Production SDK for ${app.app_name}
  * Client ID: ${cid}
- * Environment: ${origin}
+ * Base URL: ${origin}
  */
 
 export interface ZenoaConfig {
@@ -143,9 +92,6 @@ export class ZenoaSDK {
     this.baseUrl = config?.baseUrl || "${origin}";
   }
 
-  /**
-   * Send 6-digit OTP to user inbox or mobile number
-   */
   async sendOtp(recipient: string, templateType = "standard_otp", expiryMins = 10) {
     const res = await fetch(\`\${this.baseUrl}/api/v1/otp/send\`, {
       method: "POST",
@@ -158,9 +104,6 @@ export class ZenoaSDK {
     return await res.json();
   }
 
-  /**
-   * Verify 6-digit OTP code entered by recipient
-   */
   async verifyOtp(recipient: string, code: string) {
     const res = await fetch(\`\${this.baseUrl}/api/v1/otp/verify\`, {
       method: "POST",
@@ -173,9 +116,6 @@ export class ZenoaSDK {
     return await res.json();
   }
 
-  /**
-   * Exchange OAuth 2.0 Authorization Code for User Profile
-   */
   async exchangeSsoCode(code: string, redirectUri: string) {
     const res = await fetch(\`\${this.baseUrl}/api/v1/sso/token\`, {
       method: "POST",
@@ -189,20 +129,6 @@ export class ZenoaSDK {
     });
     return await res.json();
   }
-
-  /**
-   * Get OAuth 2.0 Authorization Link for Sign in with Zenoa
-   */
-  getSsoAuthorizeUrl(redirectUri: string, state = "") {
-    const params = new URLSearchParams({
-      client_id: this.clientId,
-      redirect_uri: redirectUri,
-      response_type: "code",
-      scope: "profile email phone",
-      state
-    });
-    return \`\${this.baseUrl}/sso/authorize?\${params.toString()}\`;
-  }
 }
 
 export default ZenoaSDK;
@@ -211,12 +137,10 @@ export default ZenoaSDK;
 
   const generatePythonSdk = (app: any) => {
     if (!app) return '';
-    const cid = app.client_id || app.api_key || 'zen_client_sandbox';
+    const cid = app.client_id || app.api_key || 'zen_client_prod';
     const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
     return `# Auto-Generated Zenoa SDK for ${app.app_name}
-# Client ID: ${cid}
-
 import requests
 
 class ZenoaSDK:
@@ -227,65 +151,40 @@ class ZenoaSDK:
 
     def send_otp(self, recipient: str, template_type: str = "standard_otp", expiry_mins: int = 10):
         url = f"{self.base_url}/api/v1/otp/send"
-        headers = {
-            "Authorization": f"Bearer {self.client_id}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "recipient": recipient,
-            "template_type": template_type,
-            "expiry_mins": expiry_mins
-        }
-        res = requests.post(url, json=payload, headers=headers)
+        headers = { "Authorization": f"Bearer {self.client_id}", "Content-Type": "application/json" }
+        res = requests.post(url, json={"recipient": recipient, "template_type": template_type, "expiry_mins": expiry_mins}, headers=headers)
         return res.json()
 
     def verify_otp(self, recipient: str, code: str):
         url = f"{self.base_url}/api/v1/otp/verify"
-        headers = {
-            "Authorization": f"Bearer {self.client_id}",
-            "Content-Type": "application/json"
-        }
+        headers = { "Authorization": f"Bearer {self.client_id}", "Content-Type": "application/json" }
         res = requests.post(url, json={"recipient": recipient, "code": code}, headers=headers)
         return res.json()
-
-    def exchange_sso_code(self, code: str, redirect_uri: str):
-        url = f"{self.base_url}/api/v1/sso/token"
-        payload = {
-            "client_id": self.client_id,
-            "client_secret": self.client_secret,
-            "code": code,
-            "redirect_uri": redirect_uri
-        }
-        res = requests.post(url, json=payload)
-        return res.json()
-
-    def get_sso_authorize_url(self, redirect_uri: str, state: str = ""):
-        return f"{self.base_url}/sso/authorize?client_id={self.client_id}&redirect_uri={redirect_uri}&response_type=code&scope=profile+email+phone&state={state}"
 `;
   };
 
   const generateEnvConfig = (app: any) => {
     if (!app) return '';
-    const cid = app.client_id || app.api_key || 'zen_client_sandbox';
+    const cid = app.client_id || app.api_key || 'zen_client_prod';
     const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
-    return `# Auto-Generated Environment Variables for ${app.app_name}
+    return `# Production Environment Variables for ${app.app_name}
 ZENOA_CLIENT_ID="${cid}"
 ZENOA_CLIENT_SECRET="${sec}"
-ZENOA_BOT_USERNAME="${app.bot_username || 'zenoa_assistant_bot'}"
+ZENOA_SERVICE_ACCOUNT="@${app.bot_username || app.owner}"
 ZENOA_BASE_URL="${origin}"
 `;
   };
 
   const generateHtmlSnippet = (app: any) => {
     if (!app) return '';
-    const cid = app.client_id || app.api_key || 'zen_client_sandbox';
+    const cid = app.client_id || app.api_key || 'zen_client_prod';
     const origin = window.location.origin;
     const uri = app.redirect_uris?.[0] || `${origin}/auth/sso`;
-    return `<!-- Sign in with Zenoa SSO Button for ${app.app_name} -->
+    return `<!-- Sign in with Zenoa Button -->
 <a 
   href="${origin}/sso/authorize?client_id=${cid}&redirect_uri=${encodeURIComponent(uri)}&response_type=code"
-  style="display: inline-flex; align-items: center; gap: 10px; background-color: #6d28d9; color: #ffffff; padding: 12px 24px; border-radius: 12px; font-family: system-ui, -apple-system, sans-serif; font-weight: 600; font-size: 14px; text-decoration: none; border: none; cursor: pointer;"
+  style="display: inline-flex; align-items: center; gap: 10px; background-color: #18181b; color: #ffffff; padding: 12px 24px; border-radius: 12px; font-family: system-ui, sans-serif; font-weight: 600; font-size: 14px; text-decoration: none; border: 1px solid #27272a;"
 >
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
     <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
@@ -297,38 +196,19 @@ ZENOA_BASE_URL="${origin}"
 
   const generateCurlSnippets = (app: any) => {
     if (!app) return '';
-    const cid = app.client_id || app.api_key || 'zen_client_sandbox';
-    const sec = app.client_secret || 'zen_sec_secret';
+    const cid = app.client_id || app.api_key || 'zen_client_prod';
     const origin = window.location.origin;
-    const uri = app.redirect_uris?.[0] || `${origin}/auth/sso`;
-    return `# 1. Send OTP Request
+    return `# 1. Send OTP
 curl -X POST "${origin}/api/v1/otp/send" \\
   -H "Authorization: Bearer ${cid}" \\
   -H "Content-Type: application/json" \\
-  -d '{
-    "recipient": "+91XXXXXXXXXX",
-    "template_type": "standard_otp",
-    "expiry_mins": 10
-  }'
+  -d '{"recipient": "+91XXXXXXXXXX", "template_type": "standard_otp"}'
 
-# 2. Verify OTP Request
+# 2. Verify OTP
 curl -X POST "${origin}/api/v1/otp/verify" \\
   -H "Authorization: Bearer ${cid}" \\
   -H "Content-Type: application/json" \\
-  -d '{
-    "recipient": "+91XXXXXXXXXX",
-    "code": "123456"
-  }'
-
-# 3. Exchange OAuth SSO Code for User Profile & Tokens
-curl -X POST "${origin}/api/v1/sso/token" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "client_id": "${cid}",
-    "client_secret": "${sec}",
-    "code": "AUTH_CODE_FROM_CALLBACK",
-    "redirect_uri": "${uri}"
-  }'`;
+  -d '{"recipient": "+91XXXXXXXXXX", "code": "123456"}'`;
   };
 
   useEffect(() => {
@@ -338,8 +218,6 @@ curl -X POST "${origin}/api/v1/sso/token" \\
   useEffect(() => {
     if (selectedAppId) {
       fetchAppData();
-      fetchActiveOtps();
-      fetchBotRules();
     }
   }, [selectedAppId, activeTab]);
 
@@ -401,38 +279,6 @@ curl -X POST "${origin}/api/v1/sso/token" \\
     }
   };
 
-  const fetchActiveOtps = async () => {
-    if (!selectedApp) return;
-    try {
-      const effectiveApiKey = selectedApp.client_id || selectedApp.api_key;
-      const res = await fetch('/api/v1/otp/active', {
-        headers: { 'Authorization': `Bearer ${effectiveApiKey}` }
-      });
-      const data = await res.json();
-      if (data.success && Array.isArray(data.otps)) {
-        setActiveOtps(data.otps);
-      }
-    } catch (err) {
-      console.warn("Active OTP fetch warn:", err);
-    }
-  };
-
-  const fetchBotRules = async () => {
-    if (!selectedApp) return;
-    try {
-      const effectiveApiKey = selectedApp.client_id || selectedApp.api_key;
-      const res = await fetch('/api/v1/bot/rules', {
-        headers: { 'Authorization': `Bearer ${effectiveApiKey}` }
-      });
-      const data = await res.json();
-      if (data.success && Array.isArray(data.rules)) {
-        setBotRules(data.rules);
-      }
-    } catch (err) {
-      console.warn("Bot rules fetch warn:", err);
-    }
-  };
-
   const handleCreateApp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (apps.length >= 1) {
@@ -456,7 +302,7 @@ curl -X POST "${origin}/api/v1/sso/token" \\
 
       const initialUris = initialRedirectUri.trim() 
         ? [initialRedirectUri.trim(), window.location.origin + '/auth/sso']
-        : [window.location.origin + '/auth/sso', 'https://example.com/callback'];
+        : [window.location.origin + '/auth/sso'];
 
       const newAppData = {
         owner: devUser,
@@ -480,12 +326,11 @@ curl -X POST "${origin}/api/v1/sso/token" \\
         await setDoc(appRef, newAppData);
         (newAppData as any).id = appRef.id;
 
-        // Register Service Account in 'users' collection so it can be messaged in Zenoa Messenger
         const saUserRef = doc(db, 'users', finalBotUsername);
         await setDoc(saUserRef, {
           username: finalBotUsername,
           display_name: appName.trim(),
-          bio: appDescription.trim() || 'Business Account',
+          bio: appDescription.trim() || 'Service Account',
           is_service_account: true,
           is_business_account: true,
           is_verified: false,
@@ -568,160 +413,6 @@ curl -X POST "${origin}/api/v1/sso/token" \\
     }
   };
 
-
-  // Manual Trigger OTP
-  const handleSendOtp = async () => {
-    if (!selectedApp || !otpRecipient) return;
-    setIsSendingOtp(true);
-    setOtpActionFeedback(null);
-    try {
-      const effectiveApiKey = selectedApp.client_id || selectedApp.api_key;
-      const res = await fetch('/api/v1/otp/send', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${effectiveApiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          recipient: otpRecipient.trim(),
-          template_type: selectedTemplateType,
-          expiry_mins: otpExpiryMins
-        })
-      });
-      const data = await res.json();
-      setOtpActionFeedback({ type: 'send', status: res.status, data });
-      if (data.sample_code) {
-        setOtpCodeToVerify(data.sample_code);
-      }
-      if (res.status === 200) {
-        showToast('OTP code dispatched via bot DM!');
-        fetchActiveOtps();
-      }
-    } catch (err: any) {
-      setOtpActionFeedback({ type: 'send', status: 500, data: { error: err.message } });
-    } finally {
-      setIsSendingOtp(false);
-    }
-  };
-
-  // Manual Verify OTP
-  const handleVerifyOtp = async (codeToUse?: string) => {
-    if (!selectedApp || !otpRecipient) return;
-    const code = codeToUse || otpCodeToVerify;
-    if (!code) return;
-
-    setIsVerifyingOtp(true);
-    setOtpActionFeedback(null);
-    try {
-      const effectiveApiKey = selectedApp.client_id || selectedApp.api_key;
-      const res = await fetch('/api/v1/otp/verify', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${effectiveApiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          recipient: otpRecipient.trim(),
-          code: code.trim()
-        })
-      });
-      const data = await res.json();
-      setOtpActionFeedback({ type: 'verify', status: res.status, data });
-      if (res.status === 200) {
-        showToast('✅ OTP verified successfully!');
-        fetchActiveOtps();
-        fetchAppData();
-      }
-    } catch (err: any) {
-      setOtpActionFeedback({ type: 'verify', status: 500, data: { error: err.message } });
-    } finally {
-      setIsVerifyingOtp(false);
-    }
-  };
-
-  // Bot Auto-Responder Rule Management
-  const handleAddBotRule = () => {
-    if (!newRuleTrigger.trim() || !newRuleResponse.trim()) return;
-    const newRule: BotRule = {
-      id: `rule_${Date.now()}`,
-      trigger: newRuleTrigger.trim(),
-      action: newRuleAction,
-      response: newRuleResponse.trim(),
-      enabled: true
-    };
-    const updated = [...botRules, newRule];
-    setBotRules(updated);
-    setNewRuleTrigger('');
-    setNewRuleResponse('');
-    saveBotRules(updated);
-  };
-
-  const handleToggleBotRule = (ruleId: string) => {
-    const updated = botRules.map(r => r.id === ruleId ? { ...r, enabled: !r.enabled } : r);
-    setBotRules(updated);
-    saveBotRules(updated);
-  };
-
-  const handleDeleteBotRule = (ruleId: string) => {
-    const updated = botRules.filter(r => r.id !== ruleId);
-    setBotRules(updated);
-    saveBotRules(updated);
-  };
-
-  const saveBotRules = async (rulesToSave: BotRule[]) => {
-    if (!selectedApp) return;
-    setIsSavingRules(true);
-    try {
-      const effectiveApiKey = selectedApp.client_id || selectedApp.api_key;
-      await fetch('/api/v1/bot/rules', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${effectiveApiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ rules: rulesToSave })
-      });
-      showToast('Bot automation rules saved!');
-    } catch (err) {
-      console.warn("Failed saving rules:", err);
-    } finally {
-      setIsSavingRules(false);
-    }
-  };
-
-
-  // Broadcast Dispatcher
-  const handleBroadcast = async () => {
-    if (!selectedApp || !broadcastRecipients || !broadcastMessage) return;
-    setIsBroadcasting(true);
-    setBroadcastResult(null);
-    try {
-      const effectiveApiKey = selectedApp.client_id || selectedApp.api_key;
-      const recipientsArray = broadcastRecipients.split(',').map(s => s.trim()).filter(Boolean);
-      const res = await fetch('/api/v1/bot/broadcast', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${effectiveApiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          recipients: recipientsArray,
-          message: broadcastMessage.trim()
-        })
-      });
-      const data = await res.json();
-      setBroadcastResult(data);
-      if (data.success) {
-        showToast(`Broadcast delivered to ${data.total_sent} recipients!`);
-        fetchAppData();
-      }
-    } catch (err: any) {
-      setBroadcastResult({ success: false, error: err.message });
-    } finally {
-      setIsBroadcasting(false);
-    }
-  };
-
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     setCopiedKey(text);
@@ -729,33 +420,33 @@ curl -X POST "${origin}/api/v1/sso/token" \\
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const currentClientId = selectedApp?.client_id || selectedApp?.api_key || 'zen_client_sandbox_882910';
+  const currentClientId = selectedApp?.client_id || selectedApp?.api_key || 'zen_client_live_001';
   const currentClientSecret = selectedApp?.client_secret || 'zen_sec_prod_live_99218204910248201';
   const primaryRedirectUri = (selectedApp?.redirect_uris && selectedApp.redirect_uris[0]) || `${window.location.origin}/auth/sso`;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#f8fafc] dark:bg-[#0b0f19] overflow-y-auto font-sans">
+    <div className="flex-1 flex flex-col h-full bg-zinc-950 overflow-y-auto font-sans text-zinc-100">
       {/* Toast Notification */}
       {notification && (
-        <div className="fixed top-4 right-4 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2 text-xs font-bold animate-in fade-in slide-in-from-top-2 border border-slate-700">
-          <CheckCircle2 className="h-4 w-4 text-emerald-400 dark:text-emerald-600" />
+        <div className="fixed top-4 right-4 z-50 bg-zinc-900 text-zinc-100 px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-bold border border-zinc-700">
+          <ShieldCheck className="h-4 w-4 text-emerald-400" />
           <span>{notification}</span>
         </div>
       )}
 
       {/* Top Header */}
-      <div className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/80 px-4 py-3 flex items-center justify-between">
+      <div className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button onClick={onBack} className="p-2 -ml-2 rounded-xl hover:bg-zinc-800 text-zinc-400 transition-colors">
+          <button onClick={onBack} className="p-2 -ml-2 rounded-xl hover:bg-zinc-900 text-zinc-400 transition-colors cursor-pointer">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2.5">
-            <div className="bg-zinc-800 p-2 rounded-xl border border-zinc-700">
-              <Terminal className="h-4 w-4 text-zinc-200" />
+            <div className="bg-zinc-900 p-2 rounded-xl border border-zinc-800">
+              <Terminal className="h-4 w-4 text-zinc-100" />
             </div>
             <div>
               <h1 className="text-sm font-bold text-zinc-100 tracking-tight leading-none">Developer Console</h1>
-              <p className="text-xs text-zinc-400 mt-1">API Keys & Service Accounts</p>
+              <p className="text-xs text-zinc-400 mt-1">API Credentials & Service Accounts</p>
             </div>
           </div>
         </div>
@@ -780,12 +471,11 @@ curl -X POST "${origin}/api/v1/sso/token" \\
 
       <div className="flex-1 flex flex-col md:flex-row h-[calc(100vh-57px)]">
         {/* Sidebar Navigation */}
-        <div className="w-full md:w-64 border-r border-zinc-800/80 bg-zinc-950 p-4 flex flex-col gap-1 shrink-0 overflow-y-auto">
+        <div className="w-full md:w-64 border-r border-zinc-800 bg-zinc-950 p-4 flex flex-col gap-1 shrink-0 overflow-y-auto">
           <p className="text-[10px] font-mono font-semibold text-zinc-500 uppercase tracking-widest mb-2 px-3">Console Navigation</p>
           {[
             { id: 'apps', icon: Server, label: 'Service Account & Keys' },
-            { id: 'otp', icon: Lock, label: 'OTP Automation' },
-            { id: 'bot', icon: ShieldCheck, label: 'Auto-Responders' },
+            { id: 'otp', icon: Lock, label: 'OTP Service Specs' },
             { id: 'webhooks', icon: Webhook, label: 'Webhooks' },
             { id: 'broadcast', icon: Radio, label: 'Broadcasting' },
             { id: 'sso', icon: ShieldCheck, label: 'OAuth 2.0 / SSO' },
@@ -797,10 +487,10 @@ curl -X POST "${origin}/api/v1/sso/token" \\
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as TabType)}
-              className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
+              className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
                 activeTab === tab.id 
-                  ? 'bg-zinc-800 text-zinc-100 border border-zinc-700 shadow-sm' 
-                  : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
+                  ? 'bg-zinc-900 text-zinc-100 border border-zinc-800 shadow-sm' 
+                  : 'text-zinc-400 hover:bg-zinc-900/60 hover:text-zinc-200'
               }`}
             >
               <tab.icon className="h-4 w-4 text-zinc-400" />
@@ -816,39 +506,38 @@ curl -X POST "${origin}/api/v1/sso/token" \\
             {/* TAB: APPLICATIONS & CREDENTIALS */}
             {activeTab === 'apps' && (
               <div className="space-y-6 animate-in fade-in">
-                {/* Active Service Account & Creation Card */}
                 {apps.length === 0 ? (
                   <div className="bg-zinc-900 rounded-2xl p-6 border border-zinc-800 shadow-sm">
                     <div className="mb-6">
-                      <h3 className="text-base font-semibold text-zinc-100">Create Service Account</h3>
+                      <h3 className="text-base font-bold text-zinc-100">Create Service Account</h3>
                       <p className="text-xs text-zinc-400 mt-1">
-                        Enter your application details to generate API keys and credentials.
+                        Register your application details to generate API keys and credentials.
                       </p>
                     </div>
 
                     <form onSubmit={handleCreateApp} className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-xs font-medium text-zinc-300 mb-1">Service Account Name *</label>
+                          <label className="block text-xs font-semibold text-zinc-300 mb-1">Service Account Name *</label>
                           <input 
                             type="text" 
                             value={appName}
                             onChange={e => setAppName(e.target.value)}
                             placeholder="My Application" 
-                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs outline-none text-zinc-100 focus:border-zinc-600"
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs outline-none text-zinc-100 focus:border-zinc-700"
                             required
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-zinc-300 mb-1">Service Account Handle / Username</label>
+                          <label className="block text-xs font-semibold text-zinc-300 mb-1">Service Account Username</label>
                           <div className="flex">
-                            <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-zinc-800 bg-zinc-800/50 text-zinc-400 text-xs font-mono">@</span>
+                            <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-mono">@</span>
                             <input 
                               type="text" 
                               value={botUsername}
                               onChange={e => setBotUsername(e.target.value)}
                               placeholder={`sa_${currentUser?.username || 'bot'}`}
-                              className="w-full bg-zinc-950 border border-zinc-800 rounded-r-xl px-3.5 py-2.5 text-xs font-mono text-zinc-100 outline-none focus:border-zinc-600"
+                              className="w-full bg-zinc-950 border border-zinc-800 rounded-r-xl px-3.5 py-2.5 text-xs font-mono text-zinc-100 outline-none focus:border-zinc-700"
                             />
                           </div>
                         </div>
@@ -856,23 +545,23 @@ curl -X POST "${origin}/api/v1/sso/token" \\
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-xs font-medium text-zinc-300 mb-1">Website URL (Optional)</label>
+                          <label className="block text-xs font-semibold text-zinc-300 mb-1">Website URL (Optional)</label>
                           <input 
                             type="url" 
                             value={websiteUrl}
                             onChange={e => setWebsiteUrl(e.target.value)}
                             placeholder="https://example.com" 
-                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs outline-none text-zinc-100 focus:border-zinc-600"
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs outline-none text-zinc-100 focus:border-zinc-700"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-zinc-300 mb-1">OAuth Redirect Callback URI (Optional)</label>
+                          <label className="block text-xs font-semibold text-zinc-300 mb-1">OAuth Redirect Callback URI (Optional)</label>
                           <input 
                             type="url" 
                             value={initialRedirectUri}
                             onChange={e => setInitialRedirectUri(e.target.value)}
                             placeholder="https://example.com/oauth/callback" 
-                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs outline-none text-zinc-100 focus:border-zinc-600"
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs outline-none text-zinc-100 focus:border-zinc-700"
                           />
                         </div>
                       </div>
@@ -880,9 +569,9 @@ curl -X POST "${origin}/api/v1/sso/token" \\
                       <button
                         type="submit"
                         disabled={isCreating || !appName.trim()}
-                        className="w-full py-2.5 bg-zinc-100 hover:bg-white text-zinc-900 rounded-xl text-xs font-semibold disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
+                        className="w-full py-2.5 bg-zinc-100 hover:bg-white text-zinc-950 rounded-xl text-xs font-bold disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
                       >
-                        {isCreating ? <div className="h-4 w-4 border-2 border-zinc-900/30 border-t-zinc-900 rounded-full animate-spin" /> : <Plus className="h-4 w-4" />}
+                        {isCreating ? <div className="h-4 w-4 border-2 border-zinc-950/30 border-t-zinc-950 rounded-full animate-spin" /> : <Plus className="h-4 w-4" />}
                         <span>Create Service Account</span>
                       </button>
                     </form>
@@ -891,7 +580,7 @@ curl -X POST "${origin}/api/v1/sso/token" \\
                   <div className="bg-zinc-900 rounded-2xl p-6 border border-zinc-800 text-zinc-100 space-y-4">
                     <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
                       <div>
-                        <h3 className="text-base font-semibold text-zinc-100">{selectedApp?.app_name}</h3>
+                        <h3 className="text-base font-bold text-zinc-100">{selectedApp?.app_name}</h3>
                         <p className="text-xs font-mono text-zinc-400 mt-1">@{selectedApp?.bot_username || selectedApp?.owner}</p>
                       </div>
                       <span className="px-3 py-1 bg-zinc-800 text-zinc-300 rounded-lg text-xs font-medium border border-zinc-700">
@@ -906,7 +595,7 @@ curl -X POST "${origin}/api/v1/sso/token" \\
                   <div className="space-y-4">
                     <div className="flex items-center justify-between px-1">
                       <h3 className="text-xs font-mono font-medium text-zinc-400 uppercase tracking-wider">Service Account</h3>
-                      <button onClick={fetchApps} className="text-xs text-zinc-400 hover:text-zinc-200 font-medium flex items-center gap-1">
+                      <button onClick={fetchApps} className="text-xs text-zinc-400 hover:text-zinc-200 font-medium flex items-center gap-1 cursor-pointer">
                         <RefreshCw className="h-3 w-3" /> Refresh
                       </button>
                     </div>
@@ -916,15 +605,15 @@ curl -X POST "${origin}/api/v1/sso/token" \\
                         key={app.id} 
                         onClick={() => setSelectedAppId(app.id)}
                         className={`bg-zinc-900 border p-4 rounded-2xl flex flex-col md:flex-row gap-4 items-start md:items-center justify-between shadow-sm cursor-pointer transition-all ${
-                          selectedAppId === app.id ? 'border-zinc-600 bg-zinc-800/40' : 'border-zinc-800 hover:border-zinc-700'
+                          selectedAppId === app.id ? 'border-zinc-700 bg-zinc-900/90' : 'border-zinc-800 hover:border-zinc-700'
                         }`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${selectedAppId === app.id ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-800 text-zinc-400'}`}>
+                          <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${selectedAppId === app.id ? 'bg-zinc-100 text-zinc-950' : 'bg-zinc-800 text-zinc-400'}`}>
                             <ShieldCheck className="h-5 w-5" />
                           </div>
                           <div>
-                            <h4 className="font-medium text-zinc-100 text-sm">{app.app_name}</h4>
+                            <h4 className="font-bold text-zinc-100 text-sm">{app.app_name}</h4>
                             <p className="text-xs font-mono text-zinc-400 mt-0.5">@{app.bot_username || app.owner}</p>
                           </div>
                         </div>
@@ -945,8 +634,8 @@ curl -X POST "${origin}/api/v1/sso/token" \\
                     <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
                       <div className="flex items-center gap-2">
                         <Key className="h-4 w-4 text-zinc-400" />
-                        <h3 className="text-sm font-semibold text-zinc-100">
-                          API Credentials
+                        <h3 className="text-sm font-bold text-zinc-100">
+                          Production API Credentials
                         </h3>
                       </div>
                     </div>
@@ -1014,25 +703,25 @@ curl -X POST "${origin}/api/v1/sso/token" \\
                     <div className="p-5 bg-zinc-950 rounded-xl border border-zinc-800 space-y-4">
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800 pb-3">
                         <div>
-                          <h4 className="text-sm font-semibold text-zinc-100 flex items-center gap-2">
+                          <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
                             SDK & Integration Examples
                           </h4>
                           <p className="text-xs text-zinc-400 mt-0.5">
-                            Code snippets pre-configured with your Client ID.
+                            Production code pre-configured with your Client ID.
                           </p>
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
                           <button
                             onClick={() => downloadSdkFile('zenoa-sdk.ts', generateTsSdk(selectedApp))}
-                            className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-medium text-xs transition-all border border-zinc-700 flex items-center gap-1.5 cursor-pointer"
+                            className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 font-medium text-xs transition-all border border-zinc-800 flex items-center gap-1.5 cursor-pointer"
                           >
                             <Download className="h-3.5 w-3.5" />
                             <span>zenoa-sdk.ts</span>
                           </button>
                           <button
                             onClick={() => downloadSdkFile('zenoa_sdk.py', generatePythonSdk(selectedApp))}
-                            className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-medium text-xs transition-all border border-zinc-700 flex items-center gap-1.5 cursor-pointer"
+                            className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 font-medium text-xs transition-all border border-zinc-800 flex items-center gap-1.5 cursor-pointer"
                           >
                             <Download className="h-3.5 w-3.5" />
                             <span>zenoa_sdk.py</span>
@@ -1105,315 +794,71 @@ curl -X POST "${origin}/api/v1/sso/token" \\
               </div>
             )}
 
-            {/* TAB: AUTOMATED OTP STUDIO */}
+            {/* TAB: AUTOMATED OTP SPECIFICATIONS */}
             {activeTab === 'otp' && selectedApp && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-                {/* Banner */}
-                <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl text-zinc-100 shadow-sm">
-                  <div className="flex items-center justify-between flex-wrap gap-4">
+              <div className="space-y-6 animate-in fade-in">
+                <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl text-zinc-100 shadow-sm space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Zap className="h-6 w-6 text-zinc-400" />
                     <div>
-                      <div className="flex items-center gap-3 mb-2">
-                        <Zap className="h-6 w-6 text-zinc-300" />
-                        <h3 className="text-xl font-bold">Automated OTP Service</h3>
-                      </div>
-                      <p className="text-zinc-400 text-xs max-w-xl leading-relaxed">
-                        Generate and verify zero-trust authentication codes sent directly from your Service Account.
+                      <h3 className="text-lg font-bold text-zinc-100">Automated OTP Service Specifications</h3>
+                      <p className="text-zinc-400 text-xs mt-0.5">
+                        Zero-trust 6-digit verification dispatches delivered through your registered Service Account.
                       </p>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2 mt-6">
-                    <span className="px-3 py-1 bg-zinc-800 rounded-lg text-[10px] font-mono font-bold border border-zinc-700">POST /api/v1/otp/send</span>
-                    <span className="px-3 py-1 bg-zinc-800 rounded-lg text-[10px] font-mono font-bold border border-zinc-700">POST /api/v1/otp/verify</span>
-                    <span className="px-3 py-1 bg-zinc-800 rounded-lg text-[10px] font-mono font-bold border border-zinc-700">Service Account Delivery</span>
-                  </div>
-                </div>
 
-                {/* Live Pending OTP Stream Inspector */}
-                <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-5 w-5 text-indigo-500" />
-                      <h4 className="font-black text-sm text-slate-900 dark:text-white">
-                        Live Active OTP Stream ({activeOtps.length})
-                      </h4>
-                    </div>
-                    <button 
-                      onClick={fetchActiveOtps} 
-                      className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <RefreshCw className="h-3 w-3" /> Refresh Stream
-                    </button>
-                  </div>
-
-                  {activeOtps.length === 0 ? (
-                    <div className="p-8 text-center bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800 border-dashed">
-                      <Smartphone className="h-8 w-8 text-slate-400 mx-auto mb-2 opacity-50" />
-                      <p className="text-xs text-slate-500 font-medium">No pending OTP requests at this moment.</p>
-                      <p className="text-[11px] text-slate-400 mt-1">Use the interactive trigger below or hit the 1-Click Auto-Simulate button.</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {activeOtps.map((otp, idx) => (
-                        <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">@{otp.recipient}</span>
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${otp.status === 'verified' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/50' : 'bg-amber-100 text-amber-600 dark:bg-amber-950/50'}`}>
-                              {otp.status.toUpperCase()}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase">Code:</span>
-                            <span className="font-mono text-base font-black tracking-widest text-indigo-600 dark:text-indigo-400">{otp.code}</span>
-                            <span className="text-[10px] font-mono text-slate-400">{otp.remaining_seconds}s left</span>
-                          </div>
-                          {otp.status !== 'verified' && (
-                            <button
-                              onClick={() => {
-                                setOtpRecipient(otp.recipient);
-                                setOtpCodeToVerify(otp.code);
-                                handleVerifyOtp(otp.code);
-                              }}
-                              className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                            >
-                              <Check className="h-3.5 w-3.5" />
-                              <span>1-Click Auto-Verify Code</span>
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Interactive OTP Trigger & Code Verifier Studio */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Panel 1: Dispatch OTP */}
-                  <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-xl bg-indigo-100 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 font-bold text-xs">1</div>
-                      <div>
-                        <h4 className="font-black text-slate-900 dark:text-white text-sm">Send Verification Code</h4>
-                        <p className="text-[11px] text-slate-500">POST /api/v1/otp/send</p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Recipient @username or Phone</label>
-                        <input 
-                          type="text" 
-                          value={otpRecipient}
-                          onChange={e => setOtpRecipient(e.target.value)}
-                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs font-mono outline-none dark:text-white"
-                          placeholder="username or +91XXXXXXXXXX"
-                        />
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="block text-[11px] font-bold text-slate-500 uppercase">Verified Professional Template</label>
-                          <span className="text-[10px] font-mono text-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded font-bold">🔒 Anti-Fraud</span>
-                        </div>
-                        <select
-                          value={selectedTemplateType}
-                          onChange={e => setSelectedTemplateType(e.target.value)}
-                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs outline-none dark:text-white font-bold cursor-pointer"
-                        >
-                          <option value="standard_otp">🔒 Standard Secure OTP Notice</option>
-                          <option value="2fa_auth">🛡️ Two-Factor Authentication (2FA)</option>
-                          <option value="password_reset">🔑 Password Reset Authorization</option>
-                          <option value="transaction_auth">💳 Transaction Security Verification</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Expiry Duration (Mins)</label>
-                        <select
-                          value={otpExpiryMins}
-                          onChange={e => setOtpExpiryMins(Number(e.target.value))}
-                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs outline-none dark:text-white font-bold"
-                        >
-                          <option value={5}>5 Minutes</option>
-                          <option value={10}>10 Minutes (Standard)</option>
-                          <option value={15}>15 Minutes</option>
-                          <option value={30}>30 Minutes</option>
-                        </select>
-                      </div>
-
-                      <button
-                        onClick={handleSendOtp}
-                        disabled={isSendingOtp || !otpRecipient}
-                        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold disabled:opacity-50 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                      >
-                        {isSendingOtp ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                        <span>Dispatch Real OTP via Bot DM</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Panel 2: Verify Code */}
-                  <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-xl bg-emerald-100 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 font-bold text-xs">2</div>
-                      <div>
-                        <h4 className="font-black text-slate-900 dark:text-white text-sm">Verify One-Time Code</h4>
-                        <p className="text-[11px] text-slate-500">POST /api/v1/otp/verify</p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">6-Digit OTP Code</label>
-                        <input 
-                          type="text" 
-                          maxLength={6}
-                          value={otpCodeToVerify}
-                          onChange={e => setOtpCodeToVerify(e.target.value)}
-                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2 text-center tracking-[0.4em] font-mono text-lg font-bold outline-none dark:text-white"
-                          placeholder="000000"
-                        />
-                      </div>
-
-                      <button
-                        onClick={() => handleVerifyOtp()}
-                        disabled={isVerifyingOtp || !otpCodeToVerify || !otpRecipient}
-                        className="w-full py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl text-xs font-bold hover:opacity-90 disabled:opacity-50 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                      >
-                        {isVerifyingOtp ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                        <span>Verify Code & Fire Webhook</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Feedback Box */}
-                {otpActionFeedback && (
-                  <div className={`p-4 rounded-2xl border animate-in slide-in-from-top-2 ${otpActionFeedback.status === 200 ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800' : 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800'}`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className={`text-[10px] font-black uppercase tracking-widest ${otpActionFeedback.status === 200 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        Server Response: {otpActionFeedback.status}
-                      </span>
-                      <span className="text-[10px] font-mono opacity-50">{new Date().toLocaleTimeString()}</span>
-                    </div>
-                    <pre className="text-[11px] font-mono overflow-x-auto dark:text-white">{JSON.stringify(otpActionFeedback.data, null, 2)}</pre>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* TAB: SERVICE ACCOUNT AUTOMATION & CHAT EMULATOR */}
-            {activeTab === 'bot' && selectedApp && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-                {/* Service Account Auto-Responder Rules Manager */}
-                <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
-                        <ShieldCheck className="h-5 w-5 text-indigo-500" />
-                        Service Account Command Triggers & Auto-Responders
-                      </h3>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        Configure automated responses or triggers when users message @{selectedApp.bot_username || selectedApp.owner}.
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                    <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-2">
+                      <span className="text-xs font-bold text-zinc-200 block">Dispatch Endpoint</span>
+                      <code className="text-xs font-mono text-zinc-300 block bg-zinc-900 p-2 rounded-xl border border-zinc-800">
+                        POST /api/v1/otp/send
+                      </code>
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">
+                        Generates a cryptographically secure 6-digit code and dispatches it directly to the recipient's inbox.
                       </p>
                     </div>
-                    <button
-                      onClick={() => saveBotRules(botRules)}
-                      disabled={isSavingRules}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all cursor-pointer"
-                    >
-                      {isSavingRules ? 'Saving...' : 'Save Rules'}
-                    </button>
-                  </div>
 
-                  {/* Add New Rule */}
-                  <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300 block">Add Automated Command Rule</span>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Trigger Command / Text</label>
-                        <input 
-                          type="text" 
-                          value={newRuleTrigger}
-                          onChange={e => setNewRuleTrigger(e.target.value)}
-                          placeholder="/pricing or hello" 
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs font-mono outline-none dark:text-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Action Type</label>
-                        <select
-                          value={newRuleAction}
-                          onChange={e => setNewRuleAction(e.target.value as any)}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs outline-none dark:text-white font-bold"
-                        >
-                          <option value="reply">Auto-Reply Text</option>
-                          <option value="send_otp">Dispatch OTP Verification</option>
-                          <option value="forward_webhook">Forward to Webhook</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Response Content</label>
-                        <input 
-                          type="text" 
-                          value={newRuleResponse}
-                          onChange={e => setNewRuleResponse(e.target.value)}
-                          placeholder="Our plans start at $10/mo..." 
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs outline-none dark:text-white font-bold"
-                        />
-                      </div>
+                    <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-2">
+                      <span className="text-xs font-bold text-zinc-200 block">Verification Endpoint</span>
+                      <code className="text-xs font-mono text-zinc-300 block bg-zinc-900 p-2 rounded-xl border border-zinc-800">
+                        POST /api/v1/otp/verify
+                      </code>
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">
+                        Validates the user's input code and triggers signed webhook notification upon success.
+                      </p>
                     </div>
-                    <div className="flex justify-end">
-                      <button
-                        onClick={handleAddBotRule}
-                        disabled={!newRuleTrigger.trim() || !newRuleResponse.trim()}
-                        className="px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl text-xs font-bold hover:opacity-90 disabled:opacity-50 cursor-pointer"
-                      >
-                        Add Rule
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Rules List */}
-                  <div className="space-y-2">
-                    {botRules.map(rule => (
-                      <div key={rule.id} className="p-3.5 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                          <input 
-                            type="checkbox" 
-                            checked={rule.enabled} 
-                            onChange={() => handleToggleBotRule(rule.id)}
-                            className="h-4 w-4 text-indigo-600 rounded cursor-pointer"
-                          />
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md">
-                                {rule.trigger}
-                              </span>
-                              <span className="text-[10px] font-bold text-slate-400 uppercase">→ {rule.action}</span>
-                            </div>
-                            <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 whitespace-pre-line">{rule.response}</p>
-                          </div>
-                        </div>
-                        <button 
-                          onClick={() => handleDeleteBotRule(rule.id)}
-                          className="text-rose-500 hover:text-rose-600 font-bold text-xs cursor-pointer"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    ))}
                   </div>
                 </div>
 
+                <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800 shadow-sm space-y-4">
+                  <h4 className="font-bold text-sm text-zinc-100">Production Security & Template Policies</h4>
+                  <div className="space-y-3 text-xs text-zinc-400">
+                    <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800 flex items-start gap-3">
+                      <Shield className="h-4 w-4 text-zinc-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold text-zinc-200 block">Rate Limits & Expiry</span>
+                        Default expiry window is 10 minutes. Throttling is strictly enforced at 5 send attempts per recipient per minute.
+                      </div>
+                    </div>
+                    <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800 flex items-start gap-3">
+                      <Lock className="h-4 w-4 text-zinc-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold text-zinc-200 block">HMAC Webhook Callback</span>
+                        When an OTP is verified successfully, an <code className="text-zinc-200 font-mono">otp.verified</code> webhook payload is signed with your Client Secret and delivered to your configured endpoint.
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
             {/* TAB: WEBHOOK CONFIGURATION */}
             {activeTab === 'webhooks' && selectedApp && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+              <div className="space-y-6 animate-in fade-in">
                 <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800 shadow-sm space-y-6">
                   <div>
-                    <h3 className="text-lg font-black text-zinc-100 flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
                       <Webhook className="h-5 w-5 text-zinc-400" />
                       Production Webhook Settings
                     </h3>
@@ -1424,7 +869,7 @@ curl -X POST "${origin}/api/v1/sso/token" \\
 
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-xs font-bold text-zinc-300 mb-1">Production Webhook Endpoint</label>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1">Production Webhook Endpoint</label>
                       <input 
                         type="url" 
                         value={webhookUrl}
@@ -1435,9 +880,9 @@ curl -X POST "${origin}/api/v1/sso/token" \\
                     </div>
 
                     <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-2">
-                      <p className="text-xs font-bold text-zinc-200">HMAC-SHA256 Verification</p>
+                      <p className="text-xs font-bold text-zinc-200">HMAC-SHA256 Signature Verification</p>
                       <p className="text-xs text-zinc-400 leading-relaxed">
-                        Incoming requests include an <code className="text-zinc-200">X-Zenoa-Signature</code> header. Validate this signature using your Client Secret.
+                        Incoming webhook requests include an <code className="text-zinc-200 font-mono">X-Zenoa-Signature</code> header. Validate this signature using your Client Secret to ensure authentic payload origin.
                       </p>
                     </div>
 
@@ -1453,95 +898,68 @@ curl -X POST "${origin}/api/v1/sso/token" \\
               </div>
             )}
 
-            {/* TAB: MULTI-RECIPIENT BROADCAST */}
+            {/* TAB: MULTI-RECIPIENT BROADCAST SPECS */}
             {activeTab === 'broadcast' && selectedApp && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-                <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+              <div className="space-y-6 animate-in fade-in">
+                <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800 shadow-sm space-y-6">
                   <div>
-                    <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
-                      <Radio className="h-5 w-5 text-indigo-500" />
-                      Multi-Recipient Broadcast Manager
+                    <h3 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
+                      <Radio className="h-5 w-5 text-zinc-400" />
+                      Production Broadcast API Specifications
                     </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Dispatch notifications or announcements to multiple recipients simultaneously.
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Dispatch batch notifications to multiple users via your Service Account.
                     </p>
                   </div>
 
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Recipients List (Comma-separated)</label>
-                      <input 
-                        type="text" 
-                        value={broadcastRecipients}
-                        onChange={e => setBroadcastRecipients(e.target.value)}
-                        placeholder="user1, user2, +91XXXXXXXXXX" 
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-xs font-mono outline-none dark:text-white"
-                      />
+                  <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 bg-zinc-800 text-zinc-200 border border-zinc-700 rounded-md text-[10px] font-mono font-bold">POST</span>
+                      <code className="text-xs font-mono font-bold text-zinc-100">/api/v1/bot/broadcast</code>
                     </div>
+                    <p className="text-xs text-zinc-400">Payload specification for batch dispatches:</p>
+                    <pre className="text-[11px] font-mono bg-zinc-900 p-3 rounded-xl border border-zinc-800 text-zinc-300 overflow-x-auto">
+{`Headers:
+  Authorization: Bearer <CLIENT_ID>
+  Content-Type: application/json
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Broadcast Message</label>
-                      <textarea 
-                        rows={3}
-                        value={broadcastMessage}
-                        onChange={e => setBroadcastMessage(e.target.value)}
-                        placeholder="Type notification text..." 
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-xs outline-none dark:text-white"
-                      />
-                    </div>
-
-                    <button
-                      onClick={handleBroadcast}
-                      disabled={isBroadcasting || !broadcastRecipients || !broadcastMessage}
-                      className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-2"
-                    >
-                      {isBroadcasting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                      <span>Execute Broadcast Message</span>
-                    </button>
+Body:
+{
+  "recipients": ["username_1", "username_2", "+91XXXXXXXXXX"],
+  "message": "Transaction notification update from verified service account."
+}`}
+                    </pre>
                   </div>
-
-                  {broadcastResult && (
-                    <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800">
-                      <div className="flex items-center gap-4 mb-2">
-                        <span className="text-xs font-bold text-emerald-600">Sent: {broadcastResult.total_sent}</span>
-                        <span className="text-xs font-bold text-rose-600">Failed: {broadcastResult.total_failed}</span>
-                      </div>
-                      <pre className="text-[11px] font-mono bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto dark:text-white">
-                        {JSON.stringify(broadcastResult.details, null, 2)}
-                      </pre>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
 
             {/* TAB: OAUTH 2.0 & SSO SDK SUITE */}
             {activeTab === 'sso' && selectedApp && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-                <div className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 p-8 rounded-[2.5rem] text-white shadow-xl">
+              <div className="space-y-6 animate-in fade-in">
+                <div className="bg-zinc-900 p-8 rounded-3xl text-zinc-100 border border-zinc-800 shadow-sm">
                   <div className="flex items-center gap-3 mb-2">
-                    <ShieldCheck className="h-8 w-8 text-indigo-200" />
-                    <h3 className="text-2xl font-black">Login with Zenoa (SSO 2.0)</h3>
+                    <ShieldCheck className="h-8 w-8 text-zinc-300" />
+                    <h3 className="text-2xl font-bold">OAuth 2.0 Single Sign-On</h3>
                   </div>
-                  <p className="text-indigo-100 text-sm max-w-xl mb-6 leading-relaxed">
-                    Integrate instant Zenoa user authentication into your website, app, or backend in under 3 minutes.
+                  <p className="text-zinc-400 text-xs max-w-xl mb-6 leading-relaxed">
+                    Integrate instant Zenoa user authentication into your external application with zero passwords required.
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    <span className="px-3 py-1 bg-white/10 rounded-lg text-[10px] font-bold border border-white/20">HMAC-SHA256 SIGNED</span>
-                    <span className="px-3 py-1 bg-white/10 rounded-lg text-[10px] font-bold border border-white/20">OAUTH 2.0 AUTH CODE</span>
-                    <span className="px-3 py-1 bg-white/10 rounded-lg text-[10px] font-bold border border-white/20">ZERO PASSWORDS</span>
-                    <span className="px-3 py-1 bg-white/10 rounded-lg text-[10px] font-bold border border-white/20">ONE-TAP POPUP / REDIRECT</span>
+                    <span className="px-3 py-1 bg-zinc-950 rounded-lg text-[10px] font-bold border border-zinc-800">HMAC-SHA256 SIGNED</span>
+                    <span className="px-3 py-1 bg-zinc-950 rounded-lg text-[10px] font-bold border border-zinc-800">OAUTH 2.0 AUTH CODE</span>
+                    <span className="px-3 py-1 bg-zinc-950 rounded-lg text-[10px] font-bold border border-zinc-800">ZERO PASSWORDS</span>
                   </div>
                 </div>
 
-                {/* Ready to Copy Code Generator */}
-                <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
-                    <h3 className="font-black text-slate-900 dark:text-white flex items-center gap-2">
-                      <Code className="h-5 w-5 text-indigo-500" />
-                      Live Integration Code Snippets
+                {/* Integration Code Generator */}
+                <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
+                    <h3 className="font-bold text-zinc-100 flex items-center gap-2">
+                      <Code className="h-5 w-5 text-zinc-400" />
+                      Production Integration Snippets
                     </h3>
-                    <div className="flex flex-wrap gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                    <div className="flex flex-wrap gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
                       {[
                         { id: 'node', label: 'Node.js' },
                         { id: 'python', label: 'Python' },
@@ -1553,10 +971,10 @@ curl -X POST "${origin}/api/v1/sso/token" \\
                         <button
                           key={lang.id}
                           onClick={() => setCodeLang(lang.id as any)}
-                          className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                          className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
                             codeLang === lang.id 
-                              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm' 
-                              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                              ? 'bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700' 
+                              : 'text-zinc-400 hover:text-zinc-200'
                           }`}
                         >
                           {lang.label}
@@ -1565,34 +983,20 @@ curl -X POST "${origin}/api/v1/sso/token" \\
                     </div>
                   </div>
 
-                  {/* Code Viewer */}
                   <div className="relative">
-                    <div className="bg-slate-950 rounded-2xl p-5 font-mono text-xs text-slate-200 overflow-x-auto leading-relaxed border border-slate-800">
+                    <div className="bg-zinc-950 rounded-2xl p-5 font-mono text-xs text-zinc-200 overflow-x-auto leading-relaxed border border-zinc-800">
                       {codeLang === 'node' && (
-                        <pre>{`// Node.js Express SSO & OTP Integration
+                        <pre>{`// Node.js Express Integration
 import express from 'express';
 import axios from 'axios';
 
-const app = express();
 const CLIENT_ID = '${currentClientId}';
 const CLIENT_SECRET = '${currentClientSecret}';
 const ZENOA_URL = '${window.location.origin}';
 
-// 1. Send OTP
-async function sendVerificationOtp(recipient) {
-  const res = await axios.post(\`\${ZENOA_URL}/api/v1/otp/send\`, {
-    recipient: recipient
-  }, {
-    headers: { 'Authorization': \`Bearer \${CLIENT_ID}\` }
-  });
-  return res.data;
-}
-
-// 2. Verify OTP
 async function verifyOtpCode(recipient, code) {
   const res = await axios.post(\`\${ZENOA_URL}/api/v1/otp/verify\`, {
-    recipient: recipient,
-    code: code
+    recipient, code
   }, {
     headers: { 'Authorization': \`Bearer \${CLIENT_ID}\` }
   });
@@ -1608,10 +1012,6 @@ CLIENT_ID = '${currentClientId}'
 CLIENT_SECRET = '${currentClientSecret}'
 ZENOA_URL = '${window.location.origin}'
 
-def send_otp(recipient):
-    res = requests.post(f"{ZENOA_URL}/api/v1/otp/send", json={"recipient": recipient}, headers={"Authorization": f"Bearer {CLIENT_ID}"})
-    return res.json()
-
 def verify_otp(recipient, code):
     res = requests.post(f"{ZENOA_URL}/api/v1/otp/verify", json={"recipient": recipient, "code": code}, headers={"Authorization": f"Bearer {CLIENT_ID}"})
     return res.json()`}</pre>
@@ -1619,14 +1019,14 @@ def verify_otp(recipient, code):
 
                       {codeLang === 'php' && (
                         <pre>{`<?php
-// PHP OTP Integration
+// PHP OTP Verification
 $client_id = '${currentClientId}';
 $zenoa_url = '${window.location.origin}';
 
-function sendOtp($recipient) {
+function verifyOtp($recipient, $code) {
     global $client_id, $zenoa_url;
-    $ch = curl_init("$zenoa_url/api/v1/otp/send");
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['recipient' => $recipient]));
+    $ch = curl_init("$zenoa_url/api/v1/otp/verify");
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['recipient' => $recipient, 'code' => $code]));
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json', "Authorization: Bearer $client_id"]);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     return json_decode(curl_exec($ch), true);
@@ -1642,9 +1042,9 @@ import (
 	"net/http"
 )
 
-func sendOTP(recipient string) (*http.Response, error) {
-	payload, _ := json.Marshal(map[string]string{"recipient": recipient})
-	req, _ := http.NewRequest("POST", "${window.location.origin}/api/v1/otp/send", bytes.NewBuffer(payload))
+func verifyOTP(recipient string, code string) (*http.Response, error) {
+	payload, _ := json.Marshal(map[string]string{"recipient": recipient, "code": code})
+	req, _ := http.NewRequest("POST", "${window.location.origin}/api/v1/otp/verify", bytes.NewBuffer(payload))
 	req.Header.Set("Authorization", "Bearer ${currentClientId}")
 	req.Header.Set("Content-Type", "application/json")
 	return http.DefaultClient.Do(req)
@@ -1652,28 +1052,20 @@ func sendOTP(recipient string) (*http.Response, error) {
                       )}
 
                       {codeLang === 'curl' && (
-                        <pre>{`# 1. Trigger OTP
-curl -X POST ${window.location.origin}/api/v1/otp/send \\
+                        <pre>{`curl -X POST ${window.location.origin}/api/v1/otp/verify \\
   -H "Authorization: Bearer ${currentClientId}" \\
   -H "Content-Type: application/json" \\
-  -d '{"recipient": "aman_azad"}'
-
-# 2. Verify Code
-curl -X POST ${window.location.origin}/api/v1/otp/verify \\
-  -H "Authorization: Bearer ${currentClientId}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"recipient": "aman_azad", "code": "123456"}'`}</pre>
+  -d '{"recipient": "+91XXXXXXXXXX", "code": "123456"}'`}</pre>
                       )}
 
                       {codeLang === 'button' && (
                         <pre>{`<!-- Ready-to-use "Sign in with Zenoa" SVG Button -->
 <a 
-  href="${window.location.origin}/auth/sso?client_id=${currentClientId}&redirect_uri=${encodeURIComponent(primaryRedirectUri)}&state=custom_state"
-  style="display: inline-flex; align-items: center; gap: 10px; background-color: #4f46e5; color: #ffffff; padding: 10px 20px; border-radius: 12px; font-family: sans-serif; font-size: 14px; font-weight: bold; text-decoration: none; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);"
+  href="${window.location.origin}/sso/authorize?client_id=${currentClientId}&redirect_uri=${encodeURIComponent(primaryRedirectUri)}&response_type=code"
+  style="display: inline-flex; align-items: center; gap: 10px; background-color: #18181b; color: #ffffff; padding: 12px 24px; border-radius: 12px; font-family: sans-serif; font-size: 14px; font-weight: 600; text-decoration: none; border: 1px solid #27272a;"
 >
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-    <path d="m9 12 2 2 4-4"/>
   </svg>
   <span>Sign in with Zenoa</span>
 </a>`}</pre>
@@ -1686,25 +1078,25 @@ curl -X POST ${window.location.origin}/api/v1/otp/verify \\
 
             {/* TAB: ANALYTICS */}
             {activeTab === 'analytics' && selectedApp && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+              <div className="space-y-6 animate-in fade-in">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total API Calls</p>
-                    <p className="text-3xl font-black text-slate-900 dark:text-white">{analytics?.messages_sent || 0}</p>
-                    <p className="text-[10px] text-emerald-500 font-bold mt-2 flex items-center gap-1">
-                      <Check className="h-3 w-3" /> Real-time active
+                  <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800 shadow-sm">
+                    <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Total API Calls</p>
+                    <p className="text-3xl font-bold text-zinc-100">{analytics?.messages_sent || 0}</p>
+                    <p className="text-[10px] text-emerald-400 font-bold mt-2 flex items-center gap-1">
+                      <Check className="h-3 w-3" /> Active Infrastructure
                     </p>
                   </div>
-                  <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">OTP Verified</p>
-                    <p className="text-3xl font-black text-slate-900 dark:text-white">{analytics?.otp_verified || 0}</p>
-                    <p className="text-[10px] text-slate-500 font-bold mt-2">Active Authentications</p>
+                  <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800 shadow-sm">
+                    <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">OTP Verified</p>
+                    <p className="text-3xl font-bold text-zinc-100">{analytics?.otp_verified || 0}</p>
+                    <p className="text-[10px] text-zinc-400 font-bold mt-2">Active Authentications</p>
                   </div>
-                  <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Success Rate</p>
-                    <p className="text-3xl font-black text-slate-900 dark:text-white">99.9%</p>
-                    <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full mt-3 overflow-hidden">
-                       <div className="h-full bg-indigo-500 rounded-full" style={{ width: '99.9%' }} />
+                  <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800 shadow-sm">
+                    <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Success Rate</p>
+                    <p className="text-3xl font-bold text-zinc-100">99.9%</p>
+                    <div className="w-full h-1.5 bg-zinc-950 rounded-full mt-3 overflow-hidden border border-zinc-800">
+                       <div className="h-full bg-zinc-200 rounded-full" style={{ width: '99.9%' }} />
                     </div>
                   </div>
                 </div>
@@ -1713,35 +1105,35 @@ curl -X POST ${window.location.origin}/api/v1/otp/verify \\
 
             {/* TAB: ACTIVITY LOGS */}
             {activeTab === 'logs' && selectedApp && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                   <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
-                      <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                        <History className="h-4 w-4 text-indigo-500" />
-                        Live Activity & Authentication Logs
+              <div className="space-y-6 animate-in fade-in">
+                <div className="bg-zinc-900 rounded-3xl border border-zinc-800 overflow-hidden shadow-sm">
+                   <div className="p-4 border-b border-zinc-800 bg-zinc-950 flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                        <History className="h-4 w-4 text-zinc-400" />
+                        Production Activity & Authentication Logs
                       </h3>
-                      <button onClick={fetchAppData} className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer">
-                        <RefreshCw className="h-3.5 w-3.5 text-slate-500" />
+                      <button onClick={fetchAppData} className="p-1.5 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer">
+                        <RefreshCw className="h-3.5 w-3.5 text-zinc-400" />
                       </button>
                    </div>
-                   <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                   <div className="divide-y divide-zinc-800">
                       {logs.length === 0 ? (
-                        <div className="p-12 text-center text-slate-500 text-xs italic">No activity logs recorded yet.</div>
+                        <div className="p-12 text-center text-zinc-500 text-xs italic">No activity logs recorded yet.</div>
                       ) : (
                         logs.map(log => (
-                          <div key={log.id} className="p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                          <div key={log.id} className="p-4 flex items-center justify-between hover:bg-zinc-800/40 transition-colors">
                              <div className="flex items-center gap-3">
-                                <div className={`h-8 w-8 rounded-xl flex items-center justify-center ${log.status === 'success' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                                   {log.action === 'sso_login' ? <ShieldCheck className="h-4 w-4" /> : (log.action === 'message_send' ? <Bot className="h-4 w-4" /> : <Lock className="h-4 w-4" />)}
+                                <div className={`h-8 w-8 rounded-xl flex items-center justify-center ${log.status === 'success' ? 'bg-zinc-800 text-emerald-400' : 'bg-zinc-800 text-rose-400'}`}>
+                                   {log.action === 'sso_login' ? <ShieldCheck className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
                                 </div>
                                 <div>
-                                   <p className="text-xs font-bold text-slate-900 dark:text-white">
-                                     {log.action === 'sso_login' ? `SSO Authorization (@${log.recipient})` : (log.action === 'message_send' ? `Bot Message to @${log.recipient}` : `OTP Action to @${log.recipient}`)}
+                                   <p className="text-xs font-bold text-zinc-100">
+                                     {log.action === 'sso_login' ? `SSO Authorization (@${log.recipient})` : `OTP Action to @${log.recipient}`}
                                    </p>
-                                   <p className="text-[10px] text-slate-500 mt-0.5">{new Date(log.timestamp).toLocaleString()}</p>
+                                   <p className="text-[10px] text-zinc-500 mt-0.5">{new Date(log.timestamp).toLocaleString()}</p>
                                 </div>
                              </div>
-                             <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${log.status === 'success' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                             <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${log.status === 'success' ? 'bg-zinc-800 text-emerald-400 border border-zinc-700' : 'bg-zinc-800 text-rose-400 border border-zinc-700'}`}>
                                {log.status.toUpperCase()}
                              </span>
                           </div>
@@ -1754,26 +1146,26 @@ curl -X POST ${window.location.origin}/api/v1/otp/verify \\
 
             {/* TAB: API SPECIFICATIONS */}
             {activeTab === 'docs' && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-                <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+              <div className="space-y-6 animate-in fade-in">
+                <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800 shadow-sm space-y-6">
                   <div>
-                    <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
-                      <FileText className="h-5 w-5 text-indigo-500" />
+                    <h3 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-zinc-400" />
                       REST API Endpoints Specification
                     </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <p className="text-xs text-zinc-400 mt-0.5">
                       Production reference for Zenoa Developer REST APIs.
                     </p>
                   </div>
 
                   <div className="space-y-4">
-                    <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-2">
                       <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-1 bg-emerald-600 text-white rounded-md text-[10px] font-mono font-bold">POST</span>
-                        <code className="text-xs font-mono font-bold dark:text-white">/api/v1/otp/send</code>
+                        <span className="px-2.5 py-1 bg-zinc-800 text-zinc-200 border border-zinc-700 rounded-md text-[10px] font-mono font-bold">POST</span>
+                        <code className="text-xs font-mono font-bold text-zinc-100">/api/v1/otp/send</code>
                       </div>
-                      <p className="text-xs text-slate-500">Generates and sends a 6-digit OTP to any user or mobile number via your bot.</p>
-                      <pre className="text-[11px] font-mono bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 dark:text-slate-300">
+                      <p className="text-xs text-zinc-400">Generates and sends a 6-digit OTP to any target recipient.</p>
+                      <pre className="text-[11px] font-mono bg-zinc-900 p-2.5 rounded-xl border border-zinc-800 text-zinc-300">
 {`Headers: Authorization: Bearer <CLIENT_ID>
 Body: {
   "recipient": "username or +91XXXXXXXXXX",
@@ -1783,32 +1175,32 @@ Body: {
                       </pre>
                     </div>
 
-                    <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-2">
                       <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-1 bg-emerald-600 text-white rounded-md text-[10px] font-mono font-bold">POST</span>
-                        <code className="text-xs font-mono font-bold dark:text-white">/api/v1/otp/verify</code>
+                        <span className="px-2.5 py-1 bg-zinc-800 text-zinc-200 border border-zinc-700 rounded-md text-[10px] font-mono font-bold">POST</span>
+                        <code className="text-xs font-mono font-bold text-zinc-100">/api/v1/otp/verify</code>
                       </div>
-                      <p className="text-xs text-slate-500">Verifies an OTP and automatically fires a webhook event.</p>
-                      <pre className="text-[11px] font-mono bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 dark:text-slate-300">
+                      <p className="text-xs text-zinc-400">Verifies an OTP and automatically fires a webhook event.</p>
+                      <pre className="text-[11px] font-mono bg-zinc-900 p-2.5 rounded-xl border border-zinc-800 text-zinc-300">
 {`Headers: Authorization: Bearer <CLIENT_ID>
 Body: {
-  "recipient": "username",
+  "recipient": "+91XXXXXXXXXX",
   "code": "123456"
 }`}
                       </pre>
                     </div>
 
-                    <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-2">
                       <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-1 bg-emerald-600 text-white rounded-md text-[10px] font-mono font-bold">POST</span>
-                        <code className="text-xs font-mono font-bold dark:text-white">/api/v1/messages/send</code>
+                        <span className="px-2.5 py-1 bg-zinc-800 text-zinc-200 border border-zinc-700 rounded-md text-[10px] font-mono font-bold">POST</span>
+                        <code className="text-xs font-mono font-bold text-zinc-100">/api/v1/messages/send</code>
                       </div>
-                      <p className="text-xs text-slate-500">Sends transactional or support message from bot to user.</p>
-                      <pre className="text-[11px] font-mono bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 dark:text-slate-300">
+                      <p className="text-xs text-zinc-400">Sends transactional or support message from Service Account to user.</p>
+                      <pre className="text-[11px] font-mono bg-zinc-900 p-2.5 rounded-xl border border-zinc-800 text-zinc-300">
 {`Headers: Authorization: Bearer <CLIENT_ID>
 Body: {
   "recipient": "username",
-  "message": "Your order #123 has shipped!"
+  "message": "Your authentication session is active."
 }`}
                       </pre>
                     </div>
@@ -1819,49 +1211,49 @@ Body: {
 
             {/* TAB: SETTINGS */}
             {activeTab === 'settings' && selectedApp && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-                <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+              <div className="space-y-6 animate-in fade-in">
+                <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800 shadow-sm space-y-6">
                   <div>
-                    <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
-                      <Sliders className="h-5 w-5 text-indigo-500" />
+                    <h3 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
+                      <Sliders className="h-5 w-5 text-zinc-400" />
                       App & Webhook Settings
                     </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <p className="text-xs text-zinc-400 mt-0.5">
                       Configure webhook destination and general metadata.
                     </p>
                   </div>
 
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Webhook URL</label>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1">Webhook URL</label>
                       <input 
                         type="url" 
                         value={webhookUrl}
                         onChange={e => setWebhookUrl(e.target.value)}
                         placeholder="https://your-backend.com/webhook" 
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-xs font-mono outline-none dark:text-white"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs font-mono outline-none text-zinc-100 focus:border-zinc-700"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Website URL</label>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1">Website URL</label>
                       <input 
                         type="url" 
                         value={websiteUrl}
                         onChange={e => setWebsiteUrl(e.target.value)}
                         placeholder="https://acme.example.com" 
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-xs outline-none dark:text-white"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs outline-none text-zinc-100 focus:border-zinc-700"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Application Description</label>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1">Application Description</label>
                       <textarea 
                         rows={2}
                         value={appDescription}
                         onChange={e => setAppDescription(e.target.value)}
                         placeholder="Describe your application..." 
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-xs outline-none dark:text-white"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs outline-none text-zinc-100 focus:border-zinc-700"
                       />
                     </div>
 
@@ -1869,7 +1261,7 @@ Body: {
                       <button
                         onClick={handleUpdateSettings}
                         disabled={isSaving}
-                        className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer"
+                        className="px-6 py-2.5 bg-zinc-100 hover:bg-white text-zinc-950 rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer"
                       >
                         {isSaving ? 'Saving...' : 'Save Changes'}
                       </button>
