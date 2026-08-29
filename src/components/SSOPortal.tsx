@@ -30,6 +30,21 @@ interface SSOPortalProps {
   onOpenConsentPreview?: (clientId: string, redirectUri: string) => void;
 }
 
+const handleFetchResponse = async (res: Response): Promise<any> => {
+  const text = await res.text();
+  if (res.status === 405 || text.includes('__cookie_check') || text.includes('<!DOCTYPE html') || text.includes('<html>')) {
+    throw new Error('Connection verification required in iframe. Please open this app in a "New Tab" using the button in the top-right corner to allow authorization cookies.');
+  }
+  if (!res.ok) {
+    throw new Error(`Server returned status ${res.status}: ${text.substring(0, 100)}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (parseErr) {
+    throw new Error(`Failed to parse response: ${text.substring(0, 100)}`);
+  }
+};
+
 export const SSOPortal: React.FC<SSOPortalProps> = ({
   themeMode,
   currentUser,
@@ -74,13 +89,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     setIsLoading(true);
     try {
       const res = await fetch(`/api/v1/sso/apps?owner=${encodeURIComponent(ownerName)}`);
-      const text = await res.text();
-      let data: any;
-      try {
-        data = JSON.parse(text);
-      } catch (parseErr) {
-        throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
-      }
+      const data = await handleFetchResponse(res);
       if (data.success && Array.isArray(data.apps)) {
         setApps(data.apps);
       } else {
@@ -89,6 +98,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       }
     } catch (err: any) {
       console.warn('Failed to load SSO apps:', err);
+      showNotification('error', err.message);
     } finally {
       setIsLoading(false);
     }
@@ -194,13 +204,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             scopes: selectedScopes
           })
         });
-        const text = await res.text();
-        let data: any;
-        try {
-          data = JSON.parse(text);
-        } catch (parseErr) {
-          throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
-        }
+        const data = await handleFetchResponse(res);
         if (data.success) {
           showNotification('success', 'OAuth application updated successfully!');
           resetForm();
@@ -224,13 +228,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             scopes: selectedScopes
           })
         });
-        const text = await res.text();
-        let data: any;
-        try {
-          data = JSON.parse(text);
-        } catch (parseErr) {
-          throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
-        }
+        const data = await handleFetchResponse(res);
         if (data.success) {
           showNotification('success', 'OAuth 2.0 credentials generated successfully!');
           resetForm();
@@ -259,13 +257,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: app.id, client_id: app.client_id })
       });
-      const text = await res.text();
-      let data: any;
-      try {
-        data = JSON.parse(text);
-      } catch (parseErr) {
-        throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
-      }
+      const data = await handleFetchResponse(res);
       if (data.success) {
         showNotification('success', 'New Client Secret generated successfully!');
         fetchApps();
@@ -289,13 +281,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: app.id, client_id: app.client_id })
       });
-      const text = await res.text();
-      let data: any;
-      try {
-        data = JSON.parse(text);
-      } catch (parseErr) {
-        throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
-      }
+      const data = await handleFetchResponse(res);
       if (data.success) {
         showNotification('success', 'Application deleted successfully');
         fetchApps();
@@ -361,13 +347,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         })
       });
 
-      const text = await res.text();
-      let data: any;
-      try {
-        data = JSON.parse(text);
-      } catch (parseErr) {
-        throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
-      }
+      const data = await handleFetchResponse(res);
       if (data.success) {
         setPlaygroundAuthCode(data.code);
         setPlaygroundSignedPayload(data.payload);
@@ -414,13 +394,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         })
       });
 
-      const text = await res.text();
-      let data: any;
-      try {
-        data = JSON.parse(text);
-      } catch (parseErr) {
-        throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
-      }
+      const data = await handleFetchResponse(res);
       if (data.access_token) {
         setPlaygroundAccessToken(data.access_token);
         setPlaygroundStep('token_exchanged');
@@ -457,13 +431,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         headers: { Authorization: `Bearer ${playgroundAccessToken}` }
       });
 
-      const text = await res.text();
-      let data: any;
-      try {
-        data = JSON.parse(text);
-      } catch (parseErr) {
-        throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
-      }
+      const data = await handleFetchResponse(res);
       if (data.success && data.user) {
         setPlaygroundUserResult(data.user);
         setPlaygroundStep('userinfo_fetched');
