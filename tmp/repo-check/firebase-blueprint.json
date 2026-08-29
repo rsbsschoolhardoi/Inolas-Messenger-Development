@@ -1,0 +1,68 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile data",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "display_name": { "type": "string" },
+        "bio": { "type": "string" },
+        "avatar_seed": { "type": "string" },
+        "avatar_url": { "type": "string" },
+        "online": { "type": "boolean" },
+        "last_seen": { "type": "string" },
+        "last_seen_timestamp": { "type": "number" },
+        "custom_status": { "type": "string" },
+        "activity_status": { "type": "string" },
+        "activity_type": { "type": "string" },
+        "followers": { "type": "array" },
+        "following": { "type": "array" },
+        "is_private": { "type": "boolean", "description": "Whether the account is private" }
+      }
+    },
+    "FollowRequest": {
+      "title": "Follow Request",
+      "description": "Pending follow requests for private accounts",
+      "type": "object",
+      "properties": {
+        "fromId": { "type": "string" },
+        "toId": { "type": "string" },
+        "fromName": { "type": "string" },
+        "fromUsername": { "type": "string" },
+        "fromAvatar": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "declined"] },
+        "timestamp": { "type": "number" }
+      }
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notifications for social activities",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["follow_request", "follow_accept", "new_follower", "mention"] },
+        "fromId": { "type": "string" },
+        "fromName": { "type": "string" },
+        "fromUsername": { "type": "string" },
+        "fromAvatar": { "type": "string" },
+        "read": { "type": "boolean" },
+        "timestamp": { "type": "number" }
+      }
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "follow_requests/{requestId}": {
+      "schema": "FollowRequest",
+      "description": "Collection for managing follow requests"
+    },
+    "notifications/{notifId}": {
+      "schema": "Notification",
+      "description": "Collection for user notifications"
+    }
+  }
+}

@@ -261,7 +261,13 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
 
       const effectiveApiKey = selectedApp.client_id || selectedApp.api_key;
 
-      if (activeTab === 'logs') {
+      if (activeTab === 'analytics') {
+        const res = await fetch('/api/v1/apps/analytics', {
+          headers: { 'Authorization': `Bearer ${effectiveApiKey}` }
+        });
+        const data = await res.json();
+        setAnalytics(data.data);
+      } else if (activeTab === 'logs') {
         const res = await fetch('/api/v1/apps/logs', {
           headers: { 'Authorization': `Bearer ${effectiveApiKey}` }
         });
@@ -470,6 +476,10 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
           {[
             { id: 'apps', icon: Server, label: 'Service Account & Keys' },
             { id: 'otp', icon: Lock, label: 'OTP Service Specs' },
+            { id: 'webhooks', icon: Webhook, label: 'Webhooks' },
+            { id: 'broadcast', icon: Radio, label: 'Broadcasting' },
+            { id: 'sso', icon: ShieldCheck, label: 'OAuth 2.0 / SSO' },
+            { id: 'analytics', icon: BarChart3, label: 'Analytics' },
             { id: 'logs', icon: History, label: 'Activity Logs' },
             { id: 'docs', icon: FileText, label: 'API Specs' },
             { id: 'settings', icon: Sliders, label: 'Settings' },
@@ -844,10 +854,227 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
             )}
 
             {/* TAB: WEBHOOK CONFIGURATION */}
+            {activeTab === 'webhooks' && selectedApp && (
+              <div className="space-y-6 animate-in fade-in">
+                <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800 shadow-sm space-y-6">
+                  <div>
+                    <h3 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
+                      <Webhook className="h-5 w-5 text-zinc-400" />
+                      Production Webhook Settings
+                    </h3>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Configure your backend URL to receive HMAC-SHA256 signed event notifications.
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1">Production Webhook Endpoint</label>
+                      <input 
+                        type="url" 
+                        value={webhookUrl}
+                        onChange={e => setWebhookUrl(e.target.value)}
+                        placeholder="https://your-api.com/webhooks/zenoa" 
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs font-mono outline-none text-zinc-100 focus:border-zinc-700"
+                      />
+                    </div>
+
+                    <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-2">
+                      <p className="text-xs font-bold text-zinc-200">HMAC-SHA256 Signature Verification</p>
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        Incoming webhook requests include an <code className="text-zinc-200 font-mono">X-Zenoa-Signature</code> header. Validate this signature using your Client Secret to ensure authentic payload origin.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={handleUpdateSettings}
+                      disabled={isSaving}
+                      className="px-6 py-2.5 bg-zinc-100 hover:bg-white text-zinc-950 rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      {isSaving ? 'Saving...' : 'Save Webhook Configuration'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* TAB: MULTI-RECIPIENT BROADCAST SPECS */}
+            {activeTab === 'broadcast' && selectedApp && (
+              <div className="space-y-6 animate-in fade-in">
+                <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800 shadow-sm space-y-6">
+                  <div>
+                    <h3 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
+                      <Radio className="h-5 w-5 text-zinc-400" />
+                      Production Broadcast API Specifications
+                    </h3>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Dispatch batch notifications to multiple users via your Service Account.
+                    </p>
+                  </div>
+
+                  <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 bg-zinc-800 text-zinc-200 border border-zinc-700 rounded-md text-[10px] font-mono font-bold">POST</span>
+                      <code className="text-xs font-mono font-bold text-zinc-100">/api/v1/bot/broadcast</code>
+                    </div>
+                    <p className="text-xs text-zinc-400">Payload specification for batch dispatches:</p>
+                    <pre className="text-[11px] font-mono bg-zinc-900 p-3 rounded-xl border border-zinc-800 text-zinc-300 overflow-x-auto">
+{`Headers:
+  Authorization: Bearer <CLIENT_ID>
+  Content-Type: application/json
+
+Body:
+{
+  "recipients": ["username_1", "username_2", "+91XXXXXXXXXX"],
+  "message": "Transaction notification update from verified service account."
+}`}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* TAB: OAUTH 2.0 & SSO SDK SUITE */}
+            {activeTab === 'sso' && selectedApp && (
+              <div className="space-y-6 animate-in fade-in">
+                <div className="bg-zinc-900 p-8 rounded-3xl text-zinc-100 border border-zinc-800 shadow-sm">
+                  <div className="flex items-center gap-3 mb-2">
+                    <ShieldCheck className="h-8 w-8 text-zinc-300" />
+                    <h3 className="text-2xl font-bold">OAuth 2.0 Single Sign-On</h3>
+                  </div>
+                  <p className="text-zinc-400 text-xs max-w-xl mb-6 leading-relaxed">
+                    Integrate instant Zenoa user authentication into your external application with zero passwords required.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="px-3 py-1 bg-zinc-950 rounded-lg text-[10px] font-bold border border-zinc-800">HMAC-SHA256 SIGNED</span>
+                    <span className="px-3 py-1 bg-zinc-950 rounded-lg text-[10px] font-bold border border-zinc-800">OAUTH 2.0 AUTH CODE</span>
+                    <span className="px-3 py-1 bg-zinc-950 rounded-lg text-[10px] font-bold border border-zinc-800">ZERO PASSWORDS</span>
+                  </div>
+                </div>
+
+                {/* Integration Code Generator */}
+                <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
+                    <h3 className="font-bold text-zinc-100 flex items-center gap-2">
+                      <Code className="h-5 w-5 text-zinc-400" />
+                      Production Integration Snippets
+                    </h3>
+                    <div className="flex flex-wrap gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+                      {[
+                        { id: 'node', label: 'Node.js' },
+                        { id: 'python', label: 'Python' },
+                        { id: 'php', label: 'PHP' },
+                        { id: 'go', label: 'Go' },
+                        { id: 'curl', label: 'cURL' },
+                        { id: 'button', label: 'HTML Button' },
+                      ].map(lang => (
+                        <button
+                          key={lang.id}
+                          onClick={() => setCodeLang(lang.id as any)}
+                          className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                            codeLang === lang.id 
+                              ? 'bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700' 
+                              : 'text-zinc-400 hover:text-zinc-200'
+                          }`}
+                        >
+                          {lang.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="relative">
+                    <div className="bg-zinc-950 rounded-2xl p-5 font-mono text-xs text-zinc-200 overflow-x-auto leading-relaxed border border-zinc-800">
+                      {codeLang === 'node' && (
+                        <pre>{`// Node.js Express Integration
+import express from 'express';
+import axios from 'axios';
+
+const CLIENT_ID = '${currentClientId}';
+const CLIENT_SECRET = '${currentClientSecret}';
+const ZENOA_URL = '${window.location.origin}';
+
+async function verifyOtpCode(recipient, code) {
+  const res = await axios.post(\`\${ZENOA_URL}/api/v1/otp/verify\`, {
+    recipient, code
+  }, {
+    headers: { 'Authorization': \`Bearer \${CLIENT_ID}\` }
+  });
+  return res.data;
+}`}</pre>
+                      )}
+
+                      {codeLang === 'python' && (
+                        <pre>{`# Python OTP & SSO Integration
+import requests
+
+CLIENT_ID = '${currentClientId}'
+CLIENT_SECRET = '${currentClientSecret}'
+ZENOA_URL = '${window.location.origin}'
+
+def verify_otp(recipient, code):
+    res = requests.post(f"{ZENOA_URL}/api/v1/otp/verify", json={"recipient": recipient, "code": code}, headers={"Authorization": f"Bearer {CLIENT_ID}"})
+    return res.json()`}</pre>
+                      )}
+
+                      {codeLang === 'php' && (
+                        <pre>{`<?php
+// PHP OTP Verification
+$client_id = '${currentClientId}';
+$zenoa_url = '${window.location.origin}';
+
+function verifyOtp($recipient, $code) {
+    global $client_id, $zenoa_url;
+    $ch = curl_init("$zenoa_url/api/v1/otp/verify");
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['recipient' => $recipient, 'code' => $code]));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json', "Authorization: Bearer $client_id"]);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    return json_decode(curl_exec($ch), true);
+}`}</pre>
+                      )}
+
+                      {codeLang === 'go' && (
+                        <pre>{`package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+)
+
+func verifyOTP(recipient string, code string) (*http.Response, error) {
+	payload, _ := json.Marshal(map[string]string{"recipient": recipient, "code": code})
+	req, _ := http.NewRequest("POST", "${window.location.origin}/api/v1/otp/verify", bytes.NewBuffer(payload))
+	req.Header.Set("Authorization", "Bearer ${currentClientId}")
+	req.Header.Set("Content-Type", "application/json")
+	return http.DefaultClient.Do(req)
+}`}</pre>
+                      )}
+
+                      {codeLang === 'curl' && (
+                        <pre>{`curl -X POST ${window.location.origin}/api/v1/otp/verify \\
+  -H "Authorization: Bearer ${currentClientId}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"recipient": "+91XXXXXXXXXX", "code": "123456"}'`}</pre>
+                      )}
+
+                      {codeLang === 'button' && (
+                        <pre>{`<!-- Ready-to-use "Sign in with Zenoa" SVG Button -->
+<a 
+  href="${window.location.origin}/sso/authorize?client_id=${currentClientId}&redirect_uri=${encodeURIComponent(primaryRedirectUri)}&response_type=code"
+  style="display: inline-flex; align-items: center; gap: 10px; background-color: #18181b; color: #ffffff; padding: 12px 24px; border-radius: 12px; font-family: sans-serif; font-size: 14px; font-weight: 600; text-decoration: none; border: 1px solid #27272a;"
+>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+  </svg>
+  <span>Sign in with Zenoa</span>
+</a>`}</pre>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* TAB: ANALYTICS */}
             {activeTab === 'analytics' && selectedApp && (

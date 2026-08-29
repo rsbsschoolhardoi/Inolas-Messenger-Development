@@ -1,0 +1,123 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global rule: allow read and write for all documents
+    match /{document=**} {
+      allow read, write: if true;
+    }
+
+    // Users collection & subcollections
+    match /users/{userId} {
+      allow read, write: if true;
+      match /{allPaths=**} {
+        allow read, write: if true;
+      }
+    }
+
+    // Reports collection
+    match /reports/{reportId} {
+      allow read, write: if true;
+    }
+
+    // Audit logs collection
+    match /audit_logs/{logId} {
+      allow read, write: if true;
+    }
+
+    // Broadcasts collection
+    match /broadcasts/{broadcastId} {
+      allow read, write: if true;
+    }
+
+    // Service accounts registry
+    match /service_accounts/{accountId} {
+      allow read, write: if true;
+    }
+
+    // Developer Apps collection
+    match /developer_apps/{appId} {
+      allow read, write: if true;
+    }
+
+    // SSO Applications collection
+    match /sso_applications/{appId} {
+      allow read, write: if true;
+    }
+    match /sso_clients/{appId} {
+      allow read, write: if true;
+    }
+
+    // OAuth 2.0 temporary auth codes & tokens
+    match /oauth_codes/{codeId} {
+      allow read, write: if true;
+    }
+    match /oauth_tokens/{tokenId} {
+      allow read, write: if true;
+    }
+    match /sso_auth_codes/{codeId} {
+      allow read, write: if true;
+    }
+    match /sso_tokens/{tokenId} {
+      allow read, write: if true;
+    }
+
+    // OTP collection
+    match /otps/{otpId} {
+      allow read, write: if true;
+    }
+
+    // Developer analytics & logs
+    match /developer_analytics/{appId} {
+      allow read, write: if true;
+    }
+    match /developer_logs/{logId} {
+      allow read, write: if true;
+    }
+
+    // Notifications collection
+    match /notifications/{notifId} {
+      allow read, write: if true;
+    }
+
+    // Follow requests collection
+    match /follow_requests/{requestId} {
+      allow read, write: if true;
+    }
+
+    // Username reservation lookup
+    match /usernames/{cleanUsername} {
+      allow read, write: if true;
+    }
+
+    // User vault resets
+    match /user_vault_resets/{userEmail} {
+      allow read, write: if true;
+    }
+
+    // Chats collection & subcollections
+    match /chats/{chatId} {
+      allow read, write: if true;
+      match /{allPaths=**} {
+        allow read, write: if true;
+      }
+    }
+
+    // Messages collection & subcollections
+    match /messages/{messageId} {
+      allow read, write: if true;
+      match /{allPaths=**} {
+        allow read, write: if true;
+      }
+    }
+
+    // Calls collection with candidates subcollection
+    match /calls/{callId} {
+      allow read, write: if true;
+      match /{allPaths=**} {
+        allow read, write: if true;
+      }
+    }
+  }
+}
+
