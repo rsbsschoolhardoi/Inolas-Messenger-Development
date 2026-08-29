@@ -17,6 +17,7 @@ export async function apiFetch(resource: RequestInfo | URL, config?: RequestInit
     const text = await cloned.text().catch(() => '');
     
     if (
+      response.status === 405 ||
       response.url.includes('__cookie_check') || 
       text.includes('__cookie_check') || 
       (text.includes('<!DOCTYPE html>') && (text.includes('302 Found') || text.includes('Cookie Check')))

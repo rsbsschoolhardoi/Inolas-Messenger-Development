@@ -2697,6 +2697,7 @@ export default function App() {
           // Trigger smooth Google opening animation
           setOpeningAnimationData({ displayName: dName, provider });
           setIsOpeningAnimationActive(true);
+          setTimeout(() => setIsOpeningAnimationActive(false), 2500);
 
           confetti({ particleCount: 80, spread: 60, origin: { y: 0.8 } });
           showToast(`Welcome back, ${dName}!`);
@@ -2734,6 +2735,7 @@ export default function App() {
         // Trigger smooth opening animation
         setOpeningAnimationData({ displayName: name, provider });
         setIsOpeningAnimationActive(true);
+        setTimeout(() => setIsOpeningAnimationActive(false), 2500);
 
         confetti({ particleCount: 80, spread: 60, origin: { y: 0.8 } });
         showToast(`Signed in successfully via ${provider === 'google' ? 'Google' : 'Facebook'}`);

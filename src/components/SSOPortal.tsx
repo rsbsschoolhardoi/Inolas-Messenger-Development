@@ -49,8 +49,8 @@ const handleFetchResponse = async (res: Response, originalRequest?: () => Promis
     } catch (e) {
       // fallback
     }
-    // Return safe default so app never crashes
-    return { success: true, apps: [], code: 'sim_auth_code_' + Math.random().toString(36).substring(7), payload: 'sim_payload_' + Math.random().toString(36).substring(7) };
+    // If it reaches here, the retry failed or couldn't be attempted
+    throw new Error('Please open this application in a "New Tab" to allow secure cookies.');
   }
   if (!res.ok) {
     throw new Error(`Server returned status ${res.status}: ${text.substring(0, 100)}`);
@@ -58,7 +58,7 @@ const handleFetchResponse = async (res: Response, originalRequest?: () => Promis
   try {
     return JSON.parse(text);
   } catch (parseErr) {
-    return { success: true, apps: [], message: text };
+    throw new Error(`Failed to parse response: ${text.substring(0, 100)}`);
   }
 };
 
@@ -209,7 +209,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     try {
       if (editingAppId) {
         // Update
-        const res = await fetch('/api/v1/sso/apps/update', {
+        const res = await apiFetch('/api/v1/sso/apps/update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -233,7 +233,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         }
       } else {
         // Create
-        const res = await fetch('/api/v1/sso/apps/create', {
+        const res = await apiFetch('/api/v1/sso/apps/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -270,7 +270,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     }
 
     try {
-      const res = await fetch('/api/v1/sso/apps/regenerate-secret', {
+      const res = await apiFetch('/api/v1/sso/apps/regenerate-secret', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: app.id, client_id: app.client_id })
@@ -294,7 +294,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     }
 
     try {
-      const res = await fetch('/api/v1/sso/apps/delete', {
+      const res = await apiFetch('/api/v1/sso/apps/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: app.id, client_id: app.client_id })
@@ -347,7 +347,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     const rUri = testRedirectUri || (targetApp.redirect_uris && targetApp.redirect_uris[0]) || (window.location.origin + '/auth/sso');
 
     try {
-      const res = await fetch('/api/v1/sso/authorize', {
+      const res = await apiFetch('/api/v1/sso/authorize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -401,7 +401,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     ]);
 
     try {
-      const res = await fetch('/api/v1/sso/token', {
+      const res = await apiFetch('/api/v1/sso/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -445,7 +445,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     ]);
 
     try {
-      const res = await fetch('/api/v1/sso/userinfo', {
+      const res = await apiFetch('/api/v1/sso/userinfo', {
         headers: { Authorization: `Bearer ${playgroundAccessToken}` }
       });
 
