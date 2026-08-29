@@ -5,6 +5,8 @@ import {
   Code, Copy, Check, ExternalLink, RefreshCw, Key, Lock, Globe, Sparkles 
 } from 'lucide-react';
 import { UserData } from '../types';
+import { db } from '../firebaseClient';
+import { collection, query, where, getDocs, setDoc, doc } from 'firebase/firestore';
 
 interface SSOLoginProps {
   themeMode: 'light' | 'dark';
@@ -78,80 +80,115 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
     setState(st || 'state_' + Math.random().toString(36).substring(2, 8));
 
     // Fetch App Config from Live Firestore Backend
-    fetch(`/api/v1/sso/config?client_id=${encodeURIComponent(effectiveClientId)}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.error) {
-          if (effectiveClientId === 'demo_app') {
-            setAppConfig({
-              app_name: 'Zenoa Developer Demo',
-              bot_username: 'zenoabot',
-              app_description: 'Interactive OAuth 2.0 & Single Sign-On testing application'
-            });
-          } else {
-            setError(data.error);
-          }
+    const fetchConfig = async () => {
+      try {
+        if (!db) throw new Error("Database not initialized");
+        
+        const ssoRef = collection(db, 'sso_applications');
+        const q = query(ssoRef, where('client_id', '==', effectiveClientId));
+        const snap = await getDocs(q);
+        
+        if (!snap.empty) {
+          const appData = snap.docs[0].data();
+          setAppConfig({
+            ...appData,
+            client_secret: appData.client_secret // Keep secret for signing later
+          });
+        } else if (effectiveClientId === 'demo_app') {
+          setAppConfig({
+            app_name: 'Zenoa Developer Demo',
+            bot_username: 'zenoabot',
+            app_description: 'Interactive OAuth 2.0 & Single Sign-On testing application',
+            client_secret: 'demo_secret'
+          });
         } else {
-          setAppConfig(data);
+          setError(`Application not found for client_id: "${effectiveClientId}". Please verify the link.`);
         }
-      })
-      .catch(() => {
-        setAppConfig({
-          app_name: 'Zenoa Developer App',
-          bot_username: 'zenoabot'
-        });
-      })
-      .finally(() => setIsLoading(false));
+      } catch (err: any) {
+        console.error("Firestore config fetch error:", err);
+        setError('Failed to load application configuration. Please check your connection.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchConfig();
   }, []);
 
   const handleAuthorize = async () => {
-    if (!currentUser || !clientId || !redirectUri) return;
-
+    if (!currentUser || !clientId || !redirectUri || !appConfig) return;
+    
     setIsAuthorizing(true);
     setError(null);
-    try {
-      const response = await fetch('/api/v1/sso/authorize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          client_id: clientId,
-          user_data: {
-            uid: currentUser.id,
-            username: currentUser.username,
-            display_name: currentUser.display_name,
-            email: currentUser.email,
-            mobile_number: currentUser.mobile_number,
-            avatar_url: currentUser.avatar_url || currentUser.avatar_seed
-          },
-          redirect_uri: redirectUri,
-          state: state || ''
-        })
-      });
 
-      const text = await response.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        throw new Error('Authorization check failed. Browsers require you to open this application in a "New Tab" to allow secure login cookies.');
-      }
+    try {
+      if (!db) throw new Error("Database not connected");
+
+      // 1. Generate Auth Code
+      const authCode = 'zen_ac_' + Array.from(window.crypto.getRandomValues(new Uint8Array(16)))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+      const expiryDate = Date.now() + 10 * 60 * 1000; // 10 mins
+
+      const authPayload = {
+        code: authCode,
+        client_id: clientId,
+        user_id: currentUser.id,
+        redirect_uri: redirectUri,
+        scopes: appConfig.scopes || ['profile', 'email'],
+        expires_at: expiryDate,
+        created_at: Date.now()
+      };
+
+      // 2. Save Auth Code to Firestore
+      await setDoc(doc(db, 'sso_authorizations', authCode), authPayload);
+
+      // 3. Generate Signed SSO Payload
+      const secret = appConfig.client_secret || 'zenoa_sso_secret';
+      const ssoPayload = {
+        uid: currentUser.id,
+        username: currentUser.username,
+        display_name: currentUser.display_name,
+        email: currentUser.email,
+        mobile_number: currentUser.mobile_number,
+        avatar_url: currentUser.avatar_url || currentUser.avatar_seed,
+        iss: 'zenoa_sso',
+        client_id: clientId,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600
+      };
+
+      const payloadStr = JSON.stringify(ssoPayload);
       
-      if (data.success) {
-        // Build final destination callback URL
-        try {
-          const finalUrl = new URL(redirectUri, window.location.origin);
-          finalUrl.searchParams.set('code', data.code);
-          finalUrl.searchParams.set('payload', data.payload);
-          finalUrl.searchParams.set('signature', data.signature);
-          if (state) finalUrl.searchParams.set('state', state);
-          
-          window.location.href = finalUrl.toString();
-        } catch (urlErr) {
-          const sep = redirectUri.includes('?') ? '&' : '?';
-          window.location.href = `${redirectUri}${sep}code=${encodeURIComponent(data.code)}&payload=${encodeURIComponent(data.payload)}&signature=${encodeURIComponent(data.signature)}${state ? `&state=${encodeURIComponent(state)}` : ''}`;
-        }
-      } else {
-        setError(data.error || 'Authorization failed');
+      // Properly base64 encode supporting unicode
+      const base64Payload = btoa(encodeURIComponent(payloadStr).replace(/%([0-9A-F]{2})/g,
+          function toSolidBytes(match, p1) {
+              return String.fromCharCode(Number('0x' + p1));
+      }));
+
+      // Sign with HMAC SHA256 using Web Crypto API
+      const encoder = new TextEncoder();
+      const key = await window.crypto.subtle.importKey(
+        'raw',
+        encoder.encode(secret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+      const signatureBuffer = await window.crypto.subtle.sign('HMAC', key, encoder.encode(payloadStr));
+      const signature = Array.from(new Uint8Array(signatureBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+      // 4. Redirect User
+      try {
+        const finalUrl = new URL(redirectUri, window.location.origin);
+        finalUrl.searchParams.set('code', authCode);
+        finalUrl.searchParams.set('payload', base64Payload);
+        finalUrl.searchParams.set('signature', signature);
+        if (state) finalUrl.searchParams.set('state', state);
+        
+        window.location.href = finalUrl.toString();
+      } catch (urlErr) {
+        const sep = redirectUri.includes('?') ? '&' : '?';
+        window.location.href = `${redirectUri}${sep}code=${encodeURIComponent(authCode)}&payload=${encodeURIComponent(base64Payload)}&signature=${encodeURIComponent(signature)}${state ? `&state=${encodeURIComponent(state)}` : ''}`;
       }
     } catch (err: any) {
       setError(err?.message || 'Authorization service error');
