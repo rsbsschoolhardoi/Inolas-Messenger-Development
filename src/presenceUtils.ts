@@ -16,6 +16,11 @@ export interface PresenceUser {
  */
 export const isUserEffectivelyOnline = (user: PresenceUser | undefined | null): boolean => {
   if (!user) return false;
+
+  // Service & Business Accounts do NOT display online/offline presence status
+  if (user.is_service_account || (user as any).is_business_account || isServiceAccount(user, user.username)) {
+    return false;
+  }
   
   // If user selected Invisible / Offline, always false
   if (user.activity_status === 'offline') {
@@ -38,10 +43,18 @@ export const isUserEffectivelyOnline = (user: PresenceUser | undefined | null): 
 };
 
 /**
- * Returns accurate human-readable status text (e.g. "online", "last seen 2m ago", "last seen yesterday", "offline")
+ * Returns accurate human-readable status text (e.g. "Business Account", "online", "last seen 2m ago", "offline")
  */
 export const getOnlineStatusText = (user: PresenceUser | undefined | null): string => {
   if (!user) return 'offline';
+
+  if (user.is_service_account || (user as any).is_business_account || isServiceAccount(user, user.username)) {
+    const uname = (user.username || '').toLowerCase();
+    if (['zenoa', 'sa_zenoa', 'zenoa_official'].includes(uname)) {
+      return 'Official Zenoa Account';
+    }
+    return 'Business Account';
+  }
 
   if (user.activity_status === 'offline') {
     return 'offline';
@@ -77,11 +90,11 @@ export const getOnlineStatusText = (user: PresenceUser | undefined | null): stri
 
 export const isServiceAccount = (user: PresenceUser | any | undefined | null, explicitUsername?: string): boolean => {
   if (!user && !explicitUsername) return false;
-  if (user?.is_service_account) return true;
+  if (user?.is_service_account || user?.is_business_account) return true;
   
   const uname = explicitUsername || user?.username;
   if (!uname) return false;
   
   const normalized = uname.toLowerCase();
-  return normalized === 'zenoa' || normalized === 'sa_zenoa' || normalized === 'zenoa_official';
+  return normalized.startsWith('sa_') || normalized === 'zenoa' || normalized === 'sa_zenoa' || normalized === 'zenoa_official';
 };

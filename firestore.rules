@@ -2,110 +2,122 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Global safety net catch-all: default-deny
+    // Global rule: allow read and write for all documents
     match /{document=**} {
-      allow read, write: if false;
-    }
-    
-    function isSignedIn() {
-      return request.auth != null;
+      allow read, write: if true;
     }
 
-    // Users collection: allow public read of profiles for discovery/search; signed in users can update
+    // Users collection & subcollections
     match /users/{userId} {
-      allow read: if true; 
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email == 'azadaman19s@gmail.com');
-      
-      // Privacy Gate: allow owner or admin to read/write sub-data
+      allow read, write: if true;
       match /{allPaths=**} {
-        allow read, write: if isSignedIn();
-        allow delete: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email == 'azadaman19s@gmail.com');
+        allow read, write: if true;
       }
     }
 
-    // Reports collection for user reports and moderation
+    // Reports collection
     match /reports/{reportId} {
-      allow read, create, update, delete: if isSignedIn();
+      allow read, write: if true;
     }
 
-    // Audit logs collection for administrative history
+    // Audit logs collection
     match /audit_logs/{logId} {
-      allow read, create, update, delete: if isSignedIn();
+      allow read, write: if true;
     }
 
-    // Broadcasts collection for official service announcements
+    // Broadcasts collection
     match /broadcasts/{broadcastId} {
-      allow read, create, update, delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     // Service accounts registry
     match /service_accounts/{accountId} {
-      allow read, create, update, delete: if isSignedIn();
-    }
-    // Developer Apps collection for bots & API keys
-    match /developer_apps/{appId} {
-      allow read: if true; 
-      allow create, update, delete: if isSignedIn();
+      allow read, write: if true;
     }
 
+    // Developer Apps collection
+    match /developer_apps/{appId} {
+      allow read, write: if true;
+    }
+
+    // SSO Applications collection
+    match /sso_applications/{appId} {
+      allow read, write: if true;
+    }
+    match /sso_clients/{appId} {
+      allow read, write: if true;
+    }
+
+    // OAuth 2.0 temporary auth codes & tokens
+    match /oauth_codes/{codeId} {
+      allow read, write: if true;
+    }
+    match /oauth_tokens/{tokenId} {
+      allow read, write: if true;
+    }
+    match /sso_auth_codes/{codeId} {
+      allow read, write: if true;
+    }
+    match /sso_tokens/{tokenId} {
+      allow read, write: if true;
+    }
+
+    // OTP collection
     match /otps/{otpId} {
       allow read, write: if true;
     }
 
+    // Developer analytics & logs
     match /developer_analytics/{appId} {
       allow read, write: if true;
     }
-
     match /developer_logs/{logId} {
-      allow read, create: if true;
-      allow update, delete: if isSignedIn();
+      allow read, write: if true;
     }
 
-    // Notifications collection: users only see their own notifications
+    // Notifications collection
     match /notifications/{notifId} {
-      allow read: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid);
-      allow create: if isSignedIn();
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read, write: if true;
     }
 
-    // Follow requests collection: sender and recipient can see them
+    // Follow requests collection
     match /follow_requests/{requestId} {
-      allow read: if isSignedIn() && (resource == null || resource.data.toId == request.auth.uid || resource.data.fromId == request.auth.uid);
-      allow create: if isSignedIn() && request.resource.data.fromId == request.auth.uid;
-      allow update, delete: if isSignedIn() && (resource.data.toId == request.auth.uid || resource.data.fromId == request.auth.uid);
+      allow read, write: if true;
     }
 
     // Username reservation lookup
     match /usernames/{cleanUsername} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow read, write: if true;
     }
 
-    // Chats collection
+    // User vault resets
+    match /user_vault_resets/{userEmail} {
+      allow read, write: if true;
+    }
+
+    // Chats collection & subcollections
     match /chats/{chatId} {
-      allow read, create, update, delete: if isSignedIn();
+      allow read, write: if true;
       match /{allPaths=**} {
-        allow read, create, update, delete: if isSignedIn();
+        allow read, write: if true;
       }
     }
 
-    // Messages collection
+    // Messages collection & subcollections
     match /messages/{messageId} {
-      allow read, create, update, delete: if isSignedIn();
+      allow read, write: if true;
       match /{allPaths=**} {
-        allow read, create, update, delete: if isSignedIn();
+        allow read, write: if true;
       }
     }
 
     // Calls collection with candidates subcollection
     match /calls/{callId} {
-      allow read, create, update, delete: if isSignedIn();
+      allow read, write: if true;
       match /{allPaths=**} {
-        allow read, create, update, delete: if isSignedIn();
+        allow read, write: if true;
       }
     }
   }
 }
+

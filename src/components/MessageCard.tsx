@@ -207,7 +207,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
               <span className={`text-[11px] font-bold ${isReceivedDark ? 'text-indigo-300' : 'text-neutral-900 dark:text-neutral-100'}`}>
                 {senderName}
               </span>
-              {(isSenderVerified || isSenderServiceAccount) && (
+              {isSenderVerified && (
                 <PurpleVerifiedBadge size="xs"  />
               )}
             </div>

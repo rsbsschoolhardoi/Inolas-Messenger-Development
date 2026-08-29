@@ -1,4 +1,4 @@
-import { SSOLogin } from "./components/SSOLogin";
+import { SSOConsoleStandalone } from "./components/SSOConsoleStandalone";import { SSOLogin } from "./components/SSOLogin";
 import { DeveloperConsoleStandalone } from './components/DeveloperConsoleStandalone';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MediaPreviewLightbox } from './components/MediaPreviewLightbox';
@@ -2734,6 +2734,11 @@ export default function App() {
   };
 
   const handleAuthFlowLogin = async (identifier: string, pass: string): Promise<{ success: boolean; requiresOtp?: boolean; error?: string }> => {
+    const cleanId = identifier.toLowerCase().replace(/^@/, '').trim();
+    if (cleanId.startsWith('sa_')) {
+      return { success: false, error: 'Service Accounts cannot be logged in directly. They are designated strictly for automated API dispatches and OTP services.' };
+    }
+
     let emailToUse = identifier;
 
     if (!identifier.includes('@')) {
@@ -2746,6 +2751,10 @@ export default function App() {
           const querySnap = await getDocs(q);
           if (!querySnap.empty) {
             const matchedUser = querySnap.docs[0].data();
+            if (matchedUser.is_service_account || matchedUser.is_business_account) {
+              return { success: false, error: 'Service Accounts cannot be logged in directly. They are designated strictly for automated API dispatches and OTP services.' };
+            }
+
             if (matchedUser.email) {
               emailToUse = matchedUser.email;
             }
@@ -6096,7 +6105,7 @@ export default function App() {
     // Official Zenoa Account Custom Avatar
     if (isServiceAccount(null, s)) {
       return (
-        <div className={`${sizeClass} rounded-full overflow-hidden shrink-0 border border-neutral-200/60 dark:border-neutral-700/60 bg-gradient-to-br from-indigo-500 via-purple-500 to-indigo-600 flex items-center justify-center`}>
+        <div className={`${sizeClass} rounded-full overflow-hidden shrink-0 border border-neutral-200/60 dark:border-neutral-700/60 bg-neutral-800 dark:bg-neutral-900 border border-neutral-700 flex items-center justify-center`}>
           <Shield className="w-1/2 h-1/2 text-white drop-shadow-sm" />
         </div>
       );
@@ -6423,7 +6432,7 @@ export default function App() {
       />
     );
   }
-  if (isDeveloperPath) return <DeveloperConsoleStandalone />;
+  const isSSOConsolePath = typeof window !== "undefined" && (window.location.pathname === "/sso" || window.location.pathname === "/developer/sso"); if (isSSOConsolePath) return <SSOConsoleStandalone />; if (isDeveloperPath) return <DeveloperConsoleStandalone />;
   return (
 
     <div className={`w-full h-[100dvh] flex overflow-hidden select-none touch-manipulation font-sans transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-white' : 'bg-white text-neutral-800'}`}>
@@ -6597,7 +6606,7 @@ export default function App() {
       <aside className={`hidden md:flex flex-col w-64 border-r shrink-0 h-full max-h-[100dvh] transition-colors ${themeMode === 'dark' ? 'bg-[#0f1422] border-slate-800/80' : 'bg-slate-50/80 border-slate-200/80'}`}>
         {/* Brand App Header */}
         <div className="flex items-center gap-2.5 h-16 px-4 border-b border-slate-200/80 dark:border-slate-800/80">
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-600 to-violet-600 text-white font-zenoa font-bold text-base flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
+          <div className="h-9 w-9 rounded-xl bg-neutral-900 dark:bg-neutral-800 border border-neutral-700 text-white font-zenoa font-bold text-base flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
             Z
           </div>
           <span className="font-zenoa font-bold text-base tracking-[0.14em] uppercase text-slate-900 dark:text-white truncate">
@@ -6854,7 +6863,7 @@ export default function App() {
                           ? chatNicknames[chat.username] 
                           : chat.name}
                       </p>
-                              {chat.type !== 'group' && chat.username && (!!users[chat.username]?.is_verified || isServiceAccount(users[chat.username], chat.username)) && (
+                              {chat.type !== 'group' && chat.username && !!users[chat.username]?.is_verified && (
                                 <PurpleVerifiedBadge size="xs"  />
                               )}
                               {chat.pinned && <Pin className="h-3 w-3 text-amber-500 dark:text-amber-400 rotate-45 shrink-0" />}
@@ -6988,7 +6997,7 @@ export default function App() {
                       ) : (
                         <span>{activeChat.name}</span>
                       )}
-                      {activeChat.type !== 'group' && activeChat?.username && (!!users[activeChat?.username]?.is_verified || isServiceAccount(users[activeChat?.username], activeChat?.username)) && (
+                      {activeChat.type !== 'group' && activeChat?.username && !!users[activeChat?.username]?.is_verified && (
                         <PurpleVerifiedBadge size="xs"  />
                       )}
                       {activeChat.type === 'group' && (
@@ -7843,7 +7852,7 @@ export default function App() {
                       <div>
                         <h2 className="text-xl md:text-2xl font-black text-neutral-900 dark:text-white flex items-center justify-center sm:justify-start gap-2">
                           <span>{userDisplayName || 'User'}</span>
-                          {(!!users[userUsername]?.is_verified || isServiceAccount(users[userUsername], userUsername)) && (
+                          {!!users[userUsername]?.is_verified && (
                             <PurpleVerifiedBadge size="sm"  />
                           )}
                         </h2>
@@ -8721,7 +8730,7 @@ export default function App() {
                         {/* Cover Banner & Identity Header */}
                         <div className="relative rounded-3xl overflow-hidden border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xl">
                           {/* Mesh Gradient Cover */}
-                          <div className="h-32 w-full bg-gradient-to-r from-neutral-900 via-indigo-950 to-neutral-900 relative p-4 flex justify-between items-start">
+                          <div className="h-32 w-full bg-neutral-900 dark:bg-neutral-950 border-b border-neutral-800 relative p-4 flex justify-between items-start">
                             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-indigo-500/20 via-transparent to-transparent" />
 
                             <button
@@ -8737,7 +8746,7 @@ export default function App() {
                           <div className="px-6 pb-6 pt-0 text-center relative">
                             {/* Avatar Container with glowing gradient border */}
                             <div className="relative inline-block -mt-14 mb-3">
-                              <div className="p-1.5 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 shadow-2xl">
+                              <div className="p-1.5 rounded-full border border-neutral-300 dark:border-neutral-700 bg-neutral-200 dark:bg-neutral-800 shadow-2xl">
                                 {renderAvatar(
                                   userAvatarSeed || userUsername, 
                                   userDisplayName || userUsername, 
@@ -8758,7 +8767,7 @@ export default function App() {
                             <div className="space-y-1">
                               <h2 className="text-2xl font-black tracking-tight text-neutral-900 dark:text-white flex items-center justify-center gap-2">
                                 <span>{userDisplayName || userUsername}</span>
-                                {(!!users[userUsername]?.is_verified || isServiceAccount(users[userUsername], userUsername)) && (
+                                {!!users[userUsername]?.is_verified && (
                                   <PurpleVerifiedBadge size="sm"  />
                                 )}
                               </h2>
@@ -8867,7 +8876,7 @@ export default function App() {
                             onClick={() => setShowThemeModal(true)}
                             className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl hover:bg-neutral-100 dark:hover:bg-neutral-800/60 transition-colors text-left cursor-pointer group"
                           >
-                            <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white shrink-0 shadow-xs">
+                            <div className="h-9 w-9 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center text-white shrink-0 shadow-xs">
                               <Palette className="h-4 w-4" />
                             </div>
                             <div className="flex-1 min-w-0">
@@ -8922,7 +8931,7 @@ export default function App() {
                           ) : (
                             users[selectedProfileUsername]?.display_name || selectedProfileUsername
                           )}
-                          {(!!users[selectedProfileUsername]?.is_verified || isServiceAccount(users[selectedProfileUsername], selectedProfileUsername)) && (
+                          {!!users[selectedProfileUsername]?.is_verified && (
                             <PurpleVerifiedBadge size="sm"  />
                           )}
                         </h2>
@@ -10649,21 +10658,25 @@ export default function App() {
 
             <div className="flex-1 overflow-y-auto py-3 space-y-2">
               {(() => {
-                const rawList = showFollowListModal.type === 'followers' 
-                  ? (users[showFollowListModal.username]?.followers || [])
-                  : (users[showFollowListModal.username]?.following || []);
-                const list = Array.from(new Set(rawList)).filter(Boolean) as string[];
-
-                if (list.length === 0) {
-                  return (
-                    <div className="py-12 text-center text-neutral-400 space-y-2">
-                      <Users className="h-10 w-10 mx-auto stroke-1 opacity-40" />
-      xœÌ[ÿwÚ¶ÿ}…šÓ3Ì6IÚtí(!-ï‘À€¬ÛéëI­€{–Âÿû»’m,Û²tÛ{œÓ‚¥{eé~ÓıH7e?ç2,ÒkİÆí£ ?*µÑëªMÚG¯¯]´¦wyéZ–»\¹¦niÁÊÃ´ÂÁyÓ{ı’|Î›&yuÕ(4n¾*4ù8}YğFÍÖ=E	˜eÑÀ'Î¼ˆùØBNhÏ°_Gí×h-y“á:4@!j£bŸ~äC|Bü†³ß°hºbªğŞºvGS!¶Ùxüûë¯ù·Æ/j·a,öK²ˆä}„^a“EÀ}PÎ¦ÛıHÈ°<ÆşF»ã0µ7q+4ã©&cÕÙJît‹Â¨’ac	*rí€r´¡{¼j¯?Go¿}^®~èã‹d?@›Ï›²+»³ğ#*UìØG¿…4 w+u†ƒ%ÆòÔSíùnè˜ØTO-´p°ßšÍU‡¯[êÙ12uÿ¾Uèøîø¸	ğÛ¡$ ®£®åúôH:1¹áVgÇbæº§¾@6qÔ¥zŒŒĞ§®¯z.áŒ\=‘Ï…}\§kã¾½VJM:ùPLŠzQœĞ²¤¦)òal›#ß½#N¬I)·ëÜKcÆ‘î`K	ü°Ši³)é*“},}AÈ>¶ô€<`Dàú÷êñQ9/Bkƒİø=Ğ}¼Hç¿n)Æ&ó¾Ês/“PÏÒW·ÜO3=1Kè[T[¨'ÇhÉş‹d­^¶&şşGÊÄÚ»»IÃÔ­ÕĞ±ˆ2®³^¹Kn×O=İ Ï¨k…F37\ìÊ'óE ßî*ËŒÃÜ	 ¬KDÎ"´BÛÌõANêiòc¹ C)£–„úû3ùy“M«Jòb)İâîœÆc÷©Ôsvïâ{ÖÌµÌDIBÇĞaE¼a»”D¼•/¹ò-LŸ%–Re¥›¢lî|*4;Ñ—ÇÇÛ%ìœáM§R7qgIïúßëÀ¢£Í~@ËûÄÀÃ ‹qëmÄ›gµœÏB°s§bA¹@¹}ûBwLGAQ|±¸¶“vuŠ•ú§JN5³şlƒ« ï"º·RO'ƒM)grLé®£ƒÒ…nºKÖ‘®ü~ğ¼*Â£LFPIˆĞTÜûŒg»5ú.ÅlÃŒø\yÓ«”(rwŞz*‰Û’ÂBóE¦'œ›¯hÏße¯‡P.æ¤óÈ¶{|\Û!‹VFß‹²ÅD!îèN’eDùxR5H‰J{+7±L2Êİ>ÔØò¢§ZU¼\¨ì%pPÊ^hÛÔ•Ü¸…ñr™Çú¬›ß ëá´Ùïv¦ıáõ}.‡ƒÁğ÷~ºéM¦t5¼èĞ7Íä…ç×.$‘Â%¸åÉĞö5„=ì´y"›!ãL:eUÀx“¨g;E…çÜÂZ‘¤½Î<¦TQB=ÆÿÈ YöYœ„Nì—b{Å6I—Èy–gHYe}"ïXwÇ²:tŒu³½¶á1³ö¨#å­v&íJi‚¶1h„ºı™ô6_‹
-ÿğ¾3tF#u2ıuĞCW½‹~ÁÓá8V¶Òõ]¯º \›ü©Ú[?¤‹š‚G6ĞûôS¨[$X5Ğ&ƒ±A<™y]4•+À¶zÏ$ëËåÙ3ø2ÁÛÊXXº.Úë]TEƒI9¢´]äcHôÆ~3Zlr¶CP)âÑxxÙgßıîôfÜCİñp4êÁÙÆÃi'•» ¹¾­Ï1Sƒ‡KDÇ|L¤JgK}ƒw´×FÔ5qCßÀ¼m—Š#¼X '‘VDeFr˜èû™Ûô}ïª+ÿĞF&…IoĞëJ…Ğ]èÁ46æ	¤İé4us”\¤Ïo´$±¬BÙy ìC”{ä!y G¯îƒuÀúO÷X¢“×7ùÇEï²s3˜Şòµİö/v	9´DÄhä$©]²¦­4är¾îwÿuİÙ2W.Ê²ã2Ü‘)vœnk0õ <åÒ<&§òYc6Ü‘GÀxÄõ@®õ;KzÊOâGO}™K¯Ïm—	^“œæ¤[íõ¹n@¨i¡c€¸y:=ZU†îDB‡I°s°ÒB2³tã¾ù
-~Ã·	–-¡)çQ~”\Æ#ôŠãP–·ùñPC·0¬Gûş¬±·¬b¦“Æ~R+G¹·g	Ë'Ûú# M€‹âqS6)Ìå’‡¥«,ÑôÔW	`£ÿÎ KX]ñeæšÏ½
-¾ëğLÏ/
-hs8(`*!23”˜ÊysñBò(å”›b|²óÑtöz’=è(€f‰$Í¯‹(EP\ñ<N–Ÿÿ"Îc¡¾zy”÷NY’|Ë±ôggRì‹•h{‚¤ÃVÁr$äÄâUûÅc%®Šm²ËDY½–æM|8„%3ƒÂ­Ë¿Vn¨¤àe@/
-ka‡Ì‘HŠ*â'÷TbÛKfò3k*ÚìW,ïPpb~Ó<›‚5Hæ8¾˜¡¡/@RØoam®¡·?ÈBG¾Ë.Ğ ²ãúw¸>¹<ë¼Ü Išà¤QËË‹Î¦¸
-Aq@b‡Ú;n8Í7äP©£Œ¤ÓÃ² ¹aÀ°ƒê¸³&°¯»†QOÅ‡Â B_G
-ĞÃÀ½dT¹fÑFv†Bvô~Š¼@=•øÏ–•Ó#şTv(Uuµl:]9ª>·'wHy&ys=¾ª);Eî‡"ûäyPIF©æ=€,<´Ñiš–‘Ú”ñšâöcæé>•q€suÅ±•˜·ôŠ ğW0%Ë…Í|pò|Æèƒb•q\Pø-›ìmËh­ş9^kÑE ì}ÛWÔ@`ÕX æêë²ó‘=ÄÌÖ ²bo¦Ñ½ Á4kdo•@¾­üZŒ÷ÔL»ÆìÉĞ<İ Pİ	Ä{¼”µ^/•3˜t>õŠ¡xîÄÆ“€Ù‡ƒ—%Vêüè“eJÓ¨d¦|üÔ ™/ µPíT5Éœ V›8a€…&É!Oş•–;¿¢s†Àá­ŸuC°e¶Y“AÿìôãóuºêÍçıFî3“­Ù·5ô¾ Íq—|QñR^¼ªCO÷_éÁBó›¸vD£á,²å´¾İgU“…×·Ğ¦Œ’9NÅ1[Û	7ª—™)3âT­©æğ13î[=h	¨â ü  •¹væàÒÆµ*>î[‚B+iÁĞÁPèŠ‚£V
-fGİöZ‰yVQÃb~ØÔB`¤Õ„æílÅÈJ©JÃS±béÛÓ‚âùø¹¸R¥fˆœŒ®jb3šı&>z®‡©äã§z#5¶Š•”Çˆ(JzI|ÌÒú®ëÜ‘yèƒBü1gìØeUÑ#ÂÕ—K  ÈíÂ5“ı›5˜IEB¬5¶æ+ªioaŸÃ=†sì5ìóTÏaŸC¼‡ÓïíAœú /bŸ½=)&ŞéMìSµ aóõıŠí—•ûÖ^Kv¢åê4P¦dk:*a*©Uág|xº½ó“€¨øÂMrW~‰&$ú…Ú•Ü­¡¬|D~Ï3Æ 8YB[z;$Á=²¼[=‘ßÒDùO< xä½KàŸi}!»<)ÜqŠÈê‹Ô#SNWwl%Xª™=d»‚<€|	üˆx!e¤ÀXÀëde­Uq?º°•Æo-ßø$°&J[Iˆ@Ø¢¸tÄCñ’<àˆ¡şRµÓ"şÒ¾8éoGIŒ”øBéæø&‚Q Â]Š°=_Ç#n>—Ùús Ùÿ˜=	–í—fš`šZ>-©Ü?Ü7‘<$…Ü3yÜ6–B°'°ğë/ _ĞëË×.Øõç®ı!×S ×SàÖÓÁÖaPë u(Ì: dí±ª ÖğJŞ^ši¬RX•ld°_mß´r›l>)3,¬ûeLŠ¿vçş<ïÿ;+şJà «ùÌxnK@÷C¬\eoL )Ö;o¦—óew[ŒuŞ,Ô_Ä=¬tcò¾3î]Ä•X£qïç~ïôß½Ÿ¾şR¨§‚!^XeúÌ}Ü¾Œı!‘Îªb˜ŞEÊêr”<uæjL`^ïÆÃ›ê{¼bPRˆ—ï@m^Ee HQ:91Ê&‚"c\:óC–,!árşúBæh‚ÄÅ>7Bpl¯e¡2eáõÎ‘PMeL„×Fƒ9ò9eëªXXçTiyÕ¶éé…h‘².zÓNÀŠ;¯:×w½«Şu±BH(“âêöI@s6›ZöúîœOñ:±rå YµèÄ $/”*°ê¥¢]T¬ñÊô®Û2íF/Ú"ÅvöšS¤ãBJR®öÚÎ$_BñXš‰ÜûÔz2q0„°ŒÁ¤-YÊiRÀ·-o5ÍÈ(Ó®,Û˜C	gÔQÍ|Ãa.§é;wnÂškÎòLİùœÍ`_B5qzŞ.2l÷Ç¸ıLû›òbç¤s8ŠÊ;]Ä&ï{½©Äâ?¼z;Šœ%t»Šÿ$,«¦ò?ƒwÊ;„ DßZ®qÍözı`44ù%#dJ#±ó`òÉñBò¡|1¢~8!²¡l´1ö\?¨(¢)ƒoS²ÁÑÈ\\_3,âÍ\İ7µ¥	KW•%$¼ÔØ‰ß­]ŸÌ‰“İ3ÒÓëX$È"Î=à``^Ú¼øH¶Ä†¶İøfó_   ÿÿ 6E
+     xœÌ[{wÚ8ÿ?…&§g0³`’ô1SÚ¥„´ì’À ™ÎœnNjl4±-¯!Ãwß+ù%Û²tfv9§ÅHW×Ò}éş¤„’NmÏG®¶øî oIWÔ4)o¸¤†fªşÚÁ¨Óé ÚïÁ®WCC…Ï;¤t~–1a=¶fá›wjÂış;ú|S—°jÄŠØ‹ˆÕ›¯pf¸º®ëjkõÎ¥–bãšb_‰–^¯«wÄô±«¼§ÔÄš]Gš‡<ßŞŸoŞü­À—Ü!…qUMl/ü%—Ïqm$‹q±¸6R$]äé¦æyW°¤Î‘³nœ"?úMÛ0¡ğÙÆïjfóÅñ1òMÇÍuóôè­”%0½fÂÙ.›'ÇhÅş³›ZàS¶6z›'ˆ;â¯õj•rtDn|J…î¨í7-lÀ:z{EÑ¦Ì|¶hı³–#gÖ!Èº$úÜUÉ—kÃÒE	˜u´#í51ÛÈ¬9vë¨óVª£ĞL°‘Ğî8‹fU£ù¯X÷ÕÍ°Z%³ÛPˆ-Æû-ÿNŒ“ç"YDü>â]b‘…`ôuÄ¡|˜f.Ã‡A‚K½S‰­›M5æUg+¹ÓLKLy-1‹{¼îl¾„o¿}V®~èã‹d í—mGÁÊîLüÈ…êÅ®ğkàùänİœc…±œæ©ú¹4°l4OM´¤ØmÏ‰Ã¼<F†æŞ·?· mø„ÚMšÔõ¤+õ‹
+áìXÌBsšÏ‘EìæªyŒôÀõ¨Ût(áŒ¼y"ŸûP»gı¾³QJM:şxØŸõ¢ØiJMS‡M°}lŒ]
+ÑÇÖ¤”Ûuî¥ÑÀ±fcSñİ jĞv[ÒU&ûbğt±©ùäÃ6®ß<.ì³q1ØÛ}Ğ|ÍUÀ‹4ştëal0á«l0÷2ˆç˜Úú–ûi¦'¸fÕÒ ÈZ½lMüıkÿî$S7×#Û$6È¸Îzå.™¬¶[€6÷¨øÍ©ïSìÊ%‹¥ßKî*«ŒÃÜ	 ¬K„Î"´BÛœº §æiü°Z‚!G”aKLıú%ˆü¬Å¦U%ù
+±”îQwNã‘ûTê9»wñ=kNM#V„€ÀÖ5XQf§}ƒ·ò%W¾…é³ÄRªŒ tS”ÍOåÑ+¦ñvÎğ«¦S©›¨³¤wóßëÀ¢ÃÍ eŠİ¢ã®®ƒEúŠ¸õ6¢Í³Ú	ÎæØ¹]± \ LŞ¾ÔlÃÄaP_¬útÈvÒæa¥~SéÀ©f6_,pä<BDgœàd°)åL)0İu4ğAo©tÅ:âÀ•ßUEx”É*	Y–^ÜûŒ'Ù]êa¶a†|®¼éUJº;o=•D‹$‚dyBXh=Ïô¤Ì¹ùŠöüCÆñŠqåbN:lû÷ÇÇµ²hgdñZ”…,&
+q¯@w/C ÊÇ“ªé@JTÚ[¹‰e’APnò£Æ–şªUÅÛĞ…ÊŞQâ ¥ì…¶m]Éñ-ğË5d~Ö°i}‡®F³ÁÅ ×FWSô-º‡£OhÒÿñº?MÑåè¼;Dßµâ]QH"	„Kp?'CÉkˆ7r°İá‰l†Œg0é”YTã£J”íG(<çÖj‹$MægJ&Ôü€>e‹Ó€Ğ‰ÿBìïlÂØ&éGcåÒ¡²>qì%Xw×4»ŞkFgcÁÏÌÚÃt„˜hu2iWJã/±…A Ôä1îm½şécw6íÇÍéì—a]öÏ]ÿÍF“HÙJÏ¥Nõ .P‹ü©Ú{7ğ–4l çèÇ@3ô6Ğ&ƒ O°N™y]4•KÀ¶Zß >uå†òÍ7ğe€·	”ç°°t]üêlvQj,¦íâ8¶€Xoì™Ñbƒ;D•"OFö=èÍ®'}Ô›ŒÆãşœm2šuS¹’XÚ358¸DtÌÇDªt¶«óÎF»¦4puÌÛvù È±à}0zbi…TF(‡©ö°Ÿ¹Í>ö/û°òOİápÜeR˜ö‡ıT½¥æÏ"c.‘@ÚNSãH€“‹ô÷;5N,kş’xì< ö!{ä!y ‡¯€uè0ô$æ°D'å70øÇyÿ¢{=œİòµİÎw	9´DÄ!hä$©]²¦Dr9_zÿºê‚l™+eÙµ‰îØÅ¶uœn0u<å
+Ò<&§òYc6Ü‘GÀxÄ†õ@®õKzÊO¢ŸNóE.½>³(¼*9 6ÌI3;›M|¾ÖFÇ qótZ¸ªİ‰„?'³ÒB275ı¾õ
+áÛ Ë‡–À…”ó(Ï%—1‡~QÀQÊm=E<®™Ö£¾~ÙØ[VÑ “Æ~R+G¹“³„Uˆ“-í&ÀEñ¸)›ærÉÃÒU–h:ÍW1`ÜcG	ñiï‹ìaP>÷*Xø®Ã3	T<[>/ Í9à <€©„ÈÌXPl*g­åsÉ{Â”SvnvˆñÉÎG…ƒôæIö £ š$7¿:.¢AqÅó8Y
+|ösöäı˜ĞéÙzYò-ÇÒ{œ¼”b'X¬DÛSì#¶
+–#!;/¨Ú-+qı{Ø"»l@”Õ[Y`ŞF‡CèxdnbP¸¹fù×šjA
+NQÄv¿°vÈŠ¤¨"~rI%¶œx&?±¦¢ı€ñÁ~ÅòÇæ7ËS°
+éÂGW3t Ôâ%H
+»#¬.TôògYèØ¥ì2!;n ›“‹—İ[4õœ4lyqŞİW!h#
+Hì°A}ÉN³Ç9T*Ãè#éô°lG @4ğvhÚÔfÖöÕf×0ÍSñGĞÆ‘‚ Ø¥Õ£Êõ´Š6²3²£÷SäøÒ+4-Å*÷>KŒø¦ìPªê8*‰lš·¶uT}nÏn¿‘¼¹]Õ”¢‡÷C¡}ò<¨ƒ$\ªG@H:hƒTUÍHmËÆâö£ÁŸÓ)Ü” çê‰¼•hléï®aJ&…Í|
+pò|x@±JØ~Ë&{Ç2¯Ö@ÿœ®Ôğ"ö¾äõ7h‹ ¬êKÄ\}Sv>²‡˜Ù@VìÍ^x/¨3ÍêÙ›@A%o+ºp©nX5fOºêh®O …j¶/Şã¥CëõRÙ0ƒIç#¿‡ÎÌXxê3û`á€,±RçGŸ,Sš… 3åóMd¾üÕFµÓ¦AÄ±ZÄ|,4Iyò¯4éâÒ[0oıòÀ–-Øfı³Ğ?mÒUo¿ìÇyÀL¶fİÖĞßù‚T›®ø¢¢¥<U‡ï¿Ôü¥ê6¡VDõ‚yh/Êi}¿Ïª¦k^ßF—ØóÀ(™ãTØ£L¸Qu¸ÌL™§jUIõ3ã¾Õü¶ €ª?hg®9¸´p­j÷mA¡•´`è`(ŞÚG­æ
+fçùšå´có¬¢†Åêü°©ÀH«	Ûùš‘•R•†5¦"Åzï×LŠãâæâJ•š!r2ºª‰}Îhö&ƒ8÷\OTÜÒH­b%å1"ŒÄ» .fi}Úwd¸àŒ9ûvÙeUôˆ¢põeÄJ r;§ºb°ó3©PˆµFbş°¢jNû{ûî1|ÔÁ^Ã>Oõö9Ä{8ıŞÄ©ò"öÙÛ“"âŞÄ>Uû6_×­Ø~Y¹ÏaíU€±4a'ZTó|å(oMG%ƒJjDø]&w~]¸I®àÊ/Ñ„D¿P»’»5”•Èïy&'KhKo‡$¸G–w7OäÀ·4Qş yïÒ@øgZŸËnO
+wœ"²ú*õÈ”ÓÓl›E	–jfÙî† O _?Â±2RXÀë*de­U~
+ta+ŞZ¾ñI`M˜:³a%!aÓÃ¥ÅKò€s †úSÔN‹ø@Jûâ¤¿%I0Rì¥›ã»F
+wA(vÂvôlqÜ})åÙşc Ùÿ˜=	–í—fš`šZ>-©Ü?Ü7‘<$…Ü3yÜ6–B°'°ğëO _Ğëë×.ØõÇ®ı!×S ×SàÖÓÁÖaPë u(Ì: dí±ª ÖğJŞ^ši¬RXod°_% ‹oZ¹M	6Ÿé&ÖÜ2&Å_»s÷ÿ•%p€Õ|æ
+<“ĞıP+WÙHŠõÎZéå|EÙ]‚±ÎZ…ú‹¨‡•nL?v'ıó¨k<éÿ4èBÃÁ‡³÷£ŸõTÀâàÕU¦Ïécò2ö‡D«Šaz)«ËQòÔYp˜«1y}˜Œ®Ç¨7éóŠAIy ^} µ9•"EéäÄ(Š£Ò™7Y²˜„Ë9üë™£	û\Á±³‘…Êt¯w‰„jÂ¨(c*¼6dfËç”­«baS¥åUIÓÓÑBe÷gİÁw^v¯ºú—ı«b…P&Å7Ôä—€ l6µìõİŸâ9ö5bæÊA³j/Ğ‰AH^(UR¨—
+wQ±Æ+Ów¸nË´¾(AŠì5§HÇ…§\•I¾„â±4;GïSëÉÄ5ÄÂ2“¶d)»†1N_RŞj¡Q¦]Ùaa$#ÃêÁ×ærš}Gã¡¹æì˜],Ø¼ öÅôa§çíâ€dŒ
+ÙcÚß’;Ç•˜£qXîÜíñ 6ıØïÏÄ ıáÕÈÙQä,¡ÛUü'R°jOş‡cğNy‡„¼÷&Õï±ÑÙÌÃş·¬)È/á)AÅÎÁäãã…ø/BùbDıpBe·	v¨ëW3
+iÊyğmJ¶3ØÚYh>uUİ$Îœj®¡®\H(Xºª¬ á•ÊNlønM]² vvÏHO¯#‘ “Ø÷€ƒ‚yisÂøH¶D†–lü@³ı/   ÿÿ NJâ

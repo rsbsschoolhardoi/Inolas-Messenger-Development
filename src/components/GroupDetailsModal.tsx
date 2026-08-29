@@ -433,7 +433,7 @@ export const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
                             <div className="min-w-0">
                               <p className="text-xs font-bold text-neutral-900 dark:text-white truncate flex items-center gap-1">
                                 <span>{u.display_name}</span>
-                                {(!!u.is_verified || isServiceAccount(u, u.username)) && (
+                                {!!u.is_verified && (
                                   <PurpleVerifiedBadge size="xs"  />
                                 )}
                               </p>
@@ -482,7 +482,7 @@ export const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
                           <div className="flex items-center gap-1.5">
                             <p className="text-xs font-bold text-neutral-900 dark:text-white truncate flex items-center gap-1">
                               <span>{isSelf ? `${displayName} (You)` : displayName}</span>
-                              {u && (!!u.is_verified || isServiceAccount(u, u.username)) && (
+                              {!!u?.is_verified && (
                                 <PurpleVerifiedBadge size="xs"  />
                               )}
                             </p>

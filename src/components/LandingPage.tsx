@@ -286,7 +286,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </p>
               </div>
               <div className="mt-6 pt-4 border-t border-neutral-200 dark:border-neutral-800 text-[11px] font-mono text-neutral-500">
-                Isolated Sandbox • Multi-Tab Broadcast
+                Enterprise REST API • Service Account Dispatches
               </div>
             </div>
           </div>

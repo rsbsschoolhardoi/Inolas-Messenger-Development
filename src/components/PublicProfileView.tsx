@@ -222,7 +222,7 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
         ) : (
           <div className="w-full bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800/80 rounded-3xl shadow-2xl overflow-hidden transition-all duration-300 hover:shadow-indigo-500/5 hover:border-indigo-500/20">
             {/* Top Cover Gradient Banner */}
-            <div className="h-32 bg-gradient-to-r from-indigo-600 via-rose-500 to-amber-500 relative flex items-end justify-center pb-0 overflow-hidden">
+            <div className="h-32 bg-zinc-900 dark:bg-zinc-950 border-b border-zinc-800 relative flex items-end justify-center pb-0 overflow-hidden">
               <div className="absolute inset-0 bg-neutral-950/10 pointer-events-none" />
               <div className="absolute top-3 right-3 px-3 py-1 rounded-full bg-black/40 backdrop-blur-md text-white text-[10px] font-bold tracking-wider uppercase flex items-center gap-1.5 border border-white/15">
                 <Globe className="h-3 w-3 text-indigo-400" />
@@ -235,7 +235,7 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
               <div className="relative inline-block">
                 <div className="p-1 rounded-full bg-white dark:bg-neutral-900 shadow-xl border border-neutral-200/50 dark:border-neutral-800">
                   {isServiceAccount(profile, username) ? (
-                    <div className="h-24 w-24 rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-indigo-600 font-black text-3xl flex items-center justify-center shadow-inner border-2 border-white dark:border-neutral-900">
+                    <div className="h-24 w-24 rounded-full bg-zinc-800 dark:bg-zinc-900 border border-zinc-700 font-black text-3xl flex items-center justify-center shadow-inner border-2 border-white dark:border-neutral-900">
                       <Shield className="w-10 h-10 text-white drop-shadow-md" />
                     </div>
                   ) : profile?.avatar_url ? (
@@ -259,7 +259,7 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
               <div className="space-y-1">
                 <h1 className="text-xl sm:text-2xl font-black text-neutral-900 dark:text-white flex items-center justify-center gap-1.5 leading-tight tracking-tight break-all">
                   <span>{profile?.display_name}</span>
-                  {(!!profile?.is_verified || isServiceAccount(profile, username)) && (
+                  {!!profile?.is_verified && (
                     <PurpleVerifiedBadge size="sm"  />
                   )}
                 </h1>

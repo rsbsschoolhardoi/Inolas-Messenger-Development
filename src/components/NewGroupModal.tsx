@@ -254,7 +254,7 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
                         <div className="min-w-0 text-left">
                           <p className="text-xs font-bold text-neutral-900 dark:text-white truncate flex items-center gap-1">
                             <span>{u.display_name}</span>
-                            {(!!u.is_verified || isServiceAccount(u, u.username)) && (
+                            {!!u.is_verified && (
                               <PurpleVerifiedBadge size="xs"  />
                             )}
                           </p>
