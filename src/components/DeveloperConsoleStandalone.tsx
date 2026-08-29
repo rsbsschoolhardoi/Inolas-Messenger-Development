@@ -44,6 +44,9 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     const [isVerifyingTruecaller, setIsVerifyingTruecaller] = useState(false);
     const [truecallerSuccess, setTruecallerSuccess] = useState(false);
     const [error, setError] = useState('');
+    const [otpSent, setOtpSent] = useState(false);
+    const [otpCode, setOtpCode] = useState('');
+    const [demoOTP, setDemoOTP] = useState('');
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -67,13 +70,18 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                     }
 
                     if (userData) {
+                        const hasVerifiedPhone = !!userData.is_truecaller_verified;
                         const verifiedUser: UserData = {
                             ...userData,
-                            mobile_number: userData.mobile_number || '+919876543210',
-                            is_truecaller_verified: true
+                            mobile_number: userData.mobile_number || '',
+                            is_truecaller_verified: hasVerifiedPhone
                         };
                         setUser(verifiedUser);
-                        setView('portal');
+                        if (hasVerifiedPhone) {
+                            setView('portal');
+                        } else {
+                            setView('mobile_setup');
+                        }
                     } else {
                         const cleanUsername = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'developer_user';
                         const fallbackUser: UserData = {
@@ -81,8 +89,8 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                             username: cleanUsername,
                             display_name: firebaseUser.displayName || 'Developer Account',
                             email: firebaseUser.email || '',
-                            mobile_number: '+919876543210',
-                            is_truecaller_verified: true,
+                            mobile_number: '',
+                            is_truecaller_verified: false,
                             bio: 'Zenoa Developer Account',
                             avatar_seed: cleanUsername,
                             online: true,
@@ -99,7 +107,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                         }
                         
                         setUser(fallbackUser);
-                        setView('portal');
+                        setView('mobile_setup');
                     }
                 } catch (err) {
                     console.error("Error fetching user data:", err);
@@ -170,9 +178,9 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                 username: cleanUser,
                 display_name: regFullName.trim() || cleanUser,
                 email: regEmail.trim(),
-                mobile_number: '+919876543210',
-                is_business_verified: true,
-                is_truecaller_verified: true,
+                mobile_number: '',
+                is_business_verified: false,
+                is_truecaller_verified: false,
                 bio: 'Verified Zenoa Developer Account',
                 avatar_seed: cleanUser,
                 online: true,
@@ -185,7 +193,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
             }
 
             setUser(newUserData);
-            setView('portal');
+            setView('mobile_setup');
         } catch (err: any) {
             setError(err.message || 'Registration failed. Please check the information entered.');
         } finally {
@@ -209,9 +217,9 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                 currentUserData = { 
                     ...(snap.data() as UserData),
                     id: snap.id, 
-                    mobile_number: snap.data().mobile_number || '+919876543210',
-                    is_business_verified: true,
-                    is_truecaller_verified: true
+                    mobile_number: snap.data().mobile_number || '',
+                    is_business_verified: snap.data().is_business_verified || false,
+                    is_truecaller_verified: snap.data().is_truecaller_verified || false
                 };
             } else {
                 currentUserData = {
@@ -219,9 +227,9 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                     username: cleanUsername,
                     display_name: firebaseUser.displayName || 'Developer Account',
                     email: firebaseUser.email || '',
-                    mobile_number: '+919876543210',
-                    is_business_verified: true,
-                    is_truecaller_verified: true,
+                    mobile_number: '',
+                    is_business_verified: false,
+                    is_truecaller_verified: false,
                     bio: 'Verified Zenoa Developer Account',
                     avatar_seed: cleanUsername,
                     online: true,
@@ -232,7 +240,11 @@ export const DeveloperConsoleStandalone: React.FC = () => {
             }
 
             setUser(currentUserData);
-            setView('portal');
+            if (currentUserData.is_truecaller_verified) {
+                setView('portal');
+            } else {
+                setView('mobile_setup');
+            }
         } catch (err: any) {
             setError(err.message || 'Google authentication encountered an error.');
         }
@@ -277,6 +289,58 @@ export const DeveloperConsoleStandalone: React.FC = () => {
             }, 300);
         } catch (err: any) {
             setError('Verification failed: ' + (err?.message || 'Please try again.'));
+        } finally {
+            setIsVerifyingTruecaller(false);
+        }
+    };
+
+    const sendVerificationOTP = () => {
+        setError('');
+        const cleanDigits = mobileNumber.replace(/[^0-9]/g, '').trim();
+        if (!cleanDigits || cleanDigits.length < 8 || cleanDigits.length > 15) {
+            setError('Please enter a valid mobile number (at least 8 digits).');
+            return;
+        }
+        setIsVerifyingTruecaller(true);
+        setTimeout(() => {
+            setIsVerifyingTruecaller(false);
+            setOtpSent(true);
+            const randomCode = Math.floor(100000 + Math.random() * 900000).toString();
+            setDemoOTP(randomCode);
+        }, 800);
+    };
+
+    const verifyOTPAndActivate = async () => {
+        setError('');
+        if (otpCode !== demoOTP) {
+            setError('Invalid verification code. Please check the OTP code sent.');
+            return;
+        }
+        setIsVerifyingTruecaller(true);
+        const formattedMobile = `${countryCode}${mobileNumber}`;
+        try {
+            if (user && db) {
+                await updateDoc(doc(db, 'users', user.username), {
+                    mobile_number: formattedMobile,
+                    is_business_verified: true,
+                    is_truecaller_verified: true,
+                    phone_verified_at: Date.now(),
+                    verified_business_at: Date.now()
+                });
+            }
+
+            const updatedUser: UserData = {
+                ...user!,
+                mobile_number: formattedMobile,
+                is_business_verified: true,
+                is_truecaller_verified: true
+            };
+
+            setUser(updatedUser);
+            setTruecallerSuccess(true);
+            setView('portal');
+        } catch (err: any) {
+            setError('Activation failed: ' + (err?.message || 'Please try again.'));
         } finally {
             setIsVerifyingTruecaller(false);
         }
@@ -589,6 +653,118 @@ export const DeveloperConsoleStandalone: React.FC = () => {
                                 <Chrome className="h-4 w-4 text-zinc-400" />
                                 <span>Continue with Google</span>
                             </button>
+                        </div>
+                    )}
+                </motion.div>
+            </div>
+        );
+    }
+
+    // 3. MOBILE SETUP VIEW
+    if (view === 'mobile_setup') {
+        return (
+            <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center p-4 font-sans">
+                <motion.div 
+                    initial={{ opacity: 0, scale: 0.98 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl space-y-6"
+                >
+                    <div className="flex items-center justify-between">
+                        <button
+                            onClick={() => {
+                                signOut(auth);
+                                setView('landing');
+                            }}
+                            className="text-xs font-semibold text-zinc-400 hover:text-zinc-100 flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                            <ArrowLeft className="h-3.5 w-3.5" />
+                            <span>Logout</span>
+                        </button>
+                        <span className="text-[10px] font-mono uppercase bg-zinc-800 text-zinc-300 px-2.5 py-0.5 rounded border border-zinc-700 font-bold">Step 2: Verification</span>
+                    </div>
+
+                    <div className="text-center">
+                        <div className="h-12 w-12 rounded-2xl bg-indigo-950/50 text-indigo-400 border border-indigo-800/50 flex items-center justify-center mx-auto mb-3">
+                            <Phone className="h-6 w-6" />
+                        </div>
+                        <h2 className="text-xl font-bold text-zinc-100">Verify Mobile Number</h2>
+                        <p className="text-xs text-zinc-400 mt-1">A verified mobile number is strictly required to prevent API abuse and secure your Developer Console.</p>
+                    </div>
+
+                    {error && (
+                        <div className="p-3 bg-rose-950/40 border border-rose-800/40 rounded-xl text-rose-300 text-xs text-center font-medium">
+                            {error}
+                        </div>
+                    )}
+
+                    {!otpSent ? (
+                        <div className="space-y-4 text-left">
+                            <div>
+                                <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">Enter Mobile Number</label>
+                                <div className="flex gap-2">
+                                    <select 
+                                        value={countryCode} 
+                                        onChange={e => setCountryCode(e.target.value)}
+                                        className="bg-zinc-950 border border-zinc-800 rounded-xl px-2.5 py-2.5 text-xs text-zinc-300 outline-none focus:border-zinc-700 cursor-pointer"
+                                    >
+                                        <option value="+91">+91 (IN)</option>
+                                        <option value="+1">+1 (US)</option>
+                                        <option value="+44">+44 (UK)</option>
+                                        <option value="+971">+971 (UAE)</option>
+                                    </select>
+                                    <input 
+                                        type="tel" 
+                                        value={mobileNumber}
+                                        onChange={e => setMobileNumber(e.target.value.replace(/[^0-9]/g, ''))}
+                                        placeholder="9876543210"
+                                        className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 placeholder-zinc-600 focus:border-zinc-700 outline-none transition-all"
+                                    />
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={sendVerificationOTP}
+                                disabled={isVerifyingTruecaller}
+                                className="w-full bg-zinc-100 hover:bg-white text-zinc-950 font-bold py-3 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                            >
+                                {isVerifyingTruecaller ? <RefreshCw className="h-4 w-4 animate-spin" /> : <span>Send Verification Code</span>}
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="space-y-4 text-left">
+                            <div className="p-3 bg-zinc-950 border border-zinc-850 rounded-xl">
+                                <p className="text-[10px] text-zinc-400 font-semibold uppercase tracking-wider">SMS Sent To</p>
+                                <p className="text-xs text-zinc-200 font-bold font-mono">{countryCode} {mobileNumber}</p>
+                                <p className="text-[11px] text-indigo-400 mt-1 font-semibold animate-pulse">Use code: {demoOTP}</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">Enter 6-Digit OTP</label>
+                                <input 
+                                    type="text" 
+                                    maxLength={6}
+                                    value={otpCode}
+                                    onChange={e => setOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                                    placeholder="123456"
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-center text-sm font-mono tracking-[0.5em] text-zinc-100 placeholder-zinc-700 focus:border-zinc-700 outline-none transition-all"
+                                />
+                            </div>
+
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setOtpSent(false)}
+                                    className="flex-1 bg-zinc-950 hover:bg-zinc-850 border border-zinc-800 text-zinc-300 font-semibold py-2.5 rounded-xl text-xs transition-all cursor-pointer"
+                                >
+                                    Change Number
+                                </button>
+                                <button
+                                    onClick={verifyOTPAndActivate}
+                                    disabled={isVerifyingTruecaller}
+                                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                >
+                                    {isVerifyingTruecaller ? <RefreshCw className="h-4 w-4 animate-spin" /> : <span>Verify & Access</span>}
+                                </button>
+                            </div>
                         </div>
                     )}
                 </motion.div>

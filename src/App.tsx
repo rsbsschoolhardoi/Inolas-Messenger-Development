@@ -1215,7 +1215,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string>('');
 
   // Selected Profile state for Slide-over Panel
-  const [selectedProfileUsername, setSelectedProfileUsername] = useState<string>('emma');
+  const [selectedProfileUsername, setSelectedProfileUsername] = useState<string>('');
 
   // Chat scroll ref
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -8629,53 +8629,55 @@ export default function App() {
 
             {/* Full-Screen Profile & Chat Details View (Matching Instagram/Messenger Details Screen) */}
             <AnimatePresence>
-      <FullScreenProfilePanel
-        showProfilePanel={showProfilePanel}
-        selectedProfileUsername={selectedProfileUsername}
-        userUsername={userUsername}
-        themeMode={themeMode}
-        users={users}
-        setShowProfilePanel={setShowProfilePanel}
-        setShowProfileOptionsModal={setShowProfileOptionsModal}
-        followRequests={followRequests}
-        handleFollow={handleFollow}
-        renderAvatar={renderAvatar}
-        activeChat={activeChat}
-        showToast={showToast}
-        chatNicknames={chatNicknames}
-        setEditingNicknameUser={setEditingNicknameUser}
-        setTempNicknameValue={setTempNicknameValue}
-        setShowThemeModal={setShowThemeModal}
-        userDisplayName={userDisplayName}
-        setShowFollowListModal={setShowFollowListModal}
-        setActiveView={setActiveView}
-        userBio={userBio}
-        handleOpenEditProfile={showEditProfileModal ? () => {} : () => setShowEditProfileModal(true)}
-        setShowPrivacySafetyModal={setShowPrivacySafetyModal}
-        setShowMsgSearchInChat={setShowMsgSearchInChat}
-        handleToggleMuteChat={(chatId) => handleToggleMuteChat(null, chatId)}
-        setShowChatCustomizationSheet={setShowChatCustomizationSheet}
-        setChatCustomizationView={setChatCustomizationView}
-        chatDisappearing={chatDisappearing}
-        setNewGroupPreselectedUser={setNewGroupPreselectedUser}
-        setShowNewGroupModal={setShowNewGroupModal}
-        messagesByChat={messagesByChat}
-        setSharedMediaPreview={setSharedMediaPreview}
-        handleStartCallWithUser={(usr, type) => {
-          // Fallback call trigger handler
-          try {
-            const startCallFn = (window as any).startCallWithUser;
-            if (typeof startCallFn === 'function') {
-              startCallFn(usr, type);
-            } else {
-              showToast('Starting ' + type + ' call with @' + usr.username);
-            }
-          } catch(e) {}
-        }}
-        allUserCalls={firestoreCalls}
-        userAvatarSeed={userAvatarSeed}
-        userAvatarUrl={userAvatarUrl}
-      />
+              {showProfilePanel && (
+                <FullScreenProfilePanel
+                  showProfilePanel={showProfilePanel}
+                  selectedProfileUsername={selectedProfileUsername}
+                  userUsername={userUsername}
+                  themeMode={themeMode}
+                  users={users}
+                  setShowProfilePanel={setShowProfilePanel}
+                  setShowProfileOptionsModal={setShowProfileOptionsModal}
+                  followRequests={followRequests}
+                  handleFollow={handleFollow}
+                  renderAvatar={renderAvatar}
+                  activeChat={activeChat}
+                  showToast={showToast}
+                  chatNicknames={chatNicknames}
+                  setEditingNicknameUser={setEditingNicknameUser}
+                  setTempNicknameValue={setTempNicknameValue}
+                  setShowThemeModal={setShowThemeModal}
+                  userDisplayName={userDisplayName}
+                  setShowFollowListModal={setShowFollowListModal}
+                  setActiveView={setActiveView}
+                  userBio={userBio}
+                  handleOpenEditProfile={showEditProfileModal ? () => {} : () => setShowEditProfileModal(true)}
+                  setShowPrivacySafetyModal={setShowPrivacySafetyModal}
+                  setShowMsgSearchInChat={setShowMsgSearchInChat}
+                  handleToggleMuteChat={(chatId) => handleToggleMuteChat(null, chatId)}
+                  setShowChatCustomizationSheet={setShowChatCustomizationSheet}
+                  setChatCustomizationView={setChatCustomizationView}
+                  chatDisappearing={chatDisappearing}
+                  setNewGroupPreselectedUser={setNewGroupPreselectedUser}
+                  setShowNewGroupModal={setShowNewGroupModal}
+                  messagesByChat={messagesByChat}
+                  setSharedMediaPreview={setSharedMediaPreview}
+                  handleStartCallWithUser={(usr, type) => {
+                    // Fallback call trigger handler
+                    try {
+                      const startCallFn = (window as any).startCallWithUser;
+                      if (typeof startCallFn === 'function') {
+                        startCallFn(usr, type);
+                      } else {
+                        showToast('Starting ' + type + ' call with @' + usr.username);
+                      }
+                    } catch(e) {}
+                  }}
+                  allUserCalls={firestoreCalls}
+                  userAvatarSeed={userAvatarSeed}
+                  userAvatarUrl={userAvatarUrl}
+                />
+              )}
             </AnimatePresence>
       </main>
 

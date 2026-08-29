@@ -404,54 +404,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
             </div>
 
-            <div className="bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-200/80 dark:border-neutral-800 overflow-hidden shadow-sm">
-              <button
-                onClick={() => {
-                  window.location.href = '/developer';
-                }}
-                className="w-full p-4.5 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors text-left cursor-pointer"
-              >
-                <div className="flex items-center gap-3.5">
-                  <div className="p-2.5 rounded-2xl bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/50 dark:border-indigo-700/50">
-                    <Terminal className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-neutral-900 dark:text-white">Developer API</p>
-                    <p className="text-xs text-neutral-400">Create bots & manage your bot API keys</p>
-                  </div>
-                </div>
-                <ChevronRight className="h-4 w-4 text-neutral-400" />
-              </button>
-            </div>
 
-            {/* Zenoa SSO Developer Platform & OAuth Client Registry (Dedicated URL /sso) */}
-            <div className="bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-200/80 dark:border-neutral-800 overflow-hidden shadow-sm">
-              <button
-                onClick={() => {
-                  window.location.href = '/sso';
-                }}
-                className="w-full p-4.5 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors text-left cursor-pointer group"
-              >
-                <div className="flex items-center gap-3.5">
-                  <div className="p-2.5 rounded-2xl bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-200/50 dark:border-sky-800/50 group-hover:scale-105 transition-transform">
-                    <Shield className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-bold text-neutral-900 dark:text-white">Zenoa SSO & OAuth 2.0</p>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 dark:bg-sky-950/80 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800">
-                        Login Provider
-                      </span>
-                    </div>
-                    <p className="text-xs text-neutral-400">Register apps, get Client ID/Secret, and add "Continue with Zenoa"</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-sky-600 dark:text-sky-400 font-semibold">
-                  <span>SSO Console</span>
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </div>
-              </button>
-            </div>
 
             {/* 1. Standalone Account option card right below the Profile card */}
             <div className="bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-200/80 dark:border-neutral-800 overflow-hidden shadow-sm">
@@ -621,28 +574,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
             </div>
 
-            {onOpenAdminConsole && (
-              <div className="pt-2">
-                <button
-                  onClick={onOpenAdminConsole}
-                  className="w-full p-4 rounded-3xl bg-neutral-900 dark:bg-neutral-950 border border-purple-900/60 text-purple-400 hover:bg-neutral-800 transition-all flex items-center justify-between cursor-pointer shadow-sm group"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <div className="p-2.5 rounded-2xl bg-purple-950 text-purple-400 border border-purple-800">
-                      <Shield className="h-5 w-5 text-purple-400" />
-                    </div>
-                    <div className="text-left">
-                      <p className="text-sm font-bold text-white uppercase tracking-wide flex items-center gap-1.5">
-                        <span>Zenoa Admin Console</span>
-                        <span className="px-1.5 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800 text-[10px] font-mono">RESTRICTED</span>
-                      </p>
-                      <p className="text-xs text-neutral-400">Manage purple verifications, service accounts & live telemetry</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-purple-400 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-              </div>
-            )}
+
 
             {/* App Build Version Footer */}
             <div className="text-center py-2 space-y-1">
