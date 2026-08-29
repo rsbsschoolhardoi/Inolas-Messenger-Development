@@ -7,6 +7,7 @@ import {
   FileCode, CheckSquare, X
 } from 'lucide-react';
 import { UserData } from '../types';
+import { apiFetch } from '../lib/fetchInterceptor';
 
 interface SSOApp {
   id: string;
@@ -34,7 +35,7 @@ const handleFetchResponse = async (res: Response, originalRequest?: () => Promis
   const text = await res.text();
   if (res.status === 405 || text.includes('__cookie_check') || text.includes('<!DOCTYPE html') || text.includes('<html>')) {
     try {
-      await fetch('/__cookie_check.html', { credentials: 'include' });
+      await apiFetch('/__cookie_check.html', { credentials: 'include' });
       await new Promise(r => setTimeout(r, 400));
       if (originalRequest) {
         const retryRes = await originalRequest();
@@ -98,8 +99,9 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     const ownerName = currentUser?.username || 'developer_user';
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/v1/sso/apps?owner=${encodeURIComponent(ownerName)}`);
-      const data = await handleFetchResponse(res);
+      const url = `/api/v1/sso/apps?owner=${encodeURIComponent(ownerName)}`;
+      const res = await apiFetch(url);
+      const data = await handleFetchResponse(res, () => apiFetch(url));
       if (data.success && Array.isArray(data.apps)) {
         setApps(data.apps);
       } else {
