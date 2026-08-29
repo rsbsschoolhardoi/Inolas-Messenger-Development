@@ -3,7 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, collection, query, where, getDocs, doc, getDoc, setDoc, updateDoc, serverTimestamp, increment, writeBatch, orderBy, limit } from 'firebase/firestore';
+import { getFirestore, collection, query, where, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, increment, writeBatch, orderBy, limit } from 'firebase/firestore';
 import axios from 'axios';
 import crypto from 'crypto';
 
@@ -993,12 +993,15 @@ app.post('/api/v1/sso/apps/create', async (req: any, res: any) => {
     inMemorySsoApps.set(docId, newApp);
 
     if (db) {
-      try {
-        const docRef = doc(collection(db, 'sso_applications'), docId);
-        await setDoc(docRef, newApp);
-      } catch (dbErr) {
-        console.warn('Firestore write warning (saved to in-memory store):', dbErr);
-      }
+      // Run Firestore write in the background so it never blocks or times out the HTTP response
+      (async () => {
+        try {
+          const docRef = doc(collection(db, 'sso_applications'), docId);
+          await setDoc(docRef, newApp);
+        } catch (dbErr) {
+          console.warn('Firestore write warning (saved to in-memory store):', dbErr);
+        }
+      })();
     }
 
     return res.json({
@@ -1041,11 +1044,14 @@ app.post('/api/v1/sso/apps/update', async (req: any, res: any) => {
     }
 
     if (db) {
-      try {
-        await updateDoc(doc(db, 'sso_applications', targetDocId), updatePayload);
-      } catch (dbErr) {
-        console.warn('Firestore update warning:', dbErr);
-      }
+      // Run Firestore write in the background so it never blocks or times out the HTTP response
+      (async () => {
+        try {
+          await updateDoc(doc(db, 'sso_applications', targetDocId), updatePayload);
+        } catch (dbErr) {
+          console.warn('Firestore update warning:', dbErr);
+        }
+      })();
     }
 
     return res.json({ success: true, message: 'SSO application updated successfully' });
@@ -1084,13 +1090,16 @@ app.post('/api/v1/sso/apps/regenerate-secret', async (req: any, res: any) => {
     }
 
     if (db && targetCollection !== 'in_memory' && targetCollection !== 'builtin') {
-      try {
-        await updateDoc(doc(db, targetCollection, targetDocId), {
-          client_secret: newSecret
-        });
-      } catch (dbErr) {
-        console.warn('Firestore regenerate secret warning:', dbErr);
-      }
+      // Run Firestore write in the background so it never blocks or times out the HTTP response
+      (async () => {
+        try {
+          await updateDoc(doc(db, targetCollection, targetDocId), {
+            client_secret: newSecret
+          });
+        } catch (dbErr) {
+          console.warn('Firestore regenerate secret warning:', dbErr);
+        }
+      })();
     }
 
     return res.json({ success: true, client_secret: newSecret });
@@ -1123,11 +1132,14 @@ app.post('/api/v1/sso/apps/delete', async (req: any, res: any) => {
     inMemorySsoApps.delete(targetDocId);
 
     if (db && targetCollection !== 'in_memory' && targetCollection !== 'builtin') {
-      try {
-        await deleteDoc(doc(db, targetCollection, targetDocId));
-      } catch (dbErr) {
-        console.warn('Firestore delete warning:', dbErr);
-      }
+      // Run Firestore write in the background so it never blocks or times out the HTTP response
+      (async () => {
+        try {
+          await deleteDoc(doc(db, targetCollection, targetDocId));
+        } catch (dbErr) {
+          console.warn('Firestore delete warning:', dbErr);
+        }
+      })();
     }
 
     return res.json({ success: true, message: 'SSO application deleted' });
@@ -1236,11 +1248,14 @@ app.post('/api/v1/sso/authorize', async (req: any, res: any) => {
     inMemoryOAuthCodes.set(authCode, codeRecord);
 
     if (db) {
-      try {
-        await setDoc(doc(db, 'oauth_codes', authCode), codeRecord);
-      } catch (dbErr) {
-        console.warn('OAuth code firestore write warning:', dbErr);
-      }
+      // Run Firestore write in the background so it never blocks or times out the HTTP response
+      (async () => {
+        try {
+          await setDoc(doc(db, 'oauth_codes', authCode), codeRecord);
+        } catch (dbErr) {
+          console.warn('OAuth code firestore write warning:', dbErr);
+        }
+      })();
     }
 
     // 2. Generate Signed One-Tap SSO Payload using Application's Secret
@@ -1340,11 +1355,14 @@ app.post('/api/v1/sso/token', async (req: any, res: any) => {
     inMemoryOAuthCodes.set(code, codeData);
 
     if (db) {
-      try {
-        await updateDoc(doc(db, 'oauth_codes', code), { used: true });
-      } catch (dbErr) {
-        console.warn('Firestore code mark used warning:', dbErr);
-      }
+      // Run Firestore write in the background so it never blocks or times out the HTTP response
+      (async () => {
+        try {
+          await updateDoc(doc(db, 'oauth_codes', code), { used: true });
+        } catch (dbErr) {
+          console.warn('Firestore code mark used warning:', dbErr);
+        }
+      })();
     }
 
     // 3. Issue Access Token
@@ -1362,11 +1380,14 @@ app.post('/api/v1/sso/token', async (req: any, res: any) => {
     inMemoryOAuthTokens.set(accessToken, tokenRecord);
 
     if (db) {
-      try {
-        await setDoc(doc(db, 'oauth_tokens', accessToken), tokenRecord);
-      } catch (dbErr) {
-        console.warn('Firestore token write warning:', dbErr);
-      }
+      // Run Firestore write in the background so it never blocks or times out the HTTP response
+      (async () => {
+        try {
+          await setDoc(doc(db, 'oauth_tokens', accessToken), tokenRecord);
+        } catch (dbErr) {
+          console.warn('Firestore token write warning:', dbErr);
+        }
+      })();
     }
 
     return res.json({

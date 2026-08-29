@@ -74,14 +74,20 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     setIsLoading(true);
     try {
       const res = await fetch(`/api/v1/sso/apps?owner=${encodeURIComponent(ownerName)}`);
-      const data = await res.json();
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
+      }
       if (data.success && Array.isArray(data.apps)) {
         setApps(data.apps);
       } else {
         // Fallback default demo client if empty
         setApps([]);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Failed to load SSO apps:', err);
     } finally {
       setIsLoading(false);
@@ -188,7 +194,13 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             scopes: selectedScopes
           })
         });
-        const data = await res.json();
+        const text = await res.text();
+        let data: any;
+        try {
+          data = JSON.parse(text);
+        } catch (parseErr) {
+          throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
+        }
         if (data.success) {
           showNotification('success', 'OAuth application updated successfully!');
           resetForm();
@@ -212,7 +224,13 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             scopes: selectedScopes
           })
         });
-        const data = await res.json();
+        const text = await res.text();
+        let data: any;
+        try {
+          data = JSON.parse(text);
+        } catch (parseErr) {
+          throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
+        }
         if (data.success) {
           showNotification('success', 'OAuth 2.0 credentials generated successfully!');
           resetForm();
@@ -241,7 +259,13 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: app.id, client_id: app.client_id })
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
+      }
       if (data.success) {
         showNotification('success', 'New Client Secret generated successfully!');
         fetchApps();
@@ -265,7 +289,13 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: app.id, client_id: app.client_id })
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
+      }
       if (data.success) {
         showNotification('success', 'Application deleted successfully');
         fetchApps();
@@ -331,7 +361,13 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         })
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
+      }
       if (data.success) {
         setPlaygroundAuthCode(data.code);
         setPlaygroundSignedPayload(data.payload);
@@ -378,7 +414,13 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         })
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
+      }
       if (data.access_token) {
         setPlaygroundAccessToken(data.access_token);
         setPlaygroundStep('token_exchanged');
@@ -415,7 +457,13 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         headers: { Authorization: `Bearer ${playgroundAccessToken}` }
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        throw new Error(`Server returned non-JSON response (status ${res.status}): ${text.substring(0, 100)}`);
+      }
       if (data.success && data.user) {
         setPlaygroundUserResult(data.user);
         setPlaygroundStep('userinfo_fetched');
