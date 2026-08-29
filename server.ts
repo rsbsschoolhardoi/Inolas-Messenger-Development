@@ -712,6 +712,10 @@ app.post('/api/v1/bot/webhook/test', authenticateApiKey, async (req: any, res: a
 // 7. Multi-Recipient Broadcast Messaging Endpoint
 app.post('/api/v1/bot/broadcast', authenticateApiKey, async (req: any, res: any) => {
   try {
+    if (req.appData && req.appData.owner !== 'zenoa_admin') {
+      return res.status(403).json({ error: 'Developer Service Accounts are restricted to sending OTPs only.' });
+    }
+
     const { recipients, message, media_url } = req.body;
     if (!Array.isArray(recipients) || recipients.length === 0 || (!message && !media_url)) {
       return res.status(400).json({ error: 'Recipients array and message content are required.' });
@@ -772,6 +776,10 @@ app.post('/api/v1/bot/broadcast', authenticateApiKey, async (req: any, res: any)
 // 8. Send Message Endpoint (Direct Bot to User)
 app.post('/api/v1/messages/send', authenticateApiKey, async (req: any, res: any) => {
   try {
+    if (req.appData && req.appData.owner !== 'zenoa_admin') {
+      return res.status(403).json({ error: 'Developer Service Accounts are restricted to sending OTPs only.' });
+    }
+
     const { recipient, message, media_url } = req.body;
     if (!recipient || (!message && !media_url)) return res.status(400).json({ error: 'Missing fields.' });
 

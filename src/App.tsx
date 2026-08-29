@@ -1342,6 +1342,15 @@ export default function App() {
   
                 if (userSnap.exists() && userSnap.data()?.username && userSnap.data()?.display_name) {
                   const profile = userSnap.data();
+
+                  if (profile?.is_service_account) {
+                    await firebaseSignOut(auth);
+                    showToast('Access Denied: Service Accounts are restricted to API use only.');
+                    setIsAuthenticated(false);
+                    setIsAuthResolving(false);
+                    return;
+                  }
+
                   const uName = profile.username;
                   const dName = profile.display_name;
                   setUserUsername(uName);
@@ -2407,6 +2416,14 @@ export default function App() {
 
         if (userSnap.exists()) {
           const profile = userSnap.data();
+
+          if (profile.is_service_account) {
+            await firebaseSignOut(auth);
+            setErrorMessage('Access Denied: Service Accounts cannot be accessed interactively.');
+            setIsLoading(false);
+            return;
+          }
+
           const uName = profile.username || '';
           const dName = profile.display_name || profile.username || '';
           setUserUsername(uName);
