@@ -1,3 +1,5 @@
+import { FollowListModal } from './components/FollowListModal';
+// Inolas Messenger - Verified UTF-8 Source Code
 import { SSOConsoleStandalone } from "./components/SSOConsoleStandalone";import { SSOLogin } from "./components/SSOLogin";
 import { DeveloperConsoleStandalone } from './components/DeveloperConsoleStandalone';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -10636,47 +10638,46 @@ export default function App() {
       )}
 
       {/* FOLLOWERS / FOLLOWING LIST MODAL */}
-      {showFollowListModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className={`w-full max-w-md rounded-3xl p-5 border shadow-2xl flex flex-col max-h-[85vh] ${themeMode === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200'}`}>
-            <div className="flex justify-between items-center pb-3 border-b border-neutral-100 dark:border-neutral-800">
-              <div>
-                <h3 className="font-bold text-base capitalize text-neutral-900 dark:text-white">
-                  {showFollowListModal.type === 'followers' ? 'Followers' : 'Following'}
-                </h3>
-                <p className="text-xs text-neutral-400">
-                  {showFollowListModal.username === userUsername ? 'Your profile' : showFollowListModal.username}
-                </p>
-              </div>
-              <button 
-                onClick={() => setShowFollowListModal(null)}
-                className="p-1.5 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 dark:text-neutral-400 transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+      <FollowListModal
+        showFollowListModal={showFollowListModal}
+        onClose={() => setShowFollowListModal(null)}
+        userUsername={userUsername}
+        users={users}
+        themeMode={themeMode}
+        onSelectUser={(uname) => {
+          setShowFollowListModal(null);
+          setSelectedProfileUsername(uname);
+          setShowProfilePanel(true);
+        }}
+        onFollow={(u) => handleFollow(u)}
+        renderAvatar={renderAvatar}
+        isUserEffectivelyOnline={isUserEffectivelyOnline}
+        isServiceAccount={isServiceAccount}
+      />
 
-            <div className="flex-1 overflow-y-auto py-3 space-y-2">
-              {(() => {
-     xœÌ[{wÚ8ÿ?…&§g0³`’ô1SÚ¥„´ì’À ™ÎœnNjl4±-¯!Ãwß+ù%Û²tfv9§ÅHW×Ò}éş¤„’NmÏG®¶øî oIWÔ4)o¸¤†fªşÚÁ¨Óé ÚïÁ®WCC…Ï;¤t~–1a=¶fá›wjÂış;ú|S—°jÄŠØ‹ˆÕ›¯pf¸º®ëjkõÎ¥–bãšb_‰–^¯«wÄô±«¼§ÔÄš]Gš‡<ßŞŸoŞü­À—Ü!…qUMl/ü%—Ïqm$‹q±¸6R$]äé¦æyW°¤Î‘³nœ"?úMÛ0¡ğÙÆïjfóÅñ1òMÇÍuóôè­”%0½fÂÙ.›'ÇhÅş³›ZàS¶6z›'ˆ;â¯õj•rtDn|J…î¨í7-lÀ:z{EÑ¦Ì|¶hı³–#gÖ!Èº$úÜUÉ—kÃÒE	˜u´#í51ÛÈ¬9vë¨óVª£ĞL°‘Ğî8‹fU£ù¯X÷ÕÍ°Z%³ÛPˆ-Æû-ÿNŒ“ç"YDü>â]b‘…`ôuÄ¡|˜f.Ã‡A‚K½S‰­›M5æUg+¹ÓLKLy-1‹{¼îl¾„o¿}V®~èã‹d í—mGÁÊîLüÈ…êÅ®ğkàùänİœc…±œæ©ú¹4°l4OM´¤ØmÏ‰Ã¼<F†æŞ·?· mø„ÚMšÔõ¤+õ‹
-áìXÌBsšÏ‘EìæªyŒôÀõ¨Ût(áŒ¼y"ŸûP»gı¾³QJM:şxØŸõ¢ØiJMS‡M°}lŒ]
-ÑÇÖ¤”Ûuî¥ÑÀ±fcSñİ jĞv[ÒU&ûbğt±©ùäÃ6®ß<.ì³q1ØÛ}Ğ|ÍUÀ‹4ştëal0á«l0÷2ˆç˜Úú–ûi¦'¸fÕÒ ÈZ½lMüıkÿî$S7×#Û$6È¸Îzå.™¬¶[€6÷¨øÍ©ïSìÊ%‹¥ßKî*«ŒÃÜ	 ¬K„Î"´BÛœº §æiü°Z‚!G”aKLıú%ˆü¬Å¦U%ù
-±”îQwNã‘ûTê9»wñ=kNM#V„€ÀÖ5XQf§}ƒ·ò%W¾…é³ÄRªŒ tS”ÍOåÑ+¦ñvÎğ«¦S©›¨³¤wóßëÀ¢ÃÍ eŠİ¢ã®®ƒEúŠ¸õ6¢Í³Ú	ÎæØ¹]± \ LŞ¾ÔlÃÄaP_¬útÈvÒæa¥~SéÀ©f6_,pä<BDgœàd°)åL)0İu4ğAo©tÅ:âÀ•ßUEx”É*	Y–^ÜûŒ'Ù]êa¶a†|®¼éUJº;o=•D‹$‚dyBXh=Ïô¤Ì¹ùŠöüCÆñŠqåbN:lû÷ÇÇµ²hgdñZ”…,&
-q¯@w/C ÊÇ“ªé@JTÚ[¹‰e’APnò£Æ–şªUÅÛĞ…ÊŞQâ ¥ì…¶m]Éñ-ğË5d~Ö°i}‡®F³ÁÅ ×FWSô-º‡£OhÒÿñº?MÑåè¼;Dßµâ]QH"	„Kp?'CÉkˆ7r°İá‰l†Œg0é”YTã£J”íG(<çÖj‹$MægJ&Ôü€>e‹Ó€Ğ‰ÿBìïlÂØ&éGcåÒ¡²>qì%Xw×4»ŞkFgcÁÏÌÚÃt„˜hu2iWJã/±…A Ôä1îm½şécw6íÇÍéì—a]öÏ]ÿÍF“HÙJÏ¥Nõ .P‹ü©Ú{7ğ–4l çèÇ@3ô6Ğ&ƒ O°N™y]4•KÀ¶Zß >uå†òÍ7ğe€·	”ç°°t]üêlvQj,¦íâ8¶€Xoì™Ñbƒ;D•"OFö=èÍ®'}Ô›ŒÆãşœm2šuS¹’XÚ358¸DtÌÇDªt¶«óÎF»¦4puÌÛvù È±à}0zbi…TF(‡©ö°Ÿ¹Í>ö/û°òOİápÜeR˜ö‡ıT½¥æÏ"c.‘@ÚNSãH€“‹ô÷;5N,kş’xì< ö!{ä!y ‡¯€uè0ô$æ°D'å70øÇyÿ¢{=œİòµİÎw	9´DÄ!hä$©]²¦Dr9_zÿºê‚l™+eÙµ‰îØÅ¶uœn0u<å
-Ò<&§òYc6Ü‘GÀxÄ†õ@®õKzÊO¢ŸNóE.½>³(¼*9 6ÌI3;›M|¾ÖFÇ qótZ¸ªİ‰„?'³ÒB275ı¾õ
-áÛ Ë‡–À…”ó(Ï%—1‡~QÀQÊm=E<®™Ö£¾~ÙØ[VÑ “Æ~R+G¹“³„Uˆ“-í&ÀEñ¸)›ærÉÃÒU–h:ÍW1`ÜcG	ñiï‹ìaP>÷*Xø®Ã3	T<[>/ Í9à <€©„ÈÌXPl*g­åsÉ{Â”SvnvˆñÉÎG…ƒôæIö £ š$7¿:.¢AqÅó8Y
-|ösöäı˜ĞéÙzYò-ÇÒ{œ¼”b'X¬DÛSì#¶
-–#!;/¨Ú-+qı{Ø"»l@”Õ[Y`ŞF‡CèxdnbP¸¹fù×šjA
-NQÄv¿°vÈŠ¤¨"~rI%¶œx&?±¦¢ı€ñÁ~ÅòÇæ7ËS°
-éÂGW3t Ôâ%H
-»#¬.TôògYèØ¥ì2!;n ›“‹—İ[4õœ4lyqŞİW!h#
-Hì°A}ÉN³Ç9T*Ãè#éô°lG @4ğvhÚÔfÖöÕf×0ÍSñGĞÆ‘‚ Ø¥Õ£Êõ´Š6²3²£÷SäøÒ+4-Å*÷>KŒø¦ìPªê8*‰lš·¶uT}nÏn¿‘¼¹]Õ”¢‡÷C¡}ò<¨ƒ$\ªG@H:hƒTUÍHmËÆâö£ÁŸÓ)Ü” çê‰¼•hléï®aJ&…Í|
-pò|x@±JØ~Ë&{Ç2¯Ö@ÿœ®Ôğ"ö¾äõ7h‹ ¬êKÄ\}Sv>²‡˜Ù@VìÍ^x/¨3ÍêÙ›@A%o+ºp©nX5fOºêh®O …j¶/Şã¥CëõRÙ0ƒIç#¿‡ÎÌXxê3û`á€,±RçGŸ,Sš… 3åóMd¾üÕFµÓ¦AÄ±ZÄ|,4Iyò¯4éâÒ[0oıòÀ–-Øfı³Ğ?mÒUo¿ìÇyÀL¶fİÖĞßù‚T›®ø¢¢¥<U‡ï¿Ôü¥ê6¡VDõ‚yh/Êi}¿Ïª¦k^ßF—ØóÀ(™ãTØ£L¸Qu¸ÌL™§jUIõ3ã¾Õü¶ €ª?hg®9¸´p­j÷mA¡•´`è`(ŞÚG­æ
-fçùšå´có¬¢†Åêü°©ÀH«	Ûùš‘•R•†5¦"Åzï×LŠãâæâJ•š!r2ºª‰}Îhö&ƒ8÷\OTÜÒH­b%å1"ŒÄ» .fi}Úwd¸àŒ9ûvÙeUôˆ¢põeÄJ r;§ºb°ó3©PˆµFbş°¢jNû{ûî1|ÔÁ^Ã>Oõö9Ä{8ıŞÄ©ò"öÙÛ“"âŞÄ>Uû6_×­Ø~Y¹ÏaíU€±4a'ZTó|å(oMG%ƒJjDø]&w~]¸I®àÊ/Ñ„D¿P»’»5”•Èïy&'KhKo‡$¸G–w7OäÀ·4Qş yïÒ@øgZŸËnO
-wœ"²ú*õÈ”ÓÓl›E	–jfÙî† O _?Â±2RXÀë*de­U~
-ta+ŞZ¾ñI`M˜:³a%!aÓÃ¥ÅKò€s †úSÔN‹ø@Jûâ¤¿%I0Rì¥›ã»F
-wA(vÂvôlqÜ})åÙşc Ùÿ˜=	–í—fš`šZ>-©Ü?Ü7‘<$…Ü3yÜ6–B°'°ğëO _Ğëë×.ØõÇ®ı!×S ×SàÖÓÁÖaPë u(Ì: dí±ª ÖğJŞ^ši¬RXod°_% ‹oZ¹M	6Ÿé&ÖÜ2&Å_»s÷ÿ•%p€Õ|æ
-<“ĞıP+WÙHŠõÎZéå|EÙ]‚±ÎZ…ú‹¨‡•nL?v'ıó¨k<éÿ4èBÃÁ‡³÷£ŸõTÀâàÕU¦Ïécò2ö‡D«Šaz)«ËQòÔYp˜«1y}˜Œ®Ç¨7éóŠAIy ^} µ9•"EéäÄ(Š£Ò™7Y²˜„Ë9üë™£	û\Á±³‘…Êt¯w‰„jÂ¨(c*¼6dfËç”­«baS¥åUIÓÓÑBe÷gİÁw^v¯ºú—ı«b…P&Å7Ôä—€ l6µìõİŸâ9ö5bæÊA³j/Ğ‰AH^(UR¨—
-wQ±Æ+Ów¸nË´¾(AŠì5§HÇ…§\•I¾„â±4;GïSëÉÄ5ÄÂ2“¶d)»†1N_RŞj¡Q¦]Ùaa$#ÃêÁ×ærš}Gã¡¹æì˜],Ø¼ öÅôa§çíâ€dŒ
-ÙcÚß’;Ç•˜£qXîÜíñ 6ıØïÏÄ ıáÕÈÙQä,¡ÛUü'R°jOş‡cğNy‡„¼÷&Õï±ÑÙÌÃş·¬)È/á)AÅÎÁäãã…ø/BùbDıpBe·	v¨ëW3
-iÊyğmJ¶3ØÚYh>uUİ$Îœj®¡®\H(Xºª¬ á•ÊNlønM]² vvÏHO¯#‘ “Ø÷€ƒ‚yisÂøH¶D†–lü@³ı/   ÿÿ NJâ
+      {/* NOTIFICATIONS & FOLLOW REQUESTS MODAL */}
+      <NotificationsModal
+        isOpen={showNotificationsPanel}
+        onClose={() => setShowNotificationsPanel(false)}
+        notifications={notifications}
+        followRequests={followRequests}
+        onAcceptFollowRequest={handleAcceptFollowRequest}
+        onDeclineFollowRequest={handleDeclineFollowRequest}
+        onMarkAllAsRead={markNotificationsAsRead}
+        renderAvatar={renderAvatar}
+        themeMode={themeMode}
+      />
+
+      {/* WHATSAPP-STYLE MEDIA EDITOR MODAL (Crop, Customize, Brush, Text, HD Quality, Send to Recipient) */}
+      <MediaEditorModal
+        isOpen={!!pendingMediaEditorDataxœÌZ{s9ÿ?…Ú
+°çüÌ^ˆñ.Á$á
+ğf·|.GÌÈ Í0š	Ëòİ¯¥y3ÀÉŞU‰Aênµº[İı›Ñæ;äL,pcíÛ¤öä†˜·M*˜{ã›ŠÙ-‹qÒXWª¨q…8ıLŠ=·¬jœotõÛ¦EäwIKLÅ‘¹0AÜæ3Hpëø¯€¦võÿm]û}úØ›ı¾6ıÖm£ş ÷¾#ÿvZ£»Aµ½~¿=@¯Ğ 7jztÓ»nvÑµ@Üeg†'¤å2Ç!î3±êBy¬ÑXó)[Ä©"m¹k¨‰ÆÚğ¦†lîD™l¸%±ò„-NÖ’3µ<*Ó³Ã?“½l1úØ¾iÃÎ?5»İ~SZaØî¶[™FhM±MÉŒä[ šÔÄ† ÏD2ßâl0úı“nÃúóOTSÊ‘Áìgâr,(³Ë‘ cî‚½¥;°~Â–å`°
+¿äuÌ)ìºı¾y×=ª½=v®w9R:ÃÄCbÃ[;ŠK9Z#ÛÎ·Ö¿n›`Ûöug”¶eÓ¦3,Hß%œØ¹
+W\C¨8)·Ôø"­sÇ‰‹^½B•¸MúŒs®,Zz¢Kb"jÃ~´cô‡vqŒ,²Dptf\3Àv ã÷9ôiüt´óÒUL&H1ix]
+OL€‹mĞ	[õ1T¬êèm6ÛtØÛU‚î$ƒ,©Ø),wƒã‰6¶°ñ¥ö¾Ã_"Fæ®¶ä¥m)Òå`Ê˜ËÛiûy(É[{‰y¸-ûÑß\ím+Ÿéäh?«å¯‘oA—XX´Ğ`¯h†—ÚBã3ä²9¤OS;]ZÒ°‹)dy÷K~Ùd.\lioÁÒÌ…4ëÿ	gNaÆ£NÿÆí5âSl²…’ş‡vrŒ8¨K´_B×«-ÍSÎc"„Ø¥m	 cz!ÈRhcÌ	zb6|c–‰ÔX|“j+jT¢t%ƒ¡rY›e¬3ÁìmoÉÏ!Á—ÁÓŞÑNBW)&T?Õ§rg=1ü:ØQÆ8®”Z2½9ØŞ¯q=¦Ú9„Ğyiût(Êšg‰”3kàÍ09†£NÊ;KÜÖEÂ#±Ífx{HÂP*¸`3dûæW»èbÎN“ô?'3º+â¶ºÊJÌ›Ëš~…)§c‹€Ã­­Ø\OYÁIÛ€ÚÎ\¤ö"Vo’´‹±5‡¤GÁ	4ùE¥ã‚ê•ì;*$¿Ñ6[…èĞ.LˆĞ•àŒ0t Õ’)XŠ¸Ñ':zGàè‘#ÔwÙïPQ—`óı{¾>yÑ<ß ¡˜›pH½‘óëæ&½‹˜7ü„ä,µ3ı9+íş¡î%¥À'a²™$Ía©éGWî…ì·+ 6µ‰f3[FÄWİ… ĞNã?Rbs^I Ï{/©¶fjéÙ™
+'Ø}¡fœÕ-.ç÷Aü°İ^„+{Ç9c&–Ù0_ÙòòÛ:“êãªü-cå*tòbîÚosø äyñ©ú ÊRÌ=w ²@óĞ@k¤ëzÂh“ÇkB‹Ş÷™ï#ò8àpµâ²+>o5A¸+PÉbPÌ‡ ‡ Ï×AF[)S›Ã¥²A.ãå#ôÏaïVçBÔ¾p‰ê[´AÆÉ£¾Îª%ò³‡™åÀVre®?QÛ¬Ò³†>‡Í«”Úh4â.~»bè2c©™²9+Ëx2t»‚Ò£à?éÔ6,È
+¼±V«¹¶‘éSÍ¬Pw:#C!ãÃ&È’Tªº`]i\2ò&Áf•û‡#°ùğW•O5“N¨ ³Î¨=$6„6¹ªKZlrÃ'#È°êçßØbye
+Ê”$ĞÏß¯£]o>ï'¹#C¶<{,£¿«é6[¨Mù[9{]…™²š¿Ábª»€MØl‹Dçó±/•Ó#ôã>»®8,_G7„sJypr™ÀSf=Tø¨€N…²$ÜªÓb—Èà~Ä¢3@WêH†ê]®\ÎH¹ˆO¦ûzÌ¡…´è(|Åá K…°ãÏœzEÔ°YCÂ^G¤Å„æãx%Ér©rÓšJS¾cù»•ôBÅqÉ³<â•"7Cæ”tEŠİ'<û 
+“’¾5#]rÿP=Š‚­`'ù9ÂË”¿§.‘m}‹ÙOt2wáBş1Çò¨²Ó¢ìágá‚y¨Ô ìvÍŒŠ)ÿdHyF,…á;*–´ÿi‘ŸÃOŒâ:øÔÈÏKOürzıŞ'HQtŠägï“äï<MòSTP¬øºnAùÂœ™¼ñ"À˜ÛˆÈ'ZsQ)LAi*å0¥xŸ8ü„î\õæ( j Êeœ(ÌæÁMhÒı‘8Fß\×Îã>´Ğ6§ÒušÁ,ærùà3Ws•}nº‰Î¬.«¡Í¨eà¬¾[;É¾¹ò7| °ä½Ë)àŸ=‹»&…©R3Y}•{²œÓÂ¶A¬´s=³‡mwC—¯/t£’Sx]‡®ºµ"î—@¹SÕüÂ—k¼ÖY²å¤D,Nr%Š—²Îê/EP;#âÿ)í‹“şë()#g!·8şäÁ(pá.%Ÿ°•¾_û7¥Ï¹2ëßšıï€Ù‹`Ù~mæ¡æ¡­åËšÊıÛÉ}ÉCZÈ=›Çİmc.{ Û	¿şğU ½¾xí‚]ßtí¹^¸^·^¶ƒZ‡ ­CaÖ k?ˆU°ö„WÙã¹ÆÀ*‚UA!ƒz,U´¶ŠŸÁnËÄ_»{Õ÷o½¥Íìâƒw&±—»™8 öŞ#ŞäÂlY[X xí»äû¡y]eoLà¿NLE/çã3[¤!Æº¬¥î_ø3òêÆğcsĞ¾F7íëNõí_:íO¨Ûùğqô®÷kü‡º–")Ytéd*Æl.6““òVŒô{œ²ø:Ê6unİ1½>zw}Ô´›£Nï6}Ñä–,>€Ûœü;;	Š\åâYÖ¿7“`ô¯Î¼M’$ÊÎòÖ1³Zì ø—}îbÉ±±ÎJ•‹œåFıKÃØ²0;[§ä½*™ÖUt½*zùE4ÏY×íQ³Ó¢Wè¦yÛüĞ¾iß¦oÅ®I©‚şŠ!ˆ‰Ô¦œ|}w©T¼&S‹'t{Š.„²/J¥XR÷¥¼*¿ã•˜;Ü·yŞõ
+‘b#ùš3N§Œ´\õ,Ñ|Å.EİQœ{·‡=su	¤°DÀD#IÊ¦iö#ÀPÃ¨”ÑT’m  L§7QÌ|§`®¢éØO,`İNòŒØd"õØĞ{CŠ^ÇÂúè_”_£ùğ¡Yu?ÁMÌ^_&¯!j¶T~l·Gñ$ÖwÙµHÏQ=G~*Ë Ûuù/ƒ%ÕAšği£ØÍ™ˆ%!şÎbÆb6Öcï‹¤áÈÏ‘¸‚è™]	åƒÇuäáGµ™¸¡Ê²ó,iâ0Wòhòe¨2•UlüL'X0W7,êŒvM}áBC!ÛÕÊ‚^èò‰ªÖÌ¥j'kFôôÚ7	²¨ıp°C%€g(\Ê* ~ ……h6ÿ  ÿÿ <&X
