@@ -14,6 +14,7 @@ interface AuthFlowProps {
     email: string;
     fullName: string;
     username: string;
+    zenoa_id?: string;
     dob: string;
     gender: string;
     password: string;
@@ -70,6 +71,8 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     truecallerProfile ? `${truecallerProfile.firstName} ${truecallerProfile.lastName}`.trim() : ''
   );
   const [regUsername, setRegUsername] = useState<string>('');
+  const [regZenoaPrefix, setRegZenoaPrefix] = useState<string>('');
+  const [isZenoaPrefixCustom, setIsZenoaPrefixCustom] = useState<boolean>(false);
   const [regDob, setRegDob] = useState<string>('');
   const [regGender, setRegGender] = useState<string>(truecallerProfile?.gender?.toLowerCase() === 'm' ? 'male' : truecallerProfile?.gender?.toLowerCase() === 'f' ? 'female' : 'prefer_not');
   const [regPassword, setRegPassword] = useState<string>('');
@@ -142,14 +145,25 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     }
   }, [regUsername, existingUsernames, checkUsernameAvailability]);
 
-  // Auto-suggest username when full name changes
+  // Auto-suggest username & Zenoa ID when full name changes
   const handleFullNameChange = (val: string) => {
     setRegFullName(val);
     if (!regUsername) {
       const clean = val.toLowerCase().replace(/[^a-z0-9_]/g, '');
       if (clean.length >= 3) {
         setRegUsername(clean);
+        if (!isZenoaPrefixCustom) {
+          setRegZenoaPrefix(clean);
+        }
       }
+    }
+  };
+
+  const handleUsernameChange = (val: string) => {
+    const clean = val.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
+    setRegUsername(clean);
+    if (!isZenoaPrefixCustom) {
+      setRegZenoaPrefix(clean);
     }
   };
 
@@ -230,11 +244,15 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
       return;
     }
 
+    const finalZenoaPrefix = (regZenoaPrefix || regUsername).trim().toLowerCase().replace(/[^a-z0-9._-]/g, '') || regUsername.trim().toLowerCase();
+    const finalZenoaId = `${finalZenoaPrefix}@zenoa`;
+
     setIsLoading(true);
     const res = await onRegisterSubmit({
       email: regEmail.trim(),
       fullName: regFullName.trim(),
       username: regUsername.trim().toLowerCase(),
+      zenoa_id: finalZenoaId,
       dob: regDob || '2000-01-01',
       gender: regGender,
       password: regPassword,
@@ -565,12 +583,43 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                     <input
                       type="text"
                       value={regUsername}
-                      onChange={e => setRegUsername(e.target.value.toLowerCase().trim())}
+                      onChange={e => handleUsernameChange(e.target.value)}
                       placeholder="username"
-                      className="w-full pl-8 pr-4 py-2.5 text-xs rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/40 outline-none focus:border-indigo-500 transition-colors font-medium"
+                      className="w-full pl-8 pr-4 py-2.5 text-xs rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/40 outline-none focus:border-indigo-500 transition-colors font-medium text-neutral-900 dark:text-white"
                       required
                     />
                   </div>
+                </div>
+
+                {/* Zenoa ID (Permanent Handle Suggestion) */}
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5 text-neutral-500 flex items-center justify-between">
+                    <span>Zenoa ID (Permanent Handle)</span>
+                    <span className="text-[10px] text-amber-500 dark:text-amber-400 font-bold flex items-center gap-1">
+                      <Lock className="h-3 w-3" />
+                      Immutable after creation
+                    </span>
+                  </label>
+                  <div className="relative flex items-center">
+                    <input
+                      type="text"
+                      value={regZenoaPrefix}
+                      onChange={e => {
+                        const clean = e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, '');
+                        setRegZenoaPrefix(clean);
+                        setIsZenoaPrefixCustom(true);
+                      }}
+                      placeholder="username"
+                      className="w-full pl-3.5 pr-20 py-2.5 text-xs rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/40 outline-none focus:border-indigo-500 transition-colors font-mono font-bold text-neutral-900 dark:text-white"
+                      required
+                    />
+                    <span className="absolute right-2 px-2.5 py-1 text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/80 rounded-xl border border-indigo-200 dark:border-indigo-800/60 pointer-events-none">
+                      @zenoa
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-1 font-mono">
+                    Permanent handle: <strong className="text-indigo-600 dark:text-indigo-400 font-bold">{(regZenoaPrefix || regUsername || 'username').toLowerCase()}@zenoa</strong>
+                  </p>
                 </div>
 
                 <button

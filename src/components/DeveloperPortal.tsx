@@ -4,7 +4,7 @@ import { db } from '../firebaseClient';
 import { 
   Terminal, Plus, Key, Copy, Check, ArrowLeft, Shield, Code, Server, 
   BarChart3, History, Lock, FileText, RefreshCw, Eye, EyeOff, Globe,
-  ShieldCheck, Webhook, Radio, Sliders, Zap, Download, AlertTriangle
+  ShieldCheck, Webhook, Radio, Sliders, Zap, Download, AlertTriangle, CheckCircle2
 } from 'lucide-react';
 import { UserData } from '../types';
 
@@ -39,7 +39,7 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
 
   // Code Snippet & Auto-Generated SDK State
   const [codeLang, setCodeLang] = useState<'node' | 'python' | 'php' | 'curl' | 'go' | 'button'>('node');
-  const [sdkTab, setSdkTab] = useState<'ts' | 'python' | 'env' | 'html' | 'curl'>('ts');
+  const [sdkTab, setSdkTab] = useState<'ts' | 'node' | 'python' | 'env' | 'html' | 'curl'>('ts');
 
   // Analytics & Logs State
   const [analytics, setAnalytics] = useState<any>(null);
@@ -54,6 +54,108 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
     appName: string;
     botUsername: string;
   } | null>(null);
+
+  // Live OTP Testing Sandbox State
+  const [testOtpRecipient, setTestOtpRecipient] = useState<string>('');
+  const [testOtpTemplate, setTestOtpTemplate] = useState<string>('standard_otp');
+  const [testOtpSending, setTestOtpSending] = useState<boolean>(false);
+  const [testOtpResult, setTestOtpResult] = useState<any>(null);
+
+  const [testVerifyCode, setTestVerifyCode] = useState<string>('');
+  const [testOtpVerifying, setTestOtpVerifying] = useState<boolean>(false);
+  const [testVerifyResult, setTestVerifyResult] = useState<any>(null);
+
+  useEffect(() => {
+    if (currentUser?.mobile_number) {
+      setTestOtpRecipient(currentUser.mobile_number);
+    } else if (currentUser?.username) {
+      setTestOtpRecipient(currentUser.username);
+    }
+  }, [currentUser]);
+
+  const handleLiveSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedApp) return;
+    const targetRec = testOtpRecipient || currentUser?.mobile_number || currentUser?.username || '';
+    if (!targetRec.trim()) {
+      showToast('Please enter a recipient (Mobile Number, Username, or Zenoa ID)');
+      return;
+    }
+
+    setTestOtpSending(true);
+    setTestOtpResult(null);
+
+    try {
+      const effectiveApiKey = selectedApp.client_id || selectedApp.api_key;
+      const res = await fetch('/api/v1/otp/send', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${effectiveApiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          recipient: targetRec.trim(),
+          template_type: testOtpTemplate,
+          expiry_mins: 10
+        })
+      });
+      const data = await res.json();
+      setTestOtpResult({ status: res.status, ok: res.ok, data });
+      if (res.ok && data.success) {
+        showToast('🚀 Live OTP sent! Check Zenoa Messenger Inbox.');
+        if (data.code) {
+          setTestVerifyCode(data.code);
+        }
+      } else {
+        showToast('OTP Send Failed: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      setTestOtpResult({ status: 500, ok: false, data: { error: err.message } });
+      showToast('Error sending OTP: ' + err.message);
+    } finally {
+      setTestOtpSending(false);
+    }
+  };
+
+  const handleLiveVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedApp) return;
+    if (!testVerifyCode.trim()) {
+      showToast('Please enter the 6-digit verification code');
+      return;
+    }
+
+    setTestOtpVerifying(true);
+    setTestVerifyResult(null);
+
+    try {
+      const effectiveApiKey = selectedApp.client_id || selectedApp.api_key;
+      const targetRec = testOtpRecipient || currentUser?.mobile_number || currentUser?.username || '';
+      const res = await fetch('/api/v1/otp/verify', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${effectiveApiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          recipient: targetRec.trim(),
+          code: testVerifyCode.trim()
+        })
+      });
+      const data = await res.json();
+      setTestVerifyResult({ status: res.status, ok: res.ok, data });
+      if (res.ok && data.verified) {
+        showToast('✅ OTP Verified Successfully!');
+      } else {
+        showToast('Verification Failed: ' + (data.error || 'Invalid code'));
+      }
+    } catch (err: any) {
+      setTestVerifyResult({ status: 500, ok: false, data: { error: err.message } });
+      showToast('Error verifying OTP: ' + err.message);
+    } finally {
+      setTestOtpVerifying(false);
+    }
+  };
 
   const showToast = (msg: string) => {
     setNotification(msg);
@@ -208,19 +310,103 @@ export default ZenoaSDK;
 `;
   };
 
+  const generateNodeSdk = (app: any) => {
+    if (!app) return '';
+    const cid = app.client_id || app.api_key || 'zen_client_prod';
+    const sec = app.client_secret || 'zen_sec_secret';
+    const origin = window.location.origin;
+    return `/**
+ * Zenoa CommonJS / Node.js Production SDK for ${app.app_name}
+ * Service Account: @${app.bot_username || app.owner}
+ * Supports: Mobile Number, Username, & Zenoa ID routing
+ */
+
+class ZenoaNodeSDK {
+  constructor(config = {}) {
+    this.clientId = config.clientId || "${cid}";
+    this.clientSecret = config.clientSecret || "${sec}";
+    this.baseUrl = (config.baseUrl || "${origin}").replace(/\\/+$/, '');
+  }
+
+  /**
+   * Dispatch high-priority automated OTP / verification code
+   * Options can specify recipient (mobile/username), zenoaId, or mobileNumber
+   */
+  async sendOtp(options, templateType = "standard_otp", expiryMins = 10) {
+    const payload = typeof options === 'string'
+      ? { recipient: options, template_type: templateType, expiry_mins: expiryMins }
+      : {
+          recipient: options.recipient || options.zenoaId || options.mobileNumber,
+          zenoa_id: options.zenoaId,
+          mobile_number: options.mobileNumber,
+          template_type: options.templateType || templateType,
+          expiry_mins: options.expiryMins || expiryMins
+        };
+
+    const res = await fetch(\`\${this.baseUrl}/api/v1/otp/send\`, {
+      method: "POST",
+      headers: {
+        "Authorization": \`Bearer \${this.clientId}\`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
+  }
+
+  /**
+   * Validate recipient OTP code
+   */
+  async verifyOtp(recipient, code) {
+    const res = await fetch(\`\${this.baseUrl}/api/v1/otp/verify\`, {
+      method: "POST",
+      headers: {
+        "Authorization": \`Bearer \${this.clientId}\`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ recipient, code })
+    });
+    return await res.json();
+  }
+
+  /**
+   * Send notification or message as Bot / Service Account
+   */
+  async sendMessage(recipient, text, metadata = {}) {
+    const res = await fetch(\`\${this.baseUrl}/api/v1/bot/send\`, {
+      method: "POST",
+      headers: {
+        "Authorization": \`Bearer \${this.clientSecret}\`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        client_id: this.clientId,
+        recipient,
+        text,
+        metadata
+      })
+    });
+    return await res.json();
+  }
+}
+
+module.exports = ZenoaNodeSDK;
+`;
+  };
+
   const generatePythonSdk = (app: any) => {
     if (!app) return '';
     const cid = app.client_id || app.api_key || 'zen_client_prod';
     const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
     return `"""
-Zenoa Production SDK for ${app.app_name}
+Zenoa Production Python SDK for ${app.app_name}
 Service Account: @${app.bot_username || app.owner}
 Pre-Configured & Ready for Production
 """
 
 import requests
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 
 class ZenoaSDK:
     def __init__(
@@ -235,18 +421,23 @@ class ZenoaSDK:
 
     def send_otp(
         self, 
-        recipient: str, 
+        recipient: Optional[str] = None, 
+        zenoa_id: Optional[str] = None,
+        mobile_number: Optional[str] = None,
         template_type: str = "standard_otp", 
         expiry_mins: int = 10
     ) -> Dict[str, Any]:
-        """Dispatch an automated OTP to a recipient's phone or Zenoa handle."""
+        """Dispatch an automated OTP to a recipient's phone number (+91...), username (@azad1), or Zenoa ID (usr_...)."""
         url = f"{self.base_url}/api/v1/otp/send"
         headers = {
             "Authorization": f"Bearer {self.client_id}",
             "Content-Type": "application/json"
         }
+        target_rec = recipient or zenoa_id or mobile_number
         payload = {
-            "recipient": recipient,
+            "recipient": target_rec,
+            "zenoa_id": zenoa_id,
+            "mobile_number": mobile_number,
             "template_type": template_type,
             "expiry_mins": expiry_mins
         }
@@ -333,18 +524,37 @@ ZENOA_OTP_VERIFY_URL="${origin}/api/v1/otp/verify"
   const generateCurlSnippets = (app: any) => {
     if (!app) return '';
     const cid = app.client_id || app.api_key || 'zen_client_prod';
+    const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
-    return `# 1. Send OTP
+    return `# 1. Send OTP by Verified Mobile Number
 curl -X POST "${origin}/api/v1/otp/send" \\
   -H "Authorization: Bearer ${cid}" \\
   -H "Content-Type: application/json" \\
-  -d '{"recipient": "+91XXXXXXXXXX", "template_type": "standard_otp"}'
+  -d '{"recipient": "+917991482672", "template_type": "standard_otp"}'
 
-# 2. Verify OTP
+# 2. Send OTP by Immutable Zenoa ID (usr_...)
+curl -X POST "${origin}/api/v1/otp/send" \\
+  -H "Authorization: Bearer ${cid}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"zenoa_id": "usr_9f81a7b2c", "template_type": "transaction_auth"}'
+
+# 3. Send OTP by Username (@azad1)
+curl -X POST "${origin}/api/v1/otp/send" \\
+  -H "Authorization: Bearer ${cid}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"recipient": "azad1", "template_type": "standard_otp"}'
+
+# 4. Verify OTP Code
 curl -X POST "${origin}/api/v1/otp/verify" \\
   -H "Authorization: Bearer ${cid}" \\
   -H "Content-Type: application/json" \\
-  -d '{"recipient": "+91XXXXXXXXXX", "code": "123456"}'`;
+  -d '{"recipient": "+917991482672", "code": "123456"}'
+
+# 5. Dispatch Direct Message as Service Account
+curl -X POST "${origin}/api/v1/bot/send" \\
+  -H "Authorization: Bearer ${sec}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"client_id": "${cid}", "recipient": "+917991482672", "text": "Hello from Zenoa Service Account!"}'`;
   };
 
   useEffect(() => {
@@ -907,6 +1117,13 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
                             <span>zenoa-sdk.ts</span>
                           </button>
                           <button
+                            onClick={() => downloadSdkFile('zenoa-node-sdk.js', generateNodeSdk(selectedApp))}
+                            className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 font-medium text-xs transition-all border border-zinc-800 flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            <span>zenoa-node-sdk.js</span>
+                          </button>
+                          <button
                             onClick={() => downloadSdkFile('zenoa_sdk.py', generatePythonSdk(selectedApp))}
                             className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 font-medium text-xs transition-all border border-zinc-800 flex items-center gap-1.5 cursor-pointer"
                           >
@@ -928,6 +1145,7 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
                         <div className="flex rounded-lg bg-zinc-900 p-1 border border-zinc-800 mb-3 overflow-x-auto">
                           {[
                             { id: 'ts', label: 'TypeScript' },
+                            { id: 'node', label: 'Node.js (CJS)' },
                             { id: 'python', label: 'Python' },
                             { id: 'env', label: '.env' },
                             { id: 'html', label: 'HTML SSO Button' },
@@ -952,6 +1170,7 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
                           <div className="flex items-center justify-between px-4 py-2 bg-zinc-950 border-b border-zinc-800 text-xs text-zinc-400 font-mono">
                             <span>
                               {sdkTab === 'ts' && 'zenoa-sdk.ts'}
+                              {sdkTab === 'node' && 'zenoa-node-sdk.js'}
                               {sdkTab === 'python' && 'zenoa_sdk.py'}
                               {sdkTab === 'env' && '.env'}
                               {sdkTab === 'html' && 'zenoa-sso-button.html'}
@@ -960,6 +1179,7 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
                             <button
                               onClick={() => {
                                 const content = sdkTab === 'ts' ? generateTsSdk(selectedApp)
+                                  : sdkTab === 'node' ? generateNodeSdk(selectedApp)
                                   : sdkTab === 'python' ? generatePythonSdk(selectedApp)
                                   : sdkTab === 'env' ? generateEnvConfig(selectedApp)
                                   : sdkTab === 'html' ? generateHtmlSnippet(selectedApp)
@@ -975,6 +1195,7 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
 
                           <pre className="p-4 text-[11px] font-mono text-zinc-300 leading-relaxed overflow-x-auto max-h-80 select-all">
                             {sdkTab === 'ts' && generateTsSdk(selectedApp)}
+                            {sdkTab === 'node' && generateNodeSdk(selectedApp)}
                             {sdkTab === 'python' && generatePythonSdk(selectedApp)}
                             {sdkTab === 'env' && generateEnvConfig(selectedApp)}
                             {sdkTab === 'html' && generateHtmlSnippet(selectedApp)}
@@ -991,6 +1212,143 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
             {/* TAB: AUTOMATED OTP SPECIFICATIONS */}
             {activeTab === 'otp' && selectedApp && (
               <div className="space-y-6 animate-in fade-in">
+                {/* LIVE INTERACTIVE OTP PLAYGROUND */}
+                <div className="bg-zinc-900 border border-emerald-500/30 p-6 rounded-3xl text-zinc-100 shadow-md space-y-5">
+                  <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-emerald-400">
+                        <Terminal className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-bold text-zinc-100 flex items-center gap-2">
+                          Live Interactive OTP Playground
+                          <span className="px-2 py-0.5 text-[10px] bg-emerald-500/20 text-emerald-300 font-mono rounded-full border border-emerald-500/30">TESTER</span>
+                        </h3>
+                        <p className="text-zinc-400 text-xs mt-0.5">
+                          Test live OTP dispatch to Zenoa Messenger chat using your active Service Account credentials.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleLiveSendOtp} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs font-semibold text-zinc-300 block mb-1">
+                          Target Recipient (Mobile / Username / Zenoa ID)
+                        </label>
+                        <input
+                          type="text"
+                          value={testOtpRecipient}
+                          onChange={(e) => setTestOtpRecipient(e.target.value)}
+                          placeholder="e.g. +917991482672 or @azad1 or zenoa_id"
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-semibold text-zinc-300 block mb-1">
+                          Template Type
+                        </label>
+                        <select
+                          value={testOtpTemplate}
+                          onChange={(e) => setTestOtpTemplate(e.target.value)}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
+                        >
+                          <option value="standard_otp">Standard Verification Code</option>
+                          <option value="2fa_auth">2FA Authentication</option>
+                          <option value="password_reset">Password Reset Code</option>
+                          <option value="transaction_auth">Transaction Security Auth</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={testOtpSending}
+                        className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition-all shadow-sm cursor-pointer"
+                      >
+                        {testOtpSending ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 animate-spin" />
+                            Dispatching OTP...
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="h-4 w-4 fill-current" />
+                            Send Live OTP via Service Account
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* LIVE SEND RESULT DISPLAY */}
+                  {testOtpResult && (
+                    <div className={`p-4 rounded-2xl border text-xs font-mono space-y-2 ${testOtpResult.ok ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200' : 'bg-rose-950/40 border-rose-500/40 text-rose-200'}`}>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold flex items-center gap-1.5">
+                          {testOtpResult.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <Shield className="h-4 w-4 text-rose-400" />}
+                          HTTP {testOtpResult.status} Response
+                        </span>
+                        {testOtpResult.data?.code && (
+                          <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 font-bold rounded">
+                            CODE: {testOtpResult.data.code}
+                          </span>
+                        )}
+                      </div>
+                      <pre className="bg-zinc-950/80 p-3 rounded-xl border border-zinc-800 overflow-x-auto text-[11px] text-zinc-300">
+                        {JSON.stringify(testOtpResult.data, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+
+                  {/* INTERACTIVE VERIFY TESTER */}
+                  <div className="pt-4 border-t border-zinc-800 space-y-3">
+                    <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-wider">Test Verify Endpoint (/api/v1/otp/verify)</h4>
+                    <form onSubmit={handleLiveVerifyOtp} className="flex gap-2">
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={testVerifyCode}
+                        onChange={(e) => setTestVerifyCode(e.target.value)}
+                        placeholder="Enter 6-digit OTP code"
+                        className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-emerald-500"
+                      />
+                      <button
+                        type="submit"
+                        disabled={testOtpVerifying}
+                        className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-100 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        {testOtpVerifying ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />}
+                        Verify OTP
+                      </button>
+                    </form>
+
+                    {testVerifyResult && (
+                      <div className={`p-3 rounded-xl border text-xs font-mono space-y-1 ${testVerifyResult.ok && testVerifyResult.data?.verified ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200' : 'bg-rose-950/40 border-rose-500/40 text-rose-200'}`}>
+                        <div className="font-bold flex items-center gap-1.5">
+                          {testVerifyResult.ok && testVerifyResult.data?.verified ? (
+                            <>
+                              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                              VERIFICATION SUCCESS (Status {testVerifyResult.status})
+                            </>
+                          ) : (
+                            <>
+                              <Shield className="h-4 w-4 text-rose-400" />
+                              VERIFICATION FAILED (Status {testVerifyResult.status})
+                            </>
+                          )}
+                        </div>
+                        <pre className="bg-zinc-950/80 p-2.5 rounded-lg border border-zinc-800 overflow-x-auto text-[11px] text-zinc-300">
+                          {JSON.stringify(testVerifyResult.data, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl text-zinc-100 shadow-sm space-y-4">
                   <div className="flex items-center gap-3">
                     <Zap className="h-6 w-6 text-zinc-400" />

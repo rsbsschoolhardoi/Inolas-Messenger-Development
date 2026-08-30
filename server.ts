@@ -314,19 +314,12 @@ async function resolveUserRecipient(recipientInput: string): Promise<{
       matchedDocId = directSnap.id;
     }
 
-    // 2. Query by active username
-    if (!matchedDocData) {
-      const uq = query(usersRef, where('username', '==', clean));
-      const uSnap = await getDocs(uq);
-      if (!uSnap.empty) {
-        matchedDocData = uSnap.docs[0].data();
-        matchedDocId = uSnap.docs[0].id;
-      }
-    }
+    // 2. Query by zenoa_id (e.g. azad1@zenoa or custom@zenoa)
+    const zenoaFormatted = clean.includes('@zenoa') ? clean : `${clean}@zenoa`;
+    const bareUsername = clean.replace(/@zenoa$/, '');
 
-    // 3. Query by zenoa_id / id / uid
     if (!matchedDocData) {
-      const idq = query(usersRef, where('zenoa_id', '==', clean));
+      const idq = query(usersRef, where('zenoa_id', '==', zenoaFormatted));
       const idSnap = await getDocs(idq);
       if (!idSnap.empty) {
         matchedDocData = idSnap.docs[0].data();
@@ -334,9 +327,28 @@ async function resolveUserRecipient(recipientInput: string): Promise<{
       }
     }
 
+    if (!matchedDocData) {
+      const idq2 = query(usersRef, where('zenoa_id', '==', clean));
+      const idSnap2 = await getDocs(idq2);
+      if (!idSnap2.empty) {
+        matchedDocData = idSnap2.docs[0].data();
+        matchedDocId = idSnap2.docs[0].id;
+      }
+    }
+
+    // 3. Query by active username (e.g. azad1)
+    if (!matchedDocData) {
+      const uq = query(usersRef, where('username', '==', bareUsername));
+      const uSnap = await getDocs(uq);
+      if (!uSnap.empty) {
+        matchedDocData = uSnap.docs[0].data();
+        matchedDocId = uSnap.docs[0].id;
+      }
+    }
+
     // 4. Query by previous_usernames (e.g. if user edited their username)
     if (!matchedDocData) {
-      const prevq = query(usersRef, where('previous_usernames', 'array-contains', clean));
+      const prevq = query(usersRef, where('previous_usernames', 'array-contains', bareUsername));
       const prevSnap = await getDocs(prevq);
       if (!prevSnap.empty) {
         matchedDocData = prevSnap.docs[0].data();
@@ -455,7 +467,8 @@ async function deliverBotChatMessage(opts: {
       // 2. Format DM chat ID & write chat + message in Zenoa Messenger standard format
       const participants = Array.from(new Set([recClean, recIdClean, botClean].filter(Boolean))).sort();
       const participantIds = Array.from(new Set([recIdClean, recClean, botClean].filter(Boolean))).sort();
-      const chatId = `chat_dm_${recClean}_${botClean}`;
+      const sortedDmUsernames = [recClean, botClean].sort();
+      const chatId = `chat_dm_${sortedDmUsernames.join('_')}`;
       const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 

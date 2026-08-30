@@ -3,7 +3,7 @@ import { GoogleDriveLogo } from './GoogleDriveLogo';
 import { VaultPasswordModal } from './VaultPasswordModal';
 import { APP_BUILD_INFO } from '../version';
 import { db } from '../firebaseClient';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, setDoc } from 'firebase/firestore';
 import {
   Palette,
   Bell,
@@ -99,6 +99,7 @@ interface SettingsPageProps {
   userEmail?: string;
   userUid?: string;
   userPhone?: string;
+  onUpdatePhone?: (phone: string) => void;
   authMethod?: string;
   renderAvatar: (seed?: string, name?: string, url?: string, sizeClasses?: string) => React.ReactNode;
   onOpenEditProfile: () => void;
@@ -165,6 +166,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   userEmail,
   userUid,
   userPhone,
+  onUpdatePhone,
   authMethod,
   renderAvatar,
   onOpenEditProfile,
@@ -227,7 +229,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       }
 
       if (db) {
-        const primaryZenoaId = currentUser?.id || currentUser?.uid || userUsername;
+        const primaryZenoaId = currentUser?.id || (currentUser as any)?.uid || userUsername;
         const phonePayload = {
           id: primaryZenoaId,
           zenoa_id: primaryZenoaId,
@@ -248,6 +250,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         }
       }
       setLocalPhone(formatted);
+      if (onUpdatePhone) {
+        onUpdatePhone(formatted);
+      }
       setIsPhoneVerifyModalOpen(false);
       showToast('Real phone number verified & linked to your Truecaller profile!');
     } catch (err: any) {
@@ -1397,7 +1402,28 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
 
                 {/* Primary Credentials Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                  {/* Permanent Zenoa ID */}
+                  <div className="p-4 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-800/40 text-left flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] uppercase font-bold tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+                          <Lock className="h-3 w-3" />
+                          Zenoa ID
+                        </p>
+                        <span className="text-[9px] font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800/40">
+                          IMMUTABLE
+                        </span>
+                      </div>
+                      <p className="text-xs font-mono font-bold text-indigo-950 dark:text-indigo-200 mt-1.5 truncate">
+                        {currentUser?.zenoa_id || (userUsername ? `${userUsername}@zenoa` : 'user@zenoa')}
+                      </p>
+                    </div>
+                    <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-2">
+                      Fixed upon setup. Permanent handle for APIs & OTP routing.
+                    </p>
+                  </div>
+
                   {/* Email address */}
                   <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/10 border border-neutral-150 dark:border-neutral-800/40 text-left">
                     <p className="text-[10px] uppercase font-bold tracking-wider text-neutral-400">Email Address</p>

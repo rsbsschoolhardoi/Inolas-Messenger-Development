@@ -790,12 +790,44 @@ export default function App() {
         body: JSON.stringify({ payload, signature })
       })
       .then(res => res.json())
-      .then(data => {
-        if (data.success) {
+      .then(async data => {
+        if (data.success && data.profile) {
           setTruecallerProfile(data.profile);
-          // Open registration with prefilled data
-          setAuthFlowInitialMode('register'); 
-          setShowLandingPage(false);
+          const rawPhone = data.profile.phoneNumber || '';
+          const digits = rawPhone.replace(/[^0-9]/g, '');
+          const formattedPhone = rawPhone.startsWith('+') ? rawPhone : (digits ? `+${digits}` : '');
+
+          if (formattedPhone) {
+            setUserPhone(formattedPhone);
+            if (db) {
+              const primaryZenoaId = currentUserObj?.zenoa_id || (userUsername ? `${userUsername}@zenoa` : (userId || auth?.currentUser?.uid || 'user'));
+              const phonePayload = {
+                id: userId || auth?.currentUser?.uid || userUsername,
+                zenoa_id: primaryZenoaId,
+                username: userUsername,
+                mobile_number: formattedPhone,
+                phone_number: formattedPhone,
+                is_business_verified: true,
+                is_truecaller_verified: true,
+                phone_verified_at: Date.now(),
+                updated_at: Date.now()
+              };
+
+              if (primaryZenoaId) {
+                await setDoc(doc(db, 'users', primaryZenoaId), phonePayload, { merge: true }).catch(() => {});
+              }
+              if (userUsername) {
+                await setDoc(doc(db, 'users', userUsername.toLowerCase()), phonePayload, { merge: true }).catch(() => {});
+              }
+            }
+          }
+
+          // Open registration with prefilled data if not already authenticated
+          if (!isAuthenticated) {
+            setAuthFlowInitialMode('register'); 
+            setShowLandingPage(false);
+          }
+          showToast('Truecaller profile verified! Mobile number linked to Zenoa ID.');
         }
       })
       .catch(err => console.error("Truecaller callback error:", err));
@@ -1471,8 +1503,10 @@ export default function App() {
 
                   const uName = profile.username;
                   const dName = profile.display_name;
+                  const uPhone = profile.mobile_number || profile.phone_number || profile.phone || '';
                   setUserUsername(uName);
                   setUserDisplayName(dName);
+                  setUserPhone(uPhone);
                   setUserBio(profile.bio || '');
                   setUserAvatarSeed(profile.avatar_seed || uName);
                   setUserAvatarUrl(profile.avatar_url || '');
@@ -2988,12 +3022,19 @@ export default function App() {
     email: string;
     fullName: string;
     username: string;
+    zenoa_id?: string;
     dob: string;
     gender: string;
     password: string;
+    mobile_number?: string;
   }): Promise<{ success: boolean; error?: string }> => {
     const cleanFullName = (data.fullName || '').trim();
     const cleanUsername = (data.username || '').trim().toLowerCase();
+
+    let cleanZenoaId = (data.zenoa_id || `${cleanUsername}@zenoa`).trim().toLowerCase();
+    if (!cleanZenoaId.endsWith('@zenoa')) {
+      cleanZenoaId = `${cleanZenoaId.replace(/[^a-z0-9._-]/g, '')}@zenoa`;
+    }
 
     if (!cleanFullName) {
       return { success: false, error: 'Full Display Name is strictly mandatory.' };
@@ -3019,6 +3060,7 @@ export default function App() {
         const now = Date.now();
         await setDoc(doc(db, 'users', userObj.uid), {
           id: userObj.uid,
+          zenoa_id: cleanZenoaId,
           email: data.email,
           display_name: cleanFullName,
           username: cleanUsername,
@@ -3026,12 +3068,15 @@ export default function App() {
           gender: data.gender,
           avatar_seed: cleanUsername,
           bio: 'Hey there! I am using Zenoa Messenger.',
+          mobile_number: data.mobile_number || '',
+          phone_number: data.mobile_number || '',
           created_at: now
         });
 
         await setDoc(doc(db, 'usernames', cleanUsername), {
           uid: userObj.uid,
           username: cleanUsername,
+          zenoa_id: cleanZenoaId,
           created_at: now
         });
 
@@ -3349,9 +3394,11 @@ export default function App() {
         const existingData = userSnap.exists() ? userSnap.data() : {};
         const activePhone = userPhone || existingData.mobile_number || existingData.phone_number || '';
 
+        const activeZenoaId = existingData.zenoa_id || currentUserObj?.zenoa_id || `${formattedUsername}@zenoa`;
+
         const profilePayload = {
           id: userId,
-          zenoa_id: userId,
+          zenoa_id: activeZenoaId,
           username: formattedUsername,
           display_name: formattedDisplayName,
           bio: editDraftBio,
@@ -8751,16 +8798,16 @@ export default function App() {
         )}
 
         {/* VIEW 4: Full Page Settings View */}
-        {activeView === 'developer_portal' && users[userUsername] && (
+        {activeView === 'developer_portal' && (
           <DeveloperPortal 
-            currentUser={users[userUsername]}
+            currentUser={currentUserObj || users[userUsername]}
             onBack={() => setActiveView('chats')}
           />
         )}
         
         {activeView === 'settings' && (
           <SettingsPage
-            currentUser={users[userUsername]}
+            currentUser={currentUserObj || users[userUsername]}
             onOpenAdminConsole={() => {
               setShowAdminPanel(true);
               try {
@@ -8813,6 +8860,7 @@ export default function App() {
             userEmail={userEmail}
             userUid={userId}
             userPhone={userPhone}
+            onUpdatePhone={(phone: string) => setUserPhone(phone)}
             authMethod={authMethod}
             renderAvatar={renderAvatar}
             onOpenEditProfile={handleOpenEditProfile}
@@ -9031,6 +9079,23 @@ export default function App() {
                     placeholder="username"
                     className="w-full pl-7 pr-3 py-2 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 outline-none focus:border-neutral-900 dark:border-neutral-100 transition-colors"
                   />
+                </div>
+              </div>
+
+              {/* Immutable Zenoa ID */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-bold text-neutral-700 dark:text-neutral-300 flex items-center gap-1.5">
+                    <Lock className="h-3 w-3 text-amber-500" />
+                    Zenoa ID
+                  </span>
+                  <span className="text-[10px] font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800/40">
+                    IMMUTABLE
+                  </span>
+                </div>
+                <div className="px-3.5 py-2.5 text-xs rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-100/70 dark:bg-neutral-900/70 font-mono text-neutral-800 dark:text-neutral-200 font-bold flex items-center justify-between">
+                  <span>{currentUserObj?.zenoa_id || (userUsername ? `${userUsername}@zenoa` : 'user@zenoa')}</span>
+                  <span className="text-[10px] text-neutral-400 font-normal">Fixed Handle</span>
                 </div>
               </div>
 

@@ -1,5 +1,6 @@
 export interface UserData {
   id?: string;
+  zenoa_id?: string;
   email?: string;
   username: string;
   display_name: string;

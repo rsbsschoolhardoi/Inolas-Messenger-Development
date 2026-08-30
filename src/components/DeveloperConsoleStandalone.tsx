@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db } from '../firebaseClient';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { DeveloperPortal } from './DeveloperPortal';
 import { ZenoaAuthGatewayModal } from './ZenoaAuthGatewayModal';
 import { UserData } from '../types';
@@ -150,7 +150,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     setView('landing');
   };
 
-  const handleSendVerificationOTP = () => {
+  const handleSendVerificationOTP = async () => {
     setError('');
     const cleanDigits = mobileNumber.replace(/[^0-9]/g, '').trim();
     if (!cleanDigits || cleanDigits.length < 8 || cleanDigits.length > 15) {
@@ -158,12 +158,25 @@ export const DeveloperConsoleStandalone: React.FC = () => {
       return;
     }
     setIsVerifying(true);
-    setTimeout(() => {
-      setIsVerifying(false);
-      setOtpSent(true);
-      const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
-      setDemoOTP(generatedCode);
-    }, 600);
+    const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
+    setDemoOTP(generatedCode);
+
+    try {
+      // Send real OTP dispatch if backend available
+      const formattedMobile = `${countryCode}${cleanDigits}`;
+      await fetch('/api/v1/otp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipient: formattedMobile,
+          custom_code: generatedCode,
+          template_type: 'security_code'
+        })
+      }).catch(() => {});
+    } catch (e) {}
+
+    setIsVerifying(false);
+    setOtpSent(true);
   };
 
   const handleVerifyOTP = async () => {
@@ -173,16 +186,28 @@ export const DeveloperConsoleStandalone: React.FC = () => {
       return;
     }
     setIsVerifying(true);
-    const formattedMobile = `${countryCode}${mobileNumber}`;
+    const formattedMobile = `${countryCode}${mobileNumber.replace(/[^0-9]/g, '').trim()}`;
     try {
       if (user && db) {
-        const targetDocId = user.id || user.username.toLowerCase();
-        await updateDoc(doc(db, 'users', targetDocId), {
+        const primaryZenoaId = user.id || (user as any).uid || user.username.toLowerCase();
+        const phonePayload = {
+          id: primaryZenoaId,
+          zenoa_id: primaryZenoaId,
+          username: user.username.toLowerCase(),
           mobile_number: formattedMobile,
+          phone_number: formattedMobile,
           is_business_verified: true,
           is_truecaller_verified: true,
-          phone_verified_at: Date.now()
-        });
+          phone_verified_at: Date.now(),
+          updated_at: Date.now()
+        };
+
+        if (primaryZenoaId) {
+          await setDoc(doc(db, 'users', primaryZenoaId), phonePayload, { merge: true });
+        }
+        if (user.username) {
+          await setDoc(doc(db, 'users', user.username.toLowerCase()), phonePayload, { merge: true });
+        }
       }
 
       const updatedUser: UserData = {
@@ -194,6 +219,22 @@ export const DeveloperConsoleStandalone: React.FC = () => {
 
       setUser(updatedUser);
       localStorage.setItem('zenoa_dev_console_user', JSON.stringify(updatedUser));
+
+      // Sync browser saved accounts
+      try {
+        const savedAccounts = localStorage.getItem('zenoa_saved_browser_accounts');
+        if (savedAccounts) {
+          const list = JSON.parse(savedAccounts);
+          const updatedList = list.map((acc: any) => {
+            if (acc.username === user?.username || acc.id === user?.id) {
+              return { ...acc, mobile_number: formattedMobile, phone_number: formattedMobile, is_truecaller_verified: true };
+            }
+            return acc;
+          });
+          localStorage.setItem('zenoa_saved_browser_accounts', JSON.stringify(updatedList));
+        }
+      } catch (e) {}
+
       setView('portal');
     } catch (err: any) {
       setError('Activation failed: ' + (err?.message || 'Please try again.'));
