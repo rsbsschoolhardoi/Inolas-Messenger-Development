@@ -39,7 +39,7 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
 
   // Code Snippet & Auto-Generated SDK State
   const [codeLang, setCodeLang] = useState<'node' | 'python' | 'php' | 'curl' | 'go' | 'button'>('node');
-  const [sdkTab, setSdkTab] = useState<'ts' | 'node' | 'python' | 'env' | 'html' | 'curl'>('ts');
+  const [sdkTab, setSdkTab] = useState<'ts' | 'node' | 'python' | 'env' | 'html' | 'curl' | 'vercel'>('ts');
 
   // Analytics & Logs State
   const [analytics, setAnalytics] = useState<any>(null);
@@ -555,6 +555,42 @@ curl -X POST "${origin}/api/v1/bot/send" \\
   -H "Authorization: Bearer ${sec}" \\
   -H "Content-Type: application/json" \\
   -d '{"client_id": "${cid}", "recipient": "+917991482672", "text": "Hello from Zenoa Service Account!"}'`;
+  };
+
+  const generateVercelConfigSnippet = (app: any) => {
+    return `// vercel.json — Place in root directory to enable Serverless API Routing and prevent POST blocking
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Credentials", "value": "true" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
+        { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization" }
+      ]
+    }
+  ]
+}
+
+// api/index.ts — Vercel Serverless Function API Entrypoint
+import app from '../server';
+
+export default app;`;
   };
 
   useEffect(() => {
@@ -1149,7 +1185,8 @@ curl -X POST "${origin}/api/v1/bot/send" \\
                             { id: 'python', label: 'Python' },
                             { id: 'env', label: '.env' },
                             { id: 'html', label: 'HTML SSO Button' },
-                            { id: 'curl', label: 'cURL' }
+                            { id: 'curl', label: 'cURL' },
+                            { id: 'vercel', label: 'Vercel Serverless' }
                           ].map(t => (
                             <button
                               key={t.id}
@@ -1175,6 +1212,7 @@ curl -X POST "${origin}/api/v1/bot/send" \\
                               {sdkTab === 'env' && '.env'}
                               {sdkTab === 'html' && 'zenoa-sso-button.html'}
                               {sdkTab === 'curl' && 'curl_requests.sh'}
+                              {sdkTab === 'vercel' && 'vercel.json & api/index.ts'}
                             </span>
                             <button
                               onClick={() => {
@@ -1183,7 +1221,8 @@ curl -X POST "${origin}/api/v1/bot/send" \\
                                   : sdkTab === 'python' ? generatePythonSdk(selectedApp)
                                   : sdkTab === 'env' ? generateEnvConfig(selectedApp)
                                   : sdkTab === 'html' ? generateHtmlSnippet(selectedApp)
-                                  : generateCurlSnippets(selectedApp);
+                                  : sdkTab === 'curl' ? generateCurlSnippets(selectedApp)
+                                  : generateVercelConfigSnippet(selectedApp);
                                 handleCopy(content, "Code Snippet");
                               }}
                               className="text-zinc-400 hover:text-zinc-200 flex items-center gap-1 cursor-pointer"
@@ -1200,6 +1239,7 @@ curl -X POST "${origin}/api/v1/bot/send" \\
                             {sdkTab === 'env' && generateEnvConfig(selectedApp)}
                             {sdkTab === 'html' && generateHtmlSnippet(selectedApp)}
                             {sdkTab === 'curl' && generateCurlSnippets(selectedApp)}
+                            {sdkTab === 'vercel' && generateVercelConfigSnippet(selectedApp)}
                           </pre>
                         </div>
                       </div>
