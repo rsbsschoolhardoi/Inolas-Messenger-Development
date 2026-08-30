@@ -38,7 +38,7 @@ app.use(cors({
 }));
 
 // सभी OPTIONS रिक्वेस्ट्स को तुरंत 200 OK के साथ हैंडल करें
-app.options('*all', (req, res) => {
+app.options('*all', (req: any, res: any) => {
   res.sendStatus(200);
 });
 app.use(express.json());
@@ -62,7 +62,7 @@ app.use((req: any, res: any, next: any) => {
 });
 
 // Health check
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (req: any, res: any) => {
   res.json({ status: 'ok', service: 'zenoa-developer-api', timestamp: new Date().toISOString() });
 });
 
@@ -477,6 +477,7 @@ async function deliverBotChatMessage(opts: {
   recipientUsername: string;
   recipientZenoaId?: string;
   messageText: string;
+  metadata?: any;
 }): Promise<{ chatId: string; messageId: string }> {
   const { senderBotUsername, senderAppName, recipientUsername, recipientZenoaId, messageText } = opts;
   
@@ -1898,7 +1899,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*all', (req, res) => {
+    app.get('*all', (req: any, res: any) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
