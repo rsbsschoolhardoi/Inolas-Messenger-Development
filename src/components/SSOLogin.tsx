@@ -178,25 +178,36 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
     setRedirectUri(effectiveRedirectUri);
     setState(st || 'state_' + Math.random().toString(36).substring(2, 8));
 
-    // STRICT VALIDATION 3: Live Firestore Application Whitelist Validation
+    // Helper: Strict normalization for exact URI comparison
+    const normalizeRedirectUri = (uri: string): string => {
+      try {
+        const parsed = new URL(uri.trim());
+        let normPath = parsed.pathname.replace(/\/+$/, '') || '/';
+        const portPart = parsed.port ? `:${parsed.port}` : '';
+        return `${parsed.protocol.toLowerCase()}//${parsed.hostname.toLowerCase()}${portPart}${normPath}${parsed.search}`;
+      } catch {
+        return uri.trim().replace(/\/+$/, '');
+      }
+    };
+
+    // STRICT VALIDATION 3: Live Firestore Application Exact Redirect URI Validation
     const fetchAndValidateConfig = async () => {
       try {
         if (!db) throw new Error("Database not initialized");
 
         // Special handling for local demo sandbox client
         if (effectiveClientId === 'demo_app') {
-          const currentOrigin = window.location.origin.toLowerCase();
-          const attemptedOrigin = parsedAttemptedUrl.origin.toLowerCase();
+          const demoRegistered = normalizeRedirectUri(window.location.origin + '/auth/sso');
+          const attemptedNormalized = normalizeRedirectUri(effectiveRedirectUri);
           
-          // Demo client can only be used within the Zenoa sandbox test environment
-          if (attemptedOrigin !== currentOrigin || !parsedAttemptedUrl.pathname.startsWith('/auth/sso')) {
+          if (attemptedNormalized !== demoRegistered) {
             setSecurityBlock({
               code: 'UNAUTHORIZED_REDIRECT_URI',
-              title: 'Unauthorized Access: Demo Client Restricted',
+              title: 'Unauthorized Access: Redirect URI Mismatch',
               attemptedUri: effectiveRedirectUri,
               attemptedDomain: parsedAttemptedUrl.hostname,
-              reason: 'The built-in demo_app client ID is restricted to the internal Zenoa OAuth sandbox and cannot redirect to external domains.',
-              recommendation: 'To authenticate external domains or applications, register your application in the Zenoa SSO Developer Console (/sso).'
+              reason: `The requested Redirect URI "${effectiveRedirectUri}" is not authorized for demo_app. The demo client only authorizes exact match on "${window.location.origin}/auth/sso". Domain-level matching is disabled.`,
+              recommendation: 'Use the authorized demo callback URI or register your application in the Zenoa SSO Console (/sso) to configure your own exact Redirect URIs.'
             });
             setIsLoading(false);
             return;
@@ -235,38 +246,20 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         const registeredUris: string[] = Array.isArray(appData.redirect_uris) ? appData.redirect_uris : [];
         const websiteUrl: string = appData.website_url || '';
 
-        // STRICT REDIRECT URI & DOMAIN MATCHING
+        // HARD EXACT MATCHING ON REGISTERED AUTHORIZED REDIRECT URIS
+        const normalizedAttempted = normalizeRedirectUri(effectiveRedirectUri);
         const isUriAuthorized = registeredUris.some((registered: string) => {
-          try {
-            const regUrl = new URL(registered.trim());
-            
-            // 1. Protocol must match exactly (https or http)
-            if (regUrl.protocol !== parsedAttemptedUrl.protocol) return false;
-            
-            // 2. Hostname must match exactly (e.g. app.example.com)
-            if (regUrl.hostname.toLowerCase() !== parsedAttemptedUrl.hostname.toLowerCase()) return false;
-            
-            // 3. Port must match (e.g. 3000 vs 8080)
-            if (regUrl.port !== parsedAttemptedUrl.port) return false;
-            
-            // 4. Path matching: exact match or strict subpath
-            const regPath = regUrl.pathname.replace(/\/+$/, '');
-            const attPath = parsedAttemptedUrl.pathname.replace(/\/+$/, '');
-            
-            if (regPath === '' || regPath === '/') return true;
-            return attPath === regPath || attPath.startsWith(regPath + '/');
-          } catch {
-            return registered.trim().toLowerCase() === effectiveRedirectUri.toLowerCase();
-          }
+          if (!registered || typeof registered !== 'string') return false;
+          return normalizeRedirectUri(registered) === normalizedAttempted;
         });
 
         if (!isUriAuthorized) {
           setSecurityBlock({
             code: 'UNAUTHORIZED_REDIRECT_URI',
-            title: 'Unauthorized Access: Domain & Redirect URI Mismatch',
+            title: 'Unauthorized Access: Redirect URI Mismatch',
             attemptedUri: effectiveRedirectUri,
             attemptedDomain: parsedAttemptedUrl.hostname,
-            reason: `The requested Redirect URI "${effectiveRedirectUri}" is not authorized for this application. Zenoa OAuth strictly prohibits unauthorized domains, protocol mismatches, or altered callback paths to prevent token interception.`,
+            reason: `The requested Redirect URI "${effectiveRedirectUri}" is not in the list of authorized callback URIs for this application. Zenoa OAuth strictly enforces exact URI matching (Protocol + Domain + Port + Path). Domain alone is not authorized — only explicitly registered Redirect URIs can receive tokens.`,
             recommendation: 'Open the Zenoa SSO Developer Console (/sso), navigate to your application settings, and add this exact Redirect URI to your Authorized Redirect URIs list.'
           });
           setIsLoading(false);
@@ -335,23 +328,35 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
     try {
       if (!db) throw new Error("Database not connected");
 
-      // 1. Generate Auth Code
+      // 1. Generate Auth Code & Clean User Payload
       const authCode = 'zen_ac_' + Array.from(window.crypto.getRandomValues(new Uint8Array(16)))
         .map(b => b.toString(16).padStart(2, '0')).join('');
       const expiryDate = Date.now() + 10 * 60 * 1000; // 10 mins
+
+      const cleanUserData = {
+        id: targetUser.id,
+        username: targetUser.username,
+        display_name: targetUser.display_name || targetUser.username,
+        email: targetUser.email || `${targetUser.username.toLowerCase()}@zenoa.im`,
+        mobile_number: targetUser.mobile_number || '',
+        avatar_url: targetUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${targetUser.avatar_seed || targetUser.username}`,
+        is_verified: true
+      };
 
       const authPayload = {
         code: authCode,
         client_id: clientId,
         user_id: targetUser.id,
+        user_data: cleanUserData,
         redirect_uri: redirectUri,
         scopes: appConfig.scopes || ['profile', 'email'],
         expires_at: expiryDate,
-        created_at: Date.now()
+        created_at: Date.now(),
+        used: false
       };
 
-      // 2. Save auth code to Firestore
-      await setDoc(doc(db, 'sso_auth_codes', authCode), authPayload);
+      // 2. Save auth code to Firestore (in oauth_codes collection for server.ts verification)
+      await setDoc(doc(db, 'oauth_codes', authCode), authPayload);
 
       // 3. Construct OAuth 2.0 redirect URL
       const finalUrl = new URL(redirectUri);

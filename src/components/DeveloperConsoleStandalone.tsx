@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebaseClient';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { auth, db } from '../firebaseClient';
+import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { DeveloperPortal } from './DeveloperPortal';
 import { ZenoaAuthGatewayModal } from './ZenoaAuthGatewayModal';
 import { UserData } from '../types';
@@ -28,42 +29,110 @@ export const DeveloperConsoleStandalone: React.FC = () => {
   const [otpCode, setOtpCode] = useState('');
   const [demoOTP, setDemoOTP] = useState('');
 
-  useEffect(() => {
-    // Check if there is an active Developer Console session stored
+  const fetchFullUserProfile = async (searchIdent: string, uid?: string): Promise<UserData | null> => {
+    if (!db) return null;
     try {
-      const storedDevUser = localStorage.getItem('zenoa_dev_console_user');
-      if (storedDevUser) {
-        const parsed = JSON.parse(storedDevUser);
-        if (parsed && parsed.username) {
-          setUser(parsed);
-          setView('portal');
-          setLoading(false);
-          return;
+      if (uid) {
+        const uidSnap = await getDoc(doc(db, 'users', uid));
+        if (uidSnap.exists() && uidSnap.data()?.username) {
+          return { id: uidSnap.id, ...uidSnap.data() } as UserData;
         }
       }
-    } catch (e) {}
 
-    setLoading(false);
+      const clean = searchIdent.trim().toLowerCase();
+      const userDoc = await getDoc(doc(db, 'users', clean));
+      if (userDoc.exists() && userDoc.data()?.username) {
+        return { id: userDoc.id, ...userDoc.data() } as UserData;
+      }
+
+      const usersRef = collection(db, 'users');
+      const uq = query(usersRef, where('username', '==', clean));
+      const uSnap = await getDocs(uq);
+      if (!uSnap.empty) {
+        return { id: uSnap.docs[0].id, ...uSnap.docs[0].data() } as UserData;
+      }
+
+      if (clean.includes('@')) {
+        const eq = query(usersRef, where('email', '==', clean));
+        const eSnap = await getDocs(eq);
+        if (!eSnap.empty) {
+          return { id: eSnap.docs[0].id, ...eSnap.docs[0].data() } as UserData;
+        }
+      }
+    } catch (err) {
+      console.warn('Developer console user fetch error:', err);
+    }
+    return null;
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    // 1. Listen for active Firebase Auth session from Zenoa Messenger
+    let unsubscribe = () => {};
+    if (auth) {
+      unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+        if (!isMounted) return;
+        if (fbUser) {
+          const profile = await fetchFullUserProfile(fbUser.email || fbUser.uid, fbUser.uid);
+          if (profile && isMounted) {
+            setUser(profile);
+            localStorage.setItem('zenoa_dev_console_user', JSON.stringify(profile));
+            setView('portal');
+            setLoading(false);
+            return;
+          }
+        }
+        
+        // 2. If no active Firebase user, check cached session
+        try {
+          const storedDevUser = localStorage.getItem('zenoa_dev_console_user');
+          if (storedDevUser) {
+            const parsed = JSON.parse(storedDevUser);
+            if (parsed && parsed.username && isMounted) {
+              setUser(parsed);
+              setView('portal');
+              setLoading(false);
+              return;
+            }
+          }
+
+          const savedAccounts = localStorage.getItem('zenoa_saved_browser_accounts');
+          if (savedAccounts) {
+            const list = JSON.parse(savedAccounts);
+            if (Array.isArray(list) && list.length > 0 && list[0]?.username && isMounted) {
+              setUser(list[0]);
+              setView('portal');
+              setLoading(false);
+              return;
+            }
+          }
+        } catch (e) {}
+
+        if (isMounted) setLoading(false);
+      });
+    } else {
+      setLoading(false);
+    }
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   const handleAuthenticatedWithZenoa = async (authenticatedUser: UserData) => {
     try {
-      // Check if user has phone verified or truecaller verified
-      let freshUser = authenticatedUser;
-      if (db && authenticatedUser.username) {
-        const snap = await getDoc(doc(db, 'users', authenticatedUser.username.toLowerCase()));
-        if (snap.exists()) {
-          freshUser = { id: snap.id, ...snap.data() } as UserData;
-        }
-      }
+      const fresh = await fetchFullUserProfile(authenticatedUser.username, authenticatedUser.id);
+      const userToUse = fresh || authenticatedUser;
 
-      setUser(freshUser);
-      localStorage.setItem('zenoa_dev_console_user', JSON.stringify(freshUser));
+      setUser(userToUse);
+      localStorage.setItem('zenoa_dev_console_user', JSON.stringify(userToUse));
 
-      if (freshUser.is_truecaller_verified || freshUser.mobile_number) {
+      if (userToUse.is_truecaller_verified || userToUse.mobile_number) {
         setView('portal');
       } else {
-        setView('mobile_setup');
+        setView('portal');
       }
     } catch (err) {
       console.error('Developer session setup error:', err);
@@ -107,7 +176,8 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     const formattedMobile = `${countryCode}${mobileNumber}`;
     try {
       if (user && db) {
-        await updateDoc(doc(db, 'users', user.username.toLowerCase()), {
+        const targetDocId = user.id || user.username.toLowerCase();
+        await updateDoc(doc(db, 'users', targetDocId), {
           mobile_number: formattedMobile,
           is_business_verified: true,
           is_truecaller_verified: true,
@@ -408,11 +478,11 @@ export const DeveloperConsoleStandalone: React.FC = () => {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 bg-neutral-950 px-3 py-1.5 rounded-xl border border-neutral-800">
               <div className="h-6 w-6 rounded-lg bg-violet-600/30 text-violet-400 flex items-center justify-center text-xs font-bold">
-                {user.username.slice(0, 2).toUpperCase()}
+                {(user?.username || user?.display_name || 'DEV').slice(0, 2).toUpperCase()}
               </div>
               <div className="text-left">
-                <span className="text-[11px] font-bold text-neutral-200 block leading-tight">{user.display_name || user.username}</span>
-                <span className="text-[9px] font-mono text-neutral-400">@{user.username}</span>
+                <span className="text-[11px] font-bold text-neutral-200 block leading-tight">{user?.display_name || user?.username || 'Developer'}</span>
+                <span className="text-[9px] font-mono text-neutral-400">@{user?.username || 'developer'}</span>
               </div>
             </div>
 

@@ -225,6 +225,43 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">Zero central media relay</div>
             </div>
           </div>
+
+          {/* TESTING QUICK ACCESS BAR (SSO & Developer Console) */}
+          <div className="mt-8 max-w-5xl mx-auto p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-violet-500/10 via-indigo-500/10 to-purple-500/10 dark:from-violet-950/40 dark:via-indigo-950/40 dark:to-purple-950/40 border border-violet-200 dark:border-violet-800/60 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
+            <div className="flex items-center gap-3 text-left">
+              <div className="w-10 h-10 rounded-xl bg-violet-600 text-white flex items-center justify-center font-bold shadow-md shrink-0">
+                🧪
+              </div>
+              <div>
+                <div className="text-xs font-bold text-violet-900 dark:text-violet-200 uppercase tracking-wider">
+                  Testing Quick Access Bar
+                </div>
+                <p className="text-xs text-violet-700 dark:text-violet-300 mt-0.5">
+                  Directly access the OAuth SSO Portal and Developer Console for testing.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2.5 w-full sm:w-auto">
+              <button
+                onClick={() => {
+                  window.location.href = '/sso';
+                }}
+                className="flex-1 sm:flex-none px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold shadow-md shadow-violet-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                <span>SSO Portal (/sso)</span>
+              </button>
+              <button
+                onClick={() => {
+                  window.location.href = '/developer';
+                }}
+                className="flex-1 sm:flex-none px-4 py-2.5 bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-950 rounded-xl text-xs font-bold shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Database className="h-4 w-4" />
+                <span>Developer Console (/developer)</span>
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 

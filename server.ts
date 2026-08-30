@@ -1254,22 +1254,26 @@ app.post('/api/v1/sso/authorize', async (req: any, res: any) => {
     const appData = match.data;
     const appId = match.id;
 
-    // Security Check: Validate Redirect URI
-    if (appData.redirect_uris && appData.redirect_uris.length > 0) {
-      const isAllowed = appData.redirect_uris.some((allowedUri: string) => {
-        try {
-          const u1 = new URL(allowedUri);
-          const u2 = new URL(redirect_uri);
-          return u1.origin === u2.origin && u1.pathname === u2.pathname;
-        } catch {
-          return allowedUri.trim() === redirect_uri.trim();
-        }
-      });
-
-      const isLocalOrPreview = redirect_uri.includes('localhost') || redirect_uri.includes('/auth/sso') || redirect_uri.includes('/sso');
-      if (!isAllowed && !isLocalOrPreview) {
-        return res.status(403).json({ error: `Redirect URI "${redirect_uri}" is not authorized for this application. Please configure it in your Zenoa SSO Console.` });
+    // Security Check: Strict Exact Match on Registered Authorized Redirect URIs (Domain matching disabled)
+    const normalizeServerUri = (uri: string) => {
+      try {
+        const u = new URL(uri.trim());
+        let p = u.pathname.replace(/\/+$/, '') || '/';
+        const portStr = u.port ? `:${u.port}` : '';
+        return `${u.protocol.toLowerCase()}//${u.hostname.toLowerCase()}${portStr}${p}${u.search}`;
+      } catch {
+        return uri.trim().replace(/\/+$/, '');
       }
+    };
+
+    const registeredList = Array.isArray(appData.redirect_uris) ? appData.redirect_uris : [];
+    const normalizedReqUri = normalizeServerUri(redirect_uri);
+    const isAllowed = registeredList.some((allowedUri: string) => normalizeServerUri(allowedUri) === normalizedReqUri);
+
+    if (!isAllowed) {
+      return res.status(403).json({ 
+        error: `Redirect URI "${redirect_uri}" is not authorized for this application. Zenoa OAuth requires an exact URI match (Protocol, Domain, Port, and Path). Please add this exact Redirect URI to your application settings in the Zenoa SSO Console.` 
+      });
     }
 
     // 1. Generate Single-Use OAuth 2.0 Authorization Code
@@ -1390,6 +1394,30 @@ app.post('/api/v1/sso/token', async (req: any, res: any) => {
       return res.status(400).json({ error: 'Invalid or expired authorization code.' });
     }
 
+    // Enrich user_data from users collection if incomplete
+    if (codeData && (!codeData.user_data || !codeData.user_data.username) && db) {
+      const uIdent = codeData.user_id || codeData.user_data?.id;
+      if (uIdent) {
+        try {
+          const uDoc = await getDoc(doc(db, 'users', String(uIdent).toLowerCase()));
+          if (uDoc.exists()) {
+            const uData = uDoc.data();
+            codeData.user_data = {
+              id: uDoc.id,
+              username: uData?.username || uDoc.id,
+              display_name: uData?.display_name || uData?.username || uDoc.id,
+              email: uData?.email || '',
+              mobile_number: uData?.mobile_number || '',
+              avatar_url: uData?.avatar_url || '',
+              is_verified: true
+            };
+          }
+        } catch (uErr) {
+          console.warn('User profile enrichment warning:', uErr);
+        }
+      }
+    }
+
     if (codeData.used) {
       return res.status(400).json({ error: 'Authorization code has already been used.' });
     }
@@ -1400,6 +1428,24 @@ app.post('/api/v1/sso/token', async (req: any, res: any) => {
 
     if (codeData.client_id !== client_id) {
       return res.status(400).json({ error: 'Authorization code was not issued to this client_id.' });
+    }
+
+    // Exact match validation on redirect_uri if provided during token exchange
+    if (redirect_uri && codeData.redirect_uri) {
+      const normalizeUri = (uri: string) => {
+        try {
+          const u = new URL(uri.trim());
+          let p = u.pathname.replace(/\/+$/, '') || '/';
+          const portStr = u.port ? `:${u.port}` : '';
+          return `${u.protocol.toLowerCase()}//${u.hostname.toLowerCase()}${portStr}${p}${u.search}`;
+        } catch {
+          return uri.trim().replace(/\/+$/, '');
+        }
+      };
+
+      if (normalizeUri(redirect_uri) !== normalizeUri(codeData.redirect_uri)) {
+        return res.status(400).json({ error: 'Redirect URI mismatch: redirect_uri does not match the URI used during authorization.' });
+      }
     }
 
     // Mark code as used

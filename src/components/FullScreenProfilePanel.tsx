@@ -733,7 +733,8 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                         </div>
                         {/* Call logs list */}
                         {(() => {
-                          const userPairCalls = allUserCalls.filter(c => 
+                          const safeCalls = Array.isArray(allUserCalls) ? allUserCalls : [];
+                          const userPairCalls = safeCalls.filter(c => 
                             c.partner_username === targetUsername ||
                             c.caller === targetUsername ||
                             c.receiver === targetUsername

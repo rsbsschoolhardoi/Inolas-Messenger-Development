@@ -2688,10 +2688,11 @@ export default function App() {
     setIsLoading(true);
     setTimeout(() => {
       setIsLoading(false);
-      const randSeed = 'user' + phoneInput.slice(-4);
+      const safePhone = (phoneInput || '').trim();
+      const randSeed = 'user' + (safePhone ? safePhone.slice(-4) : Math.random().toString(36).substring(2, 6));
       setUserId('u_' + Math.random().toString(36).substring(2, 9));
-      setUserPhone(phoneInput);
-      setUserDisplayName('User ' + phoneInput.slice(-4));
+      setUserPhone(safePhone);
+      setUserDisplayName('User ' + (safePhone ? safePhone.slice(-4) : 'Guest'));
       setUserAvatarSeed(randSeed);
       setAuthMethod('phone');
       
@@ -6418,7 +6419,7 @@ export default function App() {
   }
 
   const isSSOConsolePath = typeof window !== "undefined" && (window.location.pathname === "/sso" || window.location.pathname === "/developer/sso"); 
-  if (isSSOConsolePath) return <SSOConsoleStandalone />; 
+  if (isSSOConsolePath) return <SSOConsoleStandalone currentUser={currentUserObj} />; 
 
   const isDeveloperPath = typeof window !== "undefined" && window.location.pathname === "/developer";
   if (isDeveloperPath) return <DeveloperConsoleStandalone />;

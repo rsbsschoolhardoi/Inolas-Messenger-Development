@@ -11,13 +11,27 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
-export const SSOConsoleStandalone: React.FC = () => {
-  const [user, setUser] = useState<UserData | null>(null);
+interface SSOConsoleStandaloneProps {
+  currentUser?: UserData | null;
+}
+
+export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ currentUser: propUser }) => {
+  const [user, setUser] = useState<UserData | null>(propUser || null);
   const [loading, setLoading] = useState(true);
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>('dark');
   const [showZenoaAuthModal, setShowZenoaAuthModal] = useState(false);
 
   useEffect(() => {
+    // If propUser was provided, prioritize it
+    if (propUser && propUser.username) {
+      setUser(propUser);
+      try {
+        localStorage.setItem('zenoa_sso_console_user', JSON.stringify(propUser));
+      } catch (e) {}
+      setLoading(false);
+      return;
+    }
+
     // Check saved theme
     try {
       const savedTheme = localStorage.getItem('zenoa_theme_mode');
@@ -26,9 +40,9 @@ export const SSOConsoleStandalone: React.FC = () => {
       }
     } catch (e) {}
 
-    // Check if there is an active SSO Console session stored
+    // Check if there is an active SSO Console session or main Zenoa session stored
     try {
-      const storedSSOUser = localStorage.getItem('zenoa_sso_console_user');
+      const storedSSOUser = localStorage.getItem('zenoa_sso_console_user') || localStorage.getItem('zenoa_user');
       if (storedSSOUser) {
         const parsed = JSON.parse(storedSSOUser);
         if (parsed && parsed.username) {
@@ -40,7 +54,7 @@ export const SSOConsoleStandalone: React.FC = () => {
     } catch (e) {}
 
     setLoading(false);
-  }, []);
+  }, [propUser]);
 
   const handleAuthenticatedWithZenoa = async (authenticatedUser: UserData) => {
     try {
@@ -219,11 +233,11 @@ export const SSOConsoleStandalone: React.FC = () => {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 bg-neutral-950 px-3 py-1.5 rounded-xl border border-neutral-800">
             <div className="h-6 w-6 rounded-lg bg-sky-500/30 text-sky-400 flex items-center justify-center text-xs font-bold">
-              {user.username.slice(0, 2).toUpperCase()}
+              {(user?.username || user?.display_name || 'SSO').slice(0, 2).toUpperCase()}
             </div>
             <div className="text-left">
-              <span className="text-[11px] font-bold text-neutral-200 block leading-tight">{user.display_name || user.username}</span>
-              <span className="text-[9px] font-mono text-neutral-400">@{user.username}</span>
+              <span className="text-[11px] font-bold text-neutral-200 block leading-tight">{user?.display_name || user?.username || 'SSO User'}</span>
+              <span className="text-[9px] font-mono text-neutral-400">@{user?.username || 'user'}</span>
             </div>
           </div>
 

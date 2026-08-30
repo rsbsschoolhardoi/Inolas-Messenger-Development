@@ -615,6 +615,18 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             <FileCode className="w-4 h-4" />
             <span>Integration SDKs & Docs</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('playground')}
+            className={`flex items-center gap-2 py-3 px-4 text-xs font-semibold border-b-2 transition-all whitespace-nowrap ${
+              activeTab === 'playground'
+                ? 'border-sky-500 text-sky-600 dark:text-sky-400'
+                : 'border-transparent text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
+            }`}
+          >
+            <Play className="w-4 h-4" />
+            <span>OAuth 2.0 Tester</span>
+          </button>
         </div>
       </header>
 
@@ -726,8 +738,14 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                             onClick={() => {
                               setSelectedTesterAppId(app.id);
                               setActiveTab('playground');
+                              const targetUri = (app.redirect_uris && app.redirect_uris[0]) || `${window.location.origin}/auth/sso`;
+                              if (onOpenConsentPreview) {
+                                onOpenConsentPreview(app.client_id, targetUri);
+                              } else {
+                                window.open(`/auth/sso?client_id=${encodeURIComponent(app.client_id)}&redirect_uri=${encodeURIComponent(targetUri)}`, '_blank');
+                              }
                             }}
-                            className="px-3 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400 border border-sky-500/30 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                            className="px-3 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400 border border-sky-500/30 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                           >
                             <Play className="w-3.5 h-3.5" />
                             <span>Test Login</span>
@@ -987,7 +1005,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                     ))}
                   </div>
                   <p className="text-[11px] text-neutral-400 mt-1.5">
-                    For security, Zenoa will only redirect authorization codes to URLs registered here.
+                    For strict OAuth 2.0 security, Zenoa enforces exact URI matching (Protocol + Domain + Port + Path). Domain-level matching is disabled — authorization requests must strictly and exactly match one of the registered URIs above.
                   </p>
                 </div>
 
@@ -1311,6 +1329,239 @@ curl -X GET ${window.location.origin}/api/v1/sso/userinfo \\
   -H "Authorization: Bearer zen_token_received_above"`}
                   </pre>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 4: OAUTH 2.0 INTERACTIVE TESTER & PLAYGROUND                          */}
+        {/* ========================================================================= */}
+        {activeTab === 'playground' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl font-bold tracking-tight">OAuth 2.0 Live Authorization Tester</h2>
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                    Live Session Active
+                  </span>
+                </div>
+                <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+                  Test authorization code issuance, token exchange, and identity verification using your active Zenoa account.
+                </p>
+              </div>
+
+              {currentUser && (
+                <div className={`p-3 rounded-xl border flex items-center gap-3 ${
+                  themeMode === 'dark' ? 'bg-neutral-900/60 border-neutral-800' : 'bg-white border-neutral-200 shadow-sm'
+                }`}>
+                  <div className="w-9 h-9 rounded-full bg-sky-500/20 text-sky-400 flex items-center justify-center font-bold border border-sky-500/30 overflow-hidden">
+                    {currentUser.avatar_url ? (
+                      <img src={currentUser.avatar_url} alt={currentUser.username} className="w-full h-full object-cover" />
+                    ) : (
+                      currentUser.username.substring(0, 2).toUpperCase()
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold leading-none">@{currentUser.username}</p>
+                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">{currentUser.display_name || currentUser.email}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Application Selector & Actions */}
+            <div className={`p-6 rounded-2xl border ${
+              themeMode === 'dark' ? 'bg-neutral-900/40 border-neutral-800' : 'bg-white border-neutral-200 shadow-sm'
+            }`}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-500 dark:text-neutral-400 mb-2">
+                    Select SSO Application to Test
+                  </label>
+                  {apps.length > 0 ? (
+                    <select
+                      value={selectedTesterAppId || (apps[0]?.id || '')}
+                      onChange={(e) => setSelectedTesterAppId(e.target.value)}
+                      className={`w-full px-4 py-2.5 rounded-xl border text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-sky-500 ${
+                        themeMode === 'dark' ? 'bg-neutral-800 border-neutral-700 text-white' : 'bg-neutral-50 border-neutral-200 text-neutral-900'
+                      }`}
+                    >
+                      {apps.map(app => (
+                        <option key={app.id} value={app.id}>
+                          {app.app_name} (Client ID: {app.client_id})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-xs text-amber-500 font-medium">No registered SSO applications available. Please register an app first.</p>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={() => {
+                      const targetApp = getSelectedTesterApp();
+                      if (!targetApp) return;
+                      const rUri = testRedirectUri || (targetApp.redirect_uris && targetApp.redirect_uris[0]) || `${window.location.origin}/auth/sso`;
+                      if (onOpenConsentPreview) {
+                        onOpenConsentPreview(targetApp.client_id, rUri);
+                      } else {
+                        window.open(`/auth/sso?client_id=${encodeURIComponent(targetApp.client_id)}&redirect_uri=${encodeURIComponent(rUri)}`, '_blank');
+                      }
+                    }}
+                    disabled={apps.length === 0}
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-md shadow-sky-600/20 transition-all cursor-pointer"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>Launch Live Consent Screen</span>
+                  </button>
+
+                  <button
+                    onClick={async () => {
+                      await runSimulatedAuthorize();
+                    }}
+                    disabled={isTesterRunning || apps.length === 0}
+                    className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+                  >
+                    {isTesterRunning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                    <span>Run Full Flow API Test</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Step Pipeline Visualization */}
+              <div className="mt-8 pt-6 border-t border-neutral-200 dark:border-neutral-800 grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Step 1 */}
+                <div className={`p-4 rounded-xl border ${
+                  playgroundStep !== 'idle' ? 'border-sky-500/40 bg-sky-500/5' : themeMode === 'dark' ? 'border-neutral-800 bg-neutral-950/40' : 'border-neutral-200 bg-neutral-50'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-sky-500">Step 1</span>
+                    {playgroundAuthCode ? (
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-emerald-500/10 text-emerald-500">
+                        Code Issued
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-neutral-500/10 text-neutral-400">
+                        Pending
+                      </span>
+                    )}
+                  </div>
+                  <h4 className="text-xs font-bold text-neutral-800 dark:text-neutral-200 mb-1">Authorization Code</h4>
+                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-mono break-all">
+                    {playgroundAuthCode || 'Click "Run Full Flow API Test" to issue single-use auth code'}
+                  </p>
+                  {playgroundAuthCode && (
+                    <button
+                      onClick={runSimulatedTokenExchange}
+                      disabled={isTesterRunning || playgroundStep === 'token_exchanged' || playgroundStep === 'userinfo_fetched'}
+                      className="mt-3 w-full py-1.5 px-3 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <span>Exchange for Token</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Step 2 */}
+                <div className={`p-4 rounded-xl border ${
+                  playgroundAccessToken ? 'border-sky-500/40 bg-sky-500/5' : themeMode === 'dark' ? 'border-neutral-800 bg-neutral-950/40' : 'border-neutral-200 bg-neutral-50'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-sky-500">Step 2</span>
+                    {playgroundAccessToken ? (
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-emerald-500/10 text-emerald-500">
+                        Token Issued
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-neutral-500/10 text-neutral-400">
+                        Pending
+                      </span>
+                    )}
+                  </div>
+                  <h4 className="text-xs font-bold text-neutral-800 dark:text-neutral-200 mb-1">Bearer Access Token</h4>
+                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-mono break-all">
+                    {playgroundAccessToken || 'Exchanged using client_secret + auth_code'}
+                  </p>
+                  {playgroundAccessToken && (
+                    <button
+                      onClick={runSimulatedUserInfoFetch}
+                      disabled={isTesterRunning || playgroundStep === 'userinfo_fetched'}
+                      className="mt-3 w-full py-1.5 px-3 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <span>Fetch UserInfo Profile</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Step 3 */}
+                <div className={`p-4 rounded-xl border ${
+                  playgroundUserResult ? 'border-emerald-500/40 bg-emerald-500/5' : themeMode === 'dark' ? 'border-neutral-800 bg-neutral-950/40' : 'border-neutral-200 bg-neutral-50'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-500">Step 3</span>
+                    {playgroundUserResult ? (
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-emerald-500/10 text-emerald-500">
+                        Identity Verified
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-neutral-500/10 text-neutral-400">
+                        Pending
+                      </span>
+                    )}
+                  </div>
+                  <h4 className="text-xs font-bold text-neutral-800 dark:text-neutral-200 mb-1">User Identity Verification</h4>
+                  {playgroundUserResult ? (
+                    <div className="space-y-1 mt-2 text-xs">
+                      <p className="font-bold text-emerald-600 dark:text-emerald-400">✓ @{playgroundUserResult.username}</p>
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400">{playgroundUserResult.email || playgroundUserResult.display_name}</p>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-mono">
+                      UserInfo profile payload returned from /api/v1/sso/userinfo
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Terminal Logs & Output */}
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
+                    <Terminal className="w-4 h-4 text-sky-500" />
+                    Live OAuth 2.0 Execution Console
+                  </span>
+                  {testerLog.length > 0 && (
+                    <button
+                      onClick={() => setTesterLog([])}
+                      className="text-[11px] text-neutral-400 hover:text-neutral-200 transition-colors"
+                    >
+                      Clear Log
+                    </button>
+                  )}
+                </div>
+                <div className="p-4 rounded-xl bg-zinc-950 font-mono text-xs text-zinc-300 border border-zinc-800 max-h-60 overflow-y-auto space-y-1 shadow-inner">
+                  {testerLog.length === 0 ? (
+                    <span className="text-zinc-600">// Console output will appear here when running tests...</span>
+                  ) : (
+                    testerLog.map((logLine, idx) => (
+                      <div
+                        key={idx}
+                        className={
+                          logLine.startsWith('✓') ? 'text-emerald-400 font-semibold' :
+                          logLine.startsWith('✗') ? 'text-rose-400 font-semibold' :
+                          logLine.startsWith('[') ? 'text-sky-400 font-bold' :
+                          'text-zinc-400'
+                        }
+                      >
+                        {logLine}
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
           </div>

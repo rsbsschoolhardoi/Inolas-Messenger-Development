@@ -4,7 +4,7 @@ import { db } from '../firebaseClient';
 import { 
   Terminal, Plus, Key, Copy, Check, ArrowLeft, Shield, Code, Server, 
   BarChart3, History, Lock, FileText, RefreshCw, Eye, EyeOff, Globe,
-  ShieldCheck, Webhook, Radio, Sliders, Zap, Download
+  ShieldCheck, Webhook, Radio, Sliders, Zap, Download, AlertTriangle
 } from 'lucide-react';
 import { UserData } from '../types';
 
@@ -47,6 +47,14 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
+  // One-time Secret Revelation State (Displayed ONLY upon creation or regeneration)
+  const [newlyGeneratedSecret, setNewlyGeneratedSecret] = useState<{
+    clientId: string;
+    clientSecret: string;
+    appName: string;
+    botUsername: string;
+  } | null>(null);
+
   const showToast = (msg: string) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 3000);
@@ -65,15 +73,32 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
     showToast(`Downloaded ${filename}!`);
   };
 
+  const downloadServiceAccountJson = (app: any) => {
+    if (!app) return;
+    const saData = {
+      type: "zenoa_service_account",
+      app_name: app.app_name,
+      bot_username: `@${app.bot_username || app.owner}`,
+      owner_username: `@${app.owner}`,
+      client_id: app.client_id || app.api_key,
+      client_secret: app.client_secret,
+      api_base_url: window.location.origin,
+      auth_uri: `${window.location.origin}/sso/authorize`,
+      token_uri: `${window.location.origin}/api/v1/sso/token`,
+      created_at: app.created_at || Date.now()
+    };
+    downloadSdkFile(`zenoa-sa-${app.bot_username || app.owner}.json`, JSON.stringify(saData, null, 2), 'application/json');
+  };
+
   const generateTsSdk = (app: any) => {
     if (!app) return '';
     const cid = app.client_id || app.api_key || 'zen_client_prod';
     const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
     return `/**
- * Auto-Generated Zenoa Production SDK for ${app.app_name}
- * Client ID: ${cid}
- * Base URL: ${origin}
+ * Zenoa Production SDK for ${app.app_name}
+ * Service Account: @${app.bot_username || app.owner}
+ * Pre-Configured & Ready for Production
  */
 
 export interface ZenoaConfig {
@@ -82,29 +107,49 @@ export interface ZenoaConfig {
   baseUrl?: string;
 }
 
+export interface SendOtpOptions {
+  recipient: string;
+  templateType?: 'standard_otp' | 'security_code' | 'login_verification' | 'transaction_auth';
+  expiryMins?: number;
+}
+
 export class ZenoaSDK {
-  private clientId: string;
-  private clientSecret: string;
-  private baseUrl: string;
+  private readonly clientId: string;
+  private readonly clientSecret: string;
+  private readonly baseUrl: string;
 
   constructor(config?: ZenoaConfig) {
     this.clientId = config?.clientId || "${cid}";
     this.clientSecret = config?.clientSecret || "${sec}";
-    this.baseUrl = config?.baseUrl || "${origin}";
+    this.baseUrl = (config?.baseUrl || "${origin}").replace(/\\/+$/, '');
   }
 
-  async sendOtp(recipient: string, templateType = "standard_otp", expiryMins = 10) {
+  /**
+   * Dispatch high-priority automated OTP / verification code
+   */
+  async sendOtp(options: SendOtpOptions | string, templateType = "standard_otp", expiryMins = 10) {
+    const payload = typeof options === 'string' 
+      ? { recipient: options, template_type: templateType, expiry_mins: expiryMins }
+      : { 
+          recipient: options.recipient, 
+          template_type: options.templateType || 'standard_otp', 
+          expiry_mins: options.expiryMins || 10 
+        };
+
     const res = await fetch(\`\${this.baseUrl}/api/v1/otp/send\`, {
       method: "POST",
       headers: {
         "Authorization": \`Bearer \${this.clientId}\`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ recipient, template_type: templateType, expiry_mins: expiryMins })
+      body: JSON.stringify(payload)
     });
     return await res.json();
   }
 
+  /**
+   * Validate recipient OTP code
+   */
   async verifyOtp(recipient: string, code: string) {
     const res = await fetch(\`\${this.baseUrl}/api/v1/otp/verify\`, {
       method: "POST",
@@ -117,6 +162,9 @@ export class ZenoaSDK {
     return await res.json();
   }
 
+  /**
+   * Exchange OAuth 2.0 Authorization Code for User Access Token
+   */
   async exchangeSsoCode(code: string, redirectUri: string) {
     const res = await fetch(\`\${this.baseUrl}/api/v1/sso/token\`, {
       method: "POST",
@@ -126,6 +174,26 @@ export class ZenoaSDK {
         client_secret: this.clientSecret,
         code,
         redirect_uri: redirectUri
+      })
+    });
+    return await res.json();
+  }
+
+  /**
+   * Send notification or message as Bot / Service Account
+   */
+  async sendMessage(recipientUsernameOrPhone: string, messageText: string, metadata?: Record<string, any>) {
+    const res = await fetch(\`\${this.baseUrl}/api/v1/bot/send\`, {
+      method: "POST",
+      headers: {
+        "Authorization": \`Bearer \${this.clientSecret}\`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        client_id: this.clientId,
+        recipient: recipientUsernameOrPhone,
+        text: messageText,
+        metadata: metadata || {}
       })
     });
     return await res.json();
@@ -141,25 +209,83 @@ export default ZenoaSDK;
     const cid = app.client_id || app.api_key || 'zen_client_prod';
     const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
-    return `# Auto-Generated Zenoa SDK for ${app.app_name}
+    return `"""
+Zenoa Production SDK for ${app.app_name}
+Service Account: @${app.bot_username || app.owner}
+Pre-Configured & Ready for Production
+"""
+
 import requests
+from typing import Optional, Dict, Any
 
 class ZenoaSDK:
-    def __init__(self, client_id="${cid}", client_secret="${sec}", base_url="${origin}"):
+    def __init__(
+        self, 
+        client_id: str = "${cid}", 
+        client_secret: str = "${sec}", 
+        base_url: str = "${origin}"
+    ):
         self.client_id = client_id
         self.client_secret = client_secret
-        self.base_url = base_url
+        self.base_url = base_url.rstrip('/')
 
-    def send_otp(self, recipient: str, template_type: str = "standard_otp", expiry_mins: int = 10):
+    def send_otp(
+        self, 
+        recipient: str, 
+        template_type: str = "standard_otp", 
+        expiry_mins: int = 10
+    ) -> Dict[str, Any]:
+        """Dispatch an automated OTP to a recipient's phone or Zenoa handle."""
         url = f"{self.base_url}/api/v1/otp/send"
-        headers = { "Authorization": f"Bearer {self.client_id}", "Content-Type": "application/json" }
-        res = requests.post(url, json={"recipient": recipient, "template_type": template_type, "expiry_mins": expiry_mins}, headers=headers)
+        headers = {
+            "Authorization": f"Bearer {self.client_id}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "recipient": recipient,
+            "template_type": template_type,
+            "expiry_mins": expiry_mins
+        }
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
         return res.json()
 
-    def verify_otp(self, recipient: str, code: str):
+    def verify_otp(self, recipient: str, code: str) -> Dict[str, Any]:
+        """Verify an OTP code submitted by the user."""
         url = f"{self.base_url}/api/v1/otp/verify"
-        headers = { "Authorization": f"Bearer {self.client_id}", "Content-Type": "application/json" }
-        res = requests.post(url, json={"recipient": recipient, "code": code}, headers=headers)
+        headers = {
+            "Authorization": f"Bearer {self.client_id}",
+            "Content-Type": "application/json"
+        }
+        payload = {"recipient": recipient, "code": code}
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        return res.json()
+
+    def exchange_sso_code(self, code: str, redirect_uri: str) -> Dict[str, Any]:
+        """Exchange SSO authorization code for user profile and access token."""
+        url = f"{self.base_url}/api/v1/sso/token"
+        payload = {
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "code": code,
+            "redirect_uri": redirect_uri
+        }
+        res = requests.post(url, json=payload, timeout=10)
+        return res.json()
+
+    def send_message(self, recipient: str, text: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Dispatch a direct message from this Service Account."""
+        url = f"{self.base_url}/api/v1/bot/send"
+        headers = {
+            "Authorization": f"Bearer {self.client_secret}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "client_id": self.client_id,
+            "recipient": recipient,
+            "text": text,
+            "metadata": metadata or {}
+        }
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
         return res.json()
 `;
   };
@@ -169,11 +295,16 @@ class ZenoaSDK:
     const cid = app.client_id || app.api_key || 'zen_client_prod';
     const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
-    return `# Production Environment Variables for ${app.app_name}
+    return `# Production Environment Configuration for ${app.app_name}
+# Pre-configured with active Service Account credentials
 ZENOA_CLIENT_ID="${cid}"
 ZENOA_CLIENT_SECRET="${sec}"
 ZENOA_SERVICE_ACCOUNT="@${app.bot_username || app.owner}"
 ZENOA_BASE_URL="${origin}"
+ZENOA_SSO_AUTH_URL="${origin}/sso/authorize"
+ZENOA_SSO_TOKEN_URL="${origin}/api/v1/sso/token"
+ZENOA_OTP_SEND_URL="${origin}/api/v1/otp/send"
+ZENOA_OTP_VERIFY_URL="${origin}/api/v1/otp/verify"
 `;
   };
 
@@ -214,7 +345,7 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
 
   useEffect(() => {
     fetchApps();
-  }, []);
+  }, [currentUser?.username]);
 
   useEffect(() => {
     if (selectedAppId) {
@@ -227,18 +358,43 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
       let fetchedApps: any[] = [];
       if (currentUser?.username && db) {
         try {
+          const cleanUser = currentUser.username.toLowerCase();
+          
+          // 1. Query by owner field
           const q = query(collection(db, 'developer_apps'), where('owner', '==', currentUser.username));
           const snap = await getDocs(q);
-          fetchedApps = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          snap.docs.forEach(d => {
+            fetchedApps.push({ id: d.id, ...d.data() });
+          });
+
+          // 2. Also check deterministic doc ID `sa_${cleanUser}`
+          const directDoc = await getDoc(doc(db, 'developer_apps', `sa_${cleanUser}`));
+          if (directDoc.exists()) {
+            const data = { id: directDoc.id, ...directDoc.data() };
+            if (!fetchedApps.some(a => a.id === directDoc.id)) {
+              fetchedApps.push(data);
+            }
+          }
+
+          // 3. Check owner_id if UID is available
+          if (currentUser.id) {
+            const uidQ = query(collection(db, 'developer_apps'), where('owner_id', '==', currentUser.id));
+            const uidSnap = await getDocs(uidQ);
+            uidSnap.docs.forEach(d => {
+              if (!fetchedApps.some(a => a.id === d.id)) {
+                fetchedApps.push({ id: d.id, ...d.data() });
+              }
+            });
+          }
         } catch (e) {
           console.warn("Firestore fetchApps warn:", e);
         }
       }
 
       setApps(fetchedApps);
-      if (fetchedApps.length > 0 && !selectedAppId) {
+      if (fetchedApps.length > 0) {
         setSelectedAppId(fetchedApps[0].id);
-      } else if (fetchedApps.length === 0) {
+      } else {
         setSelectedAppId(null);
       }
     } catch (err) {
@@ -286,6 +442,7 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
     setIsCreating(true);
     try {
       const devUser = currentUser?.username || 'developer_user';
+      const cleanDevUser = devUser.toLowerCase();
       const randomId = Array.from(crypto.getRandomValues(new Uint8Array(16)))
         .map(b => b.toString(16).padStart(2, '0')).join('');
       const randomSec = Array.from(crypto.getRandomValues(new Uint8Array(24)))
@@ -294,7 +451,7 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
       const clientId = `zen_client_${randomId}`;
       const clientSecret = `zen_sec_${randomSec}`;
       const cleanBotInput = botUsername.trim().toLowerCase().replace(/^@/, '');
-      const finalBotUsername = cleanBotInput || `sa_${devUser}`;
+      const finalBotUsername = cleanBotInput || `sa_${cleanDevUser}`;
 
       const initialUris = initialRedirectUri.trim() 
         ? [initialRedirectUri.trim(), window.location.origin + '/auth/sso']
@@ -302,6 +459,7 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
 
       const newAppData = {
         owner: devUser,
+        owner_id: currentUser?.id || '',
         app_name: appName.trim(),
         app_description: appDescription.trim(),
         website_url: websiteUrl.trim(),
@@ -318,7 +476,7 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
       };
 
       if (db) {
-        const appRef = doc(collection(db, 'developer_apps'), `sa_${devUser}`);
+        const appRef = doc(collection(db, 'developer_apps'), `sa_${cleanDevUser}`);
         await setDoc(appRef, newAppData);
         (newAppData as any).id = appRef.id;
 
@@ -334,11 +492,20 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
           registered_at: Date.now()
         }, { merge: true });
       } else {
-        (newAppData as any).id = `sa_${devUser}`;
+        (newAppData as any).id = `sa_${cleanDevUser}`;
       }
 
       setApps([newAppData]);
       setSelectedAppId((newAppData as any).id);
+      
+      // Trigger One-Time Plaintext Secret Visibility Modal
+      setNewlyGeneratedSecret({
+        clientId,
+        clientSecret,
+        appName: appName.trim(),
+        botUsername: finalBotUsername
+      });
+
       showToast('Service Account created successfully!');
     } catch (err: any) {
       console.error("Create Service Account Error:", err);
@@ -386,7 +553,7 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
 
   const handleRegenerateSecret = async () => {
     if (!selectedApp) return;
-    if (!confirm("Are you sure? Any integrations using this secret will stop working immediately.")) return;
+    if (!confirm("Are you sure? Any integrations using this secret will stop working immediately until updated.")) return;
 
     setIsRegeneratingSecret(true);
     try {
@@ -402,6 +569,15 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
 
       const updated = apps.map(a => a.id === selectedApp.id ? { ...a, client_secret: newSecret } : a);
       setApps(updated);
+
+      // Trigger One-Time Plaintext Secret Visibility Modal
+      setNewlyGeneratedSecret({
+        clientId: selectedApp.client_id || selectedApp.api_key,
+        clientSecret: newSecret,
+        appName: selectedApp.app_name,
+        botUsername: selectedApp.bot_username || selectedApp.owner
+      });
+
       showToast('Client Secret rolled & regenerated successfully!');
     } catch (err) {
       showToast('Failed to regenerate secret.');
@@ -631,6 +807,16 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
                           Production API Credentials
                         </h3>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => downloadServiceAccountJson(selectedApp)}
+                          className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-xl text-xs font-medium border border-zinc-700 transition-all flex items-center gap-1.5 cursor-pointer"
+                          title="Download Service Account Key (.json)"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          <span>Service Key (.json)</span>
+                        </button>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 gap-4">
@@ -653,54 +839,58 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
                         </p>
                       </div>
 
-                      {/* Client Secret */}
+                      {/* Client Secret - Secure Masked View */}
                       <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800">
                         <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-xs font-medium text-zinc-400 flex items-center gap-1.5">
-                            <Shield className="h-3.5 w-3.5 text-zinc-400" /> Client Secret
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-zinc-400 flex items-center gap-1.5">
+                              <Shield className="h-3.5 w-3.5 text-zinc-400" /> Client Secret
+                            </span>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-900 text-zinc-400 border border-zinc-800">
+                              Masked for Security
+                            </span>
+                          </div>
                           <div className="flex items-center gap-3">
                             <button 
-                              onClick={() => setShowSecret(!showSecret)}
-                              className="text-xs font-medium text-zinc-400 hover:text-zinc-200 flex items-center gap-1 cursor-pointer"
-                            >
-                              {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                              <span>{showSecret ? 'Hide' : 'Reveal'}</span>
-                            </button>
-                            <button 
                               onClick={() => handleCopy(currentClientSecret, "Client Secret")}
-                              className="text-xs font-medium text-zinc-300 hover:text-white flex items-center gap-1 cursor-pointer"
+                              className="text-xs font-medium text-zinc-200 hover:text-white bg-zinc-900 hover:bg-zinc-800 px-3 py-1 rounded-lg border border-zinc-800 flex items-center gap-1.5 cursor-pointer shadow-sm"
+                              title="Copy raw Client Secret into clipboard"
                             >
-                              {copiedKey === currentClientSecret ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-                              <span>{copiedKey === currentClientSecret ? 'Copied' : 'Copy'}</span>
+                              {copiedKey === currentClientSecret ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5 text-zinc-400" />}
+                              <span>{copiedKey === currentClientSecret ? 'Copied to Clipboard' : 'Copy Secret'}</span>
                             </button>
                           </div>
                         </div>
-                        <p className="font-mono text-xs font-medium text-zinc-200 break-all bg-zinc-900 p-2.5 rounded-lg border border-zinc-800">
-                          {showSecret ? currentClientSecret : '••••••••••••••••••••••••••••••••••••••••••••••••'}
-                        </p>
-                        <div className="flex justify-end mt-2">
+                        <div className="font-mono text-xs font-medium text-zinc-400 break-all bg-zinc-900 p-2.5 rounded-lg border border-zinc-800 flex items-center justify-between">
+                          <span>zen_sec_••••••••••••••••••••••••••••••••••••••••••••••••</span>
+                          <span className="text-[10px] text-zinc-500 italic select-none">Hidden on screen</span>
+                        </div>
+                        <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-zinc-900 text-xs">
+                          <p className="text-[11px] text-zinc-500">
+                            *Secrets are permanently masked in the UI. Copying extracts the unmasked credentials.
+                          </p>
                           <button
                             onClick={handleRegenerateSecret}
                             disabled={isRegeneratingSecret}
-                            className="text-xs font-medium text-zinc-400 hover:text-zinc-200 flex items-center gap-1 cursor-pointer"
+                            className="text-xs font-medium text-zinc-400 hover:text-rose-400 transition-colors flex items-center gap-1 cursor-pointer"
                           >
                             <RefreshCw className={`h-3 w-3 ${isRegeneratingSecret ? 'animate-spin' : ''}`} />
-                            <span>Regenerate Secret</span>
+                            <span>Roll / Regenerate Secret</span>
                           </button>
                         </div>
                       </div>
                     </div>
 
-                    {/* SDK Code Snippets */}
+                    {/* Production SDK & Developer Kits */}
                     <div className="p-5 bg-zinc-950 rounded-xl border border-zinc-800 space-y-4">
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800 pb-3">
                         <div>
                           <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
-                            SDK & Integration Examples
+                            <Code className="h-4 w-4 text-zinc-300" />
+                            Production SDK & Developer Kits
                           </h4>
                           <p className="text-xs text-zinc-400 mt-0.5">
-                            Production code pre-configured with your Client ID.
+                            Plug-and-play production client libraries pre-configured with your active credentials.
                           </p>
                         </div>
 
@@ -718,6 +908,13 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
                           >
                             <Download className="h-3.5 w-3.5" />
                             <span>zenoa_sdk.py</span>
+                          </button>
+                          <button
+                            onClick={() => downloadSdkFile('.env.production', generateEnvConfig(selectedApp))}
+                            className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 font-medium text-xs transition-all border border-zinc-800 flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            <span>.env</span>
                           </button>
                         </div>
                       </div>
@@ -768,11 +965,11 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
                               className="text-zinc-400 hover:text-zinc-200 flex items-center gap-1 cursor-pointer"
                             >
                               <Copy className="h-3.5 w-3.5" />
-                              <span>Copy</span>
+                              <span>Copy Full Code</span>
                             </button>
                           </div>
 
-                          <pre className="p-4 text-[11px] font-mono text-zinc-300 leading-relaxed overflow-x-auto max-h-80">
+                          <pre className="p-4 text-[11px] font-mono text-zinc-300 leading-relaxed overflow-x-auto max-h-80 select-all">
                             {sdkTab === 'ts' && generateTsSdk(selectedApp)}
                             {sdkTab === 'python' && generatePythonSdk(selectedApp)}
                             {sdkTab === 'env' && generateEnvConfig(selectedApp)}
@@ -1063,6 +1260,104 @@ Body: {
           </div>
         </div>
       </div>
+
+      {/* ONE-TIME SECRET REVELATION MODAL */}
+      {newlyGeneratedSecret && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-zinc-950 border border-zinc-800 w-full max-w-lg rounded-3xl p-6 shadow-2xl space-y-5 animate-in zoom-in-95">
+            <div className="flex items-center gap-3 border-b border-zinc-800/80 pb-4">
+              <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-2xl">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-zinc-100">Save Your Secret Key</h3>
+                <p className="text-xs text-zinc-400">One-Time Plaintext Credential Display</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-amber-950/20 border border-amber-800/30 rounded-2xl text-xs text-amber-200/90 leading-relaxed">
+              <span className="font-bold text-amber-300">Important Security Notice:</span> This is the <span className="underline font-semibold">only time</span> your raw Client Secret will be shown on screen. Once you close this modal, it will be permanently masked in the console to safeguard against unauthorized access.
+            </div>
+
+            <div className="space-y-3.5">
+              {/* App Identity */}
+              <div className="p-3 bg-zinc-900 rounded-xl border border-zinc-800 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] uppercase font-mono text-zinc-500">Service Account</span>
+                  <p className="text-xs font-bold text-zinc-200">{newlyGeneratedSecret.appName}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] uppercase font-mono text-zinc-500">Bot Handle</span>
+                  <p className="text-xs font-mono text-zinc-300">@{newlyGeneratedSecret.botUsername}</p>
+                </div>
+              </div>
+
+              {/* Client ID */}
+              <div className="p-3.5 bg-zinc-900 rounded-xl border border-zinc-800 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase font-mono text-zinc-400">Client ID</span>
+                  <button
+                    onClick={() => handleCopy(newlyGeneratedSecret.clientId, "Client ID")}
+                    className="text-xs text-zinc-300 hover:text-white flex items-center gap-1 cursor-pointer font-medium"
+                  >
+                    {copiedKey === newlyGeneratedSecret.clientId ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                    <span>{copiedKey === newlyGeneratedSecret.clientId ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+                <p className="text-xs font-mono text-zinc-200 break-all">{newlyGeneratedSecret.clientId}</p>
+              </div>
+
+              {/* Client Secret (Plaintext ONLY here) */}
+              <div className="p-3.5 bg-zinc-900 rounded-xl border border-amber-900/40 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase font-mono text-amber-400 font-bold">Client Secret (Plaintext)</span>
+                  <button
+                    onClick={() => handleCopy(newlyGeneratedSecret.clientSecret, "Client Secret")}
+                    className="text-xs text-amber-300 hover:text-amber-200 flex items-center gap-1 cursor-pointer font-bold bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20"
+                  >
+                    {copiedKey === newlyGeneratedSecret.clientSecret ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                    <span>{copiedKey === newlyGeneratedSecret.clientSecret ? 'Copied to Clipboard' : 'Copy Secret'}</span>
+                  </button>
+                </div>
+                <p className="text-xs font-mono text-amber-200 font-bold break-all bg-zinc-950 p-2.5 rounded-lg border border-zinc-800 select-all">
+                  {newlyGeneratedSecret.clientSecret}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-zinc-800">
+              <button
+                onClick={() => {
+                  const saData = {
+                    type: "zenoa_service_account",
+                    app_name: newlyGeneratedSecret.appName,
+                    bot_username: `@${newlyGeneratedSecret.botUsername}`,
+                    owner_username: `@${currentUser.username}`,
+                    client_id: newlyGeneratedSecret.clientId,
+                    client_secret: newlyGeneratedSecret.clientSecret,
+                    api_base_url: window.location.origin,
+                    auth_uri: `${window.location.origin}/sso/authorize`,
+                    token_uri: `${window.location.origin}/api/v1/sso/token`,
+                    created_at: Date.now()
+                  };
+                  downloadSdkFile(`zenoa-sa-${newlyGeneratedSecret.botUsername}.json`, JSON.stringify(saData, null, 2), 'application/json');
+                }}
+                className="w-full sm:w-auto flex-1 py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 rounded-xl text-xs font-medium border border-zinc-800 flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+              >
+                <Download className="h-4 w-4 text-zinc-400" />
+                <span>Download Key JSON</span>
+              </button>
+
+              <button
+                onClick={() => setNewlyGeneratedSecret(null)}
+                className="w-full sm:w-auto flex-1 py-2.5 px-4 bg-zinc-100 hover:bg-white text-zinc-950 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm text-center"
+              >
+                I have saved my secret key
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

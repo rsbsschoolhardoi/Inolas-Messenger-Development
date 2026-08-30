@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { UserData } from '../types';
 import { auth, db } from '../firebaseClient';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
 interface ZenoaAuthGatewayModalProps {
@@ -54,26 +54,67 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
     }
   }, [isOpen]);
 
+  const fetchFullUserProfile = async (searchIdent: string, uid?: string): Promise<UserData | null> => {
+    if (!db) return null;
+    try {
+      // 1. Try fetching directly by Firebase UID if provided
+      if (uid) {
+        const uidSnap = await getDoc(doc(db, 'users', uid));
+        if (uidSnap.exists() && uidSnap.data()?.username) {
+          return { id: uidSnap.id, ...uidSnap.data() } as UserData;
+        }
+      }
+
+      const clean = searchIdent.trim().toLowerCase();
+
+      // 2. Try fetching by doc ID = username
+      const userDoc = await getDoc(doc(db, 'users', clean));
+      if (userDoc.exists() && userDoc.data()?.username) {
+        return { id: userDoc.id, ...userDoc.data() } as UserData;
+      }
+
+      // 3. Try querying by username field
+      const usersRef = collection(db, 'users');
+      const uq = query(usersRef, where('username', '==', clean));
+      const uSnap = await getDocs(uq);
+      if (!uSnap.empty) {
+        return { id: uSnap.docs[0].id, ...uSnap.docs[0].data() } as UserData;
+      }
+
+      // 4. Try querying by email field if identifier is email
+      if (clean.includes('@')) {
+        const eq = query(usersRef, where('email', '==', clean));
+        const eSnap = await getDocs(eq);
+        if (!eSnap.empty) {
+          return { id: eSnap.docs[0].id, ...eSnap.docs[0].data() } as UserData;
+        }
+      }
+    } catch (err) {
+      console.warn("Error fetching full user profile in gateway:", err);
+    }
+    return null;
+  };
+
   const handleSelectSavedAccount = async (account: UserData) => {
     setLoading(true);
     setError(null);
     try {
-      // Re-verify account in Firestore if db is available
-      if (db && account.username) {
-        const cleanUser = account.username.toLowerCase().trim();
-        const userDoc = await getDoc(doc(db, 'users', cleanUser));
-        if (userDoc.exists()) {
-          const freshData = { id: userDoc.id, ...userDoc.data() } as UserData;
-          onAuthenticated(freshData);
-          onClose();
-          return;
-        }
-      }
-      onAuthenticated(account);
+      const freshUser = await fetchFullUserProfile(account.username, account.id);
+      const userToUse = freshUser || account;
+      
+      // Update saved browser accounts with the freshest object
+      try {
+        const raw = localStorage.getItem('zenoa_saved_browser_accounts');
+        const existing: any[] = raw ? JSON.parse(raw) : [];
+        const filtered = existing.filter(a => a && a.username && a.username.toLowerCase() !== userToUse.username.toLowerCase());
+        filtered.unshift(userToUse);
+        localStorage.setItem('zenoa_saved_browser_accounts', JSON.stringify(filtered.slice(0, 8)));
+      } catch (e) {}
+
+      onAuthenticated(userToUse);
       onClose();
     } catch (err: any) {
       console.error('Account verification error:', err);
-      // Fallback to cached account object
       onAuthenticated(account);
       onClose();
     } finally {
@@ -93,69 +134,77 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
 
     try {
       const cleanIdent = identifier.trim();
-      let targetEmail = cleanIdent;
-      let userData: UserData | null = null;
+      
+      // Resolve target profile from Firestore
+      let targetUserData = await fetchFullUserProfile(cleanIdent);
+      let targetEmail = targetUserData?.email || (cleanIdent.includes('@') ? cleanIdent : `${cleanIdent.toLowerCase()}@zenoa.im`);
 
-      if (db) {
-        if (!cleanIdent.includes('@')) {
-          // Username lookup
-          const userDoc = await getDoc(doc(db, 'users', cleanIdent.toLowerCase()));
-          if (userDoc.exists()) {
-            userData = { id: userDoc.id, ...userDoc.data() } as UserData;
-            targetEmail = userData.email || `${cleanIdent.toLowerCase()}@zenoa.im`;
-          } else {
-            setError(`No Zenoa Messenger account found for username "@${cleanIdent}". Please register first on Zenoa Messenger.`);
-            setLoading(false);
-            return;
-          }
-        } else {
-          // Email lookup
-          const usersRef = collection(db, 'users');
-          const q = query(usersRef, where('email', '==', cleanIdent.toLowerCase()));
-          const snap = await getDocs(q);
-          if (!snap.empty) {
-            userData = { id: snap.docs[0].id, ...snap.docs[0].data() } as UserData;
-            targetEmail = cleanIdent;
-          }
-        }
+      if (!targetUserData && !cleanIdent.includes('@')) {
+        setError(`No Zenoa Messenger account found for username "@${cleanIdent}". Please register first on Zenoa Messenger.`);
+        setLoading(false);
+        return;
       }
 
       // Perform Firebase Auth Sign In
+      let authUserUid: string | undefined;
       try {
         if (auth) {
-          await signInWithEmailAndPassword(auth, targetEmail, password);
+          const userCredential = await signInWithEmailAndPassword(auth, targetEmail, password);
+          authUserUid = userCredential.user.uid;
         }
       } catch (authErr: any) {
         console.warn('Firebase Auth login note:', authErr.message);
+        // If password login explicitly failed
+        if (authErr.code === 'auth/wrong-password' || authErr.code === 'auth/invalid-credential') {
+          setError('Incorrect password for this Zenoa account. Please try again.');
+          setLoading(false);
+          return;
+        }
       }
 
-      // If userData was found in Firestore, use it
-      if (userData) {
-        // Save to browser accounts for quick future 1-click login
+      // If user UID is available from Firebase, re-fetch profile to ensure 100% accuracy
+      if (authUserUid) {
+        const verifiedUser = await fetchFullUserProfile(cleanIdent, authUserUid);
+        if (verifiedUser) {
+          targetUserData = verifiedUser;
+        }
+      }
+
+      // If authentic targetUserData was found, proceed with exact Zenoa account
+      if (targetUserData) {
         try {
           const raw = localStorage.getItem('zenoa_saved_browser_accounts');
           const existing: any[] = raw ? JSON.parse(raw) : [];
-          const filtered = existing.filter(a => a && a.username && a.username.toLowerCase() !== userData!.username.toLowerCase());
-          filtered.unshift(userData);
+          const filtered = existing.filter(a => a && a.username && a.username.toLowerCase() !== targetUserData!.username.toLowerCase());
+          filtered.unshift(targetUserData);
           localStorage.setItem('zenoa_saved_browser_accounts', JSON.stringify(filtered.slice(0, 8)));
         } catch (e) {}
 
-        onAuthenticated(userData);
+        onAuthenticated(targetUserData);
         onClose();
       } else {
-        // Fallback user object
+        // Safe fallback using the exact entered username/email (never generate a random dev account)
         const cleanName = cleanIdent.includes('@') ? cleanIdent.split('@')[0] : cleanIdent;
         const fallbackUser: UserData = {
-          id: 'u_' + cleanName,
-          username: cleanName,
+          id: authUserUid || 'u_' + cleanName.toLowerCase(),
+          username: cleanName.toLowerCase(),
           display_name: cleanName,
           email: targetEmail,
           bio: 'Verified Zenoa Account',
-          avatar_seed: cleanName,
+          avatar_seed: cleanName.toLowerCase(),
           online: true,
           last_seen: 'Online',
           registered_at: Date.now()
         };
+
+        try {
+          const raw = localStorage.getItem('zenoa_saved_browser_accounts');
+          const existing: any[] = raw ? JSON.parse(raw) : [];
+          const filtered = existing.filter(a => a && a.username && a.username.toLowerCase() !== fallbackUser.username.toLowerCase());
+          filtered.unshift(fallbackUser);
+          localStorage.setItem('zenoa_saved_browser_accounts', JSON.stringify(filtered.slice(0, 8)));
+        } catch (e) {}
+
         onAuthenticated(fallbackUser);
         onClose();
       }
