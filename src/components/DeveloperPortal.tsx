@@ -108,7 +108,9 @@ export interface ZenoaConfig {
 }
 
 export interface SendOtpOptions {
-  recipient: string;
+  recipient?: string;
+  zenoaId?: string;
+  mobileNumber?: string;
   templateType?: 'standard_otp' | 'security_code' | 'login_verification' | 'transaction_auth';
   expiryMins?: number;
 }
@@ -131,7 +133,9 @@ export class ZenoaSDK {
     const payload = typeof options === 'string' 
       ? { recipient: options, template_type: templateType, expiry_mins: expiryMins }
       : { 
-          recipient: options.recipient, 
+          recipient: options.recipient || options.zenoaId || options.mobileNumber, 
+          zenoa_id: options.zenoaId,
+          mobile_number: options.mobileNumber,
           template_type: options.templateType || 'standard_otp', 
           expiry_mins: options.expiryMins || 10 
         };
