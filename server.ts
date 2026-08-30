@@ -19,15 +19,15 @@ const firebaseConfig = {
 // Initialize Firebase
 let db: any = null;
 try {
-  const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-  db = getFirestore(app);
-  console.log("Firebase Client SDK initialized successfully");
+  const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+  db = getFirestore(firebaseApp);
+  console.log("Firebase initialized successfully");
 } catch (e) {
-  console.error("Firebase Initialization failed:", e);
+  console.error("Firebase initialization failed:", e);
 }
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Permissive CORS & Preflight handling for Vercel Serverless Functions & Cross-Origin POST requests
 app.use(cors({
@@ -39,8 +39,8 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Health check
-app.get('/api/health', (req: any, res: any) => {
+// Health check endpoints for Vercel and local
+app.get(['/health', '/api/health'], (req: any, res: any) => {
   res.json({ status: 'ok', service: 'zenoa-developer-api', timestamp: new Date().toISOString() });
 });
 
