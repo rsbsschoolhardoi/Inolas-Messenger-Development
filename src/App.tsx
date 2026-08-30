@@ -585,6 +585,43 @@ export default function App() {
     }
   };
   const [showProfilePanel, setShowProfilePanel] = useState<boolean>(false);
+  const [isSessionConflict, setIsSessionConflict] = useState<boolean>(false);
+  const tabIdRef = useRef('tab_' + Math.random().toString(36).substring(2, 9));
+
+  useEffect(() => {
+    try {
+      const channel = new BroadcastChannel('zenoa_single_session_channel');
+      channel.onmessage = (event) => {
+        if (event.data && event.data.type === 'CLAIM_SESSION' && event.data.tabId !== tabIdRef.current) {
+          setIsSessionConflict(true);
+        }
+      };
+      channel.postMessage({ type: 'CLAIM_SESSION', tabId: tabIdRef.current });
+
+      const interval = setInterval(() => {
+        try {
+          const active = localStorage.getItem('zenoa_active_session');
+          const now = Date.now();
+          if (active) {
+            const data = JSON.parse(active);
+            if (data.tabId !== tabIdRef.current && now - data.time < 5000) {
+              setIsSessionConflict(true);
+            } else {
+              localStorage.setItem('zenoa_active_session', JSON.stringify({ tabId: tabIdRef.current, time: now }));
+              channel.postMessage({ type: 'CLAIM_SESSION', tabId: tabIdRef.current });
+            }
+          } else {
+            localStorage.setItem('zenoa_active_session', JSON.stringify({ tabId: tabIdRef.current, time: now }));
+          }
+        } catch (e) {}
+      }, 2000);
+
+      return () => {
+        clearInterval(interval);
+        channel.close();
+      };
+    } catch (e) {}
+  }, []);
   const [showCallMenu, setShowCallMenu] = useState<boolean>(false);
   const [showAttachMenu, setShowAttachMenu] = useState<boolean>(false);
   const [showUnifiedPicker, setShowUnifiedPicker] = useState<boolean>(false);
@@ -2757,6 +2794,9 @@ export default function App() {
   };
 
   const handleAuthFlowLogin = async (identifier: string, pass: string): Promise<{ success: boolean; requiresOtp?: boolean; error?: string }> => {
+    if (isSessionConflict) {
+      return { success: false, error: '⚠️ Active Session Conflict: Zenoa Messenger is already open in another tab or window. Only one active session is allowed at a time. Login and data saving are blocked here.' };
+    }
     const cleanId = identifier.toLowerCase().replace(/^@/, '').trim();
     if (cleanId.startsWith('sa_')) {
       return { success: false, error: 'Service Accounts cannot be logged in directly. They are designated strictly for automated API dispatches and OTP services.' };
@@ -6250,6 +6290,69 @@ export default function App() {
       />
     );
   }
+
+  const currentUserObj: UserData | null = isAuthenticated ? {
+    id: userId,
+    username: userUsername,
+    display_name: userDisplayName,
+    email: userEmail,
+    bio: userBio,
+    avatar_seed: userAvatarSeed,
+    avatar_url: userAvatarUrl,
+    mobile_number: userPhone,
+    online: true,
+    last_seen: 'Online'
+  } : null;
+
+  const isSSOPath = typeof window !== "undefined" && window.location.pathname === "/auth/sso";
+  if (isSSOPath) {
+    if (!isAuthenticated && !showLandingPage) {
+      return (
+        <AuthFlow
+          initialMode={authFlowInitialMode}
+          onBackToLanding={() => {
+            setShowLandingPage(true);
+          }}
+          onLoginSubmit={handleAuthFlowLogin}
+          onRegisterSubmit={handleAuthFlowRegister}
+          onVerifyOtpSubmit={handleAuthFlowVerifyOtp}
+          truecallerProfile={truecallerProfile}
+          onOAuthLogin={handleOAuthLogin}
+          onForgotPassword={handleForgotPassword}
+          themeMode={themeMode}
+          onToggleTheme={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
+          existingUsernames={uniqueUserList.map(u => u.username).filter((un): un is string => typeof un === 'string' && un.trim() !== '')}
+          checkUsernameAvailability={handleCheckUsernameAvailability}
+          isOnboarding={onboardingStep > 0}
+          initialRegStep={onboardingStep}
+        />
+      );
+    }
+    if (onboardingStep > 0 && onboardingStep < 3) {
+      return (
+        <AccountSetup
+          initialFullName={userDisplayName}
+          initialUsername={userUsername}
+          initialEmail={userEmail}
+          onComplete={handleCompleteMandatoryAccountSetup}
+          checkUsernameAvailability={handleCheckUsernameAvailability}
+          themeMode={themeMode}
+          onSignOut={handleLogout}
+        />
+      );
+    }
+    return (
+      <SSOLogin 
+        themeMode={themeMode}
+        currentUser={currentUserObj}
+        onLoginRequest={() => {
+          setShowLandingPage(false);
+          setAuthFlowInitialMode('login');
+        }}
+        onLogout={handleLogout}
+      />
+    );
+  }
   
   if (!isAuthenticated) {
     if (isEmailVerificationPending) {
@@ -6396,72 +6499,19 @@ export default function App() {
 
   // MAIN RUNTIME APPLICATION
   const isDeveloperPath = typeof window !== "undefined" && window.location.pathname === "/developer";
-  const currentUserObj: UserData | null = isAuthenticated ? {
-    id: userId,
-    username: userUsername,
-    display_name: userDisplayName,
-    email: userEmail,
-    bio: userBio,
-    avatar_seed: userAvatarSeed,
-    avatar_url: userAvatarUrl,
-    mobile_number: userPhone,
-    online: true,
-    last_seen: 'Online'
-  } : null;
+  const isSSOConsolePath = typeof window !== "undefined" && (window.location.pathname === "/sso" || window.location.pathname === "/developer/sso"); 
+  if (isSSOConsolePath) return <SSOConsoleStandalone />; 
+  if (isDeveloperPath) return <DeveloperConsoleStandalone />;
 
-  const isSSOPath = typeof window !== "undefined" && window.location.pathname === "/auth/sso";
-  if (isSSOPath) {
-    if (!isAuthenticated && !showLandingPage) {
-      return (
-        <AuthFlow
-          initialMode={authFlowInitialMode}
-          onBackToLanding={() => {
-            setShowLandingPage(true);
-          }}
-          onLoginSubmit={handleAuthFlowLogin}
-          onRegisterSubmit={handleAuthFlowRegister}
-          onVerifyOtpSubmit={handleAuthFlowVerifyOtp}
-          truecallerProfile={truecallerProfile}
-          onOAuthLogin={handleOAuthLogin}
-          onForgotPassword={handleForgotPassword}
-          themeMode={themeMode}
-          onToggleTheme={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
-          existingUsernames={uniqueUserList.map(u => u.username).filter((un): un is string => typeof un === 'string' && un.trim() !== '')}
-          checkUsernameAvailability={handleCheckUsernameAvailability}
-          isOnboarding={onboardingStep > 0}
-          initialRegStep={onboardingStep}
-        />
-      );
-    }
-    if (onboardingStep > 0 && onboardingStep < 3) {
-      return (
-        <AccountSetup
-          initialFullName={userDisplayName}
-          initialUsername={userUsername}
-          initialEmail={userEmail}
-          onComplete={handleCompleteMandatoryAccountSetup}
-          checkUsernameAvailability={handleCheckUsernameAvailability}
-          themeMode={themeMode}
-          onSignOut={handleLogout}
-        />
-      );
-    }
-    return (
-      <SSOLogin 
-        themeMode={themeMode}
-        currentUser={currentUserObj}
-        onLoginRequest={() => {
-          setShowLandingPage(false);
-          setAuthFlowInitialMode('login');
-        }}
-        onLogout={handleLogout}
-      />
-    );
-  }
-  const isSSOConsolePath = typeof window !== "undefined" && (window.location.pathname === "/sso" || window.location.pathname === "/developer/sso"); if (isSSOConsolePath) return <SSOConsoleStandalone />; if (isDeveloperPath) return <DeveloperConsoleStandalone />;
   return (
 
-    <div className={`w-full h-[100dvh] flex overflow-hidden select-none touch-manipulation font-sans transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-white' : 'bg-white text-neutral-800'}`}>
+    <div className={`w-full h-[100dvh] flex flex-col overflow-hidden select-none touch-manipulation font-sans transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-white' : 'bg-white text-neutral-800'}`}>
+      {isSessionConflict && (
+        <div className="bg-red-600 text-white px-4 py-3 text-center text-xs font-bold shrink-0 flex items-center justify-center gap-2 shadow-lg z-50">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>⚠️ Active Session Conflict: Zenoa Messenger is already running in another browser tab or window. Only one active session is permitted. Login and data persistence are locked here.</span>
+        </div>
+      )}
       
       {/* Opening Entrance Animation Overlay (Google / Social / Email Sign-In) */}
       <AnimatePresence>
