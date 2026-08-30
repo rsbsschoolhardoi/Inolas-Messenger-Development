@@ -13,3 +13,12 @@ export const getDmChatId = (u1: string, u2: string): string => {
   const sorted = [clean1, clean2].sort();
   return `c_${sorted[0]}_${sorted[1]}`;
 };
+
+/**
+ * Smartly decodes messages to handle potential encoding issues like '?'
+ */
+export const decodeMessage = (text: string): string => {
+  if (!text) return '';
+  // Replace potential replacement characters or broken encodings with empty or sensible alternatives
+  return text.replace(/\ufffd/g, '').trim();
+};

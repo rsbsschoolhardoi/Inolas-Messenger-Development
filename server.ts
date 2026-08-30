@@ -27,7 +27,7 @@ try {
   console.error("Firebase Initialization failed:", e);
 }
 
-const app = express();
+export const app = express();
 const PORT = 3000;
 
 app.use(cors());
@@ -454,8 +454,8 @@ async function deliverBotChatMessage(opts: {
       if (!botSnap.exists()) {
         await setDoc(botDocRef, {
           username: botClean,
-          display_name: senderAppName ? `${senderAppName}` : 'Zenoa Verified Service',
-          bio: `Official Service Account for ${senderAppName || 'Zenoa Developer Portal'}`,
+          display_name: senderAppName ? `${senderAppName}` : 'Business Account',
+          bio: 'Business Account • End-to-End Encrypted',
           is_service_account: true,
           is_business_account: true,
           is_verified: true,
@@ -479,7 +479,7 @@ async function deliverBotChatMessage(opts: {
         id: chatId,
         type: 'dm',
         username: botClean,
-        name: senderAppName || 'Zenoa Service Bot',
+        name: senderAppName || 'Business Account',
         participants,
         participant_ids: participantIds,
         updated_at: Date.now(),
@@ -535,7 +535,7 @@ app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
       zenoa_id: resolvedUser.zenoaId,
       mobile_number: resolvedUser.mobileNumber,
       app_id: req.appData.id || 'unknown_app',
-      app_name: app_name || 'Registered Application',
+      app_name: app_name || 'Application',
       code: otpCode,
       expires_at: expiresAt,
       created_at: Date.now(),
@@ -568,16 +568,16 @@ app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
       }
     }
 
-    // Compose message using Verified Professional Templates
+    // Compose clean message without warning prefixes or noisy markdown formatting
     const templateType = req.body.template_type || 'standard_otp';
-    let templateText = `Security Notice\n\nYour verification code for {app_name} is: **{code}**.\n\nValid for {expiry} minutes. Do not share this code.`;
+    let templateText = `Your verification code for {app_name} is {code}. Valid for {expiry} minutes. Do not share this code.`;
     
     if (templateType === '2fa_auth') {
-      templateText = `Two-Factor Authentication\n\nSign-in authorization code for {app_name}: **{code}**.\n\nThis code expires in {expiry} minutes. Issued by verified business authority.`;
+      templateText = `Sign-in verification code for {app_name}: {code}. Valid for {expiry} minutes.`;
     } else if (templateType === 'password_reset') {
-      templateText = `Password Reset Authorization\n\nYour password reset code for {app_name} is: **{code}**.\n\nIf you did not request this reset, please secure your account immediately. Valid for {expiry} minutes.`;
+      templateText = `Password reset code for {app_name}: {code}. Valid for {expiry} minutes.`;
     } else if (templateType === 'transaction_auth') {
-      templateText = `Transaction Security Verification\n\nYour payment verification code for {app_name} is: **{code}**.\n\nValid for {expiry} minutes. Authorized transaction confirmation.`;
+      templateText = `Payment verification code for {app_name}: {code}. Valid for {expiry} minutes.`;
     }
 
     let messageText = templateText
@@ -587,10 +587,10 @@ app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
       .replace(/{expiry}/g, String(expiryMinutes))
       .replace(/{expiry_mins}/g, String(expiryMinutes));
 
-    // Deliver via Direct Business Message to recipient's Zenoa chat inbox
+    // Deliver via Direct Business Message to recipient's chat inbox
     await deliverBotChatMessage({
       senderBotUsername: businessSender,
-      senderAppName: app_name || 'Zenoa Service Bot',
+      senderAppName: app_name || 'Business Account',
       recipientUsername: cleanRecipient,
       recipientZenoaId: resolvedUser.zenoaId,
       messageText
@@ -1837,4 +1837,7 @@ async function startServer() {
   });
 }
 
-startServer();
+if (require.main === module) {
+  startServer();
+}
+

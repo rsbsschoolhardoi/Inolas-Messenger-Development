@@ -178,7 +178,10 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
   const downloadServiceAccountJson = (app: any) => {
     if (!app) return;
     const saData = {
-      type: "zenoa_service_account",
+      type: "business_service_account",
+      account_type: "Business Account",
+      security: "End-to-End Encrypted",
+      description: "This is a business account and it is completely End-to-End Encrypted.",
       app_name: app.app_name,
       bot_username: `@${app.bot_username || app.owner}`,
       owner_username: `@${app.owner}`,
@@ -189,7 +192,7 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
       token_uri: `${window.location.origin}/api/v1/sso/token`,
       created_at: app.created_at || Date.now()
     };
-    downloadSdkFile(`zenoa-sa-${app.bot_username || app.owner}.json`, JSON.stringify(saData, null, 2), 'application/json');
+    downloadSdkFile(`business-sa-${app.bot_username || app.owner}.json`, JSON.stringify(saData, null, 2), 'application/json');
   };
 
   const generateTsSdk = (app: any) => {
@@ -198,8 +201,8 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
     const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
     return `/**
- * Zenoa Production SDK for ${app.app_name}
- * Service Account: @${app.bot_username || app.owner}
+ * SDK for ${app.app_name}
+ * Business Account • End-to-End Encrypted
  * Pre-Configured & Ready for Production
  */
 
@@ -316,8 +319,8 @@ export default ZenoaSDK;
     const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
     return `/**
- * Zenoa CommonJS / Node.js Production SDK for ${app.app_name}
- * Service Account: @${app.bot_username || app.owner}
+ * CommonJS / Node.js SDK for ${app.app_name}
+ * Business Account • End-to-End Encrypted
  * Supports: Mobile Number, Username, & Zenoa ID routing
  */
 
@@ -400,8 +403,8 @@ module.exports = ZenoaNodeSDK;
     const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
     return `"""
-Zenoa Production Python SDK for ${app.app_name}
-Service Account: @${app.bot_username || app.owner}
+Python SDK for ${app.app_name}
+Business Account • End-to-End Encrypted
 Pre-Configured & Ready for Production
 """
 

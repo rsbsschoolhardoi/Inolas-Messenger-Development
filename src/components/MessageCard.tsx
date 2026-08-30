@@ -12,6 +12,7 @@ import { VoiceNotePlayer } from './VoiceNotePlayer';
 import { getThemeById } from '../chatThemes';
 import { getMediaUrlFromDrive } from '../lib/googleDrive';
 import { decryptFile } from '../cryptoUtils';
+import { decodeMessage } from '../chatUtils';
 
 interface MessageCardProps {
   msg: Message;
@@ -62,7 +63,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
   const isRead = msg.read_by && msg.read_by.some(u => u !== (isMe ? 'me' : senderUsername));
   const activeTheme = getThemeById(themeId);
   // Fix service account text formatting
-  let displayMsgText = msg.text || '';
+  let displayMsgText = decodeMessage(msg.text || '');
   if (isSenderServiceAccount) {
     if (displayMsgText.startsWith('📢 **[Direct Message]**\n\n')) {
       displayMsgText = displayMsgText.replace('📢 **[Direct Message]**\n\n', '');
