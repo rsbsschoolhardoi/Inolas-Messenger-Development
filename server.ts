@@ -1,29 +1,160 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, collection, query, where, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, increment, writeBatch, orderBy, limit } from 'firebase/firestore';
 import axios from 'axios';
 import crypto from 'crypto';
+import admin from 'firebase-admin';
 
-// Firebase Config
-const firebaseConfig = {
-  projectId: "zenoa-inolas",
-  appId: "1:521203244415:web:697eefef46957600e50e4a",
-  apiKey: "AIzaSyDvRzK3PJcvPVrfh8XXMvUADAKfHxb8-N8",
-  authDomain: "zenoa-inolas.firebaseapp.com",
-  storageBucket: "zenoa-inolas.firebasestorage.app",
-  messagingSenderId: "521203244415"
-};
-
-// Initialize Firebase
+// Initialize Firebase Admin SDK safely with Vercel environment variables formatting
 let db: any = null;
 try {
-  const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-  db = getFirestore(firebaseApp);
-  console.log("Firebase initialized successfully");
+  let certConfig: any = null;
+
+  // Option A: Check if entire JSON is provided in a single environment variable
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      const parsed = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      certConfig = {
+        projectId: parsed.project_id,
+        clientEmail: parsed.client_email,
+        privateKey: parsed.private_key,
+      };
+      console.log("Parsed service account JSON from FIREBASE_SERVICE_ACCOUNT env variable");
+    } catch (parseErr) {
+      console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT env variable as JSON:", parseErr);
+    }
+  }
+
+  // Option B: Fallback to individual env variables if Option A wasn't set or parsed successfully
+  if (!certConfig) {
+    let privateKey = process.env.FIREBASE_PRIVATE_KEY;
+    if (privateKey) {
+      // 1. Agar Vercel ne double quotes add kiye hain, toh unhe strip karein
+      if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
+        privateKey = privateKey.substring(1, privateKey.length - 1);
+      }
+      // 2. Escape newlines ko real newlines se replace karein
+      privateKey = privateKey.replace(/\\n/g, '\n');
+    }
+    certConfig = {
+      projectId: process.env.FIREBASE_PROJECT_ID || 'zenoa-inolas',
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: privateKey,
+    };
+  }
+
+  // Ab Firebase initialize karein safely:
+  if (!admin.apps.length) {
+    if (certConfig && certConfig.privateKey && certConfig.clientEmail) {
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId: certConfig.projectId,
+          clientEmail: certConfig.clientEmail,
+          privateKey: certConfig.privateKey,
+        }),
+      });
+    } else {
+      admin.initializeApp({
+        projectId: certConfig.projectId || 'zenoa-inolas'
+      });
+    }
+  }
+  db = admin.firestore();
+  console.log("Firebase Admin SDK initialized successfully");
 } catch (e) {
-  console.error("Firebase initialization failed:", e);
+  console.error("Firebase Admin SDK initialization failed:", e);
+  // Fallback to project ID only
+  try {
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        projectId: 'zenoa-inolas'
+      });
+    }
+    db = admin.firestore();
+    console.log("Firebase Admin SDK initialized with fallback projectId only");
+  } catch (err) {
+    console.error("Firebase Admin SDK fallback initialization failed:", err);
+  }
+}
+
+// Compatibility layer to support existing Client SDK syntax using Admin SDK underneath
+function getFirestore(app?: any) {
+  return db;
+}
+
+function collection(parent: any, collectionPath: string) {
+  return parent.collection(collectionPath);
+}
+
+function doc(parent: any, ...paths: string[]) {
+  if (paths.length === 2) {
+    // doc(db, 'collectionName', 'id')
+    return parent.collection(paths[0]).doc(paths[1]);
+  } else if (paths.length === 1) {
+    // doc(collectionRef, 'id')
+    return parent.doc(paths[0]);
+  }
+  throw new Error(`Invalid doc paths arguments: ${paths.join(', ')}`);
+}
+
+function where(field: string, op: any, value: any) {
+  return (q: any) => q.where(field, op, value);
+}
+
+function orderBy(field: string, direction?: 'asc' | 'desc') {
+  return (q: any) => q.orderBy(field, direction || 'asc');
+}
+
+function limit(n: number) {
+  return (q: any) => q.limit(n);
+}
+
+function query(queryable: any, ...constraints: any[]) {
+  let current = queryable;
+  for (const constraint of constraints) {
+    if (typeof constraint === 'function') {
+      current = constraint(current);
+    }
+  }
+  return current;
+}
+
+async function getDocs(q: any) {
+  return q.get();
+}
+
+async function getDoc(docRef: any) {
+  const snap = await docRef.get();
+  // Wrap .exists to support Web Client SDK's method syntax snap.exists()
+  if (snap && typeof snap.exists === 'boolean') {
+    const existsVal = snap.exists;
+    snap.exists = () => existsVal;
+  }
+  return snap;
+}
+
+async function setDoc(docRef: any, data: any, options?: any) {
+  return docRef.set(data, options || {});
+}
+
+async function updateDoc(docRef: any, data: any) {
+  return docRef.update(data);
+}
+
+async function deleteDoc(docRef: any) {
+  return docRef.delete();
+}
+
+function increment(n: number) {
+  return admin.firestore.FieldValue.increment(n);
+}
+
+function serverTimestamp() {
+  return admin.firestore.FieldValue.serverTimestamp();
+}
+
+function writeBatch(firestoreDb: any) {
+  return firestoreDb.batch();
 }
 
 const app = express();
