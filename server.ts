@@ -16,41 +16,15 @@ const firebaseConfig = {
   messagingSenderId: "521203244415"
 };
 
-// Lazy Firebase Initializer - prevents top-level crashes in Serverless/Vercel environments
-let _firebaseAppInstance: any = null;
-let _dbInstance: any = null;
-
-function getDb(): any {
-  if (!_dbInstance) {
-    try {
-      _firebaseAppInstance = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-      _dbInstance = getFirestore(_firebaseAppInstance);
-      console.log("Firebase Client SDK initialized lazily");
-    } catch (e) {
-      console.error("Firebase Initialization failed:", e);
-      return null;
-    }
-  }
-  return _dbInstance;
+// Initialize Firebase
+let db: any = null;
+try {
+  const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+  db = getFirestore(firebaseApp);
+  console.log("Firebase initialized successfully");
+} catch (e) {
+  console.error("Firebase initialization failed:", e);
 }
-
-// Transparent Proxy wrapper so any direct reference to `db` routes to getDb() lazily
-const db: any = new Proxy({}, {
-  get(_target, prop, receiver) {
-    const realDb = getDb();
-    if (!realDb) return undefined;
-    const value = Reflect.get(realDb, prop, receiver);
-    return typeof value === 'function' ? value.bind(realDb) : value;
-  },
-  has(_target, prop) {
-    const realDb = getDb();
-    return realDb ? Reflect.has(realDb, prop) : false;
-  },
-  getPrototypeOf(_target) {
-    const realDb = getDb();
-    return realDb ? Reflect.getPrototypeOf(realDb) : null;
-  }
-});
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
