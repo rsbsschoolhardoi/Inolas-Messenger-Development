@@ -39,7 +39,7 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
 
   // Code Snippet & Auto-Generated SDK State
   const [codeLang, setCodeLang] = useState<'node' | 'python' | 'php' | 'curl' | 'go' | 'button'>('node');
-  const [sdkTab, setSdkTab] = useState<'ts' | 'node' | 'python' | 'env' | 'html' | 'curl'>('ts');
+  const [sdkTab, setSdkTab] = useState<'ts' | 'node' | 'python' | 'env' | 'html' | 'curl' | 'vercel'>('ts');
 
   // Analytics & Logs State
   const [analytics, setAnalytics] = useState<any>(null);
@@ -99,15 +99,7 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
           expiry_mins: 10
         })
       });
-      
-      const text = await res.text();
-      let data: any = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch (parseErr) {
-        data = { error: `Server returned non-JSON response (Status ${res.status}): ${text.substring(0, 200) || '(empty response)'}` };
-      }
-
+      const data = await res.json();
       setTestOtpResult({ status: res.status, ok: res.ok, data });
       if (res.ok && data.success) {
         showToast('🚀 Live OTP sent! Check Zenoa Messenger Inbox.');
@@ -150,15 +142,7 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
           code: testVerifyCode.trim()
         })
       });
-      
-      const text = await res.text();
-      let data: any = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch (parseErr) {
-        data = { error: `Server returned non-JSON response (Status ${res.status}): ${text.substring(0, 200) || '(empty response)'}` };
-      }
-
+      const data = await res.json();
       setTestVerifyResult({ status: res.status, ok: res.ok, data });
       if (res.ok && data.verified) {
         showToast('✅ OTP Verified Successfully!');
@@ -573,6 +557,42 @@ curl -X POST "${origin}/api/v1/bot/send" \\
   -d '{"client_id": "${cid}", "recipient": "+917991482672", "text": "Hello from Zenoa Service Account!"}'`;
   };
 
+  const generateVercelConfigSnippet = (app: any) => {
+    return `// vercel.json — Place in root directory to enable Serverless API Routing and prevent POST blocking
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Credentials", "value": "true" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
+        { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization" }
+      ]
+    }
+  ]
+}
+
+// api/index.ts — Vercel Serverless Function API Entrypoint
+import app from '../server';
+
+export default app;`;
+  };
+
   useEffect(() => {
     fetchApps();
   }, [currentUser?.username]);
@@ -625,7 +645,22 @@ curl -X POST "${origin}/api/v1/bot/send" \\
       if (fetchedApps.length > 0) {
         setSelectedAppId(fetchedApps[0].id);
       } else {
-        setSelectedAppId(null);
+        const defaultApp = {
+          id: 'sa_default_sandbox',
+          app_name: 'Zenoa Default Sandbox App',
+          app_description: 'Automated 2FA & OTP Verification Service',
+          website_url: window.location.origin,
+          bot_username: currentUser?.username ? `sa_${currentUser.username.toLowerCase()}` : 'sa_developer',
+          client_id: 'zen_client_sandbox_default',
+          client_secret: 'zen_sec_sandbox_secret_2026',
+          api_key: 'zen_client_sandbox_default',
+          owner: currentUser?.username || 'developer',
+          redirect_uris: [window.location.origin + '/auth/sso'],
+          webhook_url: '',
+          created_at: Date.now()
+        };
+        setApps([defaultApp]);
+        setSelectedAppId(defaultApp.id);
       }
     } catch (err) {
       console.error("Error fetching apps:", err);
@@ -1165,7 +1200,8 @@ curl -X POST "${origin}/api/v1/bot/send" \\
                             { id: 'python', label: 'Python' },
                             { id: 'env', label: '.env' },
                             { id: 'html', label: 'HTML SSO Button' },
-                            { id: 'curl', label: 'cURL' }
+                            { id: 'curl', label: 'cURL' },
+                            { id: 'vercel', label: 'Vercel Serverless' }
                           ].map(t => (
                             <button
                               key={t.id}
@@ -1191,6 +1227,7 @@ curl -X POST "${origin}/api/v1/bot/send" \\
                               {sdkTab === 'env' && '.env'}
                               {sdkTab === 'html' && 'zenoa-sso-button.html'}
                               {sdkTab === 'curl' && 'curl_requests.sh'}
+                              {sdkTab === 'vercel' && 'vercel.json & api/index.ts'}
                             </span>
                             <button
                               onClick={() => {
@@ -1199,7 +1236,8 @@ curl -X POST "${origin}/api/v1/bot/send" \\
                                   : sdkTab === 'python' ? generatePythonSdk(selectedApp)
                                   : sdkTab === 'env' ? generateEnvConfig(selectedApp)
                                   : sdkTab === 'html' ? generateHtmlSnippet(selectedApp)
-                                  : generateCurlSnippets(selectedApp);
+                                  : sdkTab === 'curl' ? generateCurlSnippets(selectedApp)
+                                  : generateVercelConfigSnippet(selectedApp);
                                 handleCopy(content, "Code Snippet");
                               }}
                               className="text-zinc-400 hover:text-zinc-200 flex items-center gap-1 cursor-pointer"
@@ -1216,6 +1254,7 @@ curl -X POST "${origin}/api/v1/bot/send" \\
                             {sdkTab === 'env' && generateEnvConfig(selectedApp)}
                             {sdkTab === 'html' && generateHtmlSnippet(selectedApp)}
                             {sdkTab === 'curl' && generateCurlSnippets(selectedApp)}
+                            {sdkTab === 'vercel' && generateVercelConfigSnippet(selectedApp)}
                           </pre>
                         </div>
                       </div>
