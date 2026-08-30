@@ -2,8 +2,10 @@
 import { FullScreenProfilePanel } from './components/FullScreenProfilePanel';
 import { FollowListModal } from './components/FollowListModal';
 // Inolas Messenger - Verified UTF-8 Source Code
-import { SSOConsoleStandalone } from "./components/SSOConsoleStandalone";import { SSOLogin } from "./components/SSOLogin";
+import { SSOConsoleStandalone } from "./components/SSOConsoleStandalone";
+import { SSOLogin } from "./components/SSOLogin";
 import { DeveloperConsoleStandalone } from './components/DeveloperConsoleStandalone';
+import { ConcurrentLogoutModal } from './components/ConcurrentLogoutModal';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MediaPreviewLightbox } from './components/MediaPreviewLightbox';
 import { ProfileOptionsModal } from './components/ProfileOptionsModal';
@@ -585,43 +587,6 @@ export default function App() {
     }
   };
   const [showProfilePanel, setShowProfilePanel] = useState<boolean>(false);
-  const [isSessionConflict, setIsSessionConflict] = useState<boolean>(false);
-  const tabIdRef = useRef('tab_' + Math.random().toString(36).substring(2, 9));
-
-  useEffect(() => {
-    try {
-      const channel = new BroadcastChannel('zenoa_single_session_channel');
-      channel.onmessage = (event) => {
-        if (event.data && event.data.type === 'CLAIM_SESSION' && event.data.tabId !== tabIdRef.current) {
-          setIsSessionConflict(true);
-        }
-      };
-      channel.postMessage({ type: 'CLAIM_SESSION', tabId: tabIdRef.current });
-
-      const interval = setInterval(() => {
-        try {
-          const active = localStorage.getItem('zenoa_active_session');
-          const now = Date.now();
-          if (active) {
-            const data = JSON.parse(active);
-            if (data.tabId !== tabIdRef.current && now - data.time < 5000) {
-              setIsSessionConflict(true);
-            } else {
-              localStorage.setItem('zenoa_active_session', JSON.stringify({ tabId: tabIdRef.current, time: now }));
-              channel.postMessage({ type: 'CLAIM_SESSION', tabId: tabIdRef.current });
-            }
-          } else {
-            localStorage.setItem('zenoa_active_session', JSON.stringify({ tabId: tabIdRef.current, time: now }));
-          }
-        } catch (e) {}
-      }, 2000);
-
-      return () => {
-        clearInterval(interval);
-        channel.close();
-      };
-    } catch (e) {}
-  }, []);
   const [showCallMenu, setShowCallMenu] = useState<boolean>(false);
   const [showAttachMenu, setShowAttachMenu] = useState<boolean>(false);
   const [showUnifiedPicker, setShowUnifiedPicker] = useState<boolean>(false);
@@ -906,6 +871,122 @@ export default function App() {
   useEffect(() => {
     try { localStorage.removeItem('zenoa_known_usernames'); } catch {}
   }, []);
+
+  const [kickoutData, setKickoutData] = useState<{ username: string; countdown: number } | null>(null);
+  const tabSessionIdRef = useRef('sess_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now());
+
+  // 5-Second Countdown Timer for Automatic Kickout Logout
+  useEffect(() => {
+    if (!kickoutData) return;
+    if (kickoutData.countdown <= 0) {
+      handleLogout();
+      setKickoutData(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setKickoutData(prev => prev ? { ...prev, countdown: prev.countdown - 1 } : null);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [kickoutData]);
+
+  // Account-Specific Single Active Login Tracker (Cross-Tab / Cross-Window)
+  useEffect(() => {
+    if (!isAuthenticated || !userUsername) {
+      return;
+    }
+
+    const cleanUsername = userUsername.toLowerCase().trim();
+    const currentSessionId = tabSessionIdRef.current;
+
+    // 1. Save active session id for this specific account
+    try {
+      localStorage.setItem(`zenoa_active_account_${cleanUsername}`, JSON.stringify({
+        sessionId: currentSessionId,
+        username: userUsername,
+        timestamp: Date.now()
+      }));
+
+      // Persist in local browser saved accounts for instant 1-click SSO selection
+      const existingStr = localStorage.getItem('zenoa_saved_browser_accounts');
+      const accounts: any[] = existingStr ? JSON.parse(existingStr) : [];
+      const filtered = accounts.filter(a => a && a.username && a.username.toLowerCase() !== cleanUsername);
+      filtered.unshift({
+        id: userId || 'u_' + cleanUsername,
+        username: userUsername,
+        display_name: userDisplayName || userUsername,
+        email: userEmail || '',
+        avatar_url: userAvatarUrl || '',
+        avatar_seed: userAvatarSeed || cleanUsername,
+        mobile_number: userPhone || '',
+        bio: userBio || ''
+      });
+      localStorage.setItem('zenoa_saved_browser_accounts', JSON.stringify(filtered.slice(0, 8)));
+    } catch (e) {}
+
+    // 2. Broadcast to other open tabs that THIS account is now claimed by this session
+    try {
+      const channel = new BroadcastChannel('zenoa_account_auth_channel');
+      channel.postMessage({
+        type: 'ACCOUNT_LOGIN_TAKEOVER',
+        username: cleanUsername,
+        sessionId: currentSessionId,
+        timestamp: Date.now()
+      });
+
+      channel.onmessage = (event) => {
+        if (
+          event.data &&
+          event.data.type === 'ACCOUNT_LOGIN_TAKEOVER' &&
+          event.data.username === cleanUsername &&
+          event.data.sessionId !== currentSessionId
+        ) {
+          // This account was opened/logged in on another tab! Trigger Kickout Modal with 5s countdown
+          setKickoutData({
+            username: userUsername,
+            countdown: 5
+          });
+        }
+      };
+
+      // Periodic check in localStorage in case of cross-window changes without BroadcastChannel
+      const interval = setInterval(() => {
+        try {
+          const raw = localStorage.getItem(`zenoa_active_account_${cleanUsername}`);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed.sessionId && parsed.sessionId !== currentSessionId) {
+              setKickoutData({
+                username: userUsername,
+                countdown: 5
+              });
+            }
+          }
+        } catch (e) {}
+      }, 1500);
+
+      // Storage event listener for instant cross-tab sync
+      const handleStorage = (e: StorageEvent) => {
+        if (e.key === `zenoa_active_account_${cleanUsername}` && e.newValue) {
+          try {
+            const parsed = JSON.parse(e.newValue);
+            if (parsed.sessionId && parsed.sessionId !== currentSessionId) {
+              setKickoutData({
+                username: userUsername,
+                countdown: 5
+              });
+            }
+          } catch (err) {}
+        }
+      };
+      window.addEventListener('storage', handleStorage);
+
+      return () => {
+        clearInterval(interval);
+        channel.close();
+        window.removeEventListener('storage', handleStorage);
+      };
+    } catch (e) {}
+  }, [isAuthenticated, userUsername, userId, userDisplayName, userEmail, userAvatarUrl, userAvatarSeed, userPhone, userBio]);
 
   // Dedicated Draft State for Profile Editing (Isolated so typing does not alter active chat connections or cause lag)
   const [editDraftDisplayName, setEditDraftDisplayName] = useState<string>('');
@@ -2097,6 +2178,7 @@ export default function App() {
           if (data && data.type === 'NEW_LOGIN' && data.sessionToken && data.sessionToken !== currentSessionToken) {
             console.warn("New session started in another tab!");
             setShowConcurrentLoginModal(true);
+            setKickoutData({ username: userUsername, countdown: 5 });
           }
         };
       }
@@ -2113,6 +2195,7 @@ export default function App() {
         if (data && data.active_session_token && data.active_session_token !== currentSessionToken) {
           console.warn("Concurrent login detected on another device/browser!", data.active_session_token, currentSessionToken);
           setShowConcurrentLoginModal(true);
+          setKickoutData({ username: userUsername, countdown: 5 });
         }
       },
       (err) => {
@@ -2794,9 +2877,6 @@ export default function App() {
   };
 
   const handleAuthFlowLogin = async (identifier: string, pass: string): Promise<{ success: boolean; requiresOtp?: boolean; error?: string }> => {
-    if (isSessionConflict) {
-      return { success: false, error: '⚠️ Active Session Conflict: Zenoa Messenger is already open in another tab or window. Only one active session is allowed at a time. Login and data saving are blocked here.' };
-    }
     const cleanId = identifier.toLowerCase().replace(/^@/, '').trim();
     if (cleanId.startsWith('sa_')) {
       return { success: false, error: 'Service Accounts cannot be logged in directly. They are designated strictly for automated API dispatches and OTP services.' };
@@ -6304,31 +6384,10 @@ export default function App() {
     last_seen: 'Online'
   } : null;
 
+  // 1. DEDICATED STANDALONE SERVICES ROUTING (Independent identities & "Continue with Zenoa" gateways)
   const isSSOPath = typeof window !== "undefined" && window.location.pathname === "/auth/sso";
   if (isSSOPath) {
-    if (!isAuthenticated && !showLandingPage) {
-      return (
-        <AuthFlow
-          initialMode={authFlowInitialMode}
-          onBackToLanding={() => {
-            setShowLandingPage(true);
-          }}
-          onLoginSubmit={handleAuthFlowLogin}
-          onRegisterSubmit={handleAuthFlowRegister}
-          onVerifyOtpSubmit={handleAuthFlowVerifyOtp}
-          truecallerProfile={truecallerProfile}
-          onOAuthLogin={handleOAuthLogin}
-          onForgotPassword={handleForgotPassword}
-          themeMode={themeMode}
-          onToggleTheme={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
-          existingUsernames={uniqueUserList.map(u => u.username).filter((un): un is string => typeof un === 'string' && un.trim() !== '')}
-          checkUsernameAvailability={handleCheckUsernameAvailability}
-          isOnboarding={onboardingStep > 0}
-          initialRegStep={onboardingStep}
-        />
-      );
-    }
-    if (onboardingStep > 0 && onboardingStep < 3) {
+    if (onboardingStep > 0 && onboardingStep < 3 && isAuthenticated) {
       return (
         <AccountSetup
           initialFullName={userDisplayName}
@@ -6349,10 +6408,20 @@ export default function App() {
           setShowLandingPage(false);
           setAuthFlowInitialMode('login');
         }}
+        onInlineLogin={async (identifier, pass) => {
+          const res = await handleAuthFlowLogin(identifier, pass);
+          return { success: res.success, error: res.error };
+        }}
         onLogout={handleLogout}
       />
     );
   }
+
+  const isSSOConsolePath = typeof window !== "undefined" && (window.location.pathname === "/sso" || window.location.pathname === "/developer/sso"); 
+  if (isSSOConsolePath) return <SSOConsoleStandalone />; 
+
+  const isDeveloperPath = typeof window !== "undefined" && window.location.pathname === "/developer";
+  if (isDeveloperPath) return <DeveloperConsoleStandalone />;
   
   if (!isAuthenticated) {
     if (isEmailVerificationPending) {
@@ -6497,21 +6566,58 @@ export default function App() {
     );
   }
 
-  // MAIN RUNTIME APPLICATION
-  const isDeveloperPath = typeof window !== "undefined" && window.location.pathname === "/developer";
-  const isSSOConsolePath = typeof window !== "undefined" && (window.location.pathname === "/sso" || window.location.pathname === "/developer/sso"); 
-  if (isSSOConsolePath) return <SSOConsoleStandalone />; 
-  if (isDeveloperPath) return <DeveloperConsoleStandalone />;
-
+  // MAIN RUNTIME APPLICATION (Zenoa Messenger)
   return (
 
     <div className={`w-full h-[100dvh] flex flex-col overflow-hidden select-none touch-manipulation font-sans transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-white' : 'bg-white text-neutral-800'}`}>
-      {isSessionConflict && (
-        <div className="bg-red-600 text-white px-4 py-3 text-center text-xs font-bold shrink-0 flex items-center justify-center gap-2 shadow-lg z-50">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          <span>⚠️ Active Session Conflict: Zenoa Messenger is already running in another browser tab or window. Only one active session is permitted. Login and data persistence are locked here.</span>
-        </div>
-      )}
+      {/* Central Kickout Modal (Account Logged In On Another Page with 5-Second Timer) */}
+      <AnimatePresence>
+        {kickoutData && (
+          <div className="fixed inset-0 z-[999999] bg-neutral-950/85 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="max-w-md w-full bg-white dark:bg-neutral-900 rounded-3xl p-6 sm:p-8 shadow-2xl border border-neutral-200 dark:border-neutral-800 text-center relative overflow-hidden"
+            >
+              <div className="mx-auto w-16 h-16 rounded-2xl bg-rose-100 dark:bg-rose-950/70 border border-rose-200 dark:border-rose-800 flex items-center justify-center text-rose-600 dark:text-rose-400 mb-5 shadow-lg">
+                <AlertTriangle className="h-8 w-8 animate-bounce" />
+              </div>
+
+              <h2 className="text-xl sm:text-2xl font-black text-neutral-900 dark:text-white mb-2">
+                Aapka Account Doosri Jagah Login Hua Hai
+              </h2>
+
+              <p className="text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed mb-6">
+                Aapka Zenoa account <strong className="text-neutral-900 dark:text-white font-bold">@{kickoutData.username}</strong> kisi doosre browser tab, window ya device par login kiya gaya hai.
+                <br className="my-1" />
+                Security aur data integrity ke liye ek waqt par sirf ek hi active login allow hai. Is page se automatic logout kiya ja raha hai.
+              </p>
+
+              <div className="p-4 bg-rose-50 dark:bg-rose-950/40 rounded-2xl border border-rose-200 dark:border-rose-800/60 mb-6 flex items-center justify-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-rose-600 text-white font-black text-sm flex items-center justify-center shrink-0 shadow-md animate-pulse">
+                  {kickoutData.countdown}s
+                </div>
+                <div className="text-left">
+                  <p className="text-xs font-bold text-rose-900 dark:text-rose-200">Automatic Logout Ho Raha Hai</p>
+                  <p className="text-[11px] text-rose-700 dark:text-rose-400">Yeh window {kickoutData.countdown} second mein logout ho jayegi...</p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  handleLogout();
+                  setKickoutData(null);
+                }}
+                className="w-full py-3.5 px-6 rounded-2xl bg-rose-600 hover:bg-rose-700 active:scale-98 text-white font-bold text-sm shadow-lg shadow-rose-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <LogOut className="h-4 w-4" />
+                <span>Abhi Log Out Karein (Logout Now)</span>
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       
       {/* Opening Entrance Animation Overlay (Google / Social / Email Sign-In) */}
       <AnimatePresence>
@@ -10349,6 +10455,19 @@ export default function App() {
           navigator.clipboard.writeText(window.location.origin);
           showToast("Profile link copied to clipboard");
         }}
+      />
+
+      {/* CONCURRENT LOGIN KICKOUT MODAL (1 Account Active per Browser/Device) */}
+      <ConcurrentLogoutModal
+        isOpen={!!kickoutData || showConcurrentLoginModal}
+        username={kickoutData?.username || userUsername}
+        countdown={kickoutData ? kickoutData.countdown : concurrentLogoutCountdown}
+        onLogoutNow={() => {
+          setKickoutData(null);
+          setShowConcurrentLoginModal(false);
+          handleLogout();
+        }}
+        themeMode={themeMode}
       />
     </div>
   );

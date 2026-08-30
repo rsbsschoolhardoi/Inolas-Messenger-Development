@@ -1,152 +1,71 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db } from '../firebaseClient';
-import { 
-  onAuthStateChanged, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut,
-  updateProfile 
-} from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../firebaseClient';
+import { doc, getDoc } from 'firebase/firestore';
 import { SSOPortal } from './SSOPortal';
+import { ZenoaAuthGatewayModal } from './ZenoaAuthGatewayModal';
 import { UserData } from '../types';
-import { Shield, ArrowRight, Lock, Key, Sparkles, RefreshCw, User, Mail, Terminal, ArrowLeft } from 'lucide-react';
+import { 
+  Shield, ArrowRight, Lock, Key, Sparkles, RefreshCw, 
+  User, Mail, Terminal, ArrowLeft, LogOut, Globe, CheckCircle2,
+  Code2, Layers
+} from 'lucide-react';
 import { motion } from 'motion/react';
 
 export const SSOConsoleStandalone: React.FC = () => {
   const [user, setUser] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>('dark');
-  
-  // Auth Form State
-  const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
-  const [emailInput, setEmailInput] = useState('');
-  const [passwordInput, setPasswordInput] = useState('');
-  const [fullNameInput, setFullNameInput] = useState('');
-  const [usernameInput, setUsernameInput] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [showZenoaAuthModal, setShowZenoaAuthModal] = useState(false);
 
   useEffect(() => {
-    // Check theme preference
-    const savedTheme = localStorage.getItem('zenoa_theme_mode');
-    if (savedTheme === 'light' || savedTheme === 'dark') {
-      setThemeMode(savedTheme);
-    }
-
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        try {
-          let userData: UserData | null = null;
-          
-          if (firebaseUser.displayName) {
-            const userDoc = await getDoc(doc(db, 'users', firebaseUser.displayName));
-            if (userDoc.exists()) {
-              userData = { id: userDoc.id, ...userDoc.data() } as UserData;
-            }
-          }
-
-          if (!userData && firebaseUser.email) {
-            const usersRef = collection(db, 'users');
-            const q = query(usersRef, where('email', '==', firebaseUser.email));
-            const snap = await getDocs(q);
-            if (!snap.empty) {
-              userData = { id: snap.docs[0].id, ...snap.docs[0].data() } as UserData;
-            }
-          }
-
-          if (userData) {
-            setUser(userData);
-          } else {
-            setUser({
-              id: firebaseUser.uid,
-              username: firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'developer'),
-              display_name: firebaseUser.displayName || 'Developer',
-              email: firebaseUser.email || '',
-              bio: 'Zenoa Developer',
-              avatar_seed: firebaseUser.uid.substring(0, 8),
-              online: true,
-              last_seen: 'Online'
-            });
-          }
-        } catch (err) {
-          console.error('Error fetching user data in SSO Console:', err);
-          setUser(null);
-        }
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
-    });
-
-    return unsubscribe;
-  }, []);
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setIsSubmitting(true);
+    // Check saved theme
     try {
-      let emailToUse = emailInput.trim();
-      if (!emailToUse.includes('@') && db) {
-        const userDoc = await getDoc(doc(db, 'users', emailToUse.toLowerCase()));
-        if (userDoc.exists() && userDoc.data().email) {
-          emailToUse = userDoc.data().email;
-        }
+      const savedTheme = localStorage.getItem('zenoa_theme_mode');
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        setThemeMode(savedTheme);
       }
-      await signInWithEmailAndPassword(auth, emailToUse, passwordInput);
-    } catch (err: any) {
-      setError(err?.message || 'Login failed. Please check credentials.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    } catch (e) {}
 
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    const cleanUser = usernameInput.trim().toLowerCase();
-    if (!/^[a-zA-Z0-9_]{3,20}$/.test(cleanUser)) {
-      setError('Username must be 3-20 characters long and contain only letters, numbers, and underscores.');
-      return;
-    }
-    setIsSubmitting(true);
+    // Check if there is an active SSO Console session stored
     try {
-      if (db) {
-        const existing = await getDoc(doc(db, 'users', cleanUser));
-        if (existing.exists()) {
-          setError('Username is already taken.');
-          setIsSubmitting(false);
+      const storedSSOUser = localStorage.getItem('zenoa_sso_console_user');
+      if (storedSSOUser) {
+        const parsed = JSON.parse(storedSSOUser);
+        if (parsed && parsed.username) {
+          setUser(parsed);
+          setLoading(false);
           return;
         }
       }
+    } catch (e) {}
 
-      const cred = await createUserWithEmailAndPassword(auth, emailInput.trim(), passwordInput);
-      try {
-        await updateProfile(cred.user, { displayName: cleanUser });
-      } catch (e) {}
+    setLoading(false);
+  }, []);
 
-      const newUserData: UserData = {
-        id: cred.user.uid,
-        username: cleanUser,
-        display_name: fullNameInput.trim() || cleanUser,
-        email: emailInput.trim(),
-        bio: 'Verified Zenoa SSO Developer',
-        avatar_seed: cleanUser,
-        online: true,
-        last_seen: 'Online',
-        registered_at: Date.now()
-      };
-
-      if (db) {
-        await setDoc(doc(db, 'users', cleanUser), newUserData, { merge: true });
+  const handleAuthenticatedWithZenoa = async (authenticatedUser: UserData) => {
+    try {
+      let freshUser = authenticatedUser;
+      if (db && authenticatedUser.username) {
+        const snap = await getDoc(doc(db, 'users', authenticatedUser.username.toLowerCase()));
+        if (snap.exists()) {
+          freshUser = { id: snap.id, ...snap.data() } as UserData;
+        }
       }
-      setUser(newUserData);
-    } catch (err: any) {
-      setError(err?.message || 'Registration failed.');
-    } finally {
-      setIsSubmitting(false);
+
+      setUser(freshUser);
+      localStorage.setItem('zenoa_sso_console_user', JSON.stringify(freshUser));
+    } catch (err) {
+      console.error('SSO session setup error:', err);
+      setUser(authenticatedUser);
+      localStorage.setItem('zenoa_sso_console_user', JSON.stringify(authenticatedUser));
     }
+  };
+
+  const handleLogoutSSOConsole = () => {
+    try {
+      localStorage.removeItem('zenoa_sso_console_user');
+    } catch (e) {}
+    setUser(null);
   };
 
   if (loading) {
@@ -156,173 +75,179 @@ export const SSOConsoleStandalone: React.FC = () => {
           <RefreshCw className="w-6 h-6 animate-spin" />
         </div>
         <h2 className="text-base font-bold">Initializing Zenoa SSO Console...</h2>
-        <p className="text-xs text-neutral-400 mt-1">Connecting to OAuth 2.0 Client Registry</p>
+        <p className="text-xs text-neutral-400 mt-1">Connecting to OAuth 2.0 Registry</p>
       </div>
     );
   }
 
-  // FORCE MANDATORY LOGIN FOR SSO DEVELOPER PORTAL
+  // 1. MANDATORY ACCESS GATE (When not authenticated to SSO Console)
   if (!user) {
     return (
-      <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center p-4 font-sans">
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.98 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-3xl p-8 shadow-2xl"
-        >
-          <div className="flex items-center justify-between mb-6">
-            <button
-              onClick={() => { window.location.href = '/'; }}
-              className="text-xs font-semibold text-neutral-400 hover:text-neutral-100 flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span>Back to Messenger</span>
-            </button>
-            <span className="text-[10px] font-mono uppercase bg-neutral-800 text-sky-400 px-2.5 py-0.5 rounded border border-neutral-700 font-bold">SSO Console</span>
-          </div>
-
-          <div className="text-center mb-6">
-            <div className="h-12 w-12 rounded-2xl bg-sky-950/50 text-sky-400 border border-sky-800/50 flex items-center justify-center mx-auto mb-3">
-              <Shield className="h-6 w-6" />
+      <div className="min-h-screen bg-neutral-950 text-white flex flex-col font-sans selection:bg-sky-600 selection:text-white">
+        {/* Top Navigation */}
+        <header className="border-b border-neutral-800 bg-neutral-950/90 backdrop-blur-md sticky top-0 z-50">
+          <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-xl bg-sky-500/20 border border-sky-500/30 flex items-center justify-center text-sky-400">
+                <Shield className="h-4 w-4" />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-base tracking-tight text-white">Zenoa</span>
+                <span className="text-[10px] font-mono uppercase bg-neutral-900 text-sky-400 px-2.5 py-0.5 rounded-md border border-neutral-800 font-semibold">SSO Platform</span>
+              </div>
             </div>
-            <h2 className="text-xl font-bold text-neutral-100">Zenoa SSO & OAuth 2.0</h2>
-            <p className="text-xs text-neutral-400 mt-1">Sign in with your Zenoa Developer Account to register client applications.</p>
-          </div>
 
-          {error && (
-            <div className="mb-4 p-3 bg-rose-950/40 border border-rose-800/40 rounded-xl text-rose-300 text-xs text-center font-medium">
-              {error}
+            <div className="flex items-center gap-3">
+              <a
+                href="/"
+                className="text-xs font-semibold text-neutral-400 hover:text-white flex items-center gap-1.5 transition-colors"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                <span>Zenoa Messenger</span>
+              </a>
+
+              <button
+                onClick={() => setShowZenoaAuthModal(true)}
+                className="px-4 py-2 text-xs font-bold rounded-xl bg-sky-600 hover:bg-sky-500 text-white shadow-md shadow-sky-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <Lock className="h-3.5 w-3.5" />
+                <span>Continue with Zenoa</span>
+              </button>
             </div>
-          )}
+          </div>
+        </header>
 
-          <div className="flex rounded-xl bg-neutral-950 p-1 border border-neutral-800 mb-5">
+        {/* Hero & Access Gate */}
+        <main className="flex-1 flex flex-col justify-center max-w-5xl mx-auto px-6 py-16 text-center w-full">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-300 text-xs font-medium mb-6 mx-auto">
+            <Shield className="h-3.5 w-3.5 text-sky-400" />
+            <span>OAuth 2.0 & Identity Management &bull; Mandatory Zenoa Identity</span>
+          </div>
+
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-[1.15]">
+            Single Sign-On & OAuth 2.0 Console
+          </h1>
+
+          <p className="text-neutral-400 text-base sm:text-lg max-w-2xl mx-auto mt-6 leading-relaxed">
+            Create client applications, generate Client IDs and Secrets, configure authorized redirect URIs, and enable "Log in with Zenoa" for third-party web apps.
+          </p>
+
+          <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
-              onClick={() => { setAuthTab('login'); setError(''); }}
-              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                authTab === 'login' 
-                  ? 'bg-neutral-800 text-neutral-100 border border-neutral-700 shadow-sm' 
-                  : 'text-neutral-400 hover:text-neutral-200'
-              }`}
+              onClick={() => setShowZenoaAuthModal(true)}
+              className="px-8 py-4 rounded-2xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-bold text-sm shadow-xl shadow-sky-600/25 transition-all flex items-center gap-2 cursor-pointer active:scale-98"
             >
-              Sign In
-            </button>
-            <button
-              onClick={() => { setAuthTab('register'); setError(''); }}
-              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                authTab === 'register' 
-                  ? 'bg-neutral-800 text-neutral-100 border border-neutral-700 shadow-sm' 
-                  : 'text-neutral-400 hover:text-neutral-200'
-              }`}
-            >
-              Create Account
+              <Lock className="h-4 w-4" />
+              <span>Continue with Zenoa</span>
+              <ArrowRight className="h-4 w-4 ml-1" />
             </button>
           </div>
 
-          {authTab === 'login' ? (
-            <form onSubmit={handleLogin} className="space-y-3">
-              <div className="text-left">
-                <label className="block text-[11px] font-semibold text-neutral-300 uppercase tracking-wider mb-1">Email or Username</label>
-                <div className="relative">
-                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
-                  <input 
-                    type="text" 
-                    value={emailInput}
-                    onChange={e => setEmailInput(e.target.value)}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-neutral-100 focus:border-neutral-700 outline-none transition-all"
-                    placeholder="Username or email"
-                    required
-                  />
-                </div>
+          <p className="text-xs text-neutral-500 mt-4">
+            *You must authenticate with your Zenoa Messenger account to manage SSO applications.
+          </p>
+
+          {/* Architecture Feature Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16 text-left">
+            <div className="p-6 rounded-2xl border border-neutral-800 bg-neutral-900/60 space-y-3">
+              <div className="h-10 w-10 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-center text-sky-400">
+                <Key className="h-5 w-5" />
               </div>
-              <div className="text-left">
-                <label className="block text-[11px] font-semibold text-neutral-300 uppercase tracking-wider mb-1">Password</label>
-                <div className="relative">
-                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
-                  <input 
-                    type="password" 
-                    value={passwordInput}
-                    onChange={e => setPasswordInput(e.target.value)}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-neutral-100 focus:border-neutral-700 outline-none transition-all"
-                    placeholder="••••••••"
-                    required
-                  />
-                </div>
+              <h3 className="text-base font-bold text-white">OAuth 2.0 Authorization Codes</h3>
+              <p className="text-xs text-neutral-400 leading-relaxed">
+                Standard RFC 6749 authorization code flow with secure short-lived auth codes and server-to-server token exchange.
+              </p>
+            </div>
+
+            <div className="p-6 rounded-2xl border border-neutral-800 bg-neutral-900/60 space-y-3">
+              <div className="h-10 w-10 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-center text-sky-400">
+                <Globe className="h-5 w-5" />
               </div>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer mt-2 disabled:opacity-50"
-              >
-                {isSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <span>Sign In to SSO Console</span>}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleRegister} className="space-y-3">
-              <div className="text-left">
-                <label className="block text-[11px] font-semibold text-neutral-300 uppercase tracking-wider mb-1">Full Name</label>
-                <input 
-                  type="text" 
-                  value={fullNameInput}
-                  onChange={e => setFullNameInput(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-neutral-100 focus:border-neutral-700 outline-none transition-all"
-                  placeholder="Developer Name"
-                  required
-                />
+              <h3 className="text-base font-bold text-white">Strict Redirect Whitelisting</h3>
+              <p className="text-xs text-neutral-400 leading-relaxed">
+                Prevent token interception with exact origin matching and granular callback validation for web and mobile apps.
+              </p>
+            </div>
+
+            <div className="p-6 rounded-2xl border border-neutral-800 bg-neutral-900/60 space-y-3">
+              <div className="h-10 w-10 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-center text-sky-400">
+                <Code2 className="h-5 w-5" />
               </div>
-              <div className="text-left">
-                <label className="block text-[11px] font-semibold text-neutral-300 uppercase tracking-wider mb-1">Username</label>
-                <input 
-                  type="text" 
-                  value={usernameInput}
-                  onChange={e => setUsernameInput(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs font-mono text-neutral-100 focus:border-neutral-700 outline-none transition-all"
-                  placeholder="dev_username"
-                  required
-                />
-              </div>
-              <div className="text-left">
-                <label className="block text-[11px] font-semibold text-neutral-300 uppercase tracking-wider mb-1">Email Address</label>
-                <input 
-                  type="email" 
-                  value={emailInput}
-                  onChange={e => setEmailInput(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-neutral-100 focus:border-neutral-700 outline-none transition-all"
-                  placeholder="developer@company.com"
-                  required
-                />
-              </div>
-              <div className="text-left">
-                <label className="block text-[11px] font-semibold text-neutral-300 uppercase tracking-wider mb-1">Password</label>
-                <input 
-                  type="password" 
-                  value={passwordInput}
-                  onChange={e => setPasswordInput(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-neutral-100 focus:border-neutral-700 outline-none transition-all"
-                  placeholder="••••••••"
-                  required
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer mt-3 disabled:opacity-50"
-              >
-                {isSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <span>Create SSO Account</span>}
-              </button>
-            </form>
-          )}
-        </motion.div>
+              <h3 className="text-base font-bold text-white">Interactive SDK & Previews</h3>
+              <p className="text-xs text-neutral-400 leading-relaxed">
+                Test OAuth consent screens in real-time, generate ready-to-use HTML login buttons, and inspect JWT payload claims.
+              </p>
+            </div>
+          </div>
+        </main>
+
+        {/* Unified "Continue with Zenoa" Modal */}
+        <ZenoaAuthGatewayModal
+          isOpen={showZenoaAuthModal}
+          onClose={() => setShowZenoaAuthModal(false)}
+          serviceTitle="Zenoa SSO & Identity Console"
+          serviceDescription="Register client applications, manage OAuth credentials, and configure permissions."
+          onAuthenticated={handleAuthenticatedWithZenoa}
+          themeMode="dark"
+        />
       </div>
     );
   }
 
+  // 2. ACTIVE SSO PORTAL VIEW (When authenticated to SSO Console)
   return (
-    <SSOPortal
-      themeMode={themeMode}
-      currentUser={user}
-      onBack={() => {
-        window.location.href = '/';
-      }}
-    />
+    <div className="min-h-screen bg-neutral-950 text-white flex flex-col font-sans">
+      {/* Portal Header with Independent Session Badge & Logout */}
+      <div className="bg-neutral-900 border-b border-neutral-800 px-6 py-3 flex items-center justify-between sticky top-0 z-50">
+        <div className="flex items-center gap-3">
+          <a
+            href="/"
+            className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors flex items-center gap-1 text-xs"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            <span>Zenoa Messenger</span>
+          </a>
+          <div className="h-4 w-[1px] bg-neutral-700" />
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-white">SSO Management</span>
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950/60 text-sky-300 border border-sky-800/50">
+              OAuth 2.0 Live
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 bg-neutral-950 px-3 py-1.5 rounded-xl border border-neutral-800">
+            <div className="h-6 w-6 rounded-lg bg-sky-500/30 text-sky-400 flex items-center justify-center text-xs font-bold">
+              {user.username.slice(0, 2).toUpperCase()}
+            </div>
+            <div className="text-left">
+              <span className="text-[11px] font-bold text-neutral-200 block leading-tight">{user.display_name || user.username}</span>
+              <span className="text-[9px] font-mono text-neutral-400">@{user.username}</span>
+            </div>
+          </div>
+
+          <button
+            onClick={handleLogoutSSOConsole}
+            className="p-2 rounded-xl bg-neutral-800 hover:bg-rose-950/40 hover:text-rose-400 hover:border-rose-800/40 border border-neutral-700 text-neutral-300 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+            title="Log out of SSO Console"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Sign Out</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1">
+        <SSOPortal
+          themeMode={themeMode}
+          currentUser={user}
+          onBack={handleLogoutSSOConsole}
+          onOpenConsentPreview={(clientId, redirectUri) => {
+            window.open(`/auth/sso?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}`, '_blank');
+          }}
+        />
+      </div>
+    </div>
   );
 };

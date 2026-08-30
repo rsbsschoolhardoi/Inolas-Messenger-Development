@@ -1,784 +1,441 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db } from '../firebaseClient';
-import { 
-  onAuthStateChanged, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  GoogleAuthProvider, 
-  signInWithPopup, 
-  signOut,
-  updateProfile
-} from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../firebaseClient';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { DeveloperPortal } from './DeveloperPortal';
+import { ZenoaAuthGatewayModal } from './ZenoaAuthGatewayModal';
 import { UserData } from '../types';
 import { 
-  Terminal, Lock, Phone, User, ArrowRight, ShieldCheck, Zap, Chrome, 
+  Terminal, Lock, Phone, User, ArrowRight, ShieldCheck, Zap, 
   CheckCircle2, Key, Code2, Server, Globe, ExternalLink, RefreshCw, 
-  ArrowLeft, Sparkles, Check, Mail, Shield
+  ArrowLeft, Sparkles, Check, Mail, Shield, LogOut, Layers
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-type ConsoleView = 'landing' | 'auth' | 'mobile_setup' | 'portal';
+type ConsoleView = 'landing' | 'mobile_setup' | 'portal';
 
 export const DeveloperConsoleStandalone: React.FC = () => {
-    const [user, setUser] = useState<UserData | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [view, setView] = useState<ConsoleView>('landing');
-    
-    // Auth Modal State
-    const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
-    const [loginIdentifier, setLoginIdentifier] = useState('');
-    const [loginPassword, setLoginPassword] = useState('');
-    
-    // Registration Fields
-    const [regFullName, setRegFullName] = useState('');
-    const [regUsername, setRegUsername] = useState('');
-    const [regEmail, setRegEmail] = useState('');
-    const [regPassword, setRegPassword] = useState('');
-    const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
+  const [user, setUser] = useState<UserData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<ConsoleView>('landing');
+  const [showZenoaAuthModal, setShowZenoaAuthModal] = useState(false);
 
-    // Mobile / Verification State
-    const [countryCode, setCountryCode] = useState('+91');
-    const [mobileNumber, setMobileNumber] = useState('');
-    const [isVerifyingTruecaller, setIsVerifyingTruecaller] = useState(false);
-    const [truecallerSuccess, setTruecallerSuccess] = useState(false);
-    const [error, setError] = useState('');
-    const [otpSent, setOtpSent] = useState(false);
-    const [otpCode, setOtpCode] = useState('');
-    const [demoOTP, setDemoOTP] = useState('');
+  // Mobile / Phone Verification State (for Developer API compliance)
+  const [countryCode, setCountryCode] = useState('+91');
+  const [mobileNumber, setMobileNumber] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [error, setError] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [demoOTP, setDemoOTP] = useState('');
 
-    useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-            if (firebaseUser) {
-                try {
-                    let userData: UserData | null = null;
-                    if (firebaseUser.displayName) {
-                        const userDoc = await getDoc(doc(db, 'users', firebaseUser.displayName));
-                        if (userDoc.exists()) {
-                            userData = { id: userDoc.id, ...userDoc.data() } as UserData;
-                        }
-                    }
+  useEffect(() => {
+    // Check if there is an active Developer Console session stored
+    try {
+      const storedDevUser = localStorage.getItem('zenoa_dev_console_user');
+      if (storedDevUser) {
+        const parsed = JSON.parse(storedDevUser);
+        if (parsed && parsed.username) {
+          setUser(parsed);
+          setView('portal');
+          setLoading(false);
+          return;
+        }
+      }
+    } catch (e) {}
 
-                    if (!userData && firebaseUser.email) {
-                        const usersRef = collection(db, 'users');
-                        const q = query(usersRef, where('email', '==', firebaseUser.email));
-                        const snap = await getDocs(q);
-                        if (!snap.empty) {
-                            userData = { id: snap.docs[0].id, ...snap.docs[0].data() } as UserData;
-                        }
-                    }
+    setLoading(false);
+  }, []);
 
-                    if (userData) {
-                        const hasVerifiedPhone = !!userData.is_truecaller_verified;
-                        const verifiedUser: UserData = {
-                            ...userData,
-                            mobile_number: userData.mobile_number || '',
-                            is_truecaller_verified: hasVerifiedPhone
-                        };
-                        setUser(verifiedUser);
-                        if (hasVerifiedPhone) {
-                            setView('portal');
-                        } else {
-                            setView('mobile_setup');
-                        }
-                    } else {
-                        const cleanUsername = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'developer_user';
-                        const fallbackUser: UserData = {
-                            id: firebaseUser.uid,
-                            username: cleanUsername,
-                            display_name: firebaseUser.displayName || 'Developer Account',
-                            email: firebaseUser.email || '',
-                            mobile_number: '',
-                            is_truecaller_verified: false,
-                            bio: 'Zenoa Developer Account',
-                            avatar_seed: cleanUsername,
-                            online: true,
-                            last_seen: 'Online',
-                            registered_at: Date.now()
-                        };
-                        
-                        if (db) {
-                            try {
-                                await setDoc(doc(db, 'users', cleanUsername), fallbackUser, { merge: true });
-                            } catch (e) {
-                                console.warn("Firestore user sync:", e);
-                            }
-                        }
-                        
-                        setUser(fallbackUser);
-                        setView('mobile_setup');
-                    }
-                } catch (err) {
-                    console.error("Error fetching user data:", err);
-                    setUser(null);
-                    setView('landing');
-                }
-            } else {
-                setUser(null);
-                setView('landing');
-            }
-            setLoading(false);
+  const handleAuthenticatedWithZenoa = async (authenticatedUser: UserData) => {
+    try {
+      // Check if user has phone verified or truecaller verified
+      let freshUser = authenticatedUser;
+      if (db && authenticatedUser.username) {
+        const snap = await getDoc(doc(db, 'users', authenticatedUser.username.toLowerCase()));
+        if (snap.exists()) {
+          freshUser = { id: snap.id, ...snap.data() } as UserData;
+        }
+      }
+
+      setUser(freshUser);
+      localStorage.setItem('zenoa_dev_console_user', JSON.stringify(freshUser));
+
+      if (freshUser.is_truecaller_verified || freshUser.mobile_number) {
+        setView('portal');
+      } else {
+        setView('mobile_setup');
+      }
+    } catch (err) {
+      console.error('Developer session setup error:', err);
+      setUser(authenticatedUser);
+      localStorage.setItem('zenoa_dev_console_user', JSON.stringify(authenticatedUser));
+      setView('portal');
+    }
+  };
+
+  const handleLogoutDeveloperConsole = () => {
+    try {
+      localStorage.removeItem('zenoa_dev_console_user');
+    } catch (e) {}
+    setUser(null);
+    setView('landing');
+  };
+
+  const handleSendVerificationOTP = () => {
+    setError('');
+    const cleanDigits = mobileNumber.replace(/[^0-9]/g, '').trim();
+    if (!cleanDigits || cleanDigits.length < 8 || cleanDigits.length > 15) {
+      setError('Please enter a valid mobile number (at least 8 digits).');
+      return;
+    }
+    setIsVerifying(true);
+    setTimeout(() => {
+      setIsVerifying(false);
+      setOtpSent(true);
+      const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
+      setDemoOTP(generatedCode);
+    }, 600);
+  };
+
+  const handleVerifyOTP = async () => {
+    setError('');
+    if (otpCode !== demoOTP) {
+      setError('Invalid verification code. Please check the OTP code sent.');
+      return;
+    }
+    setIsVerifying(true);
+    const formattedMobile = `${countryCode}${mobileNumber}`;
+    try {
+      if (user && db) {
+        await updateDoc(doc(db, 'users', user.username.toLowerCase()), {
+          mobile_number: formattedMobile,
+          is_business_verified: true,
+          is_truecaller_verified: true,
+          phone_verified_at: Date.now()
         });
-        return unsubscribe;
-    }, []);
+      }
 
-    const handleLogin = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setError('');
-        setIsSubmittingAuth(true);
-        try {
-            let emailToUse = loginIdentifier.trim();
-            if (!emailToUse.includes('@') && db) {
-                const userDoc = await getDoc(doc(db, 'users', emailToUse.toLowerCase()));
-                if (userDoc.exists() && userDoc.data().email) {
-                    emailToUse = userDoc.data().email;
-                }
-            }
+      const updatedUser: UserData = {
+        ...user!,
+        mobile_number: formattedMobile,
+        is_business_verified: true,
+        is_truecaller_verified: true
+      };
 
-            await signInWithEmailAndPassword(auth, emailToUse, loginPassword);
-        } catch (err: any) {
-            setError(err.message || 'Invalid credentials. Please check your details.');
-        } finally {
-            setIsSubmittingAuth(false);
-        }
-    };
-
-    const handleRegister = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setError('');
-        
-        const cleanUser = regUsername.trim().toLowerCase();
-        if (!/^[a-zA-Z0-9_]{3,20}$/.test(cleanUser)) {
-            setError('Username must be 3-20 characters long and contain only letters, numbers, and underscores.');
-            return;
-        }
-
-        setIsSubmittingAuth(true);
-        try {
-            if (db) {
-                const existing = await getDoc(doc(db, 'users', cleanUser));
-                if (existing.exists()) {
-                    setError('This username is already taken. Please choose another.');
-                    setIsSubmittingAuth(false);
-                    return;
-                }
-            }
-
-            const cred = await createUserWithEmailAndPassword(auth, regEmail.trim(), regPassword);
-            
-            try {
-                await updateProfile(cred.user, { displayName: cleanUser });
-            } catch (e) {
-                console.warn("Auth updateProfile warning:", e);
-            }
-
-            const newUserData: UserData = {
-                id: cred.user.uid,
-                username: cleanUser,
-                display_name: regFullName.trim() || cleanUser,
-                email: regEmail.trim(),
-                mobile_number: '',
-                is_business_verified: false,
-                is_truecaller_verified: false,
-                bio: 'Verified Zenoa Developer Account',
-                avatar_seed: cleanUser,
-                online: true,
-                last_seen: 'Online',
-                registered_at: Date.now()
-            };
-
-            if (db) {
-                await setDoc(doc(db, 'users', cleanUser), newUserData, { merge: true });
-            }
-
-            setUser(newUserData);
-            setView('mobile_setup');
-        } catch (err: any) {
-            setError(err.message || 'Registration failed. Please check the information entered.');
-        } finally {
-            setIsSubmittingAuth(false);
-        }
-    };
-
-    const handleGoogleAuth = async () => {
-        setError('');
-        try {
-            const provider = new GoogleAuthProvider();
-            const result = await signInWithPopup(auth, provider);
-            const firebaseUser = result.user;
-            
-            const cleanUsername = firebaseUser.email?.split('@')[0] || `dev_${Date.now().toString().slice(-4)}`;
-            const userRef = doc(db, 'users', cleanUsername);
-            const snap = await getDoc(userRef);
-            
-            let currentUserData: UserData;
-            if (snap.exists()) {
-                currentUserData = { 
-                    ...(snap.data() as UserData),
-                    id: snap.id, 
-                    mobile_number: snap.data().mobile_number || '',
-                    is_business_verified: snap.data().is_business_verified || false,
-                    is_truecaller_verified: snap.data().is_truecaller_verified || false
-                };
-            } else {
-                currentUserData = {
-                    id: firebaseUser.uid,
-                    username: cleanUsername,
-                    display_name: firebaseUser.displayName || 'Developer Account',
-                    email: firebaseUser.email || '',
-                    mobile_number: '',
-                    is_business_verified: false,
-                    is_truecaller_verified: false,
-                    bio: 'Verified Zenoa Developer Account',
-                    avatar_seed: cleanUsername,
-                    online: true,
-                    last_seen: 'Online',
-                    registered_at: Date.now()
-                };
-                await setDoc(userRef, currentUserData, { merge: true });
-            }
-
-            setUser(currentUserData);
-            if (currentUserData.is_truecaller_verified) {
-                setView('portal');
-            } else {
-                setView('mobile_setup');
-            }
-        } catch (err: any) {
-            setError(err.message || 'Google authentication encountered an error.');
-        }
-    };
-
-    const handleTruecallerVerification = async () => {
-        setIsVerifyingTruecaller(true);
-        setError('');
-
-        const cleanDigits = mobileNumber.replace(/[^0-9]/g, '').trim();
-        if (!cleanDigits || cleanDigits.length < 7 || cleanDigits.length > 15) {
-            setError('Please enter a valid mobile number.');
-            setIsVerifyingTruecaller(false);
-            return;
-        }
-
-        const formattedMobile = `${countryCode}${cleanDigits}`;
-
-        try {
-            if (user && db) {
-                await updateDoc(doc(db, 'users', user.username), {
-                    mobile_number: formattedMobile,
-                    is_business_verified: true,
-                    is_truecaller_verified: true,
-                    phone_verified_at: Date.now(),
-                    verified_business_at: Date.now()
-                });
-            }
-
-            const updatedUser: UserData = {
-                ...user!,
-                mobile_number: formattedMobile,
-                is_business_verified: true,
-                is_truecaller_verified: true
-            };
-
-            setUser(updatedUser);
-            setTruecallerSuccess(true);
-
-            setTimeout(() => {
-                setView('portal');
-            }, 300);
-        } catch (err: any) {
-            setError('Verification failed: ' + (err?.message || 'Please try again.'));
-        } finally {
-            setIsVerifyingTruecaller(false);
-        }
-    };
-
-    const sendVerificationOTP = () => {
-        setError('');
-        const cleanDigits = mobileNumber.replace(/[^0-9]/g, '').trim();
-        if (!cleanDigits || cleanDigits.length < 8 || cleanDigits.length > 15) {
-            setError('Please enter a valid mobile number (at least 8 digits).');
-            return;
-        }
-        setIsVerifyingTruecaller(true);
-        setTimeout(() => {
-            setIsVerifyingTruecaller(false);
-            setOtpSent(true);
-            const randomCode = Math.floor(100000 + Math.random() * 900000).toString();
-            setDemoOTP(randomCode);
-        }, 800);
-    };
-
-    const verifyOTPAndActivate = async () => {
-        setError('');
-        if (otpCode !== demoOTP) {
-            setError('Invalid verification code. Please check the OTP code sent.');
-            return;
-        }
-        setIsVerifyingTruecaller(true);
-        const formattedMobile = `${countryCode}${mobileNumber}`;
-        try {
-            if (user && db) {
-                await updateDoc(doc(db, 'users', user.username), {
-                    mobile_number: formattedMobile,
-                    is_business_verified: true,
-                    is_truecaller_verified: true,
-                    phone_verified_at: Date.now(),
-                    verified_business_at: Date.now()
-                });
-            }
-
-            const updatedUser: UserData = {
-                ...user!,
-                mobile_number: formattedMobile,
-                is_business_verified: true,
-                is_truecaller_verified: true
-            };
-
-            setUser(updatedUser);
-            setTruecallerSuccess(true);
-            setView('portal');
-        } catch (err: any) {
-            setError('Activation failed: ' + (err?.message || 'Please try again.'));
-        } finally {
-            setIsVerifyingTruecaller(false);
-        }
-    };
-
-    if (loading) {
-        return (
-            <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-                <div className="flex flex-col items-center gap-4">
-                    <div className="h-8 w-8 border-2 border-zinc-700 border-t-zinc-200 rounded-full animate-spin"></div>
-                    <p className="text-xs font-mono text-zinc-400 tracking-widest uppercase">Initializing Developer Portal...</p>
-                </div>
-            </div>
-        );
+      setUser(updatedUser);
+      localStorage.setItem('zenoa_dev_console_user', JSON.stringify(updatedUser));
+      setView('portal');
+    } catch (err: any) {
+      setError('Activation failed: ' + (err?.message || 'Please try again.'));
+    } finally {
+      setIsVerifying(false);
     }
+  };
 
-    // 1. LANDING PAGE VIEW
-    if (view === 'landing') {
-        return (
-            <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans">
-                {/* Top Navigation */}
-                <header className="border-b border-zinc-800 bg-zinc-950/90 backdrop-blur-md sticky top-0 z-50">
-                    <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="h-8 w-8 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center">
-                                <Terminal className="h-4 w-4 text-zinc-100" />
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <span className="font-bold text-base tracking-tight text-zinc-100">Zenoa</span>
-                                <span className="text-[10px] font-mono uppercase bg-zinc-900 text-zinc-300 px-2.5 py-0.5 rounded-md border border-zinc-800 font-semibold">Developer Suite</span>
-                            </div>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                            {user ? (
-                                <button
-                                    onClick={() => setView('portal')}
-                                    className="px-4 py-2 text-xs font-bold rounded-xl bg-zinc-100 hover:bg-white text-zinc-950 transition-all cursor-pointer flex items-center gap-1.5"
-                                >
-                                    <span>Console Dashboard</span>
-                                    <ArrowRight className="h-3.5 w-3.5" />
-                                </button>
-                            ) : (
-                                <button
-                                    onClick={() => setView('auth')}
-                                    className="px-4 py-2 text-xs font-bold rounded-xl bg-zinc-100 hover:bg-white text-zinc-950 transition-all cursor-pointer flex items-center gap-1.5"
-                                >
-                                    <span>Get Started</span>
-                                    <ArrowRight className="h-3.5 w-3.5" />
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                </header>
-
-                {/* Hero Section */}
-                <main className="flex-1 flex flex-col">
-                    <section className="max-w-5xl mx-auto px-6 pt-20 pb-16 text-center">
-                        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-zinc-800 bg-zinc-900 text-zinc-300 text-xs font-medium mb-6">
-                            <ShieldCheck className="h-3.5 w-3.5 text-zinc-400" />
-                            <span>Enterprise Identity & Transactional Infrastructure</span>
-                        </div>
-
-                        <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-zinc-100 tracking-tight leading-[1.15] max-w-4xl mx-auto">
-                            Direct Transactional Messaging & Identity Platform
-                        </h1>
-
-                        <p className="text-zinc-400 text-base md:text-lg max-w-2xl mx-auto mt-6 leading-relaxed">
-                            Integrate 6-digit authentication delivery, webhook event streams, and OAuth 2.0 single sign-on into your external applications powered by verified Service Accounts.
-                        </p>
-
-                        <div className="flex flex-wrap items-center justify-center gap-4 mt-10">
-                            <button
-                                onClick={() => setView('auth')}
-                                className="px-8 py-3.5 rounded-xl bg-zinc-100 hover:bg-white text-zinc-950 font-bold text-sm transition-all flex items-center gap-2 cursor-pointer active:scale-98"
-                            >
-                                <span>{user ? 'Open Developer Console' : 'Access Developer Console'}</span>
-                                <ArrowRight className="h-4 w-4" />
-                            </button>
-                        </div>
-                    </section>
-
-                    {/* Architecture Feature Grid */}
-                    <section className="max-w-5xl mx-auto px-6 py-12 w-full">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div className="p-6 rounded-2xl border border-zinc-800 bg-zinc-900 text-left space-y-3">
-                                <div className="h-10 w-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-300">
-                                    <Phone className="h-5 w-5" />
-                                </div>
-                                <h3 className="text-base font-bold text-zinc-100">Direct OTP Delivery</h3>
-                                <p className="text-xs text-zinc-400 leading-relaxed">
-                                    When an external user requests verification, the engine identifies their linked profile and delivers authentication codes via Service Account dispatches.
-                                </p>
-                            </div>
-
-                            <div className="p-6 rounded-2xl border border-zinc-800 bg-zinc-900 text-left space-y-3">
-                                <div className="h-10 w-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-300">
-                                    <Shield className="h-5 w-5" />
-                                </div>
-                                <h3 className="text-base font-bold text-zinc-100">Verified Service Account</h3>
-                                <p className="text-xs text-zinc-400 leading-relaxed">
-                                    Messages originate from your authenticated Service Account, establishing authentic brand credibility and zero-trust identity.
-                                </p>
-                            </div>
-
-                            <div className="p-6 rounded-2xl border border-zinc-800 bg-zinc-900 text-left space-y-3">
-                                <div className="h-10 w-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-300">
-                                    <Code2 className="h-5 w-5" />
-                                </div>
-                                <h3 className="text-base font-bold text-zinc-100">REST APIs & Webhooks</h3>
-                                <p className="text-xs text-zinc-400 leading-relaxed">
-                                    Standard REST endpoints with HMAC-SHA256 signature verification for Node.js, Python, PHP, Go, and cURL integrations.
-                                </p>
-                            </div>
-                        </div>
-                    </section>
-                </main>
-
-                <footer className="border-t border-zinc-800 py-6 text-center text-xs text-zinc-500">
-                    <p>Zenoa Developer Operations Suite • Standard RESTful API & OAuth 2.0</p>
-                </footer>
-            </div>
-        );
-    }
-
-    // 2. AUTHENTICATION MODAL VIEW
-    if (view === 'auth') {
-        return (
-            <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center p-4">
-                <motion.div 
-                    initial={{ opacity: 0, scale: 0.98 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl"
-                >
-                    <div className="flex items-center justify-between mb-6">
-                        <button
-                            onClick={() => setView('landing')}
-                            className="text-xs font-semibold text-zinc-400 hover:text-zinc-100 flex items-center gap-1.5 transition-colors cursor-pointer"
-                        >
-                            <ArrowLeft className="h-3.5 w-3.5" />
-                            <span>Back</span>
-                        </button>
-                        <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-400 font-bold">Zenoa Developer</span>
-                    </div>
-
-                    <div className="text-center mb-6">
-                        <div className="h-12 w-12 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center mx-auto mb-3 text-zinc-100">
-                            <Terminal className="h-6 w-6" />
-                        </div>
-                        <h2 className="text-xl font-bold text-zinc-100">Developer Portal Access</h2>
-                        <p className="text-xs text-zinc-400 mt-1">Sign in to manage your Service Account credentials</p>
-                    </div>
-
-                    {error && (
-                        <div className="mb-4 p-3 bg-rose-950/40 border border-rose-800/40 rounded-xl text-rose-300 text-xs text-center font-medium">
-                            {error}
-                        </div>
-                    )}
-
-                    {user ? (
-                        <div className="space-y-4">
-                            <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center gap-3">
-                                <div className="h-10 w-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-100 font-bold text-sm">
-                                    {user.username.slice(0, 2).toUpperCase()}
-                                </div>
-                                <div className="text-left">
-                                    <p className="text-xs font-bold text-zinc-100">{user.display_name || user.username}</p>
-                                    <p className="text-[11px] font-mono text-zinc-400">@{user.username}</p>
-                                </div>
-                            </div>
-
-                            <button
-                                onClick={() => setView('portal')}
-                                className="w-full bg-zinc-100 hover:bg-white text-zinc-950 font-bold py-3.5 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
-                            >
-                                <span>Continue to Console Dashboard</span>
-                                <ArrowRight className="h-4 w-4" />
-                            </button>
-                        </div>
-                    ) : (
-                        <div>
-                            <div className="flex rounded-xl bg-zinc-950 p-1 border border-zinc-800 mb-5">
-                                <button
-                                    onClick={() => { setAuthTab('login'); setError(''); }}
-                                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                                        authTab === 'login' 
-                                            ? 'bg-zinc-800 text-zinc-100 border border-zinc-700 shadow-sm' 
-                                            : 'text-zinc-400 hover:text-zinc-200'
-                                    }`}
-                                >
-                                    Sign In
-                                </button>
-                                <button
-                                    onClick={() => { setAuthTab('register'); setError(''); }}
-                                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                                        authTab === 'register' 
-                                            ? 'bg-zinc-800 text-zinc-100 border border-zinc-700 shadow-sm' 
-                                            : 'text-zinc-400 hover:text-zinc-200'
-                                    }`}
-                                >
-                                    Register Account
-                                </button>
-                            </div>
-
-                            {authTab === 'login' ? (
-                                <form onSubmit={handleLogin} className="space-y-3">
-                                    <div>
-                                        <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1 text-left">Email or Username</label>
-                                        <div className="relative">
-                                            <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-                                            <input 
-                                                type="text" 
-                                                value={loginIdentifier}
-                                                onChange={e => setLoginIdentifier(e.target.value)}
-                                                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-zinc-100 focus:border-zinc-700 outline-none transition-all"
-                                                placeholder="Enter username or email"
-                                                required
-                                            />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1 text-left">Password</label>
-                                        <div className="relative">
-                                            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-                                            <input 
-                                                type="password" 
-                                                value={loginPassword}
-                                                onChange={e => setLoginPassword(e.target.value)}
-                                                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-zinc-100 focus:border-zinc-700 outline-none transition-all"
-                                                placeholder="••••••••"
-                                                required
-                                            />
-                                        </div>
-                                    </div>
-                                    <button
-                                        type="submit"
-                                        disabled={isSubmittingAuth}
-                                        className="w-full bg-zinc-100 hover:bg-white text-zinc-950 font-bold py-3 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer mt-2 disabled:opacity-50"
-                                    >
-                                        {isSubmittingAuth ? <RefreshCw className="h-4 w-4 animate-spin" /> : <span>Sign In</span>}
-                                    </button>
-                                </form>
-                            ) : (
-                                <form onSubmit={handleRegister} className="space-y-3">
-                                    <div>
-                                        <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1 text-left">Full Name</label>
-                                        <input 
-                                            type="text" 
-                                            value={regFullName}
-                                            onChange={e => setRegFullName(e.target.value)}
-                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 focus:border-zinc-700 outline-none transition-all"
-                                            placeholder="Developer Name"
-                                            required
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1 text-left">Username</label>
-                                        <input 
-                                            type="text" 
-                                            value={regUsername}
-                                            onChange={e => setRegUsername(e.target.value)}
-                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs font-mono text-zinc-100 focus:border-zinc-700 outline-none transition-all"
-                                            placeholder="developer_username"
-                                            required
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1 text-left">Email Address</label>
-                                        <input 
-                                            type="email" 
-                                            value={regEmail}
-                                            onChange={e => setRegEmail(e.target.value)}
-                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 focus:border-zinc-700 outline-none transition-all"
-                                            placeholder="developer@company.com"
-                                            required
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1 text-left">Password</label>
-                                        <input 
-                                            type="password" 
-                                            value={regPassword}
-                                            onChange={e => setRegPassword(e.target.value)}
-                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 focus:border-zinc-700 outline-none transition-all"
-                                            placeholder="••••••••"
-                                            required
-                                        />
-                                    </div>
-                                    <button
-                                        type="submit"
-                                        disabled={isSubmittingAuth}
-                                        className="w-full bg-zinc-100 hover:bg-white text-zinc-950 font-bold py-3 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer mt-3 disabled:opacity-50"
-                                    >
-                                        {isSubmittingAuth ? <RefreshCw className="h-4 w-4 animate-spin" /> : <span>Create Account</span>}
-                                    </button>
-                                </form>
-                            )}
-
-                            <div className="relative my-4">
-                                <div className="w-full border-t border-zinc-800"></div>
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <span className="bg-zinc-900 px-2 text-zinc-500 font-mono text-[10px]">Or</span>
-                                </div>
-                            </div>
-
-                            <button
-                                onClick={handleGoogleAuth}
-                                className="w-full bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 font-bold py-2.5 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
-                            >
-                                <Chrome className="h-4 w-4 text-zinc-400" />
-                                <span>Continue with Google</span>
-                            </button>
-                        </div>
-                    )}
-                </motion.div>
-            </div>
-        );
-    }
-
-    // 3. MOBILE SETUP VIEW
-    if (view === 'mobile_setup') {
-        return (
-            <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center p-4 font-sans">
-                <motion.div 
-                    initial={{ opacity: 0, scale: 0.98 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl space-y-6"
-                >
-                    <div className="flex items-center justify-between">
-                        <button
-                            onClick={() => {
-                                signOut(auth);
-                                setView('landing');
-                            }}
-                            className="text-xs font-semibold text-zinc-400 hover:text-zinc-100 flex items-center gap-1.5 transition-colors cursor-pointer"
-                        >
-                            <ArrowLeft className="h-3.5 w-3.5" />
-                            <span>Logout</span>
-                        </button>
-                        <span className="text-[10px] font-mono uppercase bg-zinc-800 text-zinc-300 px-2.5 py-0.5 rounded border border-zinc-700 font-bold">Step 2: Verification</span>
-                    </div>
-
-                    <div className="text-center">
-                        <div className="h-12 w-12 rounded-2xl bg-indigo-950/50 text-indigo-400 border border-indigo-800/50 flex items-center justify-center mx-auto mb-3">
-                            <Phone className="h-6 w-6" />
-                        </div>
-                        <h2 className="text-xl font-bold text-zinc-100">Verify Mobile Number</h2>
-                        <p className="text-xs text-zinc-400 mt-1">A verified mobile number is strictly required to prevent API abuse and secure your Developer Console.</p>
-                    </div>
-
-                    {error && (
-                        <div className="p-3 bg-rose-950/40 border border-rose-800/40 rounded-xl text-rose-300 text-xs text-center font-medium">
-                            {error}
-                        </div>
-                    )}
-
-                    {!otpSent ? (
-                        <div className="space-y-4 text-left">
-                            <div>
-                                <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">Enter Mobile Number</label>
-                                <div className="flex gap-2">
-                                    <select 
-                                        value={countryCode} 
-                                        onChange={e => setCountryCode(e.target.value)}
-                                        className="bg-zinc-950 border border-zinc-800 rounded-xl px-2.5 py-2.5 text-xs text-zinc-300 outline-none focus:border-zinc-700 cursor-pointer"
-                                    >
-                                        <option value="+91">+91 (IN)</option>
-                                        <option value="+1">+1 (US)</option>
-                                        <option value="+44">+44 (UK)</option>
-                                        <option value="+971">+971 (UAE)</option>
-                                    </select>
-                                    <input 
-                                        type="tel" 
-                                        value={mobileNumber}
-                                        onChange={e => setMobileNumber(e.target.value.replace(/[^0-9]/g, ''))}
-                                        placeholder="9876543210"
-                                        className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 placeholder-zinc-600 focus:border-zinc-700 outline-none transition-all"
-                                    />
-                                </div>
-                            </div>
-
-                            <button
-                                onClick={sendVerificationOTP}
-                                disabled={isVerifyingTruecaller}
-                                className="w-full bg-zinc-100 hover:bg-white text-zinc-950 font-bold py-3 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                            >
-                                {isVerifyingTruecaller ? <RefreshCw className="h-4 w-4 animate-spin" /> : <span>Send Verification Code</span>}
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="space-y-4 text-left">
-                            <div className="p-3 bg-zinc-950 border border-zinc-850 rounded-xl">
-                                <p className="text-[10px] text-zinc-400 font-semibold uppercase tracking-wider">SMS Sent To</p>
-                                <p className="text-xs text-zinc-200 font-bold font-mono">{countryCode} {mobileNumber}</p>
-                                <p className="text-[11px] text-indigo-400 mt-1 font-semibold animate-pulse">Use code: {demoOTP}</p>
-                            </div>
-
-                            <div>
-                                <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">Enter 6-Digit OTP</label>
-                                <input 
-                                    type="text" 
-                                    maxLength={6}
-                                    value={otpCode}
-                                    onChange={e => setOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
-                                    placeholder="123456"
-                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-center text-sm font-mono tracking-[0.5em] text-zinc-100 placeholder-zinc-700 focus:border-zinc-700 outline-none transition-all"
-                                />
-                            </div>
-
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => setOtpSent(false)}
-                                    className="flex-1 bg-zinc-950 hover:bg-zinc-850 border border-zinc-800 text-zinc-300 font-semibold py-2.5 rounded-xl text-xs transition-all cursor-pointer"
-                                >
-                                    Change Number
-                                </button>
-                                <button
-                                    onClick={verifyOTPAndActivate}
-                                    disabled={isVerifyingTruecaller}
-                                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                >
-                                    {isVerifyingTruecaller ? <RefreshCw className="h-4 w-4 animate-spin" /> : <span>Verify & Access</span>}
-                                </button>
-                            </div>
-                        </div>
-                    )}
-                </motion.div>
-            </div>
-        );
-    }
-
-    // 4. ACTIVE DEVELOPER DASHBOARD PORTAL
+  if (loading) {
     return (
-        <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans">
-            <DeveloperPortal 
-                currentUser={user!} 
-                onBack={() => setView('landing')} 
-            />
+      <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 border-2 border-violet-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-xs font-mono text-neutral-400 uppercase tracking-widest">Loading Developer Console...</p>
         </div>
+      </div>
     );
+  }
+
+  // 1. LANDING & ACCESS GATE VIEW
+  if (view === 'landing') {
+    return (
+      <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans selection:bg-violet-600 selection:text-white">
+        {/* Top Navigation */}
+        <header className="border-b border-neutral-800 bg-neutral-950/90 backdrop-blur-md sticky top-0 z-50">
+          <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-xl bg-violet-600/20 border border-violet-500/30 flex items-center justify-center text-violet-400">
+                <Terminal className="h-4 w-4" />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-base tracking-tight text-white">Zenoa</span>
+                <span className="text-[10px] font-mono uppercase bg-neutral-900 text-violet-300 px-2.5 py-0.5 rounded-md border border-neutral-800 font-semibold">Developer Console</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <a
+                href="/"
+                className="text-xs font-semibold text-neutral-400 hover:text-white flex items-center gap-1.5 transition-colors"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                <span>Zenoa Messenger</span>
+              </a>
+
+              {user ? (
+                <button
+                  onClick={() => setView('portal')}
+                  className="px-4 py-2 text-xs font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white shadow-md shadow-violet-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>Open Console</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowZenoaAuthModal(true)}
+                  className="px-4 py-2 text-xs font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white shadow-md shadow-violet-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Lock className="h-3.5 w-3.5" />
+                  <span>Continue with Zenoa</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </header>
+
+        {/* Hero Section */}
+        <main className="flex-1 flex flex-col">
+          <section className="max-w-4xl mx-auto px-6 pt-20 pb-14 text-center">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 text-xs font-medium mb-6">
+              <ShieldCheck className="h-3.5 w-3.5 text-violet-400" />
+              <span>Independent Developer Ecosystem &bull; Mandatory Zenoa Identity</span>
+            </div>
+
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-[1.15]">
+              Build Bots, APIs & Webhooks on Zenoa
+            </h1>
+
+            <p className="text-neutral-400 text-base sm:text-lg max-w-2xl mx-auto mt-6 leading-relaxed">
+              Create verified transactional Service Accounts, generate production API tokens, and receive real-time webhook event dispatches with your Zenoa account.
+            </p>
+
+            <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+              {user ? (
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setView('portal')}
+                    className="px-8 py-4 rounded-2xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm shadow-xl shadow-violet-600/20 transition-all flex items-center gap-2 cursor-pointer active:scale-98"
+                  >
+                    <span>Enter Console as @{user.username}</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={handleLogoutDeveloperConsole}
+                    className="px-4 py-4 rounded-2xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 text-xs font-bold border border-neutral-800 transition-colors cursor-pointer"
+                  >
+                    Switch Account
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowZenoaAuthModal(true)}
+                  className="px-8 py-4 rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-sm shadow-xl shadow-violet-600/25 transition-all flex items-center gap-2 cursor-pointer active:scale-98"
+                >
+                  <Lock className="h-4 w-4" />
+                  <span>Continue with Zenoa</span>
+                  <ArrowRight className="h-4 w-4 ml-1" />
+                </button>
+              )}
+            </div>
+
+            <p className="text-xs text-neutral-500 mt-4">
+              *A verified Zenoa Messenger account is mandatory to provision developer API tokens.
+            </p>
+          </section>
+
+          {/* Architecture Feature Grid */}
+          <section className="max-w-5xl mx-auto px-6 py-12 w-full">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="p-6 rounded-2xl border border-neutral-800 bg-neutral-900/60 text-left space-y-3">
+                <div className="h-10 w-10 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-center text-violet-400">
+                  <Phone className="h-5 w-5" />
+                </div>
+                <h3 className="text-base font-bold text-white">Direct OTP Dispatch API</h3>
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  Deliver verified 6-digit authentication codes directly to Zenoa Messenger users with zero SMS latency and end-to-end security.
+                </p>
+              </div>
+
+              <div className="p-6 rounded-2xl border border-neutral-800 bg-neutral-900/60 text-left space-y-3">
+                <div className="h-10 w-10 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-center text-violet-400">
+                  <Zap className="h-5 w-5" />
+                </div>
+                <h3 className="text-base font-bold text-white">Real-Time Webhooks</h3>
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  Stream incoming bot interactions, message deliveries, and OAuth login authorization events to your server endpoints.
+                </p>
+              </div>
+
+              <div className="p-6 rounded-2xl border border-neutral-800 bg-neutral-900/60 text-left space-y-3">
+                <div className="h-10 w-10 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-center text-violet-400">
+                  <Key className="h-5 w-5" />
+                </div>
+                <h3 className="text-base font-bold text-white">HMAC Signed Tokens</h3>
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  Rotate API keys, restrict authorized IP addresses, and secure your bot infrastructure with cryptographic signatures.
+                </p>
+              </div>
+            </div>
+          </section>
+        </main>
+
+        {/* Unified "Continue with Zenoa" Modal */}
+        <ZenoaAuthGatewayModal
+          isOpen={showZenoaAuthModal}
+          onClose={() => setShowZenoaAuthModal(false)}
+          serviceTitle="Zenoa Developer Console"
+          serviceDescription="Manage developer applications, bots, and API credentials."
+          onAuthenticated={handleAuthenticatedWithZenoa}
+          themeMode="dark"
+        />
+      </div>
+    );
+  }
+
+  // 2. PHONE VERIFICATION COMPLIANCE STEP (If needed for developer credentials)
+  if (view === 'mobile_setup' && user) {
+    return (
+      <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.96 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-3xl p-8 shadow-2xl text-center"
+        >
+          <div className="h-12 w-12 rounded-2xl bg-violet-600/20 border border-violet-500/30 text-violet-400 flex items-center justify-center mx-auto mb-4">
+            <Phone className="h-6 w-6" />
+          </div>
+
+          <h2 className="text-xl font-bold text-white">Developer Identity Verification</h2>
+          <p className="text-xs text-neutral-400 mt-1 mb-6">
+            Link a verified contact number to activate bot dispatch and webhook capabilities for <strong>@{user.username}</strong>.
+          </p>
+
+          {error && (
+            <div className="mb-4 p-3 bg-rose-950/40 border border-rose-800/40 rounded-xl text-rose-300 text-xs font-medium">
+              {error}
+            </div>
+          )}
+
+          {!otpSent ? (
+            <div className="space-y-4 text-left">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Mobile Number</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={countryCode}
+                    onChange={(e) => setCountryCode(e.target.value)}
+                    className="w-20 bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2.5 text-xs text-white text-center font-mono"
+                  />
+                  <input
+                    type="tel"
+                    value={mobileNumber}
+                    onChange={(e) => setMobileNumber(e.target.value)}
+                    placeholder="9876543210"
+                    className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2.5 text-xs text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={handleSendVerificationOTP}
+                disabled={isVerifying}
+                className="w-full py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold shadow-md shadow-violet-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isVerifying ? <RefreshCw className="h-4 w-4 animate-spin" /> : <span>Send Verification Code</span>}
+              </button>
+
+              <button
+                onClick={() => setView('portal')}
+                className="w-full py-2 text-xs text-neutral-400 hover:text-white transition-colors cursor-pointer"
+              >
+                Skip for now & Continue to Portal
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4 text-left">
+              <div className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 text-center">
+                <span className="text-[11px] text-neutral-400">Demo Verification Code:</span>
+                <span className="text-sm font-mono font-bold text-violet-400 block mt-0.5">{demoOTP}</span>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Enter 6-Digit Code</label>
+                <input
+                  type="text"
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value)}
+                  placeholder="123456"
+                  maxLength={6}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2.5 text-xs text-white font-mono text-center tracking-widest text-base"
+                />
+              </div>
+
+              <button
+                onClick={handleVerifyOTP}
+                disabled={isVerifying}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isVerifying ? <RefreshCw className="h-4 w-4 animate-spin" /> : <span>Verify & Access Portal</span>}
+              </button>
+            </div>
+          )}
+        </motion.div>
+      </div>
+    );
+  }
+
+  // 3. FULL DEVELOPER PORTAL VIEW
+  if (view === 'portal' && user) {
+    return (
+      <div className="min-h-screen bg-neutral-950 text-white flex flex-col font-sans">
+        {/* Portal Header with Independent Session Badge & Logout */}
+        <div className="bg-neutral-900 border-b border-neutral-800 px-6 py-3 flex items-center justify-between sticky top-0 z-50">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setView('landing')}
+              className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors cursor-pointer flex items-center gap-1 text-xs"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              <span>Console Home</span>
+            </button>
+            <div className="h-4 w-[1px] bg-neutral-700" />
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-white">Developer Suite</span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-violet-950/60 text-violet-300 border border-violet-800/50">
+                Live Environment
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 bg-neutral-950 px-3 py-1.5 rounded-xl border border-neutral-800">
+              <div className="h-6 w-6 rounded-lg bg-violet-600/30 text-violet-400 flex items-center justify-center text-xs font-bold">
+                {user.username.slice(0, 2).toUpperCase()}
+              </div>
+              <div className="text-left">
+                <span className="text-[11px] font-bold text-neutral-200 block leading-tight">{user.display_name || user.username}</span>
+                <span className="text-[9px] font-mono text-neutral-400">@{user.username}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={handleLogoutDeveloperConsole}
+              className="p-2 rounded-xl bg-neutral-800 hover:bg-rose-950/40 hover:text-rose-400 hover:border-rose-800/40 border border-neutral-700 text-neutral-300 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+              title="Log out of Developer Console"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Sign Out</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1">
+          <DeveloperPortal
+            currentUser={user}
+            onBack={() => setView('landing')}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 };
