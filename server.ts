@@ -30,7 +30,17 @@ try {
 const app = express();
 const PORT = 3000;
 
-app.use(cors());
+// CORS को पूरी तरह ओपन और अलाउ करें
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// सभी OPTIONS रिक्वेस्ट्स को तुरंत 200 OK के साथ हैंडल करें
+app.options('*all', (req, res) => {
+  res.sendStatus(200);
+});
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
