@@ -288,29 +288,65 @@ const authenticateApiKey = async (req: any, res: any, next: any) => {
   }
 };
 
-// Helper: Resolve recipient (username or mobile number) to registered Zenoa user
-async function resolveUserRecipient(recipientInput: string): Promise<{ username: string; displayName: string }> {
+// Helper: Resolve recipient (username, mobile number, or Zenoa ID) to registered Zenoa user
+async function resolveUserRecipient(recipientInput: string): Promise<{ 
+  zenoaId: string; 
+  username: string; 
+  mobileNumber: string; 
+  displayName: string 
+}> {
   let clean = String(recipientInput || '').toLowerCase().replace(/^@/, '').trim();
   let displayName = clean;
+  let defaultResult = { zenoaId: clean, username: clean, mobileNumber: '', displayName };
 
-  if (!db || !clean) return { username: clean, displayName };
+  if (!db || !clean) return defaultResult;
 
   try {
+    const usersRef = collection(db, 'users');
+    let matchedDocData: any = null;
+    let matchedDocId: string = clean;
+
     // 1. Direct match by document ID in users collection
     const directRef = doc(db, 'users', clean);
     const directSnap = await getDoc(directRef);
     if (directSnap.exists()) {
-      const uData = directSnap.data();
-      return {
-        username: directSnap.id,
-        displayName: uData?.display_name || uData?.username || directSnap.id
-      };
+      matchedDocData = directSnap.data();
+      matchedDocId = directSnap.id;
     }
 
-    // 2. Query by mobile_number if digits exist
+    // 2. Query by active username
+    if (!matchedDocData) {
+      const uq = query(usersRef, where('username', '==', clean));
+      const uSnap = await getDocs(uq);
+      if (!uSnap.empty) {
+        matchedDocData = uSnap.docs[0].data();
+        matchedDocId = uSnap.docs[0].id;
+      }
+    }
+
+    // 3. Query by zenoa_id / id / uid
+    if (!matchedDocData) {
+      const idq = query(usersRef, where('zenoa_id', '==', clean));
+      const idSnap = await getDocs(idq);
+      if (!idSnap.empty) {
+        matchedDocData = idSnap.docs[0].data();
+        matchedDocId = idSnap.docs[0].id;
+      }
+    }
+
+    // 4. Query by previous_usernames (e.g. if user edited their username)
+    if (!matchedDocData) {
+      const prevq = query(usersRef, where('previous_usernames', 'array-contains', clean));
+      const prevSnap = await getDocs(prevq);
+      if (!prevSnap.empty) {
+        matchedDocData = prevSnap.docs[0].data();
+        matchedDocId = prevSnap.docs[0].id;
+      }
+    }
+
+    // 5. Query by mobile_number / phone_number if digits exist
     const phoneDigits = String(recipientInput || '').replace(/[^0-9]/g, '');
-    if (phoneDigits.length >= 7) {
-      const usersRef = collection(db, 'users');
+    if (!matchedDocData && phoneDigits.length >= 7) {
       const candidateNumbers = [
         String(recipientInput).trim(),
         `+${phoneDigits}`,
@@ -321,38 +357,67 @@ async function resolveUserRecipient(recipientInput: string): Promise<{ username:
       ].filter(Boolean) as string[];
 
       for (const cand of candidateNumbers) {
-        const q = query(usersRef, where('mobile_number', '==', cand));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          const uData = snap.docs[0].data();
-          return {
-            username: uData?.username || snap.docs[0].id,
-            displayName: uData?.display_name || uData?.username || snap.docs[0].id
-          };
+        const mobq = query(usersRef, where('mobile_number', '==', cand));
+        const mobSnap = await getDocs(mobq);
+        if (!mobSnap.empty) {
+          matchedDocData = mobSnap.docs[0].data();
+          matchedDocId = mobSnap.docs[0].id;
+          break;
+        }
+
+        const phoneq = query(usersRef, where('phone_number', '==', cand));
+        const phoneSnap = await getDocs(phoneq);
+        if (!phoneSnap.empty) {
+          matchedDocData = phoneSnap.docs[0].data();
+          matchedDocId = phoneSnap.docs[0].id;
+          break;
         }
       }
 
       // Fallback: Check if any user in users collection has mobile_number ending with last 10 digits
-      if (phoneDigits.length >= 10) {
+      if (!matchedDocData && phoneDigits.length >= 10) {
         const last10 = phoneDigits.slice(-10);
         const allUsersSnap = await getDocs(usersRef);
         for (const uDoc of allUsersSnap.docs) {
           const uData = uDoc.data();
-          const uPhone = String(uData?.mobile_number || uData?.phone || '').replace(/[^0-9]/g, '');
+          const uPhone = String(uData?.mobile_number || uData?.phone_number || uData?.phone || '').replace(/[^0-9]/g, '');
           if (uPhone.endsWith(last10)) {
-            return {
-              username: uData?.username || uDoc.id,
-              displayName: uData?.display_name || uData?.username || uDoc.id
-            };
+            matchedDocData = uData;
+            matchedDocId = uDoc.id;
+            break;
           }
         }
       }
+    }
+
+    // If matchedDocData points to a secondary doc or alias, inspect if primary zenoa_id doc exists
+    if (matchedDocData) {
+      const primaryZenoaId = matchedDocData.zenoa_id || matchedDocData.id || matchedDocData.uid || matchedDocId;
+      if (primaryZenoaId && primaryZenoaId !== matchedDocId) {
+        const primaryRef = doc(db, 'users', primaryZenoaId);
+        const primarySnap = await getDoc(primaryRef);
+        if (primarySnap.exists()) {
+          matchedDocData = { ...matchedDocData, ...primarySnap.data() };
+        }
+      }
+
+      const activeUsername = (matchedDocData.username || matchedDocId).toLowerCase().replace(/^@/, '');
+      const activeZenoaId = matchedDocData.zenoa_id || matchedDocData.id || matchedDocData.uid || primaryZenoaId;
+      const activeMobile = matchedDocData.mobile_number || matchedDocData.phone_number || '';
+      const activeDisplayName = matchedDocData.display_name || activeUsername;
+
+      return {
+        zenoaId: String(activeZenoaId).toLowerCase(),
+        username: String(activeUsername).toLowerCase(),
+        mobileNumber: String(activeMobile),
+        displayName: String(activeDisplayName)
+      };
     }
   } catch (err) {
     console.warn("Recipient resolution error:", err);
   }
 
-  return { username: clean, displayName };
+  return defaultResult;
 }
 
 // Helper: Deliver official Bot DM message to Zenoa user chat inbox
@@ -360,12 +425,14 @@ async function deliverBotChatMessage(opts: {
   senderBotUsername: string;
   senderAppName: string;
   recipientUsername: string;
+  recipientZenoaId?: string;
   messageText: string;
 }): Promise<{ chatId: string; messageId: string }> {
-  const { senderBotUsername, senderAppName, recipientUsername, messageText } = opts;
+  const { senderBotUsername, senderAppName, recipientUsername, recipientZenoaId, messageText } = opts;
   
   const botClean = senderBotUsername.toLowerCase().replace(/^@/, '');
   const recClean = recipientUsername.toLowerCase().replace(/^@/, '');
+  const recIdClean = recipientZenoaId ? recipientZenoaId.toLowerCase().replace(/^@/, '') : recClean;
 
   if (db && botClean && recClean) {
     try {
@@ -386,8 +453,9 @@ async function deliverBotChatMessage(opts: {
       }
 
       // 2. Format DM chat ID & write chat + message in Zenoa Messenger standard format
-      const participants = Array.from(new Set([recClean, botClean])).sort();
-      const chatId = `chat_dm_${participants.join('_')}`;
+      const participants = Array.from(new Set([recClean, recIdClean, botClean].filter(Boolean))).sort();
+      const participantIds = Array.from(new Set([recIdClean, recClean, botClean].filter(Boolean))).sort();
+      const chatId = `chat_dm_${recClean}_${botClean}`;
       const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -400,7 +468,7 @@ async function deliverBotChatMessage(opts: {
         username: botClean,
         name: senderAppName || 'Zenoa Service Bot',
         participants,
-        participant_ids: participants,
+        participant_ids: participantIds,
         updated_at: Date.now(),
         last_message: messageText.length > 80 ? messageText.substring(0, 80) + '...' : messageText,
         last_message_time: timeStr,
@@ -438,8 +506,9 @@ app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
     let { recipient, template, expiry_mins, custom_code, channel } = req.body;
     if (!recipient) return res.status(400).json({ error: 'Missing "recipient" field.' });
     
-    // Resolve recipient (username or phone number)
-    const { username: cleanRecipient, displayName: recipientDisplayName } = await resolveUserRecipient(recipient);
+    // Resolve recipient (username, mobile number, or Zenoa ID)
+    const resolvedUser = await resolveUserRecipient(recipient);
+    const cleanRecipient = resolvedUser.username;
 
     const { owner, owner_username, bot_username, app_name, client_secret, webhook_url } = req.appData;
     const devOwner = owner || owner_username || 'developer';
@@ -450,6 +519,8 @@ app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
 
     const otpPayload = sanitizeFirestoreData({
       recipient: cleanRecipient,
+      zenoa_id: resolvedUser.zenoaId,
+      mobile_number: resolvedUser.mobileNumber,
       app_id: req.appData.id || 'unknown_app',
       app_name: app_name || 'Registered Application',
       code: otpCode,
@@ -458,21 +529,33 @@ app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
       status: 'pending'
     });
 
-    // Cache in memory for zero latency
-    const otpKey = `${cleanRecipient}_${req.appData.id || 'default_app'}`;
-    inMemoryOtps.set(otpKey, otpPayload);
+    // Cache in memory for zero latency under multiple lookup keys
+    const appIdStr = req.appData.id || 'default_app';
+    const candidateKeys = Array.from(new Set([
+      `${cleanRecipient}_${appIdStr}`,
+      `${resolvedUser.zenoaId}_${appIdStr}`,
+      resolvedUser.mobileNumber ? `${resolvedUser.mobileNumber}_${appIdStr}` : null,
+      `${String(recipient).toLowerCase().replace(/^@/, '').trim()}_${appIdStr}`
+    ].filter(Boolean))) as string[];
+
+    for (const k of candidateKeys) {
+      inMemoryOtps.set(k, otpPayload);
+    }
 
     // Save in Firestore if available
     if (db) {
       try {
-        const otpDocRef = doc(db, 'otps', otpKey);
-        await setDoc(otpDocRef, otpPayload);
+        const primaryOtpDocRef = doc(db, 'otps', `${cleanRecipient}_${appIdStr}`);
+        await setDoc(primaryOtpDocRef, otpPayload, { merge: true });
+        if (resolvedUser.zenoaId && resolvedUser.zenoaId !== cleanRecipient) {
+          await setDoc(doc(db, 'otps', `${resolvedUser.zenoaId}_${appIdStr}`), otpPayload, { merge: true });
+        }
       } catch (dbErr) {
         console.warn("Firestore OTP write fallback to memory:", dbErr);
       }
     }
 
-    // Compose message using Verified Professional Templates only
+    // Compose message using Verified Professional Templates
     const templateType = req.body.template_type || 'standard_otp';
     let templateText = `Security Notice\n\nYour verification code for {app_name} is: **{code}**.\n\nValid for {expiry} minutes. Do not share this code.`;
     
@@ -496,6 +579,7 @@ app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
       senderBotUsername: businessSender,
       senderAppName: app_name || 'Zenoa Service Bot',
       recipientUsername: cleanRecipient,
+      recipientZenoaId: resolvedUser.zenoaId,
       messageText
     });
 
@@ -504,6 +588,8 @@ app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
       dispatchWebhookEvent(webhook_url, client_secret, {
         event: 'otp.sent',
         recipient: cleanRecipient,
+        zenoa_id: resolvedUser.zenoaId,
+        mobile_number: resolvedUser.mobileNumber,
         app_id: req.appData.id,
         expires_at: expiresAt,
         timestamp: Date.now()
@@ -514,6 +600,7 @@ app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
     recordDeveloperLog(req.appData.id, {
       action: 'otp_send',
       recipient: cleanRecipient,
+      zenoa_id: resolvedUser.zenoaId,
       status: 'success',
       expiry_mins: expiryMinutes
     }).catch(e => console.warn('Record log warn:', e));
@@ -521,8 +608,10 @@ app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
     return res.status(200).json({ 
       success: true, 
       message: 'OTP generated and delivered successfully',
-      otp_id: otpKey,
+      otp_id: `${cleanRecipient}_${appIdStr}`,
       recipient: cleanRecipient,
+      zenoa_id: resolvedUser.zenoaId,
+      mobile_number: resolvedUser.mobileNumber || null,
       expires_at: expiresAt,
       expiry_mins: expiryMinutes,
       sample_code: otpCode // Provided for developer sandbox inspection
@@ -541,20 +630,40 @@ app.post('/api/v1/otp/verify', authenticateApiKey, async (req: any, res: any) =>
       return res.status(400).json({ error: 'Missing "recipient" or "code" fields.' });
     }
 
-    const { username: cleanRecipient } = await resolveUserRecipient(recipient);
+    const resolvedUser = await resolveUserRecipient(recipient);
+    const appIdStr = req.appData.id || 'default_app';
 
-    const otpKey = `${cleanRecipient}_${req.appData.id || 'default_app'}`;
-    let otpData: any = inMemoryOtps.get(otpKey);
+    const candidateKeys = Array.from(new Set([
+      `${resolvedUser.username}_${appIdStr}`,
+      `${resolvedUser.zenoaId}_${appIdStr}`,
+      resolvedUser.mobileNumber ? `${resolvedUser.mobileNumber}_${appIdStr}` : null,
+      `${String(recipient).toLowerCase().replace(/^@/, '').trim()}_${appIdStr}`
+    ].filter(Boolean))) as string[];
+
+    let otpData: any = null;
+    let matchedKey = '';
+
+    for (const k of candidateKeys) {
+      if (inMemoryOtps.has(k)) {
+        otpData = inMemoryOtps.get(k);
+        matchedKey = k;
+        break;
+      }
+    }
 
     if (!otpData && db) {
-      try {
-        const otpDocRef = doc(db, 'otps', otpKey);
-        const otpSnap = await getDoc(otpDocRef);
-        if (otpSnap.exists()) {
-          otpData = otpSnap.data();
+      for (const k of candidateKeys) {
+        try {
+          const otpDocRef = doc(db, 'otps', k);
+          const otpSnap = await getDoc(otpDocRef);
+          if (otpSnap.exists()) {
+            otpData = otpSnap.data();
+            matchedKey = k;
+            break;
+          }
+        } catch (e) {
+          // ignore
         }
-      } catch (e) {
-        // ignore
       }
     }
 
@@ -578,6 +687,12 @@ app.post('/api/v1/otp/verify', authenticateApiKey, async (req: any, res: any) =>
 
     // Mark as verified
     otpData.status = 'verified';
+    for (const k of candidateKeys) {
+      inMemoryOtps.set(k, otpData);
+      if (db) {
+        setDoc(doc(db, 'otps', k), otpData, { merge: true }).catch(() => {});
+      }
+    }
     otpData.verified_at = Date.now();
     inMemoryOtps.set(otpKey, otpData);
 

@@ -226,13 +226,26 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         }
       }
 
-      if (db && userUsername) {
-        await updateDoc(doc(db, 'users', userUsername), {
+      if (db) {
+        const primaryZenoaId = currentUser?.id || currentUser?.uid || userUsername;
+        const phonePayload = {
+          id: primaryZenoaId,
+          zenoa_id: primaryZenoaId,
+          username: userUsername,
           mobile_number: formatted,
+          phone_number: formatted,
           is_business_verified: true,
           is_truecaller_verified: true,
-          phone_verified_at: Date.now()
-        });
+          phone_verified_at: Date.now(),
+          updated_at: Date.now()
+        };
+
+        if (primaryZenoaId) {
+          await setDoc(doc(db, 'users', primaryZenoaId), phonePayload, { merge: true });
+        }
+        if (userUsername) {
+          await setDoc(doc(db, 'users', userUsername.toLowerCase()), phonePayload, { merge: true });
+        }
       }
       setLocalPhone(formatted);
       setIsPhoneVerifyModalOpen(false);

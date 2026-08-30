@@ -3346,8 +3346,12 @@ export default function App() {
           ? Array.from(new Set([...existingPrev, oldUsername].filter(Boolean)))
           : existingPrev;
 
-        await setDoc(userDocRef, {
+        const existingData = userSnap.exists() ? userSnap.data() : {};
+        const activePhone = userPhone || existingData.mobile_number || existingData.phone_number || '';
+
+        const profilePayload = {
           id: userId,
+          zenoa_id: userId,
           username: formattedUsername,
           display_name: formattedDisplayName,
           bio: editDraftBio,
@@ -3356,9 +3360,30 @@ export default function App() {
           name_change_timestamps: updatedNameChanges,
           username_change_timestamps: updatedUsernameChanges,
           previous_usernames: prevList,
+          mobile_number: activePhone,
+          phone_number: activePhone,
           online: true,
-          last_seen: 'online'
-        }, { merge: true });
+          last_seen: 'online',
+          updated_at: Date.now()
+        };
+
+        await setDoc(userDocRef, profilePayload, { merge: true });
+
+        // Synchronize active username lookup document in users collection
+        if (formattedUsername) {
+          await setDoc(doc(db, 'users', formattedUsername.toLowerCase()), profilePayload, { merge: true });
+        }
+
+        // Maintain backward mapping for previous username if username changed
+        if (isUsernameChanged && oldUsername) {
+          await setDoc(doc(db, 'users', oldUsername.toLowerCase()), {
+            id: userId,
+            zenoa_id: userId,
+            current_username: formattedUsername,
+            previous_usernames: prevList,
+            updated_at: Date.now()
+          }, { merge: true });
+        }
 
         // If username changed, update chat participant arrays in Firestore in the background
         if (isUsernameChanged && oldUsername) {
