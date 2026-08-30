@@ -41,7 +41,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Health check
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (req: any, res: any) => {
   res.json({ status: 'ok', service: 'zenoa-developer-api', timestamp: new Date().toISOString() });
 });
 
@@ -1834,7 +1834,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*all', (req, res) => {
+    app.get('*all', (req: any, res: any) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
