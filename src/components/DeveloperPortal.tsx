@@ -99,7 +99,15 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
           expiry_mins: 10
         })
       });
-      const data = await res.json();
+      
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (parseErr) {
+        data = { error: `Server returned non-JSON response (Status ${res.status}): ${text.substring(0, 200) || '(empty response)'}` };
+      }
+
       setTestOtpResult({ status: res.status, ok: res.ok, data });
       if (res.ok && data.success) {
         showToast('🚀 Live OTP sent! Check Zenoa Messenger Inbox.');
@@ -142,7 +150,15 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
           code: testVerifyCode.trim()
         })
       });
-      const data = await res.json();
+      
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (parseErr) {
+        data = { error: `Server returned non-JSON response (Status ${res.status}): ${text.substring(0, 200) || '(empty response)'}` };
+      }
+
       setTestVerifyResult({ status: res.status, ok: res.ok, data });
       if (res.ok && data.verified) {
         showToast('✅ OTP Verified Successfully!');

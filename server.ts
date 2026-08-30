@@ -32,6 +32,24 @@ const PORT = 3000;
 
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Intercept SyntaxError from express.json() (e.g., malformed or empty JSON bodies)
+// and return a standard JSON error response instead of the Express default HTML crash dump
+app.use((err: any, req: any, res: any, next: any) => {
+  if (err instanceof SyntaxError && 'status' in err && err.status === 400 && 'body' in err) {
+    return res.status(400).json({ error: 'Unexpected end of JSON input' });
+  }
+  next();
+});
+
+// Guard against completely undefined req.body across all routes
+app.use((req: any, res: any, next: any) => {
+  if (!req.body) {
+    req.body = {};
+  }
+  next();
+});
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -465,7 +483,7 @@ async function deliverBotChatMessage(opts: {
       }
 
       // 2. Format DM chat ID & write chat + message in Zenoa Messenger standard format
-      const participants = Array.from(new Set([recClean, recIdClean, botClean].filter(Boolean))).sort();
+      const participants = Array.from(new Set([recClean, botClean].filter(Boolean))).sort();
       const participantIds = Array.from(new Set([recIdClean, recClean, botClean].filter(Boolean))).sort();
       const sortedDmUsernames = [recClean, botClean].sort();
       const chatId = `chat_dm_${sortedDmUsernames.join('_')}`;
@@ -484,7 +502,7 @@ async function deliverBotChatMessage(opts: {
         participant_ids: participantIds,
         updated_at: Date.now(),
         last_message: messageText.length > 80 ? messageText.substring(0, 80) + '...' : messageText,
-        last_message_time: timeStr,
+        last_time: timeStr,
         last_message_sender: botClean,
         last_message_status: 'sent',
         unread: increment(1)
