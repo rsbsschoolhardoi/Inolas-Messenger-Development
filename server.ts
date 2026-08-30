@@ -53,7 +53,7 @@ const db: any = new Proxy({}, {
 });
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT || 3000);
 
 // Permissive CORS & Preflight handling for Vercel Serverless Functions & Cross-Origin POST requests
 app.use(cors({
