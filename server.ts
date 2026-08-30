@@ -643,6 +643,7 @@ app.post('/api/v1/otp/verify', authenticateApiKey, async (req: any, res: any) =>
       return res.status(400).json({ error: 'Missing "recipient" or "code" fields.' });
     }
 
+    const cleanRecipient = String(recipient).toLowerCase().replace(/^@/, '').trim();
     const resolvedUser = await resolveUserRecipient(recipient);
     const appIdStr = req.appData.id || 'default_app';
 
@@ -650,7 +651,7 @@ app.post('/api/v1/otp/verify', authenticateApiKey, async (req: any, res: any) =>
       `${resolvedUser.username}_${appIdStr}`,
       `${resolvedUser.zenoaId}_${appIdStr}`,
       resolvedUser.mobileNumber ? `${resolvedUser.mobileNumber}_${appIdStr}` : null,
-      `${String(recipient).toLowerCase().replace(/^@/, '').trim()}_${appIdStr}`
+      `${cleanRecipient}_${appIdStr}`
     ].filter(Boolean))) as string[];
 
     let otpData: any = null;
@@ -700,21 +701,22 @@ app.post('/api/v1/otp/verify', authenticateApiKey, async (req: any, res: any) =>
 
     // Mark as verified
     otpData.status = 'verified';
+    otpData.verified_at = Date.now();
+    const primaryOtpKey = matchedKey || candidateKeys[0] || `${cleanRecipient}_${appIdStr}`;
+
     for (const k of candidateKeys) {
       inMemoryOtps.set(k, otpData);
       if (db) {
         setDoc(doc(db, 'otps', k), otpData, { merge: true }).catch(() => {});
       }
     }
-    otpData.verified_at = Date.now();
-    inMemoryOtps.set(otpKey, otpData);
 
     if (db) {
       try {
-        await updateDoc(doc(db, 'otps', otpKey), { 
+        await setDoc(doc(db, 'otps', primaryOtpKey), { 
           status: 'verified',
           verified_at: Date.now()
-        });
+        }, { merge: true });
 
         const analyticsRef = doc(db, 'developer_analytics', req.appData.id);
         await setDoc(analyticsRef, {
