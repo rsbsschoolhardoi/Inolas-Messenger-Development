@@ -90,16 +90,37 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         
         if (!snap.empty) {
           const appData = snap.docs[0].data();
-          setAppConfig({
+          const fetchedConfig = {
             ...appData,
-            client_secret: appData.client_secret // Keep secret for signing later
-          });
+            client_secret: appData.client_secret
+          };
+          setAppConfig(fetchedConfig);
+
+          // Strict URL and Redirect URI Security Validation
+          if (fetchedConfig.redirect_uris && fetchedConfig.redirect_uris.length > 0) {
+            const isAllowed = fetchedConfig.redirect_uris.some((allowed: string) => {
+              try {
+                const u1 = new URL(allowed);
+                const u2 = new URL(effectiveRedirectUri);
+                // Allow matching origin + pathname or exact prefix
+                return u1.origin === u2.origin && u2.pathname.startsWith(u1.pathname);
+              } catch {
+                return allowed === effectiveRedirectUri;
+              }
+            });
+
+            if (!isAllowed) {
+              setError(`Security Mismatch: The requested redirect_uri ("${effectiveRedirectUri}") does not match the registered authorized redirect URIs for this application. Access blocked to prevent misuse.`);
+            }
+          }
         } else if (effectiveClientId === 'demo_app') {
           setAppConfig({
             app_name: 'Zenoa Developer Demo',
             bot_username: 'zenoabot',
             app_description: 'Interactive OAuth 2.0 & Single Sign-On testing application',
-            client_secret: 'demo_secret'
+            website_url: window.location.origin,
+            client_secret: 'demo_secret',
+            redirect_uris: [window.location.origin + '/auth/sso']
           });
         } else {
           setError(`Application not found for client_id: "${effectiveClientId}". Please verify the link.`);

@@ -205,6 +205,24 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       return;
     }
 
+    if (websiteUrl.trim()) {
+      try {
+        new URL(websiteUrl.trim());
+      } catch {
+        showNotification('error', 'Please enter a valid Website URL (e.g., https://example.com)');
+        return;
+      }
+    }
+
+    for (const uri of redirectUrisList) {
+      try {
+        new URL(uri);
+      } catch {
+        showNotification('error', `Invalid Redirect URI format: "${uri}". Must start with http:// or https://`);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     const ownerName = currentUser?.username || 'developer_user';
 
