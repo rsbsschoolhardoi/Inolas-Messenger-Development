@@ -233,11 +233,13 @@ const authenticateApiKey = async (req: any, res: any, next: any) => {
         }
       }
     } else {
+      const appOwner = match.data.owner || match.data.owner_username || 'developer';
+      const appBot = match.data.bot_username || match.data.bot_name || `sa_${appOwner}`.toLowerCase().replace(/^@/, '');
       finalAppData = { 
         id: match.id, 
         ...match.data,
-        owner: match.data.owner || match.data.owner_username,
-        bot_username: match.data.owner || match.data.owner_username || match.data.bot_username || (match.data.app_name ? match.data.app_name.toLowerCase().replace(/[^a-z0-9_]/g, '') + '_bot' : 'zenoa_bot')
+        owner: appOwner,
+        bot_username: appBot
       };
     }
 
@@ -286,50 +288,162 @@ const authenticateApiKey = async (req: any, res: any, next: any) => {
   }
 };
 
+// Helper: Resolve recipient (username or mobile number) to registered Zenoa user
+async function resolveUserRecipient(recipientInput: string): Promise<{ username: string; displayName: string }> {
+  let clean = String(recipientInput || '').toLowerCase().replace(/^@/, '').trim();
+  let displayName = clean;
+
+  if (!db || !clean) return { username: clean, displayName };
+
+  try {
+    // 1. Direct match by document ID in users collection
+    const directRef = doc(db, 'users', clean);
+    const directSnap = await getDoc(directRef);
+    if (directSnap.exists()) {
+      const uData = directSnap.data();
+      return {
+        username: directSnap.id,
+        displayName: uData?.display_name || uData?.username || directSnap.id
+      };
+    }
+
+    // 2. Query by mobile_number if digits exist
+    const phoneDigits = String(recipientInput || '').replace(/[^0-9]/g, '');
+    if (phoneDigits.length >= 7) {
+      const usersRef = collection(db, 'users');
+      const candidateNumbers = [
+        String(recipientInput).trim(),
+        `+${phoneDigits}`,
+        phoneDigits,
+        phoneDigits.length >= 10 ? phoneDigits.slice(-10) : null,
+        phoneDigits.length >= 10 ? `+91${phoneDigits.slice(-10)}` : null,
+        phoneDigits.length >= 10 ? `91${phoneDigits.slice(-10)}` : null
+      ].filter(Boolean) as string[];
+
+      for (const cand of candidateNumbers) {
+        const q = query(usersRef, where('mobile_number', '==', cand));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const uData = snap.docs[0].data();
+          return {
+            username: uData?.username || snap.docs[0].id,
+            displayName: uData?.display_name || uData?.username || snap.docs[0].id
+          };
+        }
+      }
+
+      // Fallback: Check if any user in users collection has mobile_number ending with last 10 digits
+      if (phoneDigits.length >= 10) {
+        const last10 = phoneDigits.slice(-10);
+        const allUsersSnap = await getDocs(usersRef);
+        for (const uDoc of allUsersSnap.docs) {
+          const uData = uDoc.data();
+          const uPhone = String(uData?.mobile_number || uData?.phone || '').replace(/[^0-9]/g, '');
+          if (uPhone.endsWith(last10)) {
+            return {
+              username: uData?.username || uDoc.id,
+              displayName: uData?.display_name || uData?.username || uDoc.id
+            };
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Recipient resolution error:", err);
+  }
+
+  return { username: clean, displayName };
+}
+
+// Helper: Deliver official Bot DM message to Zenoa user chat inbox
+async function deliverBotChatMessage(opts: {
+  senderBotUsername: string;
+  senderAppName: string;
+  recipientUsername: string;
+  messageText: string;
+}): Promise<{ chatId: string; messageId: string }> {
+  const { senderBotUsername, senderAppName, recipientUsername, messageText } = opts;
+  
+  const botClean = senderBotUsername.toLowerCase().replace(/^@/, '');
+  const recClean = recipientUsername.toLowerCase().replace(/^@/, '');
+
+  if (db && botClean && recClean) {
+    try {
+      // 1. Ensure Bot account exists in users collection so Zenoa Messenger renders avatar & badge
+      const botDocRef = doc(db, 'users', botClean);
+      const botSnap = await getDoc(botDocRef);
+      if (!botSnap.exists()) {
+        await setDoc(botDocRef, {
+          username: botClean,
+          display_name: senderAppName ? `${senderAppName}` : 'Zenoa Verified Service',
+          bio: `Official Service Account for ${senderAppName || 'Zenoa Developer Portal'}`,
+          is_service_account: true,
+          is_business_account: true,
+          is_verified: true,
+          avatar_seed: botClean,
+          registered_at: Date.now()
+        }, { merge: true });
+      }
+
+      // 2. Format DM chat ID & write chat + message in Zenoa Messenger standard format
+      const participants = Array.from(new Set([recClean, botClean])).sort();
+      const chatId = `chat_dm_${participants.join('_')}`;
+      const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      const batch = writeBatch(db);
+      
+      const chatRef = doc(db, 'chats', chatId);
+      batch.set(chatRef, {
+        id: chatId,
+        type: 'dm',
+        username: botClean,
+        name: senderAppName || 'Zenoa Service Bot',
+        participants,
+        participant_ids: participants,
+        updated_at: Date.now(),
+        last_message: messageText.length > 80 ? messageText.substring(0, 80) + '...' : messageText,
+        last_message_time: timeStr,
+        last_message_sender: botClean,
+        last_message_status: 'sent',
+        unread: increment(1)
+      }, { merge: true });
+
+      const msgRef = doc(db, 'messages', messageId);
+      batch.set(msgRef, {
+        id: messageId,
+        chat_id: chatId,
+        created_at: Date.now(),
+        sender: botClean,
+        text: messageText,
+        type: 'text',
+        timestamp: timeStr,
+        status: 'sent',
+        read_by: [botClean]
+      });
+
+      await batch.commit();
+      return { chatId, messageId };
+    } catch (dmErr) {
+      console.warn("deliverBotChatMessage write error:", dmErr);
+    }
+  }
+
+  return { chatId: `chat_dm_${recClean}_${botClean}`, messageId: 'msg_offline' };
+}
+
 // 1. Send OTP Endpoint with Auto-Verification and Template Support
 app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
   try {
     let { recipient, template, expiry_mins, custom_code, channel } = req.body;
     if (!recipient) return res.status(400).json({ error: 'Missing "recipient" field.' });
     
-    let cleanRecipient = String(recipient || '').toLowerCase().replace(/^@/, '').trim();
-    let recipientDisplayName = cleanRecipient;
-    
-    // Comprehensive resolution if recipient is a mobile number or international phone
-    const phoneDigits = String(recipient || '').replace(/[^0-9]/g, '');
-    if (phoneDigits.length >= 7) {
-      if (db) {
-        try {
-          const usersRef = collection(db, 'users');
-          const candidateNumbers = [
-            String(recipient).trim(),
-            `+${phoneDigits}`,
-            phoneDigits,
-            phoneDigits.length > 10 ? phoneDigits.slice(-10) : null,
-            phoneDigits.length >= 10 ? `+91${phoneDigits.slice(-10)}` : null,
-            phoneDigits.length >= 10 ? `91${phoneDigits.slice(-10)}` : null
-          ].filter(Boolean) as string[];
-
-          for (const cand of candidateNumbers) {
-            const q = query(usersRef, where('mobile_number', '==', cand));
-            const querySnapshot = await getDocs(q);
-            if (!querySnapshot.empty) {
-              const matchedUserData = querySnapshot.docs[0].data();
-              cleanRecipient = matchedUserData.username || querySnapshot.docs[0].id || cleanRecipient;
-              recipientDisplayName = matchedUserData.display_name || cleanRecipient;
-              break;
-            }
-          }
-        } catch (e) {
-          console.warn("Mobile lookup note:", e);
-        }
-      }
-    }
-
-    cleanRecipient = cleanRecipient || String(recipient || 'unknown').toLowerCase().replace(/^@/, '').trim() || 'unknown_recipient';
+    // Resolve recipient (username or phone number)
+    const { username: cleanRecipient, displayName: recipientDisplayName } = await resolveUserRecipient(recipient);
 
     const { owner, owner_username, bot_username, app_name, client_secret, webhook_url } = req.appData;
-    const businessSender = owner || owner_username || bot_username || 'zenoa_security';
+    const devOwner = owner || owner_username || 'developer';
+    const businessSender = (bot_username || `sa_${devOwner}`).toLowerCase().replace(/^@/, '');
     const expiryMinutes = Number(expiry_mins) || 10;
     const otpCode = custom_code || Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = Date.now() + (expiryMinutes * 60 * 1000); 
@@ -378,41 +492,12 @@ app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
       .replace(/{expiry_mins}/g, String(expiryMinutes));
 
     // Deliver via Direct Business Message to recipient's Zenoa chat inbox
-    if (db && cleanRecipient && businessSender) {
-      try {
-        const participants = [businessSender, cleanRecipient].sort();
-        const chatId = `dm_${participants[0]}_${participants[1]}`;
-        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const messageId = 'msg_otp_' + Math.random().toString(36).substring(2, 11);
-
-        const batch = writeBatch(db);
-        const chatRef = doc(db, 'chats', chatId);
-        batch.set(chatRef, {
-          id: chatId,
-          type: 'dm',
-          participants,
-          updated_at: Date.now(),
-          last_message: `Verification Code: ${otpCode}`,
-          last_message_time: timeStr
-        }, { merge: true });
-
-        const msgRef = doc(db, 'messages', messageId);
-        batch.set(msgRef, {
-          id: messageId,
-          chat_id: chatId,
-          created_at: Date.now(),
-          sender: businessSender,
-          text: messageText,
-          type: 'text',
-          timestamp: timeStr,
-          read_by: [businessSender]
-        });
-
-        await batch.commit();
-      } catch (dmErr) {
-        console.warn("DM write error (non-fatal):", dmErr);
-      }
-    }
+    await deliverBotChatMessage({
+      senderBotUsername: businessSender,
+      senderAppName: app_name || 'Zenoa Service Bot',
+      recipientUsername: cleanRecipient,
+      messageText
+    });
 
     // Dispatch Webhook Event if webhook configured
     if (webhook_url) {
@@ -437,6 +522,7 @@ app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
       success: true, 
       message: 'OTP generated and delivered successfully',
       otp_id: otpKey,
+      recipient: cleanRecipient,
       expires_at: expiresAt,
       expiry_mins: expiryMinutes,
       sample_code: otpCode // Provided for developer sandbox inspection
@@ -455,39 +541,7 @@ app.post('/api/v1/otp/verify', authenticateApiKey, async (req: any, res: any) =>
       return res.status(400).json({ error: 'Missing "recipient" or "code" fields.' });
     }
 
-    let cleanRecipient = String(recipient || '').toLowerCase().replace(/^@/, '').trim();
-    
-    // Comprehensive resolution if recipient is a mobile number
-    const phoneDigits = String(recipient || '').replace(/[^0-9]/g, '');
-    if (phoneDigits.length >= 7) {
-      if (db) {
-        try {
-          const usersRef = collection(db, 'users');
-          const candidateNumbers = [
-            String(recipient).trim(),
-            `+${phoneDigits}`,
-            phoneDigits,
-            phoneDigits.length > 10 ? phoneDigits.slice(-10) : null,
-            phoneDigits.length >= 10 ? `+91${phoneDigits.slice(-10)}` : null,
-            phoneDigits.length >= 10 ? `91${phoneDigits.slice(-10)}` : null
-          ].filter(Boolean) as string[];
-
-          for (const cand of candidateNumbers) {
-            const q = query(usersRef, where('mobile_number', '==', cand));
-            const querySnapshot = await getDocs(q);
-            if (!querySnapshot.empty) {
-              const matchedUserData = querySnapshot.docs[0].data();
-              cleanRecipient = matchedUserData.username || querySnapshot.docs[0].id || cleanRecipient;
-              break;
-            }
-          }
-        } catch (e) {
-          // ignore
-        }
-      }
-    }
-
-    cleanRecipient = cleanRecipient || String(recipient || 'unknown').toLowerCase().replace(/^@/, '').trim() || 'unknown_recipient';
+    const { username: cleanRecipient } = await resolveUserRecipient(recipient);
 
     const otpKey = `${cleanRecipient}_${req.appData.id || 'default_app'}`;
     let otpData: any = inMemoryOtps.get(otpKey);
@@ -763,44 +817,27 @@ app.post('/api/v1/bot/broadcast', authenticateApiKey, async (req: any, res: any)
       return res.status(400).json({ error: 'Recipients array and message content are required.' });
     }
 
-    const businessSender = req.appData.owner || req.appData.owner_username || req.appData.bot_username || 'zenoa_security';
+    const devOwner = req.appData.owner || req.appData.owner_username || 'developer';
+    const businessSender = (req.appData.bot_username || `sa_${devOwner}`).toLowerCase().replace(/^@/, '');
     const results: any[] = [];
-    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     for (const rawRecipient of recipients.slice(0, 50)) { // limit batch size to 50
-      const clean = String(rawRecipient).toLowerCase().replace(/^@/, '').trim();
-      if (!clean) continue;
+      if (!rawRecipient) continue;
 
       try {
-        if (db) {
-          const participants = [businessSender, clean].sort();
-          const chatId = `dm_${participants[0]}_${participants[1]}`;
-          const messageId = "msg_bc_" + Math.random().toString(36).substring(2, 12);
+        const { username: cleanRec } = await resolveUserRecipient(String(rawRecipient));
+        if (!cleanRec) continue;
 
-          const batch = writeBatch(db);
-          batch.set(doc(db, 'chats', chatId), {
-            last_message: message || '[Media]',
-            last_message_time: timeStr,
-            updated_at: Date.now()
-          }, { merge: true });
+        await deliverBotChatMessage({
+          senderBotUsername: businessSender,
+          senderAppName: req.appData.app_name || 'Zenoa Broadcast Bot',
+          recipientUsername: cleanRec,
+          messageText: message || '[Media Content]'
+        });
 
-          batch.set(doc(db, 'messages', messageId), {
-            id: messageId,
-            chat_id: chatId,
-            created_at: Date.now(),
-            sender: businessSender,
-            text: message || '',
-            type: media_url ? 'image' : 'text',
-            media_url: media_url || null,
-            timestamp: timeStr,
-            read_by: [businessSender]
-          });
-
-          await batch.commit();
-        }
-        results.push({ recipient: clean, status: 'delivered' });
+        results.push({ recipient: cleanRec, status: 'delivered' });
       } catch (e: any) {
-        results.push({ recipient: clean, status: 'failed', error: e?.message });
+        results.push({ recipient: String(rawRecipient), status: 'failed', error: e?.message });
       }
     }
 
@@ -825,44 +862,22 @@ app.post('/api/v1/messages/send', authenticateApiKey, async (req: any, res: any)
     const { recipient, message, media_url } = req.body;
     if (!recipient || (!message && !media_url)) return res.status(400).json({ error: 'Missing fields.' });
 
-    const cleanRecipient = recipient.toLowerCase().replace(/^@/, '').trim();
-    const businessSender = req.appData.owner || req.appData.owner_username || req.appData.bot_username || 'zenoa_security';
+    const { username: cleanRecipient } = await resolveUserRecipient(recipient);
+    const devOwner = req.appData.owner || req.appData.owner_username || 'developer';
+    const businessSender = (req.appData.bot_username || `sa_${devOwner}`).toLowerCase().replace(/^@/, '');
 
-    if (!db) throw new Error("DB not ready");
-
-    const participants = [businessSender, cleanRecipient].sort();
-    const chatId = `dm_${participants[0]}_${participants[1]}`;
-    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const messageId = "msg_" + Math.random().toString(36).substring(2, 15);
-
-    const batch = writeBatch(db);
-    const chatRef = doc(db, 'chats', chatId);
-    batch.set(chatRef, {
-      last_message: message || '[Media]',
-      last_message_time: timeStr,
-      updated_at: Date.now()
-    }, { merge: true });
-
-    const msgRef = doc(db, 'messages', messageId);
-    batch.set(msgRef, {
-      id: messageId,
-      chat_id: chatId,
-      created_at: Date.now(),
-      sender: businessSender,
-      text: message || '',
-      type: media_url ? 'image' : 'text',
-      media_url: media_url || null,
-      timestamp: timeStr,
-      read_by: [businessSender]
+    const { chatId, messageId } = await deliverBotChatMessage({
+      senderBotUsername: businessSender,
+      senderAppName: req.appData.app_name || 'Zenoa Bot',
+      recipientUsername: cleanRecipient,
+      messageText: message || '[Media]'
     });
-
-    await batch.commit();
 
     const analyticsRef = doc(db, 'developer_analytics', req.appData.id);
     await setDoc(analyticsRef, {
       messages_sent: increment(1),
       last_activity: Date.now()
-    }, { merge: true });
+    }, { merge: true }).catch(() => {});
 
     // Record Activity Log
     recordDeveloperLog(req.appData.id, {
@@ -871,7 +886,7 @@ app.post('/api/v1/messages/send', authenticateApiKey, async (req: any, res: any)
       status: 'success'
     }).catch(e => console.warn('Record log warn:', e));
 
-    return res.status(200).json({ success: true, message: 'Message sent successfully.' });
+    return res.status(200).json({ success: true, message: 'Message sent successfully.', chat_id: chatId, message_id: messageId });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to send message: ' + (err?.message || 'Server error') });
   }
