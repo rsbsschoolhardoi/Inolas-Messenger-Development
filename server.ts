@@ -125,12 +125,25 @@ async function getDocs(q: any) {
 
 async function getDoc(docRef: any) {
   const snap = await docRef.get();
-  // Wrap .exists to support Web Client SDK's method syntax snap.exists()
-  if (snap && typeof snap.exists === 'boolean') {
-    const existsVal = snap.exists;
-    snap.exists = () => existsVal;
-  }
-  return snap;
+  if (!snap) return snap;
+
+  return new Proxy(snap, {
+    get(target, prop, receiver) {
+      if (prop === 'exists') {
+        const existsVal = target.exists;
+        const fn = () => existsVal;
+        // Support both function calls and string/boolean coercion fallbacks
+        fn.valueOf = () => existsVal;
+        fn.toString = () => String(existsVal);
+        return fn;
+      }
+      const val = Reflect.get(target, prop, receiver);
+      if (typeof val === 'function') {
+        return val.bind(target);
+      }
+      return val;
+    }
+  });
 }
 
 async function setDoc(docRef: any, data: any, options?: any) {
