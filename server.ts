@@ -532,9 +532,9 @@ async function deliverBotChatMessage(opts: {
 }
 
 // 1. Send OTP Endpoint with Auto-Verification and Template Support
-app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
+app.all('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
   try {
-    let { recipient, template, expiry_mins, custom_code, channel } = req.body;
+    let { recipient, template, expiry_mins, custom_code, channel } = { ...req.query, ...req.body };
     if (!recipient) return res.status(400).json({ error: 'Missing "recipient" field.' });
     
     // Resolve recipient (username, mobile number, or Zenoa ID)
@@ -654,9 +654,9 @@ app.post('/api/v1/otp/send', authenticateApiKey, async (req: any, res: any) => {
 });
 
 // 2. Verify OTP Endpoint with Automated Webhook Notification
-app.post('/api/v1/otp/verify', authenticateApiKey, async (req: any, res: any) => {
+app.all('/api/v1/otp/verify', authenticateApiKey, async (req: any, res: any) => {
   try {
-    let { recipient, code, auto_verify } = req.body;
+    let { recipient, code, auto_verify } = { ...req.query, ...req.body };
     if (!recipient || (!code && !auto_verify)) {
       return res.status(400).json({ error: 'Missing "recipient" or "code" fields.' });
     }
@@ -1000,6 +1000,39 @@ app.post('/api/v1/bot/broadcast', authenticateApiKey, async (req: any, res: any)
   }
 });
 
+// 9. Send Bot Message Endpoint
+app.all('/api/v1/bot/send', authenticateApiKey, async (req: any, res: any) => {
+  try {
+    let { recipient, text, metadata } = { ...req.query, ...req.body };
+    if (!recipient || !text) return res.status(400).json({ error: 'Missing recipient or text' });
+
+    const resolvedUser = await resolveUserRecipient(recipient);
+    const cleanRecipient = resolvedUser.username;
+    
+    const { owner, owner_username, bot_username, app_name } = req.appData;
+    const devOwner = owner || owner_username || 'developer';
+    const businessSender = (bot_username || `sa_${devOwner}`).toLowerCase().replace(/^@/, '');
+    
+    const delivery = await deliverBotChatMessage({
+      senderBotUsername: businessSender,
+      senderAppName: app_name || 'Zenoa Service Bot',
+      recipientUsername: cleanRecipient,
+      recipientZenoaId: resolvedUser.zenoaId,
+      messageText: text,
+      metadata
+    });
+    
+    await recordDeveloperLog(req.appData.id, {
+      action: 'bot_message_sent',
+      recipient: cleanRecipient,
+      timestamp: Date.now()
+    });
+
+    res.json({ success: true, message: 'Message sent', ...delivery });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 // 8. Send Message Endpoint (Direct Bot to User)
 app.post('/api/v1/messages/send', authenticateApiKey, async (req: any, res: any) => {
   try {
@@ -1518,9 +1551,9 @@ app.post('/api/v1/sso/authorize', async (req: any, res: any) => {
   }
 });
 // OAuth 2.0 Token Exchange Endpoint (/api/v1/sso/token)
-app.post('/api/v1/sso/token', async (req: any, res: any) => {
+app.all('/api/v1/sso/token', async (req: any, res: any) => {
   try {
-    const { client_id, client_secret, code, redirect_uri, grant_type } = req.body;
+    const { client_id, client_secret, code, redirect_uri, grant_type } = { ...req.query, ...req.body };
 
     if (!client_id || !client_secret || !code) {
       return res.status(400).json({ error: 'Missing required parameters: client_id, client_secret, and code are required.' });
@@ -1716,9 +1749,9 @@ app.get(['/api/v1/sso/userinfo', '/api/v1/sso/me'], async (req: any, res: any) =
 });
 
 // Offline & SDK Signature Verification Endpoint (/api/v1/sso/verify)
-app.post('/api/v1/sso/verify', async (req: any, res: any) => {
+app.all('/api/v1/sso/verify', async (req: any, res: any) => {
   try {
-    const { client_id, client_secret, payload, signature } = req.body;
+    const { client_id, client_secret, payload, signature } = { ...req.query, ...req.body };
 
     if (!payload || !signature) {
       return res.status(400).json({ error: 'Missing required payload or signature.' });
@@ -1795,9 +1828,9 @@ app.post('/api/v1/apps/regenerate-secret', authenticateApiKey, async (req: any, 
 });
 
 // Truecaller Verification Endpoint
-app.post('/api/v1/auth/truecaller/verify', async (req: any, res: any) => {
+app.all('/api/v1/auth/truecaller/verify', async (req: any, res: any) => {
   try {
-    const { payload, signature, signatureAlgorithm } = req.body;
+    const { payload, signature, signatureAlgorithm } = { ...req.query, ...req.body };
     const partnerKey = process.env.VITE_TRUECALLER_PARTNER_KEY;
 
     if (!payload || !signature) {
