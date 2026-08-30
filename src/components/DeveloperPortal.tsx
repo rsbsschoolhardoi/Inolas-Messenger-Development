@@ -32,6 +32,7 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
   // Settings & Edit State
   const [webhookUrl, setWebhookUrl] = useState('');
   const [redirectUris, setRedirectUris] = useState<string[]>([]);
+  const [allowedIps, setAllowedIps] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
   const [isRegeneratingSecret, setIsRegeneratingSecret] = useState(false);
@@ -258,6 +259,7 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
       setWebsiteUrl(selectedApp.website_url || '');
       setAppDescription(selectedApp.app_description || '');
       setRedirectUris(selectedApp.redirect_uris || [window.location.origin + '/auth/sso']);
+      setAllowedIps(selectedApp.allowed_ips || '');
 
       const effectiveApiKey = selectedApp.client_id || selectedApp.api_key;
 
@@ -361,7 +363,8 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
           webhook_url: webhookUrl.trim(),
           redirect_uris: redirectUris,
           website_url: websiteUrl.trim(),
-          app_description: appDescription.trim()
+          app_description: appDescription.trim(),
+          allowed_ips: allowedIps.trim()
         })
       });
 
@@ -1028,6 +1031,19 @@ Body: {
                         placeholder="Describe your application..." 
                         className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs outline-none text-zinc-100 focus:border-zinc-700"
                       />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1">Allowed IP Addresses (Security)</label>
+                      <input 
+                        type="text" 
+                        value={allowedIps}
+                        onChange={e => setAllowedIps(e.target.value)}
+                        placeholder="e.g. 192.168.1.1, 10.0.0.1 (Leave empty to allow all)" 
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs font-mono outline-none text-zinc-100 focus:border-zinc-700"
+                      />
+                      <p className="text-[10px] text-zinc-500 mt-1">
+                        Separate multiple IPs with commas. Only these IP addresses will be able to use your API credentials. Rate limits (30 req/min) apply automatically.
+                      </p>
                     </div>
 
                     <div className="flex justify-end pt-2">

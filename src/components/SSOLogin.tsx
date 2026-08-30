@@ -201,6 +201,13 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
       // 4. Redirect User
       try {
         const finalUrl = new URL(redirectUri, window.location.origin);
+        
+        // If redirectUri points to our own origin without a specific callback pathname, route to /auth/sso so callback UI is shown
+        const isInternalOrigin = finalUrl.origin === window.location.origin && (finalUrl.pathname === '/' || finalUrl.pathname === '' || finalUrl.pathname === '/index.html');
+        if (isInternalOrigin) {
+          finalUrl.pathname = '/auth/sso';
+        }
+
         finalUrl.searchParams.set('code', authCode);
         finalUrl.searchParams.set('payload', base64Payload);
         finalUrl.searchParams.set('signature', signature);
@@ -208,8 +215,12 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         
         window.location.href = finalUrl.toString();
       } catch (urlErr) {
-        const sep = redirectUri.includes('?') ? '&' : '?';
-        window.location.href = `${redirectUri}${sep}code=${encodeURIComponent(authCode)}&payload=${encodeURIComponent(base64Payload)}&signature=${encodeURIComponent(signature)}${state ? `&state=${encodeURIComponent(state)}` : ''}`;
+        let targetUri = redirectUri;
+        if (targetUri === window.location.origin || targetUri === window.location.origin + '/') {
+          targetUri = window.location.origin + '/auth/sso';
+        }
+        const sep = targetUri.includes('?') ? '&' : '?';
+        window.location.href = `${targetUri}${sep}code=${encodeURIComponent(authCode)}&payload=${encodeURIComponent(base64Payload)}&signature=${encodeURIComponent(signature)}${state ? `&state=${encodeURIComponent(state)}` : ''}`;
       }
     } catch (err: any) {
       setError(err?.message || 'Authorization service error');

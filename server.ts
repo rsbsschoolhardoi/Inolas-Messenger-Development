@@ -193,10 +193,14 @@ async function dispatchWebhookEvent(webhookUrl: string, secret: string, eventDat
 }
 
 // Robust Multi-Credential Developer Authentication Middleware
+// In-memory rate limiting state
+const apiRateLimits = new Map<string, { count: number, resetAt: number }>();
+
 const authenticateApiKey = async (req: any, res: any, next: any) => {
   try {
     let keyToLookup = '';
     const authHeader = req.headers.authorization;
+    
     if (authHeader && authHeader.startsWith('Bearer ')) {
       keyToLookup = authHeader.split(' ')[1].trim();
     } else if (req.headers['x-api-key']) {
@@ -211,7 +215,9 @@ const authenticateApiKey = async (req: any, res: any, next: any) => {
       return res.status(401).json({ error: 'Unauthorized: Missing API Key or Client ID. Provide Authorization: Bearer <KEY>' });
     }
 
+    let finalAppData: any = null;
     const match = await lookupOAuthApp(keyToLookup);
+    
     if (!match) {
       // Fallback check developer_apps directly
       if (db) {
@@ -223,20 +229,56 @@ const authenticateApiKey = async (req: any, res: any, next: any) => {
           snap = await getDocs(q);
         }
         if (!snap.empty) {
-          const appDoc = snap.docs[0];
-          req.appData = { id: appDoc.id, ...appDoc.data() };
-          return next();
+          finalAppData = { id: snap.docs[0].id, ...snap.docs[0].data() };
         }
       }
+    } else {
+      finalAppData = { 
+        id: match.id, 
+        ...match.data,
+        owner: match.data.owner || match.data.owner_username,
+        bot_username: match.data.owner || match.data.owner_username || match.data.bot_username || (match.data.app_name ? match.data.app_name.toLowerCase().replace(/[^a-z0-9_]/g, '') + '_bot' : 'zenoa_bot')
+      };
+    }
+
+    if (!finalAppData) {
       return res.status(401).json({ error: 'Unauthorized: Invalid API Key or Client ID.' });
     }
 
-    req.appData = { 
-      id: match.id, 
-      ...match.data,
-      owner: match.data.owner || match.data.owner_username,
-      bot_username: match.data.owner || match.data.owner_username || match.data.bot_username || (match.data.app_name ? match.data.app_name.toLowerCase().replace(/[^a-z0-9_]/g, '') + '_bot' : 'zenoa_bot')
-    };
+    // 1. IP Whitelisting / Domain Security Check
+    if (finalAppData.allowed_ips && finalAppData.allowed_ips.trim() !== '') {
+      const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+      const allowedIpsList = finalAppData.allowed_ips.split(',').map((ip: string) => ip.trim());
+      
+      if (!allowedIpsList.includes(clientIp) && !allowedIpsList.includes('*')) {
+        return res.status(403).json({ 
+          error: `Forbidden: Access denied for IP ${clientIp}. This API Key is restricted to specific IP addresses.` 
+        });
+      }
+    }
+
+    // 2. Rate Limiting Check (Max 30 requests per minute per API key)
+    const now = Date.now();
+    const rateWindowMs = 60 * 1000; // 1 minute
+    const maxRequests = 30; // 30 req / min
+
+    let limitData = apiRateLimits.get(keyToLookup);
+    if (!limitData || now > limitData.resetAt) {
+      limitData = { count: 0, resetAt: now + rateWindowMs };
+    }
+
+    if (limitData.count >= maxRequests) {
+      const retryAfterSeconds = Math.ceil((limitData.resetAt - now) / 1000);
+      res.setHeader('Retry-After', retryAfterSeconds);
+      return res.status(429).json({ 
+        error: `Too Many Requests: Rate limit exceeded. Maximum 30 requests per minute allowed. Try again in ${retryAfterSeconds} seconds.` 
+      });
+    }
+
+    limitData.count += 1;
+    apiRateLimits.set(keyToLookup, limitData);
+
+    req.appData = finalAppData;
     next();
   } catch (err: any) {
     console.error("Auth Middleware Exception:", err);
@@ -902,13 +944,14 @@ app.get('/api/v1/apps/logs', authenticateApiKey, async (req: any, res: any) => {
 // 11. Update Settings
 app.post('/api/v1/apps/update', authenticateApiKey, async (req: any, res: any) => {
   try {
-    const { webhook_url, app_name, redirect_uris, website_url, app_description } = req.body;
+    const { webhook_url, app_name, redirect_uris, website_url, app_description, allowed_ips } = req.body;
     const updateData: any = {};
     if (webhook_url !== undefined) updateData.webhook_url = webhook_url;
     if (app_name !== undefined) updateData.app_name = app_name;
     if (redirect_uris !== undefined) updateData.redirect_uris = redirect_uris;
     if (website_url !== undefined) updateData.website_url = website_url;
     if (app_description !== undefined) updateData.app_description = app_description;
+    if (allowed_ips !== undefined) updateData.allowed_ips = allowed_ips;
 
     if (db) {
       try {
@@ -1025,7 +1068,7 @@ app.post('/api/v1/sso/apps/create', async (req: any, res: any) => {
 // Update SSO Application Settings
 app.post('/api/v1/sso/apps/update', async (req: any, res: any) => {
   try {
-    const { id, client_id, app_name, app_description, website_url, redirect_uris, logo_url, scopes } = req.body;
+    const { id, client_id, app_name, app_description, website_url, redirect_uris, logo_url, scopes, allowed_ips } = req.body;
 
     let targetDocId = id;
     if (!targetDocId && client_id) {
@@ -1044,6 +1087,7 @@ app.post('/api/v1/sso/apps/update', async (req: any, res: any) => {
     if (logo_url !== undefined) updatePayload.logo_url = logo_url.trim();
     if (redirect_uris !== undefined && Array.isArray(redirect_uris)) updatePayload.redirect_uris = redirect_uris;
     if (scopes !== undefined && Array.isArray(scopes)) updatePayload.scopes = scopes;
+    if (allowed_ips !== undefined) updatePayload.allowed_ips = allowed_ips;
 
     // Update in-memory
     if (inMemorySsoApps.has(targetDocId)) {
