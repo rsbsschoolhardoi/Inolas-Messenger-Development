@@ -2608,10 +2608,7 @@ export default function App() {
 
   // Dismiss Toast helper
   const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage(prev => prev === msg ? '' : prev);
-    }, 3000);
+    // Completely disabled as requested by user to never show toast indicators
   };
 
   // Auth Functions
@@ -6823,6 +6820,10 @@ export default function App() {
     );
   }
 
+  // Determine active theme so we can style app header and composer dynamically
+  const currentChatTheme = getThemeById(chatWallpapers[activeChatId] || DEFAULT_THEME_ID);
+  const themeHoverTextClass = currentChatTheme.actionButtonText.split(' ').map(c => `hover:${c}`).join(' ');
+
   // MAIN RUNTIME APPLICATION (Zenoa Messenger)
   return (
 
@@ -6921,25 +6922,11 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Toast Alert popover */}
-      <AnimatePresence>
-        {toastMessage && (
-          <motion.div 
-            key="toast-alert-popover"
-            initial={{ opacity: 0, y: -20, x: '-50%' }}
-            animate={{ opacity: 1, y: 0, x: '-50%' }}
-            exit={{ opacity: 0, y: -20, x: '-50%' }}
-            className="absolute top-5 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 text-white text-xs px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 border border-neutral-800"
-          >
-            <CheckCircle2 className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
-            <span>{toastMessage}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
 
       {/* MODAL: Forward Message */}
       {showForwardModal && (
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fade-in">
           <div className={`w-full max-w-sm rounded-2xl p-5 border shadow-2xl ${themeMode === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-150'}`}>
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-base">Forward message</h3>
@@ -6979,7 +6966,7 @@ export default function App() {
 
       {/* MODAL: Delete Message */}
       {showDeleteModal && (
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fade-in">
           <div className={`w-full max-w-xs rounded-2xl p-5 border shadow-2xl ${themeMode === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-150'}`}>
             <div className="flex items-center gap-2 mb-3 text-neutral-900 dark:text-neutral-100">
               <AlertTriangle className="h-5 w-5" />
@@ -6997,7 +6984,7 @@ export default function App() {
 
       {/* MODAL: Warning Confirmation Dialog for Sensitive Actions */}
       {confirmModal.isOpen && (
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fade-in">
           <div className={`w-full max-w-sm rounded-2xl p-5 border shadow-2xl ${themeMode === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-150'}`}>
             <div className="flex items-start gap-3.5 mb-4">
               <div className={`p-2.5 rounded-2xl shrink-0 ${
@@ -7417,10 +7404,10 @@ export default function App() {
             <div className={`${mobileShowChat ? 'flex' : 'hidden'} md:flex flex-col flex-1 h-full relative`}>
               {activeChat ? (
                 <>
-                  {/* Chat View Header */}
-              <div className="flex items-center justify-between h-16 px-4 border-b border-slate-200/80 dark:border-slate-800/80 shrink-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-md">
+                  {/* Chat View Header - Adoptive to Selected Theme */}
+              <div className={`flex items-center justify-between h-16 px-4 border-b shrink-0 transition-all duration-300 ${currentChatTheme.headerBg} ${currentChatTheme.headerBorder}`}>
                 <div className="flex items-center gap-3 min-w-0">
-                  <button onClick={() => setMobileShowChat(false)} className="md:hidden p-2 -ml-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronLeft className="h-5 w-5" /></button>
+                  <button onClick={() => setMobileShowChat(false)} className="md:hidden p-2 -ml-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-current transition-all"><ChevronLeft className="h-5 w-5" /></button>
                   <div 
                     className="relative shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
                     onClick={() => {
@@ -7451,12 +7438,12 @@ export default function App() {
                           }
                         }
                       }} 
-                      className="font-bold text-sm cursor-pointer hover:underline truncate flex items-center gap-1.5 text-slate-900 dark:text-white"
+                      className={`font-bold text-sm cursor-pointer hover:underline truncate flex items-center gap-1.5 transition-all duration-300 ${currentChatTheme.headerText}`}
                     >
                       {activeChat.type !== 'group' && activeChat?.username && chatNicknames[activeChat?.username] ? (
                         <>
                           <span>{chatNicknames[activeChat?.username]}</span>
-                          <span className="text-xs text-slate-400 font-normal">({activeChat.name})</span>
+                          <span className="text-xs opacity-70 font-normal">({activeChat.name})</span>
                         </>
                       ) : (
                         <span>{activeChat.name}</span>
@@ -7465,12 +7452,12 @@ export default function App() {
                         <PurpleVerifiedBadge size="xs"  />
                       )}
                       {activeChat.type === 'group' && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-800/40">
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-indigo-50/20 dark:bg-indigo-950/20 text-current border border-current/20">
                           Group
                         </span>
                       )}
                     </h3>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                    <p className={`text-[10px] truncate transition-all duration-300 ${currentChatTheme.headerSubtext}`}>
                       {activeChat.type === 'group' ? (
                         <span>
                           {(activeChat.participants || []).length} members \u2022 {
@@ -7519,14 +7506,14 @@ export default function App() {
                     <>
                       <button 
                         onClick={() => handleStartCall('voice')} 
-                        className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-all cursor-pointer active:scale-95" 
+                        className={`p-2 rounded-xl text-neutral-500 dark:text-neutral-400 transition-all cursor-pointer active:scale-95 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`} 
                         title="Voice Call"
                       >
                         <Phone className="h-4 w-4" />
                       </button>
                       <button 
                         onClick={() => handleStartCall('video')} 
-                        className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-all cursor-pointer active:scale-95" 
+                        className={`p-2 rounded-xl text-neutral-500 dark:text-neutral-400 transition-all cursor-pointer active:scale-95 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`} 
                         title="Video Call"
                       >
                         <Video className="h-4 w-4" />
@@ -7538,7 +7525,7 @@ export default function App() {
                   {activeChat.type === 'group' ? (
                     <button
                       onClick={() => setShowGroupDetailsModal(true)}
-                      className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer mr-1"
+                      className={`p-2 rounded-xl text-neutral-500 dark:text-neutral-400 transition-all cursor-pointer mr-1 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`}
                       title="Group Information & Members"
                     >
                       <Users className="h-4 w-4" />
@@ -7546,7 +7533,7 @@ export default function App() {
                   ) : activeChat?.username && activeChat?.username !== userUsername && !isServiceAccount(users[activeChat?.username], activeChat?.username) && !users[activeChat?.username]?.followers?.includes(userUsername) && (
                     <button
                       onClick={() => activeChat?.username && handleFollow(users[activeChat?.username.toLowerCase()])}
-                      className="px-3.5 py-1.5 rounded-xl text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-xs shadow-indigo-500/20 transition-all cursor-pointer mr-1 active:scale-95"
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow-md shadow-black/5 transition-all cursor-pointer mr-1 active:scale-95 ${currentChatTheme.accentBg} ${currentChatTheme.accentText}`}
                       title="Click to Follow"
                     >
                       Follow
@@ -7556,14 +7543,26 @@ export default function App() {
                   {/* Search inside chat button */}
                   <button 
                     onClick={() => setShowMsgSearchInChat(!showMsgSearchInChat)} 
-                    className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-all cursor-pointer active:scale-95" 
+                    className={`p-2 rounded-xl transition-all cursor-pointer active:scale-95 ${
+                      showMsgSearchInChat 
+                        ? `${currentChatTheme.actionButtonActiveBg}` 
+                        : `text-neutral-500 dark:text-neutral-400 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`
+                    }`}
                     title="Search Messages"
                   >
                     <Search className="h-4 w-4" />
                   </button>
 
                   {/* 3-Dot Options */}
-                  <button onClick={() => setShowChatCustomizationSheet(true)} className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer" title="Options">
+                  <button 
+                    onClick={() => setShowChatCustomizationSheet(true)} 
+                    className={`p-2 rounded-xl transition-all cursor-pointer ${
+                      showChatCustomizationSheet 
+                        ? `${currentChatTheme.actionButtonActiveBg}` 
+                        : `text-neutral-500 dark:text-neutral-400 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`
+                    }`}
+                    title="Options"
+                  >
                     <MoreVertical className="h-4 w-4" />
                   </button>
                 </div>
@@ -7715,8 +7714,8 @@ export default function App() {
             );
           })()}
 
-              {/* Composer Input Area Controls OR Blocked User Banner */}
-              <div className="p-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] md:pb-3 border-t border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 shrink-0 space-y-2 min-w-0">
+              {/* Composer Input Area Controls OR Blocked User Banner - Theme Adaptive */}
+              <div className={`p-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] md:pb-3 shrink-0 space-y-2 min-w-0 transition-all duration-300 ${currentChatTheme.composerBorder} ${currentChatTheme.composerBg}`}>
                 {activeChat && blockedUsers.includes(activeChat?.username) ? (
                   <div className="p-4 bg-neutral-100 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 rounded-2xl flex flex-col items-center justify-center gap-3 text-center animate-fade-in">
                     <div className="flex items-center gap-2 text-neutral-900 dark:text-neutral-100 font-bold text-sm">
@@ -8077,24 +8076,28 @@ export default function App() {
                         className="p-2 rounded-xl bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-300 transition-colors"
                         title="Preview Audio"
                       >
-                        {isPlayingVoicePreview ? <Pause className="h-4 w-4 text-indigo-600 dark:text-indigo-400" /> : <Play className="h-4 w-4 fill-current text-indigo-600 dark:text-indigo-400" />}
+                        {isPlayingVoicePreview ? <Pause className={`h-4 w-4 ${currentChatTheme.actionButtonText}`} /> : <Play className={`h-4 w-4 fill-current ${currentChatTheme.actionButtonText}`} />}
                       </button>
                     )}
 
                     <button 
                       onClick={handleSendVoiceMessage} 
-                      className="p-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/20 transition-all active:scale-95 flex items-center gap-1.5 font-bold text-xs cursor-pointer"
+                      className={`p-2.5 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-1.5 font-bold text-xs cursor-pointer ${currentChatTheme.accentBg} ${currentChatTheme.accentText}`}
                     >
                       <span>Send Voice</span>
                       <Send className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 p-1.5 pl-2.5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-sm focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all">
+                  <div className={`flex items-center gap-2 p-1.5 pl-2.5 rounded-3xl shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all duration-300 ${currentChatTheme.innerInputBg} ${currentChatTheme.innerInputBorder}`}>
                     {/* Single Emoji, GIF & Sticker Button at the START (Left) of Input Box */}
                     <button 
                       onClick={() => { setShowUnifiedPicker(prev => !prev); setShowAttachMenu(false); }} 
-                      className={`p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${showUnifiedPicker ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50' : 'text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400'}`} 
+                      className={`p-2 rounded-full transition-all duration-300 cursor-pointer ${
+                        showUnifiedPicker 
+                          ? `${currentChatTheme.actionButtonActiveBg}` 
+                          : `text-current opacity-60 hover:opacity-100 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`
+                      }`} 
                       title="Emojis, GIFs & Stickers"
                     >
                       <Smile className="h-5 w-5" />
@@ -8103,7 +8106,11 @@ export default function App() {
                     {/* Attachment Button */}
                     <button 
                       onClick={() => { setShowAttachMenu(prev => !prev); setShowUnifiedPicker(false); }} 
-                      className={`p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${showAttachMenu ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`} 
+                      className={`p-2 rounded-full transition-all duration-300 cursor-pointer ${
+                        showAttachMenu 
+                          ? `${currentChatTheme.actionButtonActiveBg}` 
+                          : `text-current opacity-60 hover:opacity-100 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`
+                      }`} 
                       title="Attach File / Media"
                     >
                       <Paperclip className="h-5 w-5" />
@@ -8116,14 +8123,14 @@ export default function App() {
                       onChange={e => handleComposerChange(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
                       placeholder="Type a message..."
-                      className="flex-1 px-2 py-1.5 text-sm bg-transparent border-0 outline-none placeholder:text-slate-400 text-slate-900 dark:text-slate-100 min-w-0"
+                      className={`flex-1 px-2 py-1.5 text-sm bg-transparent border-0 outline-none placeholder-current/40 min-w-0 transition-all duration-300 ${currentChatTheme.innerInputText}`}
                     />
 
                     {/* Action button: Send or Voice Recording */}
                     {composerText.trim() ? (
                       <button 
                         onClick={handleSendMessage} 
-                        className="p-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-md shadow-indigo-600/20 transition-transform active:scale-95 shrink-0 cursor-pointer"
+                        className={`p-2.5 rounded-full shadow-md transition-transform active:scale-95 shrink-0 cursor-pointer ${currentChatTheme.accentBg} ${currentChatTheme.accentText}`}
                         title="Send Message"
                       >
                         <Send className="h-4 w-4" />
@@ -8131,7 +8138,7 @@ export default function App() {
                     ) : (
                       <button 
                         onClick={startVoiceRecording} 
-                        className="p-2.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors shrink-0 cursor-pointer" 
+                        className={`p-2.5 rounded-full transition-colors shrink-0 cursor-pointer text-slate-400 dark:text-slate-500 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`} 
                         title="Record Voice Note"
                       >
                         <Mic className="h-4.5 w-4.5" />

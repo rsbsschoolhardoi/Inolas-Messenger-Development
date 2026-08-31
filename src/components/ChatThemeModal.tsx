@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Check, Sparkles, Heart, Cat, Palette, MessageSquare, Sun, Moon, Lock } from 'lucide-react';
+import { X, Check, Sparkles, Heart, Cat, Palette, MessageSquare, Briefcase, Baby, Sun, Moon, Lock } from 'lucide-react';
 import { CHAT_THEMES, ChatTheme, getThemeById } from '../chatThemes';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -20,7 +20,7 @@ export const ChatThemeModal: React.FC<ChatThemeModalProps> = ({
   onClose,
   onSelectTheme
 }) => {
-  const [activeCategory, setActiveCategory] = useState<'all' | 'minimal' | 'love' | 'animals' | 'classic' | 'aesthetic'>('all');
+  const [activeCategory, setActiveCategory] = useState<'all' | 'minimal' | 'love' | 'animals' | 'professional' | 'kids' | 'aesthetic' | 'classic'>('all');
   const [selectedThemeId, setSelectedThemeId] = useState<string>(currentThemeId || 'minimal_clean_slate');
   const [applyToAll, setApplyToAll] = useState<boolean>(false);
 
@@ -29,6 +29,8 @@ export const ChatThemeModal: React.FC<ChatThemeModalProps> = ({
     { id: 'minimal', label: 'Minimal & Zen', icon: Sparkles },
     { id: 'love', label: 'Love & Hearts', icon: Heart },
     { id: 'animals', label: 'Cute Animals', icon: Cat },
+    { id: 'professional', label: 'Professional', icon: Briefcase },
+    { id: 'kids', label: 'Kids World', icon: Baby },
     { id: 'classic', label: 'WhatsApp Classic', icon: MessageSquare },
   ];
 
