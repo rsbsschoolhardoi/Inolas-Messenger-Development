@@ -7,6 +7,7 @@ import {
   ShieldCheck, Webhook, Radio, Sliders, Zap, Download, AlertTriangle, CheckCircle2
 } from 'lucide-react';
 import { UserData } from '../types';
+import { useBranding } from '../brandingUtils';
 
 interface DeveloperPortalProps {
   currentUser: UserData;
@@ -16,6 +17,8 @@ interface DeveloperPortalProps {
 type TabType = 'apps' | 'otp' | 'webhooks' | 'broadcast' | 'sso' | 'analytics' | 'logs' | 'docs' | 'settings';
 
 export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, onBack }) => {
+  const branding = useBranding();
+  const activeLogo = branding.dev_console_logo || branding.public_logo || branding.oauth_logo;
   const [apps, setApps] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('apps');
@@ -152,12 +155,16 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
           const senderBot = (selectedApp.bot_username || `sa_${currentUser?.username || 'developer'}`).toLowerCase().replace(/^@/, '');
           const senderAppName = selectedApp.name || selectedApp.app_name || 'Service Account';
 
+          const nowTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
           // Format OTP message
-          let messageText = `🔒 Verification Code: **${generatedCode}**\n\nUse this code to verify your action for **${senderAppName}**. This code expires in 10 minutes. Do not share it with anyone.`;
-          if (testOtpTemplate === 'security_code') {
-            messageText = `🛡️ Security Alert from **${senderAppName}**\n\nYour one-time authorization code is: **${generatedCode}**\nValid for 10 minutes.`;
-          } else if (testOtpTemplate === 'login_pin') {
-            messageText = `🔑 Login Authorization for **${senderAppName}**\n\nYour instant login PIN is: **${generatedCode}**\nNever share this code with anyone.`;
+          let messageText = `VERIFICATION PASSCODE: ${generatedCode}\n\nYour one-time authentication passcode for ${senderAppName} is: ${generatedCode}\n\nValidity: 10 minutes\nTriggered At: ${nowTimeStr}\n\nSECURITY NOTICE: Do not share this authentication code with anyone. Zenoa and ${senderAppName} representatives will never ask for your one-time code.`;
+          if (testOtpTemplate === 'security_code' || testOtpTemplate === '2fa_auth') {
+            messageText = `SIGN-IN AUTHORIZATION: ${generatedCode}\n\nA two-factor authentication passcode was requested for your account on ${senderAppName}.\n\nPasscode: ${generatedCode}\nValidity: 10 minutes\nTriggered At: ${nowTimeStr}\n\nSECURITY NOTICE: If you did not initiate this authentication request, please secure your account immediately.`;
+          } else if (testOtpTemplate === 'login_pin' || testOtpTemplate === 'password_reset') {
+            messageText = `PASSWORD RESET PASSCODE: ${generatedCode}\n\nA password reset request has been initiated for your ${senderAppName} account.\n\nReset Code: ${generatedCode}\nValidity: 10 minutes\nTriggered At: ${nowTimeStr}\n\nSECURITY NOTICE: If you did not request a password reset, you may safely disregard this message.`;
+          } else if (testOtpTemplate === 'transaction_auth') {
+            messageText = `TRANSACTION AUTHORIZATION: ${generatedCode}\n\nAuthorize your pending transaction for ${senderAppName} using the one-time passcode below:\n\nPasscode: ${generatedCode}\nValidity: 10 minutes\nTriggered At: ${nowTimeStr}\n\nSECURITY NOTICE: Verify transaction details prior to confirming. Never share this code.`;
           }
 
           // Write chat + message
@@ -1225,8 +1232,12 @@ curl -X POST "${origin}/api/v1/sso/token" \\
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2.5">
-            <div className="bg-zinc-900 p-2 rounded-xl border border-zinc-800">
-              <Terminal className="h-4 w-4 text-zinc-100" />
+            <div className="bg-zinc-900 p-1.5 rounded-xl border border-zinc-800 h-8 w-8 flex items-center justify-center overflow-hidden">
+              {activeLogo ? (
+                <img src={activeLogo} alt="Logo" className="h-full w-full object-contain" />
+              ) : (
+                <Terminal className="h-4 w-4 text-zinc-100" />
+              )}
             </div>
             <div>
               <h1 className="text-sm font-bold text-zinc-100 tracking-tight leading-none">Developer Console</h1>

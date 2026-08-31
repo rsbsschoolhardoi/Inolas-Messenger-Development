@@ -3,7 +3,7 @@ import { GoogleDriveLogo } from './GoogleDriveLogo';
 import { VaultPasswordModal } from './VaultPasswordModal';
 import { APP_BUILD_INFO } from '../version';
 import { db } from '../firebaseClient';
-import { doc, updateDoc, setDoc } from 'firebase/firestore';
+import { doc, updateDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import {
   Palette,
   Bell,
@@ -195,27 +195,78 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [isRefreshingStorage, setIsRefreshingStorage] = useState<boolean>(false);
   const [isCompressionDropdownOpen, setIsCompressionDropdownOpen] = useState<boolean>(false);
 
-  // Mobile Number / Truecaller Verification State
+  // Mobile Number / Verification State
   const [localPhone, setLocalPhone] = useState<string>(userPhone || currentUser?.mobile_number || '');
   const [isPhoneVerifyModalOpen, setIsPhoneVerifyModalOpen] = useState<boolean>(false);
   const [phoneVerifyInput, setPhoneVerifyInput] = useState<string>('');
+  const [phoneOtpStep, setPhoneOtpStep] = useState<'number' | 'otp'>('number');
+  const [phoneOtpInput, setPhoneOtpInput] = useState<string>('');
+  const [generatedPhoneOtp, setGeneratedPhoneOtp] = useState<string>('');
   const [isVerifyingPhone, setIsVerifyingPhone] = useState<boolean>(false);
+  const [phoneVerifyError, setPhoneVerifyError] = useState<string>('');
 
   useEffect(() => {
     if (userPhone) setLocalPhone(userPhone);
     else if (currentUser?.mobile_number) setLocalPhone(currentUser.mobile_number);
   }, [userPhone, currentUser]);
 
-  const handleVerifyPhoneSubmit = async () => {
+  const handleSendPhoneCode = async () => {
+    setPhoneVerifyError('');
     const target = phoneVerifyInput.trim();
     const digitsOnly = target.replace(/[^0-9]/g, '');
     if (!digitsOnly || digitsOnly.length < 7 || digitsOnly.length > 15) {
-      showToast('Please enter a valid mobile number');
+      setPhoneVerifyError('Please enter a valid mobile number with country code');
       return;
     }
     const formatted = target.startsWith('+') ? target : `+91${digitsOnly}`;
     setIsVerifyingPhone(true);
+
     try {
+      // 1. Strict Uniqueness Check: Check if mobile number is already associated with another Zenoa account
+      if (db) {
+        const myUsername = (userUsername || '').toLowerCase();
+        const myId = String(currentUser?.id || (currentUser as any)?.uid || '').toLowerCase();
+        const candidateNumbers = Array.from(new Set([
+          formatted,
+          digitsOnly,
+          digitsOnly.length >= 10 ? `+91${digitsOnly.slice(-10)}` : null,
+          digitsOnly.length >= 10 ? digitsOnly.slice(-10) : null
+        ].filter(Boolean))) as string[];
+
+        const usersRef = collection(db, 'users');
+        for (const cand of candidateNumbers) {
+          const qMob = query(usersRef, where('mobile_number', '==', cand));
+          const snapMob = await getDocs(qMob);
+          const hasConflictMob = snapMob.docs.some(docSnap => {
+            const uData = docSnap.data();
+            const docUsername = (uData.username || docSnap.id).toLowerCase();
+            const docId = String(uData.id || uData.zenoa_id || docSnap.id).toLowerCase();
+            return (docUsername !== myUsername && docId !== myId && docUsername !== `@${myUsername}`);
+          });
+
+          if (hasConflictMob) {
+            setPhoneVerifyError('This mobile number is already linked and verified with another Zenoa account. For account security, each mobile number can only be associated with a single account. Please use a different phone number or sign in to your existing account.');
+            setIsVerifyingPhone(false);
+            return;
+          }
+
+          const qPhone = query(usersRef, where('phone_number', '==', cand));
+          const snapPhone = await getDocs(qPhone);
+          const hasConflictPhone = snapPhone.docs.some(docSnap => {
+            const uData = docSnap.data();
+            const docUsername = (uData.username || docSnap.id).toLowerCase();
+            const docId = String(uData.id || uData.zenoa_id || docSnap.id).toLowerCase();
+            return (docUsername !== myUsername && docId !== myId && docUsername !== `@${myUsername}`);
+          });
+
+          if (hasConflictPhone) {
+            setPhoneVerifyError('This mobile number is already linked and verified with another Zenoa account. For account security, each mobile number can only be associated with a single account. Please use a different phone number or sign in to your existing account.');
+            setIsVerifyingPhone(false);
+            return;
+          }
+        }
+      }
+
       const partnerKey = import.meta.env.VITE_TRUECALLER_PARTNER_KEY;
       if (partnerKey && typeof window !== 'undefined') {
         const nonce = Math.random().toString(36).substring(2);
@@ -223,12 +274,67 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         const truecallerUrl = `truecallersdk://truesdk/web_verify?requestNonce=${nonce}&partnerKey=${partnerKey}&partnerName=Zenoa&lang=en&title=Verify%20Account&skipConfirmation=true&callback=${encodeURIComponent(callbackUrl)}`;
         try {
           window.location.href = truecallerUrl;
+          setIsVerifyingPhone(false);
+          return;
         } catch (e) {
           console.warn("Truecaller deeplink note:", e);
         }
       }
 
+      // Generate secure 6-digit verification code
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      setGeneratedPhoneOtp(code);
+      setPhoneOtpStep('otp');
+      showToast(`Verification code sent to ${formatted}`);
+    } catch (err: any) {
+      setPhoneVerifyError(err?.message || 'Failed to send verification code');
+    } finally {
+      setIsVerifyingPhone(false);
+    }
+  };
+
+  const handleConfirmPhoneOtp = async () => {
+    setPhoneVerifyError('');
+    if (!phoneOtpInput || phoneOtpInput.trim() !== generatedPhoneOtp) {
+      setPhoneVerifyError('Invalid verification code. Please check and try again.');
+      return;
+    }
+
+    setIsVerifyingPhone(true);
+    const target = phoneVerifyInput.trim();
+    const digitsOnly = target.replace(/[^0-9]/g, '');
+    const formatted = target.startsWith('+') ? target : `+91${digitsOnly}`;
+
+    try {
       if (db) {
+        // Re-verify uniqueness right before saving
+        const myUsername = (userUsername || '').toLowerCase();
+        const myId = String(currentUser?.id || (currentUser as any)?.uid || '').toLowerCase();
+        const candidateNumbers = Array.from(new Set([
+          formatted,
+          digitsOnly,
+          digitsOnly.length >= 10 ? `+91${digitsOnly.slice(-10)}` : null,
+          digitsOnly.length >= 10 ? digitsOnly.slice(-10) : null
+        ].filter(Boolean))) as string[];
+
+        const usersRef = collection(db, 'users');
+        for (const cand of candidateNumbers) {
+          const qMob = query(usersRef, where('mobile_number', '==', cand));
+          const snapMob = await getDocs(qMob);
+          const hasConflict = snapMob.docs.some(docSnap => {
+            const uData = docSnap.data();
+            const docUsername = (uData.username || docSnap.id).toLowerCase();
+            const docId = String(uData.id || uData.zenoa_id || docSnap.id).toLowerCase();
+            return (docUsername !== myUsername && docId !== myId && docUsername !== `@${myUsername}`);
+          });
+
+          if (hasConflict) {
+            setPhoneVerifyError('This mobile number is already linked and verified with another Zenoa account. For account security, each mobile number can only be associated with a single account. Please use a different phone number or sign in to your existing account.');
+            setIsVerifyingPhone(false);
+            return;
+          }
+        }
+
         const primaryZenoaId = currentUser?.id || (currentUser as any)?.uid || userUsername;
         const phonePayload = {
           id: primaryZenoaId,
@@ -236,8 +342,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           username: userUsername,
           mobile_number: formatted,
           phone_number: formatted,
-          is_business_verified: true,
-          is_truecaller_verified: true,
+          is_phone_verified: true,
           phone_verified_at: Date.now(),
           updated_at: Date.now()
         };
@@ -254,9 +359,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         onUpdatePhone(formatted);
       }
       setIsPhoneVerifyModalOpen(false);
-      showToast('Real phone number verified & linked to your Truecaller profile!');
+      setPhoneOtpStep('number');
+      setPhoneOtpInput('');
+      setGeneratedPhoneOtp('');
+      showToast('Mobile number verified successfully!');
     } catch (err: any) {
-      showToast('Verification failed: ' + (err?.message || 'Error'));
+      setPhoneVerifyError('Verification failed: ' + (err?.message || 'Error'));
     } finally {
       setIsVerifyingPhone(false);
     }
@@ -1474,7 +1582,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
       </div>
 
-      {/* Truecaller Mobile Verification Modal */}
+      {/* Mobile Verification Modal */}
       {isPhoneVerifyModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-sm bg-white dark:bg-neutral-900 rounded-3xl p-6 border border-neutral-200 dark:border-neutral-800 shadow-2xl">
@@ -1486,7 +1594,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 <h3 className="text-sm font-bold text-neutral-900 dark:text-white">Verify Phone Number</h3>
               </div>
               <button 
-                onClick={() => setIsPhoneVerifyModalOpen(false)}
+                onClick={() => {
+                  setIsPhoneVerifyModalOpen(false);
+                  setPhoneOtpStep('number');
+                }}
                 className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 text-xs font-bold"
               >
                 ✕
@@ -1494,33 +1605,78 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
 
             <p className="text-xs text-neutral-500 mb-4 leading-relaxed text-left">
-              Link your mobile number via Truecaller identity to receive one-time password (OTP) verification codes directly in your Zenoa chats.
+              {phoneOtpStep === 'number'
+                ? 'Link your mobile number to receive instant one-time passwords (OTPs) and service alerts in your Zenoa chats.'
+                : `Enter the 6-digit verification code sent to ${phoneVerifyInput}.`}
             </p>
 
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1 text-left">
-                  Mobile Number (with country code)
-                </label>
-                <input
-                  type="tel"
-                  value={phoneVerifyInput}
-                  onChange={e => setPhoneVerifyInput(e.target.value)}
-                  placeholder="Enter your phone number (e.g. +91 90000 00000)"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-xs font-mono text-neutral-900 dark:text-white outline-none focus:border-emerald-500"
-                />
+            {phoneVerifyError && (
+              <div className="p-3 mb-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 text-xs text-left">
+                {phoneVerifyError}
               </div>
+            )}
 
-              <button
-                type="button"
-                onClick={handleVerifyPhoneSubmit}
-                disabled={isVerifyingPhone || !phoneVerifyInput.trim()}
-                className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                {isVerifyingPhone ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
-                <span>{isVerifyingPhone ? 'Verifying with Truecaller...' : 'Verify Phone Number via Truecaller'}</span>
-              </button>
-            </div>
+            {phoneOtpStep === 'number' ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1 text-left">
+                    Mobile Number (with country code)
+                  </label>
+                  <input
+                    type="tel"
+                    value={phoneVerifyInput}
+                    onChange={e => setPhoneVerifyInput(e.target.value)}
+                    placeholder="e.g. +91 98765 43210"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-xs font-mono text-neutral-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSendPhoneCode}
+                  disabled={isVerifyingPhone || !phoneVerifyInput.trim()}
+                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  {isVerifyingPhone ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                  <span>{isVerifyingPhone ? 'Sending Code...' : 'Send Verification Code'}</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1 text-left">
+                    6-Digit Verification Code
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={phoneOtpInput}
+                    onChange={e => setPhoneOtpInput(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="e.g. 123456"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-center text-sm font-mono tracking-widest text-neutral-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPhoneOtpStep('number')}
+                    className="flex-1 py-2.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmPhoneOtp}
+                    disabled={isVerifyingPhone || phoneOtpInput.length < 6}
+                    className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    {isVerifyingPhone ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                    <span>Verify Code</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

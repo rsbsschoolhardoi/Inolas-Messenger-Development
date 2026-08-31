@@ -22,6 +22,8 @@ export interface UserData {
   is_verified?: boolean;
   verified_type?: 'purple' | 'official' | 'system' | null;
   is_service_account?: boolean;
+  is_business_account?: boolean;
+  is_official?: boolean;
   service_category?: string;
   is_banned?: boolean;
   ban_reason?: string;
@@ -186,6 +188,7 @@ export interface Message {
   forwarded?: boolean;
   pinned?: boolean;
   starred?: boolean;
+  status?: 'sent' | 'delivered' | 'read';
   expires_at?: number;
 }
 

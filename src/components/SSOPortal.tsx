@@ -7,6 +7,7 @@ import {
   FileCode, CheckSquare, X
 } from 'lucide-react';
 import { UserData } from '../types';
+import { useBranding } from '../brandingUtils';
 import { apiFetch } from '../lib/fetchInterceptor';
 import { collection, query, where, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebaseClient';
@@ -70,6 +71,8 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
   onBack,
   onOpenConsentPreview
 }) => {
+  const branding = useBranding();
+  const activeLogo = branding.dev_console_logo || branding.public_logo || branding.oauth_logo;
   const [activeTab, setActiveTab] = useState<'apps' | 'create' | 'playground' | 'docs'>('apps');
   const [apps, setApps] = useState<SSOApp[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -532,18 +535,22 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
               </button>
             )}
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-zinc-800 dark:bg-zinc-900 border border-zinc-700 flex items-center justify-center text-white shadow-md shadow-sky-500/20 font-black text-lg">
-                Z
+              <div className="w-9 h-9 rounded-xl bg-zinc-800 dark:bg-zinc-900 border border-zinc-700 flex items-center justify-center text-white shadow-md shadow-sky-500/20 font-black text-lg overflow-hidden p-1">
+                {activeLogo ? (
+                  <img src={activeLogo} alt="Logo" className="h-full w-full object-contain" />
+                ) : (
+                  <span>Z</span>
+                )}
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h1 className="font-bold text-lg leading-none">Zenoa SSO Platform</h1>
+                  <h1 className="font-bold text-lg leading-none">{branding.app_name || 'Zenoa'} SSO Platform</h1>
                   <span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase tracking-wider bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
                     OAuth 2.0 / OIDC
                   </span>
                 </div>
                 <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                  "Continue with Zenoa" Identity Provider for any third-party app
+                  "Continue with {branding.app_name || 'Zenoa'}" Identity Provider for any third-party app
                 </p>
               </div>
             </div>

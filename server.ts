@@ -548,17 +548,21 @@ async function deliverBotChatMessage(opts: {
 
   if (db && botClean && recClean) {
     try {
-      // 1. Ensure Bot account exists in users collection so Zenoa Messenger renders verified avatar & badge
+      // 1. Check if this is an official Zenoa platform service or a Developer Business bot
+      const isOfficialZenoaAccount = ['zenoa', 'sa_zenoa', 'zenoa_official', 'zenoa_security', 'zenoa_auth'].includes(botClean) || botClean.startsWith('zenoa_');
+      
       const botDocRef = doc(db, 'users', botClean);
       const botSnap = await getDoc(botDocRef);
       if (!botSnap.exists()) {
         await setDoc(botDocRef, {
           username: botClean,
-          display_name: senderAppName ? `${senderAppName}` : 'Service Account',
-          bio: 'Verified Service Account • End-to-End Encrypted',
+          display_name: senderAppName ? `${senderAppName}` : (isOfficialZenoaAccount ? 'Zenoa Security' : 'Business Account'),
+          bio: isOfficialZenoaAccount ? 'Official Zenoa Account • Security & Verification' : 'Business Service Account • End-to-End Encrypted',
           is_service_account: true,
-          is_business_account: true,
-          is_verified: true,
+          is_business_account: !isOfficialZenoaAccount,
+          is_official: isOfficialZenoaAccount,
+          is_verified: isOfficialZenoaAccount, // Official Zenoa accounts stay verified; Developer Console business accounts are not auto-verified
+          verified_type: isOfficialZenoaAccount ? 'purple' : null,
           avatar_seed: botClean,
           registered_at: Date.now()
         }, { merge: true });
@@ -679,15 +683,18 @@ app.post(['/api/v1/otp/send', '/v1/otp/send'], authenticateApiKey, async (req: a
     // Compose clean message
     const templateType = req.body?.template_type ?? req.body?.template ?? req.body?.type ?? 'standard_otp';
     const customMessage = req.body?.custom_message ?? req.body?.message;
-    let templateText = customMessage || `Your verification code for {app_name} is {code}. Valid for {expiry} minutes. Do not share this code.`;
+    let templateText = customMessage;
+    const nowTimeFormatted = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     
     if (!customMessage) {
-      if (templateType === '2fa_auth') {
-        templateText = `Sign-in verification code for {app_name}: {code}. Valid for {expiry} minutes.`;
-      } else if (templateType === 'password_reset') {
-        templateText = `Password reset code for {app_name}: {code}. Valid for {expiry} minutes.`;
+      if (templateType === '2fa_auth' || templateType === 'security_code') {
+        templateText = `SIGN-IN AUTHORIZATION: {code}\n\nA two-factor authentication passcode was requested for your account on {app_name}.\n\nPasscode: {code}\nValidity: {expiry} minutes\nTriggered At: {timestamp}\n\nSECURITY NOTICE: If you did not initiate this authentication request, please secure your account immediately.`;
+      } else if (templateType === 'password_reset' || templateType === 'login_pin') {
+        templateText = `PASSWORD RESET PASSCODE: {code}\n\nA password reset request has been initiated for your {app_name} account.\n\nReset Code: {code}\nValidity: {expiry} minutes\nTriggered At: {timestamp}\n\nSECURITY NOTICE: If you did not request a password reset, you may safely disregard this message.`;
       } else if (templateType === 'transaction_auth') {
-        templateText = `Payment verification code for {app_name}: {code}. Valid for {expiry} minutes.`;
+        templateText = `TRANSACTION AUTHORIZATION: {code}\n\nAuthorize your pending transaction for {app_name} using the one-time passcode below:\n\nPasscode: {code}\nValidity: {expiry} minutes\nTriggered At: {timestamp}\n\nSECURITY NOTICE: Verify transaction details prior to confirming. Never share this code.`;
+      } else {
+        templateText = `VERIFICATION PASSCODE: {code}\n\nYour one-time authentication passcode for {app_name} is: {code}\n\nValidity: {expiry} minutes\nTriggered At: {timestamp}\n\nSECURITY NOTICE: Do not share this authentication code with anyone. Zenoa and {app_name} representatives will never ask for your one-time code.`;
       }
     }
 
@@ -696,7 +703,8 @@ app.post(['/api/v1/otp/send', '/v1/otp/send'], authenticateApiKey, async (req: a
       .replace(/{otp_code}/g, otpCode)
       .replace(/{app_name}/g, app_name || 'Application')
       .replace(/{expiry}/g, String(expiryMinutes))
-      .replace(/{expiry_mins}/g, String(expiryMinutes));
+      .replace(/{expiry_mins}/g, String(expiryMinutes))
+      .replace(/{timestamp}/g, nowTimeFormatted);
 
     // Deliver via Direct Service Account Message to recipient's chat inbox
     const deliveryResult = await deliverBotChatMessage({
@@ -1601,6 +1609,19 @@ app.post('/api/v1/sso/authorize', async (req: any, res: any) => {
     
     const signature = crypto.createHmac('sha256', secret).update(JSON.stringify(ssoPayload)).digest('hex');
     const base64Payload = Buffer.from(JSON.stringify(ssoPayload)).toString('base64');
+
+    // Deliver official Zenoa Security Alert to user's chat with registered application name
+    const targetAppName = appData.app_name || appData.name || 'Application';
+    const alertTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const securityAlertText = `SECURITY ALERT: SIGN-IN AUTHORIZED\n\nYour Zenoa account was successfully authorized to sign in to:\n\nApplication: ${targetAppName}\nClient ID: ${client_id}\nAuthorized At: ${alertTimeStr}\nStatus: Active Authorization\n\nSECURITY NOTICE: If you did not authorize this login request, please open Zenoa Settings > Developer & Security to revoke access immediately.`;
+
+    deliverBotChatMessage({
+      senderBotUsername: 'sa_zenoa',
+      senderAppName: 'Zenoa Security',
+      recipientUsername: cleanUser.username,
+      recipientZenoaId: cleanUser.id,
+      messageText: securityAlertText
+    }).catch(alertErr => console.warn('SSO Security alert dispatch note:', alertErr));
 
     // Record login log for developer
     recordDeveloperLog(appId, {

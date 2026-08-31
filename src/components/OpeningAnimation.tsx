@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Sparkles, ShieldCheck } from 'lucide-react';
+import { useBranding } from '../brandingUtils';
 
 interface OpeningAnimationProps {
   displayName?: string;
@@ -13,6 +14,8 @@ export const OpeningAnimation: React.FC<OpeningAnimationProps> = ({
   provider = 'Google',
   onComplete
 }) => {
+  const branding = useBranding();
+  const activeLogo = branding.messenger_logo || branding.public_logo || branding.oauth_logo;
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
@@ -65,8 +68,12 @@ export const OpeningAnimation: React.FC<OpeningAnimationProps> = ({
           />
 
           {/* Center Logo */}
-          <div className="absolute inset-0 m-auto w-16 h-16 rounded-2xl bg-white text-neutral-950 font-black text-2xl flex items-center justify-center shadow-2xl shadow-white/20 border border-white/40">
-            Z
+          <div className="absolute inset-0 m-auto w-16 h-16 rounded-2xl bg-white text-neutral-950 font-black text-2xl flex items-center justify-center shadow-2xl shadow-white/20 border border-white/40 overflow-hidden p-1.5">
+            {activeLogo ? (
+              <img src={activeLogo} alt="Logo" className="h-full w-full object-contain" />
+            ) : (
+              <span>Z</span>
+            )}
           </div>
 
           {/* Google Icon Badge if Google */}

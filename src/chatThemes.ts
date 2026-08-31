@@ -1,4 +1,4 @@
-import { LEAVES_PATTERN, HEARTS_PATTERN, PAWS_PATTERN, PANDA_PATTERN, STARS_PATTERN, WHATSAPP_DOODLE } from './assets/wallpapers';
+import { LEAVES_PATTERN, HEARTS_PATTERN, PAWS_PATTERN, PANDA_PATTERN, STARS_PATTERN, WHATSAPP_DOODLE, ZENOA_AESTHETIC_MICRO_PATTERN } from './assets/wallpapers';
 
 export interface ChatTheme {
   id: string;
@@ -32,8 +32,13 @@ export const CHAT_THEMES: ChatTheme[] = [
     id: 'minimal_clean_slate',
     name: 'Clean Slate',
     category: 'minimal',
-    description: 'Crisp, premium monochrome neutral for distraction-free reading.',
-    bgClass: 'bg-[#f7f7f8] dark:bg-[#0c0c0c] text-neutral-900 dark:text-neutral-100',
+    description: 'Crisp, eye-comforting neutral canvas with subtle aesthetic micro-motifs.',
+    bgClass: 'bg-[#f8f9fa] dark:bg-[#0d1117] text-neutral-900 dark:text-neutral-100',
+    bgStyle: {
+      backgroundImage: ZENOA_AESTHETIC_MICRO_PATTERN,
+      backgroundRepeat: 'repeat',
+      backgroundSize: '72px 72px',
+    },
     bubble: {
       sentBg: 'bg-black dark:bg-[#e4e4e7]',
       sentText: 'text-white dark:text-black',

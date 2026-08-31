@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LegalModal, LegalDocType } from './LegalModal';
+import { useBranding } from '../brandingUtils';
 import {
   ShieldCheck, ArrowRight, Sun, Moon, ChevronDown,
   ChevronUp, Send, Check,
@@ -21,6 +22,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onToggleTheme,
   onOpenAdmin
 }) => {
+  const branding = useBranding();
+  const publicLogo = branding.public_logo || branding.oauth_logo;
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
   const [showLegalModal, setShowLegalModal] = useState<boolean>(false);
   const [legalModalTab, setLegalModalTab] = useState<LegalDocType>('privacy');
@@ -108,8 +111,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           {/* Logo */}
           <div className="flex items-center gap-3 cursor-pointer select-none" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-            <div className="h-9 w-9 rounded-xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-black text-lg flex items-center justify-center shadow-xs">
-              Z
+            <div className="h-9 w-9 rounded-xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-black text-lg flex items-center justify-center shadow-xs overflow-hidden p-1">
+              {publicLogo ? (
+                <img src={publicLogo} alt="Logo" className="h-full w-full object-contain" />
+              ) : (
+                <span>Z</span>
+              )}
             </div>
             <div className="flex flex-col">
               <div className="flex items-center gap-2">

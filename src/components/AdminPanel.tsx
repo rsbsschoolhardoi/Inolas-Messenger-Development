@@ -5,11 +5,13 @@ import {
   Radio, Flag, MessageSquare, Database, Lock, Unlock, Key,
   Check, X, Search, RefreshCw, AlertTriangle, Eye, Edit3,
   LogOut, ArrowRight, Activity, Terminal, CheckCircle2,
-  Trash2, Upload, Send, Download, Layers, CornerDownRight, Zap, ChevronRight
+  Trash2, Upload, Send, Download, Layers, CornerDownRight, Zap, ChevronRight,
+  Palette, Globe, Image as ImageIcon, Sparkles
 } from 'lucide-react';
 import { UserData, ReportItem, AuditLogItem, ServiceAccountData, SystemBroadcast, Chat } from '../types';
 import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
 import { db } from '../firebaseClient';
+import { useBranding, saveBranding, AppBrandingConfig } from '../brandingUtils';
 import {
   collection, doc, getDocs, updateDoc, setDoc, addDoc, deleteDoc,
   onSnapshot, query, orderBy, limit, serverTimestamp
@@ -55,7 +57,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   });
 
   // Active Tab Management
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'verified_management' | 'sessions' | 'service_accounts' | 'reports' | 'groups' | 'audit' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'verified_management' | 'sessions' | 'service_accounts' | 'reports' | 'groups' | 'audit' | 'settings' | 'branding'>('overview');
+
+  // App Branding Management
+  const branding = useBranding();
+  const [brandingForm, setBrandingForm] = useState<AppBrandingConfig>(branding);
+  const [brandingSavedNotice, setBrandingSavedNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setBrandingForm(branding);
+  }, [branding]);
+
+  const handleFileUploadForSlot = (
+    slot: 'oauth_logo' | 'public_logo' | 'messenger_logo' | 'favicon_logo' | 'dev_console_logo',
+    file: File
+  ) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/') && !file.name.endsWith('.ico') && !file.name.endsWith('.svg')) {
+      alert('Please upload a valid image file (PNG, JPG, WEBP, SVG, ICO).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      if (result) {
+        setBrandingForm(prev => ({ ...prev, [slot]: result }));
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Live Firestore State Collections
   const [dbUsers, setDbUsers] = useState<UserData[]>(allUsers);
@@ -861,6 +891,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             >
               <Terminal className="h-4 w-4 text-neutral-400" />
               <span>Audit Logs</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('branding')}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-bold text-left flex items-center gap-3 transition-colors cursor-pointer ${
+                activeTab === 'branding'
+                  ? 'bg-neutral-800 text-white border border-neutral-700'
+                  : 'text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200'
+              }`}
+            >
+              <Palette className="h-4 w-4 text-purple-400" />
+              <span>App Branding & Logos</span>
             </button>
 
             <button
@@ -1950,6 +1992,405 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     Save Passcode Key
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 8: APP BRANDING & LOGOS */}
+          {activeTab === 'branding' && (
+            <div className="space-y-6 max-w-4xl">
+              <div>
+                <h2 className="text-xl font-black text-white uppercase tracking-tight flex items-center gap-2">
+                  <Palette className="h-6 w-6 text-purple-400" />
+                  <span>Application Branding & Logo Settings</span>
+                </h2>
+                <p className="text-xs text-neutral-400 font-sans mt-1 leading-relaxed">
+                  Upload custom logos for OAuth authorization page, public pages, main messenger interface, and browser favicon. Support for image files (PNG, JPG, WEBP, SVG, ICO).
+                </p>
+              </div>
+
+              {brandingSavedNotice && (
+                <div className="p-3.5 bg-emerald-950/60 border border-emerald-800 rounded-2xl text-xs text-emerald-300 font-medium flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <span>{brandingSavedNotice}</span>
+                </div>
+              )}
+
+              {/* Quick Controls */}
+              <div className="p-4 rounded-2xl bg-neutral-900 border border-neutral-800 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-neutral-300">Quick Branding Actions:</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const firstAvailable = brandingForm.oauth_logo || brandingForm.public_logo || brandingForm.messenger_logo || brandingForm.favicon_logo || brandingForm.dev_console_logo;
+                      if (!firstAvailable) {
+                        alert('Please upload an image file to at least one logo slot first!');
+                        return;
+                      }
+                      setBrandingForm({
+                        ...brandingForm,
+                        oauth_logo: firstAvailable,
+                        public_logo: firstAvailable,
+                        messenger_logo: firstAvailable,
+                        favicon_logo: firstAvailable,
+                        dev_console_logo: firstAvailable
+                      });
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-bold border border-neutral-700 transition-colors cursor-pointer"
+                  >
+                    Apply 1 Logo to All Slots
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm('Are you sure you want to reset all custom uploaded logos to default?')) {
+                        setBrandingForm({
+                          oauth_logo: '',
+                          public_logo: '',
+                          messenger_logo: '',
+                          favicon_logo: '',
+                          dev_console_logo: '',
+                          app_name: 'Zenoa'
+                        });
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-rose-950/50 hover:bg-rose-900 text-rose-300 text-xs font-bold border border-rose-800 transition-colors cursor-pointer"
+                  >
+                    Reset All Logos
+                  </button>
+                </div>
+              </div>
+
+              {/* 4 Separate Upload Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. OAuth Page Logo */}
+                <div className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 flex flex-col justify-between space-y-4 shadow-lg">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <Shield className="h-4 w-4 text-purple-400" />
+                        <span>OAuth Page Logo</span>
+                      </h3>
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider bg-neutral-800 px-2 py-0.5 rounded-md">
+                        OAuth / SSO
+                      </span>
+                    </div>
+                    <p className="text-xs text-neutral-400 leading-relaxed">
+                      Logo displayed on the "Continue with Zenoa" authorization screen and security verification screens.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    {/* Image Preview Box */}
+                    <div className="h-28 w-full rounded-xl bg-neutral-950 border border-dashed border-neutral-800 flex items-center justify-center overflow-hidden p-2 relative group">
+                      {brandingForm.oauth_logo ? (
+                        <img src={brandingForm.oauth_logo} alt="OAuth Logo" className="h-full max-w-full object-contain" />
+                      ) : (
+                        <div className="text-center p-2">
+                          <ImageIcon className="h-8 w-8 text-neutral-600 mx-auto mb-1" />
+                          <span className="text-[10px] text-neutral-500 font-mono block">No Logo Uploaded (Default Icon)</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="file"
+                        id="upload-oauth-logo"
+                        accept="image/*,.ico,.svg,.png,.jpg,.jpeg,.webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUploadForSlot('oauth_logo', file);
+                        }}
+                      />
+                      <label
+                        htmlFor="upload-oauth-logo"
+                        className="flex-1 py-2 px-3 bg-purple-900/80 hover:bg-purple-800 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer border border-purple-700 shadow-md"
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        <span>Upload Image File</span>
+                      </label>
+                      {brandingForm.oauth_logo && (
+                        <button
+                          type="button"
+                          onClick={() => setBrandingForm(prev => ({ ...prev, oauth_logo: '' }))}
+                          className="p-2 bg-neutral-800 hover:bg-rose-950 text-neutral-400 hover:text-rose-300 rounded-xl border border-neutral-700 transition-colors cursor-pointer"
+                          title="Remove Logo"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Public Page Logo */}
+                <div className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 flex flex-col justify-between space-y-4 shadow-lg">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <Globe className="h-4 w-4 text-blue-400" />
+                        <span>Public Page Logo</span>
+                      </h3>
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider bg-neutral-800 px-2 py-0.5 rounded-md">
+                        Public / SSO Console
+                      </span>
+                    </div>
+                    <p className="text-xs text-neutral-400 leading-relaxed">
+                      Logo displayed on Public Profile pages, Landing page header, and SSO Developer Portal.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="h-28 w-full rounded-xl bg-neutral-950 border border-dashed border-neutral-800 flex items-center justify-center overflow-hidden p-2 relative group">
+                      {brandingForm.public_logo ? (
+                        <img src={brandingForm.public_logo} alt="Public Logo" className="h-full max-w-full object-contain" />
+                      ) : (
+                        <div className="text-center p-2">
+                          <ImageIcon className="h-8 w-8 text-neutral-600 mx-auto mb-1" />
+                          <span className="text-[10px] text-neutral-500 font-mono block">No Logo Uploaded (Default Icon)</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="file"
+                        id="upload-public-logo"
+                        accept="image/*,.ico,.svg,.png,.jpg,.jpeg,.webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUploadForSlot('public_logo', file);
+                        }}
+                      />
+                      <label
+                        htmlFor="upload-public-logo"
+                        className="flex-1 py-2 px-3 bg-purple-900/80 hover:bg-purple-800 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer border border-purple-700 shadow-md"
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        <span>Upload Image File</span>
+                      </label>
+                      {brandingForm.public_logo && (
+                        <button
+                          type="button"
+                          onClick={() => setBrandingForm(prev => ({ ...prev, public_logo: '' }))}
+                          className="p-2 bg-neutral-800 hover:bg-rose-950 text-neutral-400 hover:text-rose-300 rounded-xl border border-neutral-700 transition-colors cursor-pointer"
+                          title="Remove Logo"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Messenger / Main App Logo */}
+                <div className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 flex flex-col justify-between space-y-4 shadow-lg">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4 text-emerald-400" />
+                        <span>Messenger App Logo</span>
+                      </h3>
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider bg-neutral-800 px-2 py-0.5 rounded-md">
+                        Messenger Main
+                      </span>
+                    </div>
+                    <p className="text-xs text-neutral-400 leading-relaxed">
+                      Logo displayed on the main Messenger header bar, mobile header, sidebar top, and opening animation.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="h-28 w-full rounded-xl bg-neutral-950 border border-dashed border-neutral-800 flex items-center justify-center overflow-hidden p-2 relative group">
+                      {brandingForm.messenger_logo ? (
+                        <img src={brandingForm.messenger_logo} alt="Messenger Logo" className="h-full max-w-full object-contain" />
+                      ) : (
+                        <div className="text-center p-2">
+                          <ImageIcon className="h-8 w-8 text-neutral-600 mx-auto mb-1" />
+                          <span className="text-[10px] text-neutral-500 font-mono block">No Logo Uploaded (Default Icon)</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="file"
+                        id="upload-messenger-logo"
+                        accept="image/*,.ico,.svg,.png,.jpg,.jpeg,.webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUploadForSlot('messenger_logo', file);
+                        }}
+                      />
+                      <label
+                        htmlFor="upload-messenger-logo"
+                        className="flex-1 py-2 px-3 bg-purple-900/80 hover:bg-purple-800 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer border border-purple-700 shadow-md"
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        <span>Upload Image File</span>
+                      </label>
+                      {brandingForm.messenger_logo && (
+                        <button
+                          type="button"
+                          onClick={() => setBrandingForm(prev => ({ ...prev, messenger_logo: '' }))}
+                          className="p-2 bg-neutral-800 hover:bg-rose-950 text-neutral-400 hover:text-rose-300 rounded-xl border border-neutral-700 transition-colors cursor-pointer"
+                          title="Remove Logo"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Browser Favicon */}
+                <div className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 flex flex-col justify-between space-y-4 shadow-lg">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-amber-400" />
+                        <span>Browser Favicon</span>
+                      </h3>
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider bg-neutral-800 px-2 py-0.5 rounded-md">
+                        Browser Icon
+                      </span>
+                    </div>
+                    <p className="text-xs text-neutral-400 leading-relaxed">
+                      Icon displayed in browser tabs and bookmark bars. Accepts PNG, ICO, SVG, and WEBP formats.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="h-28 w-full rounded-xl bg-neutral-950 border border-dashed border-neutral-800 flex items-center justify-center overflow-hidden p-2 relative group">
+                      {brandingForm.favicon_logo ? (
+                        <img src={brandingForm.favicon_logo} alt="Favicon" className="h-12 w-12 object-contain rounded-lg shadow-sm" />
+                      ) : (
+                        <div className="text-center p-2">
+                          <ImageIcon className="h-8 w-8 text-neutral-600 mx-auto mb-1" />
+                          <span className="text-[10px] text-neutral-500 font-mono block">No Favicon Uploaded (Default)</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="file"
+                        id="upload-favicon-logo"
+                        accept="image/*,.ico,.svg,.png,.jpg,.jpeg,.webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUploadForSlot('favicon_logo', file);
+                        }}
+                      />
+                      <label
+                        htmlFor="upload-favicon-logo"
+                        className="flex-1 py-2 px-3 bg-purple-900/80 hover:bg-purple-800 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer border border-purple-700 shadow-md"
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        <span>Upload Image File</span>
+                      </label>
+                      {brandingForm.favicon_logo && (
+                        <button
+                          type="button"
+                          onClick={() => setBrandingForm(prev => ({ ...prev, favicon_logo: '' }))}
+                          className="p-2 bg-neutral-800 hover:bg-rose-950 text-neutral-400 hover:text-rose-300 rounded-xl border border-neutral-700 transition-colors cursor-pointer"
+                          title="Remove Favicon"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 5. Developer Console Logo */}
+                <div className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 flex flex-col justify-between space-y-4 shadow-lg">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <Terminal className="h-4 w-4 text-violet-400" />
+                        <span>Developer Console Logo</span>
+                      </h3>
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider bg-neutral-800 px-2 py-0.5 rounded-md">
+                        Dev Console / Portal
+                      </span>
+                    </div>
+                    <p className="text-xs text-neutral-400 leading-relaxed">
+                      Logo displayed on Developer Console (/developer), SSO Platform headers, and Developer Portal header bar.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="h-28 w-full rounded-xl bg-neutral-950 border border-dashed border-neutral-800 flex items-center justify-center overflow-hidden p-2 relative group">
+                      {brandingForm.dev_console_logo ? (
+                        <img src={brandingForm.dev_console_logo} alt="Developer Console Logo" className="h-full max-w-full object-contain" />
+                      ) : (
+                        <div className="text-center p-2">
+                          <ImageIcon className="h-8 w-8 text-neutral-600 mx-auto mb-1" />
+                          <span className="text-[10px] text-neutral-500 font-mono block">No Logo Uploaded (Default Icon)</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="file"
+                        id="upload-dev-console-logo"
+                        accept="image/*,.ico,.svg,.png,.jpg,.jpeg,.webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUploadForSlot('dev_console_logo', file);
+                        }}
+                      />
+                      <label
+                        htmlFor="upload-dev-console-logo"
+                        className="flex-1 py-2 px-3 bg-purple-900/80 hover:bg-purple-800 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer border border-purple-700 shadow-md"
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        <span>Upload Image File</span>
+                      </label>
+                      {brandingForm.dev_console_logo && (
+                        <button
+                          type="button"
+                          onClick={() => setBrandingForm(prev => ({ ...prev, dev_console_logo: '' }))}
+                          className="p-2 bg-neutral-800 hover:bg-rose-950 text-neutral-400 hover:text-rose-300 rounded-xl border border-neutral-700 transition-colors cursor-pointer"
+                          title="Remove Dev Console Logo"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Save & Apply Bar */}
+              <div className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 flex flex-wrap items-center justify-between gap-4">
+                <div className="text-xs text-neutral-400 font-sans">
+                  Click <strong className="text-white">Save & Apply Branding</strong> to publish uploaded logos across all client interfaces instantly.
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await saveBranding(brandingForm, currentUser?.username || 'admin');
+                    logAuditEvent('config_change', 'Admin Updated Application Branding & Logos');
+                    setBrandingSavedNotice('Branding configuration saved and published successfully!');
+                    setTimeout(() => setBrandingSavedNotice(null), 4000);
+                  }}
+                  className="px-6 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs uppercase tracking-wider cursor-pointer border border-purple-400 shadow-lg shadow-purple-900/40 transition-all flex items-center gap-2 shrink-0"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>Save & Apply Branding</span>
+                </button>
               </div>
             </div>
           )}

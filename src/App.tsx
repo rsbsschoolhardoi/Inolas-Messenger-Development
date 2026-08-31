@@ -46,9 +46,9 @@ import { PurpleVerifiedBadge } from './components/PurpleVerifiedBadge';
 import {  NewGroupModal } from './components/NewGroupModal';
 import {  GroupDetailsModal } from './components/GroupDetailsModal';
 import { GoogleDriveLogo } from './components/GoogleDriveLogo';
-import { isUserEffectivelyOnline, getOnlineStatusText, isServiceAccount } from './presenceUtils';
+import { isUserEffectivelyOnline, getOnlineStatusText, isServiceAccount, isAccountVerified, isOfficialAccount } from './presenceUtils';
 import { getThemeById, DEFAULT_THEME_ID } from './chatThemes';
-import { getMessageDateKey, formatChatDateDivider } from './dateUtils';
+import { getMessageDateKey, formatChatDateDivider, formatChatListTime, formatCleanChatPreview, formatMessageTime } from './dateUtils';
 import { encryptMessageText, decryptMessageText, encryptFile, decryptFile } from './cryptoUtils';
 import { storageManager } from './storageManager';
 import { getDmChatId } from './chatUtils';
@@ -1393,8 +1393,12 @@ export default function App() {
         setDoc(doc(db, 'messages', m.id), { read_by: newReadBy }, { merge: true }).catch(() => {});
       });
       
-      // Update chat document to mark last message as read
-      setDoc(doc(db, 'chats', activeChatId), { last_message_status: 'read' }, { merge: true }).catch(() => {});
+      // Update chat document to mark last message as read if last message was from another user
+      const activeChatMsgs = messagesByChat[activeChatId] || [];
+      const lastMsg = activeChatMsgs[activeChatMsgs.length - 1];
+      if (lastMsg && lastMsg.sender !== userUsername) {
+        setDoc(doc(db, 'chats', activeChatId), { last_message_status: 'read' }, { merge: true }).catch(() => {});
+      }
       
       // Update local state optimistically
       setMessagesByChat(prev => {
@@ -1432,34 +1436,57 @@ export default function App() {
           (snapshot) => {
             const fetchedUsers: Record<string, UserData> = {};
             snapshot.forEach(docSnap => {
+              const docId = docSnap.id;
+              // Skip internal config or system metadata documents that are not real users
+              if (docId.startsWith('__') || docId === 'system_config' || docId === 'settings' || docId === 'metadata') {
+                return;
+              }
+
               const p = docSnap.data();
-              const rawUsername = (p.username || (p.email ? p.email.split('@')[0] : '') || p.display_name?.toLowerCase().replace(/[^a-z0-9_]/g, '') || docSnap.id).trim();
-              if (rawUsername || docSnap.id) {
-                const userObj: UserData = {
-                  id: docSnap.id,
-                  username: rawUsername || docSnap.id,
-                  display_name: p.display_name || p.fullName || rawUsername || docSnap.id,
-                  bio: p.bio || '',
-                  avatar_seed: p.avatar_seed || rawUsername || docSnap.id,
-                  avatar_url: p.avatar_url || '',
-                  online: isUserEffectivelyOnline(p as any),
-                  last_seen: p.last_seen || 'offline',
-                  last_seen_timestamp: p.last_seen_timestamp || 0,
-                  custom_status: p.custom_status || '',
-                  activity_status: p.activity_status || 'online',
-                  activity_type: p.activity_type || 'none',
-                  name_change_timestamps: p.name_change_timestamps || [],
-                  username_change_timestamps: p.username_change_timestamps || [],
-                  previous_usernames: p.previous_usernames || [],
-                  followers: Array.isArray(p.followers) ? p.followers : [],
-                  following: Array.isArray(p.following) ? p.following : [],
-                  is_private: !!p.is_private,
-                  is_verified: !!p.is_verified,
-                  is_service_account: !!p.is_service_account
-                };
-                // Store strictly one canonical entry per user document using docSnap.id or primary username
-                const primaryKey = (docSnap.id || rawUsername).toLowerCase();
-                fetchedUsers[primaryKey] = userObj;
+              // If document has no user attributes whatsoever, skip
+              if (!p.username && !p.display_name && !p.email && !p.mobile_number && !p.is_service_account) {
+                return;
+              }
+
+              const rawUsername = (p.username || (p.email ? p.email.split('@')[0] : '') || p.display_name?.toLowerCase().replace(/[^a-z0-9_]/g, '') || docId)
+                .trim()
+                .replace(/^@+/, '');
+
+              if (!rawUsername || (rawUsername === 'system' && !p.is_service_account)) {
+                return;
+              }
+
+              const isOfficial = isOfficialAccount(p, rawUsername);
+
+              const userObj: UserData = {
+                id: docId,
+                username: rawUsername,
+                display_name: p.display_name || p.fullName || (isOfficial ? 'Zenoa Official' : rawUsername),
+                bio: p.bio || (isOfficial ? 'Official Zenoa Account • Security & Updates' : ''),
+                avatar_seed: p.avatar_seed || rawUsername,
+                avatar_url: p.avatar_url || '',
+                online: isUserEffectivelyOnline(p as any),
+                last_seen: getOnlineStatusText(p as any),
+                last_seen_timestamp: p.last_seen_timestamp || 0,
+                custom_status: p.custom_status || '',
+                activity_status: p.activity_status || 'online',
+                activity_type: p.activity_type || 'none',
+                name_change_timestamps: p.name_change_timestamps || [],
+                username_change_timestamps: p.username_change_timestamps || [],
+                previous_usernames: p.previous_usernames || [],
+                followers: Array.isArray(p.followers) ? p.followers : [],
+                following: Array.isArray(p.following) ? p.following : [],
+                is_private: !!p.is_private,
+                is_official: isOfficial,
+                is_verified: isOfficial || (!!p.is_verified && !p.is_business_account),
+                verified_type: isOfficial ? 'purple' : (p.verified_type || (p.is_verified ? 'purple' : null)),
+                is_service_account: isOfficial || !!p.is_service_account,
+                is_business_account: !isOfficial && !!p.is_business_account
+              };
+              // Store canonical entry by username and docId
+              fetchedUsers[rawUsername.toLowerCase()] = userObj;
+              if (docId && docId.toLowerCase() !== rawUsername.toLowerCase()) {
+                fetchedUsers[docId.toLowerCase()] = userObj;
               }
             });
             setUsers(snapshot.empty ? {} : fetchedUsers);
@@ -2040,19 +2067,23 @@ export default function App() {
           storageManager.saveMessages(activeMsgs).catch(() => {});
 
           // 2. Mark incoming unread messages as read in real-time
+          let hasUnreadIncoming = false;
           snapshot.docs.forEach(docSnap => {
             const m = docSnap.data();
             if (m.sender !== userUsername && (!m.read_by || !Array.isArray(m.read_by) || !m.read_by.includes(userUsername))) {
+              hasUnreadIncoming = true;
               updateDoc(doc(db, 'messages', docSnap.id), {
                 read_by: arrayUnion(userUsername)
               }).catch(() => {});
             }
           });
 
-          // Mark chat as read
-          setDoc(doc(db, 'chats', activeChatId), {
-            last_message_status: 'read'
-          }, { merge: true }).catch(() => {});
+          // Mark chat as read only if incoming unread messages were read
+          if (hasUnreadIncoming) {
+            setDoc(doc(db, 'chats', activeChatId), {
+              last_message_status: 'read'
+            }, { merge: true }).catch(() => {});
+          }
         }
 
         // Fetch all local messages from IndexedDB for this chat to combine history
@@ -2094,13 +2125,14 @@ export default function App() {
     if (!isFirebaseConfigured || !db || !userUsername) return;
 
     const syncPresence = (isOnline = true) => {
+      const now = Date.now();
       setDoc(doc(db, 'users', userUsername), {
         online: isOnline && myPresenceStatus !== 'offline',
         activity_status: myPresenceStatus,
         custom_status: myCustomStatus,
         activity_type: myActivityType,
-        last_seen: isOnline ? 'just now' : 'offline',
-        last_seen_timestamp: isOnline ? Date.now() : 0
+        last_seen: isOnline ? 'just now' : new Date(now).toISOString(),
+        last_seen_timestamp: now
       }, { merge: true }).catch(err => console.warn("Presence sync notice:", err));
     };
 
@@ -2172,6 +2204,15 @@ export default function App() {
 
     return () => clearInterval(timer);
   }, [showConcurrentLoginModal]);
+
+  // Desktop Responsive Auto-select First Chat
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth >= 768) {
+      if (!activeChatId && chats.length > 0 && activeView === 'chats') {
+        setActiveChatId(chats[0].id);
+      }
+    }
+  }, [chats, activeChatId, activeView]);
 
   // Register Active Session Token in Firestore & Listen for Multi-Device / Concurrent Login
   useEffect(() => {
@@ -3050,6 +3091,32 @@ export default function App() {
     const checkRes = await checkUsernameIsTakenInFirestore(db, cleanUsername, undefined, users);
     if (checkRes.isTaken) {
       return { success: false, error: checkRes.reason || `@${cleanUsername} is already taken by another account.` };
+    }
+
+    // Check if phone number is already registered to another account
+    if (data.mobile_number && data.mobile_number.trim() && isFirebaseConfigured && db) {
+      try {
+        const rawDigits = data.mobile_number.replace(/[^0-9]/g, '');
+        const candPhones = Array.from(new Set([
+          data.mobile_number.trim(),
+          rawDigits,
+          rawDigits.length >= 10 ? `+91${rawDigits.slice(-10)}` : null
+        ].filter(Boolean))) as string[];
+
+        const usersRef = collection(db, 'users');
+        for (const cand of candPhones) {
+          const qMob = query(usersRef, where('mobile_number', '==', cand));
+          const snapMob = await getDocs(qMob);
+          if (!snapMob.empty) {
+            return {
+              success: false,
+              error: 'This mobile number is already linked to another Zenoa account. For account security, each mobile number can only be associated with a single account. Please use a different phone number or sign in to your existing account.'
+            };
+          }
+        }
+      } catch (pErr) {
+        console.warn("Registration phone uniqueness check note:", pErr);
+      }
     }
 
     if (isFirebaseConfigured && auth && db) {
@@ -4075,7 +4142,7 @@ export default function App() {
       // Update last message in chat preview
       setChats(prev => prev.map(c => {
         if (c.id === activeChatId) {
-          return { ...c, last_message: `You: ${text}`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const };
+          return { ...c, last_message: `You: ${text}`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'sent' as const };
         }
         return c;
       }));
@@ -4477,7 +4544,7 @@ export default function App() {
     }
 
     setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: Voice Note (${durationFormatted || '0:05'})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
+    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: Voice Note (${durationFormatted || '0:05'})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'sent' as const } : c));
     
     cancelVoiceRecording();
     setShowAttachMenu(false);
@@ -4607,7 +4674,7 @@ export default function App() {
             participants: currentActiveChat.participants,
             last_message: result.caption ? `[${pendingMediaEditorData.mediaType.toUpperCase()}] ${result.caption}` : `[${pendingMediaEditorData.mediaType.toUpperCase()}]`,
             last_time: 'now',
-            updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
+            updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'sent' as const,
             unread: 0,
             pinned: false,
             muted: false,
@@ -4783,7 +4850,7 @@ export default function App() {
     }
 
     setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: Location (${locationTitle})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
+    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: Location (${locationTitle})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'sent' as const } : c));
     setShowLocationModal(false);
     setShowAttachMenu(false);
     showToast("Location shared");
@@ -4862,7 +4929,7 @@ export default function App() {
     }
 
     setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: Contact (${contactName})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
+    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: Contact (${contactName})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'sent' as const } : c));
     setShowContactModal(false);
     setShowAttachMenu(false);
     setContactName('');
@@ -4948,7 +5015,7 @@ export default function App() {
     }
 
     setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: Poll (${pollQuestion})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
+    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: Poll (${pollQuestion})`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'sent' as const } : c));
     setShowPollModal(false);
     setShowAttachMenu(false);
     setPollQuestion('');
@@ -7091,7 +7158,16 @@ export default function App() {
                     {filteredChats.map(chat => (
                       <div 
                         key={chat.id} 
-                        onClick={() => { setActiveChatId(chat.id); setMobileShowChat(true); }}
+                        onClick={() => { 
+                          setActiveChatId(chat.id); 
+                          setMobileShowChat(true);
+                          setChats(prev => prev.map(c => c.id === chat.id ? { ...c, unread: 0 } : c));
+                          if (isFirebaseConfigured && db) {
+                            try {
+                              updateDoc(doc(db, 'chats', chat.id), { unread: 0 }).catch(() => {});
+                            } catch (e) {}
+                          }
+                        }}
                         onContextMenu={(e) => { e.preventDefault(); setSelectedChatForOptions(chat); }}
                         onTouchStart={() => {
                           const timer = setTimeout(() => { setSelectedChatForOptions(chat); }, 1000);
@@ -7118,35 +7194,51 @@ export default function App() {
                           ? chatNicknames[chat.username] 
                           : chat.name}
                       </p>
-                              {chat.type !== 'group' && chat.username && !!users[chat.username]?.is_verified && (
+                              {chat.type !== 'group' && chat.username && isAccountVerified(users[chat.username], chat.username) && (
                                 <PurpleVerifiedBadge size="xs"  />
                               )}
                               {chat.pinned && <Pin className="h-3 w-3 text-amber-500 dark:text-amber-400 rotate-45 shrink-0" />}
                               {chat.muted && <VolumeX className="h-3 w-3 text-slate-400 shrink-0" />}
                               {chat.archived && <Archive className="h-3 w-3 text-slate-400 shrink-0" />}
                             </div>
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium shrink-0 ml-1">{chat.last_time}</span>
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium shrink-0 ml-1">
+                              {formatChatListTime(chat.updated_at, chat.last_time)}
+                            </span>
                           </div>
                           <div className="flex justify-between items-center mt-1 min-w-0">
                             <p className="text-xs text-slate-500 dark:text-slate-400 truncate pr-2 flex-1 min-w-0 flex items-center gap-1">
                               {chat.last_message_sender === userUsername && chat.last_message && chat.last_message !== 'Chat history cleared' && (
                                 <span className="shrink-0 inline-flex items-center">
-                                  {chat.last_message_status === 'read' ? (
-                                    <CheckCheck className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400 stroke-[2.5]" />
-                                  ) : chat.last_message_status === 'delivered' ? (
-                                    <CheckCheck className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500 stroke-[2]" />
-                                  ) : (
-                                    <Check className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500 stroke-[2]" />
-                                  )}
+                                  {(() => {
+                                    const chatMsgs = messagesByChat[chat.id] || [];
+                                    const lastMsg = chatMsgs.length > 0 ? chatMsgs[chatMsgs.length - 1] : null;
+                                    
+                                    const otherParticipants = (chat.participants || []).filter(p => p !== userUsername);
+                                    const isAnyOtherOnline = otherParticipants.some(p => isUserEffectivelyOnline(users[p]));
+                                    
+                                    const isRead = lastMsg 
+                                      ? (Array.isArray(lastMsg.read_by) && lastMsg.read_by.some(u => u && u !== 'me' && u !== userUsername && u !== lastMsg.sender))
+                                      : (chat.last_message_status === 'read');
+                                      
+                                    const isDelivered = lastMsg
+                                      ? (lastMsg.status === 'delivered' || (isAnyOtherOnline && !isRead))
+                                      : (chat.last_message_status === 'delivered' && isAnyOtherOnline);
+
+                                    if (isRead) {
+                                      return <CheckCheck className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400 stroke-[2.5]" />;
+                                    }
+                                    if (isDelivered) {
+                                      return <CheckCheck className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500 stroke-[2]" />;
+                                    }
+                                    return <Check className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500 stroke-[2]" />;
+                                  })()}
                                 </span>
                               )}
                               <span className="truncate">
                                 {chat.typing ? (
                                   <span className="text-indigo-600 dark:text-indigo-400 font-medium animate-pulse">typing...</span>
                                 ) : (
-                                  chat.last_message && chat.last_message.length > 32 
-                                    ? chat.last_message.slice(0, 32).trim() + '...' 
-                                    : (chat.last_message || '')
+                                  formatCleanChatPreview(chat.last_message || '', 36)
                                 )}
                               </span>
                             </p>
@@ -7743,7 +7835,7 @@ export default function App() {
                         }
 
                         setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-                        setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [GIF]`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
+                        setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [GIF]`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'sent' as const } : c));
                         setShowUnifiedPicker(false);
                       }}
                       onSelectSticker={async (st) => {
@@ -7804,7 +7896,7 @@ export default function App() {
                         }
 
                         setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-                        setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [Sticker]`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const } : c));
+                        setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [Sticker]`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'sent' as const } : c));
                         setShowUnifiedPicker(false);
                       }}
                       onClose={() => setShowUnifiedPicker(false)}
@@ -7935,14 +8027,38 @@ export default function App() {
           </div>
         </>
       ) : (
-        <div className="hidden md:flex flex-1 flex-col items-center justify-center text-center p-8">
-          <div className="w-24 h-24 bg-neutral-100 dark:bg-neutral-800 rounded-full flex items-center justify-center mb-6">
-            <MessageSquare className="h-10 w-10 text-neutral-300 dark:text-neutral-600" />
+        <div className="hidden md:flex flex-1 flex-col items-center justify-center text-center p-8 bg-slate-50/50 dark:bg-[#0b0f19]">
+          <div className="max-w-md w-full p-8 rounded-3xl bg-white/90 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800/80 shadow-xl backdrop-blur-md">
+            <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-950/60 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-indigo-100 dark:border-indigo-900/60 text-indigo-600 dark:text-indigo-400 shadow-sm">
+              <MessageSquare className="h-8 w-8" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Welcome to Zenoa Desktop</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
+              Select a conversation from the sidebar to start encrypted messaging, voice/video calls, or access developer integrations.
+            </p>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button 
+                onClick={() => setActiveView('search')}
+                className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-indigo-500 text-left transition-all group cursor-pointer"
+              >
+                <div className="flex items-center gap-2 mb-1 text-slate-900 dark:text-white font-bold text-xs group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                  <Search className="h-4 w-4" />
+                  <span>Discover People</span>
+                </div>
+                <p className="text-[11px] text-slate-400">Find & chat with verified users</p>
+              </button>
+              <button 
+                onClick={() => setActiveView('developer_portal')}
+                className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-indigo-500 text-left transition-all group cursor-pointer"
+              >
+                <div className="flex items-center gap-2 mb-1 text-slate-900 dark:text-white font-bold text-xs group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                  <Laptop className="h-4 w-4" />
+                  <span>Dev Console</span>
+                </div>
+                <p className="text-[11px] text-slate-400">Create bot accounts & OTP API</p>
+              </button>
+            </div>
           </div>
-          <h2 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">Your Messages</h2>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 max-w-sm">
-            Select a chat from the sidebar or start a new conversation to begin messaging.
-          </p>
         </div>
       )}
     </div>
@@ -10547,6 +10663,19 @@ export default function App() {
           showToast("Profile link copied to clipboard");
         }}
       />
+
+      {/* SECURE AUDIO & VIDEO WEBRTC CALL MODAL */}
+      {activeCallSession && (
+        <CallModal
+          session={activeCallSession}
+          userUsername={userUsername}
+          userDisplayName={userDisplayName}
+          db={db}
+          isFirebaseConfigured={isFirebaseConfigured}
+          onEndCall={handleEndCall}
+          onAnswerCall={handleAnswerCall}
+        />
+      )}
 
       {/* CONCURRENT LOGIN KICKOUT MODAL (1 Account Active per Browser/Device) */}
       <ConcurrentLogoutModal

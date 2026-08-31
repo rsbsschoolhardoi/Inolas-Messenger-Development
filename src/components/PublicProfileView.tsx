@@ -15,6 +15,7 @@ import { db, isFirebaseConfigured } from '../firebaseClient';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { isUserEffectivelyOnline, isServiceAccount } from '../presenceUtils';
 import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
+import { useBranding } from '../brandingUtils';
 
 
 interface PublicProfileViewProps {
@@ -45,6 +46,8 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
   onToggleTheme,
   onGoToLogin,
 }) => {
+  const branding = useBranding();
+  const publicLogo = branding.public_logo || branding.oauth_logo;
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
@@ -184,8 +187,12 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
           </button>
 
           <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-zenoa font-black text-sm flex items-center justify-center shadow-md">
-              Z
+            <div className="h-8 w-8 rounded-xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-zenoa font-black text-sm flex items-center justify-center shadow-md overflow-hidden p-1">
+              {publicLogo ? (
+                <img src={publicLogo} alt="Logo" className="h-full w-full object-contain" />
+              ) : (
+                <span>Z</span>
+              )}
             </div>
             <span className="font-zenoa font-bold text-base tracking-tight text-neutral-900 dark:text-white">
               Zenoa

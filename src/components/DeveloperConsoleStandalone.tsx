@@ -5,6 +5,7 @@ import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } fro
 import { DeveloperPortal } from './DeveloperPortal';
 import { ZenoaAuthGatewayModal } from './ZenoaAuthGatewayModal';
 import { UserData } from '../types';
+import { useBranding } from '../brandingUtils';
 import { 
   Terminal, Lock, Phone, User, ArrowRight, ShieldCheck, Zap, 
   CheckCircle2, Key, Code2, Server, Globe, ExternalLink, RefreshCw, 
@@ -15,6 +16,8 @@ import { motion, AnimatePresence } from 'motion/react';
 type ConsoleView = 'landing' | 'mobile_setup' | 'portal';
 
 export const DeveloperConsoleStandalone: React.FC = () => {
+  const branding = useBranding();
+  const activeLogo = branding.dev_console_logo || branding.public_logo || branding.oauth_logo;
   const [user, setUser] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<ConsoleView>('landing');
@@ -262,11 +265,15 @@ export const DeveloperConsoleStandalone: React.FC = () => {
         <header className="border-b border-neutral-800 bg-neutral-950/90 backdrop-blur-md sticky top-0 z-50">
           <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-xl bg-violet-600/20 border border-violet-500/30 flex items-center justify-center text-violet-400">
-                <Terminal className="h-4 w-4" />
+              <div className="h-8 w-8 rounded-xl bg-neutral-900 border border-neutral-700 flex items-center justify-center text-violet-400 overflow-hidden p-1">
+                {activeLogo ? (
+                  <img src={activeLogo} alt="Logo" className="h-full w-full object-contain" />
+                ) : (
+                  <Terminal className="h-4 w-4" />
+                )}
               </div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-base tracking-tight text-white">Zenoa</span>
+                <span className="font-bold text-base tracking-tight text-white">{branding.app_name || 'Zenoa'}</span>
                 <span className="text-[10px] font-mono uppercase bg-neutral-900 text-violet-300 px-2.5 py-0.5 rounded-md border border-neutral-800 font-semibold">Developer Console</span>
               </div>
             </div>

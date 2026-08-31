@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 import { UserData } from '../types';
 import { db } from '../firebaseClient';
-import { collection, query, where, getDocs, setDoc, doc } from 'firebase/firestore';
+import { useBranding } from '../brandingUtils';
+import { collection, query, where, getDocs, setDoc, doc, increment } from 'firebase/firestore';
 
 interface SSOLoginProps {
   themeMode: 'light' | 'dark';
@@ -33,6 +34,8 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
   onInlineLogin,
   onLogout
 }) => {
+  const branding = useBranding();
+  const activeLogo = branding.oauth_logo || branding.public_logo;
   const [clientId, setClientId] = useState<string>('');
   const [redirectUri, setRedirectUri] = useState<string>('');
   const [state, setState] = useState<string | null>(null);
@@ -358,7 +361,45 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
       // 2. Save auth code to Firestore (in oauth_codes collection for server.ts verification)
       await setDoc(doc(db, 'oauth_codes', authCode), authPayload);
 
-      // 3. Construct OAuth 2.0 redirect URL
+      // 3. Dispatch Live Security Alert to user's chat from sa_zenoa
+      const targetAppName = appConfig?.name || appConfig?.app_name || 'Application';
+      const alertTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const securityAlertText = `SECURITY ALERT: SIGN-IN AUTHORIZED\n\nYour Zenoa account was successfully authorized to sign in to:\n\nApplication: ${targetAppName}\nClient ID: ${clientId}\nAuthorized At: ${alertTimeStr}\nStatus: Active Authorization\n\nSECURITY NOTICE: If you did not authorize this login request, please open Zenoa Settings > Developer & Security to revoke access immediately.`;
+
+      const userIdent = (targetUser.username || targetUser.id || 'user').toLowerCase().replace(/^@/, '');
+      const botSender = 'sa_zenoa';
+      const sortedDm = [userIdent, botSender].sort();
+      const chatId = `chat_dm_${sortedDm.join('_')}`;
+      const messageId = 'msg_alert_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+
+      setDoc(doc(db, 'chats', chatId), {
+        id: chatId,
+        type: 'dm',
+        username: botSender,
+        name: 'Zenoa Security',
+        participants: [userIdent, botSender].sort(),
+        participant_ids: [targetUser.id || userIdent, botSender].sort(),
+        updated_at: Date.now(),
+        last_message: securityAlertText.length > 80 ? securityAlertText.substring(0, 80) + '...' : securityAlertText,
+        last_message_time: alertTimeStr,
+        last_message_sender: botSender,
+        last_message_status: 'sent',
+        unread: increment(1)
+      }, { merge: true }).catch(e => console.warn('Chat creation error:', e));
+
+      setDoc(doc(db, 'messages', messageId), {
+        id: messageId,
+        chat_id: chatId,
+        created_at: Date.now(),
+        sender: botSender,
+        text: securityAlertText,
+        type: 'text',
+        timestamp: alertTimeStr,
+        status: 'sent',
+        read_by: [botSender]
+      }).catch(e => console.warn('Message send error:', e));
+
+      // 4. Construct OAuth 2.0 redirect URL
       const finalUrl = new URL(redirectUri);
       finalUrl.searchParams.set('code', authCode);
       if (state) {
@@ -666,261 +707,306 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
   })();
 
   return (
-    <div className={`min-h-[100dvh] w-full flex items-center justify-center p-4 sm:p-6 transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-white' : 'bg-slate-50 text-neutral-900'}`}>
-      <motion.div 
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-200/80 dark:border-neutral-800 shadow-2xl overflow-hidden"
-      >
-        <div className="p-6 sm:p-8">
-          {/* Header Brand */}
-          <div className="flex items-center justify-between mb-6 pb-4 border-b border-neutral-100 dark:border-neutral-800/80">
-            <div className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-xl bg-violet-600 text-white flex items-center justify-center font-black text-xs shadow-md shadow-violet-500/20">
-                Z
-              </div>
-              <span className="text-xs font-black tracking-tight">Zenoa SSO</span>
-            </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-50 dark:bg-violet-950/40 border border-violet-200/50 dark:border-violet-800/40 text-[10px] font-bold text-violet-700 dark:text-violet-300">
-              <Lock className="h-3 w-3" />
-              <span>OAuth 2.0 Secure</span>
-            </div>
-          </div>
-
-          {/* App Branding */}
-          <div className="text-center mb-6">
-            <div className="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white flex items-center justify-center mb-3 shadow-lg shadow-violet-600/20">
-              <Shield className="h-7 w-7" />
-            </div>
-            <h1 className="text-xl sm:text-2xl font-black text-neutral-900 dark:text-white leading-tight">
-              Continue to {appConfig?.app_name || 'Application'}
-            </h1>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 leading-relaxed">
-              Log in with your Zenoa account to share your identity with <strong className="text-neutral-800 dark:text-neutral-200">{appConfig?.app_name || 'this application'}</strong>.
-            </p>
-          </div>
-
-          {error && (
-            <div className="mb-4 p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/50 rounded-2xl text-xs text-rose-600 dark:text-rose-400 flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
+    <div className={`min-h-[100dvh] w-full flex flex-col justify-between p-4 sm:p-6 md:p-8 transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-white' : 'bg-slate-950 text-neutral-100'}`}>
+      {/* Outer Top Header Bar */}
+      <header className="w-full max-w-4xl mx-auto flex items-center justify-between pb-4 pt-2 border-b border-neutral-800/60 mb-6">
+        <div className="flex items-center gap-3">
+          {activeLogo ? (
+            <img src={activeLogo} alt="Zenoa Logo" className="h-8 w-8 object-contain rounded-xl shadow-md" />
+          ) : (
+            <div className="h-8 w-8 rounded-xl bg-neutral-800 border border-neutral-700 text-white flex items-center justify-center font-black text-xs shadow-md">
+              Z
             </div>
           )}
+          <span className="text-sm font-black tracking-tight text-white uppercase font-sans">Zenoa</span>
+        </div>
 
-          {wizardStep === 1 ? (
-            /* Step 1: Account Selection / Inline Auth */
-            <div className="space-y-4">
-              {showInlineLoginForm ? (
-                /* Inline sign-in form */
-                <form onSubmit={handleInlineLoginSubmit} className="space-y-3 p-4 bg-slate-50 dark:bg-neutral-800/50 rounded-2xl border border-slate-200 dark:border-neutral-700">
-                  <div className="flex items-center justify-between pb-1">
-                    <span className="text-xs font-bold text-neutral-800 dark:text-neutral-200">Sign in with Zenoa</span>
-                    {accountsToDisplay.length > 0 && (
-                      <button 
-                        type="button" 
-                        onClick={() => setShowInlineLoginForm(false)}
-                        className="text-[11px] text-violet-600 dark:text-violet-400 font-bold hover:underline cursor-pointer"
-                      >
-                        Use Saved Account
-                      </button>
-                    )}
+        <nav className="flex items-center gap-6 text-xs font-semibold text-neutral-400">
+          <a href="/" className="hover:text-white transition-colors cursor-pointer">Zenoa</a>
+          <a href="/sso" className="hover:text-white transition-colors cursor-pointer">Docs</a>
+          <a href="/sso?tab=help" className="hover:text-white transition-colors cursor-pointer">Help</a>
+        </nav>
+      </header>
+
+      {/* Main Premium Card Container */}
+      <main className="w-full max-w-md mx-auto my-auto py-2">
+        <motion.div 
+          initial={{ opacity: 0, y: 15, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          className="w-full bg-neutral-900/90 rounded-3xl border border-neutral-800 shadow-2xl shadow-black/60 overflow-hidden backdrop-blur-md"
+        >
+          <div className="p-6 sm:p-8">
+            {/* Header Brand Inside Card */}
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-neutral-800/80">
+              <div className="flex items-center gap-2.5">
+                {activeLogo ? (
+                  <img src={activeLogo} alt="Logo" className="h-6 w-6 object-contain rounded-lg" />
+                ) : (
+                  <div className="h-6 w-6 rounded-lg bg-neutral-800 border border-neutral-700 text-white flex items-center justify-center font-black text-[10px]">
+                    Z
                   </div>
+                )}
+                <span className="text-xs font-black tracking-tight text-white uppercase font-sans">Zenoa</span>
+              </div>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-800/80 border border-neutral-700 text-[10px] font-bold text-neutral-300">
+                <Lock className="h-3 w-3 text-emerald-400" />
+                <span>OAuth 2.0 Secure</span>
+              </div>
+            </div>
 
-                  {inlineLoginError && (
-                    <div className="p-2.5 bg-rose-100 dark:bg-rose-950/60 rounded-xl text-[11px] text-rose-700 dark:text-rose-300 font-medium">
-                      {inlineLoginError}
-                    </div>
-                  )}
+            {/* App Branding Banner */}
+            <div className="text-center mb-6">
+              <div className="mx-auto w-14 h-14 rounded-2xl bg-neutral-800 border border-neutral-700 text-white flex items-center justify-center mb-3 shadow-lg p-2 overflow-hidden">
+                {activeLogo ? (
+                  <img src={activeLogo} alt="App Logo" className="h-full w-full object-contain" />
+                ) : (
+                  <Shield className="h-7 w-7 text-neutral-300" />
+                )}
+              </div>
+              <h1 className="text-xl sm:text-2xl font-black text-white leading-tight font-sans">
+                Continue to {appConfig?.app_name || 'Application'}
+              </h1>
+              <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
+                Log in with your Zenoa account to share your identity with <strong className="text-neutral-200">{appConfig?.app_name || 'this application'}</strong>.
+              </p>
+            </div>
 
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Username or Email</label>
-                    <input
-                      type="text"
-                      value={inlineIdentifier}
-                      onChange={(e) => setInlineIdentifier(e.target.value)}
-                      placeholder="e.g. username or email"
-                      className="w-full px-3 py-2.5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl text-xs text-neutral-900 dark:text-white focus:outline-none focus:border-violet-500"
-                      required
-                    />
-                  </div>
+            {error && (
+              <div className="mb-4 p-3 bg-rose-950/50 border border-rose-800/60 rounded-2xl text-xs text-rose-300 flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
 
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Password</label>
-                    <input
-                      type="password"
-                      value={inlinePassword}
-                      onChange={(e) => setInlinePassword(e.target.value)}
-                      placeholder="Enter your password"
-                      className="w-full px-3 py-2.5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl text-xs text-neutral-900 dark:text-white focus:outline-none focus:border-violet-500"
-                      required
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={inlineLoginLoading}
-                    className="w-full py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold shadow-md shadow-violet-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
-                  >
-                    {inlineLoginLoading ? (
-                      <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : (
-                      <span>Sign In & Select</span>
-                    )}
-                  </button>
-                </form>
-              ) : accountsToDisplay.length > 0 ? (
-                /* List of Available / Saved Accounts */
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Choose an Account</span>
-                    <span className="text-[10px] text-neutral-400 font-medium">{accountsToDisplay.length} available</span>
-                  </div>
-
-                  <div className="space-y-2 max-h-64 overflow-y-auto pr-0.5">
-                    {accountsToDisplay.map((acc) => {
-                      const isCurrent = currentUser?.username?.toLowerCase() === acc.username?.toLowerCase();
-                      return (
-                        <div
-                          key={acc.username}
-                          onClick={() => {
-                            setSelectedAccount(acc);
-                            setWizardStep(2);
-                          }}
-                          className="group p-3.5 bg-slate-50 dark:bg-neutral-800/50 hover:bg-violet-50 dark:hover:bg-violet-950/30 rounded-2xl border border-slate-200 dark:border-neutral-700/80 hover:border-violet-300 dark:hover:border-violet-700 flex items-center justify-between cursor-pointer transition-all active:scale-98"
+            {wizardStep === 1 ? (
+              /* Step 1: Account Selection / Inline Auth */
+              <div className="space-y-4">
+                {showInlineLoginForm ? (
+                  /* Inline sign-in form */
+                  <form onSubmit={handleInlineLoginSubmit} className="space-y-3 p-4 bg-neutral-950/70 rounded-2xl border border-neutral-800">
+                    <div className="flex items-center justify-between pb-1">
+                      <span className="text-xs font-bold text-white">Sign in with Zenoa</span>
+                      {accountsToDisplay.length > 0 && (
+                        <button 
+                          type="button" 
+                          onClick={() => setShowInlineLoginForm(false)}
+                          className="text-[11px] text-neutral-300 font-bold hover:underline cursor-pointer"
                         >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="h-10 w-10 rounded-xl bg-violet-100 dark:bg-violet-900/50 flex items-center justify-center overflow-hidden shrink-0 border border-violet-200/50 dark:border-violet-800/40">
-                              {acc.avatar_url ? (
-                                <img src={acc.avatar_url} alt="Avatar" className="h-full w-full object-cover" />
-                              ) : (
-                                <Bot className="h-5 w-5 text-violet-600 dark:text-violet-400" />
-                              )}
-                            </div>
-                            <div className="min-w-0 text-left">
-                              <div className="flex items-center gap-1.5">
-                                <h4 className="font-bold text-xs text-neutral-900 dark:text-white truncate">
-                                  {acc.display_name || acc.username}
-                                </h4>
-                                {isCurrent && (
-                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300">
-                                    Active
-                                  </span>
+                          Use Saved Account
+                        </button>
+                      )}
+                    </div>
+
+                    {inlineLoginError && (
+                      <div className="p-2.5 bg-rose-950/60 border border-rose-900 rounded-xl text-[11px] text-rose-300 font-medium">
+                        {inlineLoginError}
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Username or Email</label>
+                      <input
+                        type="text"
+                        value={inlineIdentifier}
+                        onChange={(e) => setInlineIdentifier(e.target.value)}
+                        placeholder="e.g. username or email"
+                        className="w-full px-3 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-xs text-white focus:outline-none focus:border-neutral-600 font-sans"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Password</label>
+                      <input
+                        type="password"
+                        value={inlinePassword}
+                        onChange={(e) => setInlinePassword(e.target.value)}
+                        placeholder="Enter your password"
+                        className="w-full px-3 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-xs text-white focus:outline-none focus:border-neutral-600 font-sans"
+                        required
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={inlineLoginLoading}
+                      className="w-full py-3 bg-white hover:bg-neutral-100 text-neutral-950 rounded-xl text-xs font-bold shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
+                    >
+                      {inlineLoginLoading ? (
+                        <div className="h-4 w-4 border-2 border-neutral-950/30 border-t-neutral-950 rounded-full animate-spin" />
+                      ) : (
+                        <span>Sign In & Authorize</span>
+                      )}
+                    </button>
+                  </form>
+                ) : accountsToDisplay.length > 0 ? (
+                  /* List of Available / Saved Accounts */
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Choose an Account</span>
+                      <span className="text-[10px] text-neutral-400 font-mono">{accountsToDisplay.length} available</span>
+                    </div>
+
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-0.5">
+                      {accountsToDisplay.map((acc) => {
+                        const isCurrent = currentUser?.username?.toLowerCase() === acc.username?.toLowerCase();
+                        return (
+                          <div
+                            key={acc.username}
+                            onClick={() => {
+                              setSelectedAccount(acc);
+                              setWizardStep(2);
+                            }}
+                            className="group p-3.5 bg-neutral-950/60 hover:bg-neutral-800/80 rounded-2xl border border-neutral-800 hover:border-neutral-700 flex items-center justify-between cursor-pointer transition-all active:scale-98"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="h-10 w-10 rounded-xl bg-neutral-800 flex items-center justify-center overflow-hidden shrink-0 border border-neutral-700">
+                                {acc.avatar_url ? (
+                                  <img src={acc.avatar_url} alt="Avatar" className="h-full w-full object-cover" />
+                                ) : (
+                                  <Bot className="h-5 w-5 text-neutral-400" />
                                 )}
                               </div>
-                              <p className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate">@{acc.username}</p>
+                              <div className="min-w-0 text-left">
+                                <div className="flex items-center gap-1.5">
+                                  <h4 className="font-bold text-xs text-white truncate font-sans">
+                                    {acc.display_name || acc.username}
+                                  </h4>
+                                  {isCurrent && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-emerald-950 border border-emerald-800 text-emerald-300">
+                                      Active
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-neutral-400 truncate font-mono">@{acc.username}</p>
+                              </div>
                             </div>
+                            <ArrowRight className="h-4 w-4 text-neutral-500 group-hover:text-white shrink-0 ml-2 transition-colors" />
                           </div>
-                          <ArrowRight className="h-4 w-4 text-neutral-400 group-hover:text-violet-600 dark:group-hover:text-violet-400 shrink-0 ml-2" />
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
 
-                  <button
-                    onClick={() => setShowInlineLoginForm(true)}
-                    className="w-full py-2.5 px-3 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700/80 text-neutral-700 dark:text-neutral-300 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer mt-1"
-                  >
-                    <UserPlus className="h-3.5 w-3.5" />
-                    <span>Use or Sign In with Another Account</span>
-                  </button>
-                </div>
-              ) : (
-                /* No accounts yet - Direct in-situ login */
-                <div className="space-y-4">
-                  <div className="p-4 bg-slate-50 dark:bg-neutral-800/50 rounded-2xl border border-slate-200 dark:border-neutral-700 text-center">
-                    <p className="text-xs text-neutral-600 dark:text-neutral-300 mb-3 leading-relaxed">
-                      No accounts found on this browser. Sign in to your Zenoa account to authorize <strong className="text-neutral-900 dark:text-white">{appConfig?.app_name || 'this app'}</strong>.
-                    </p>
                     <button
                       onClick={() => setShowInlineLoginForm(true)}
-                      className="w-full py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold shadow-md shadow-violet-500/20 transition-all cursor-pointer flex items-center justify-center gap-2"
+                      className="w-full py-2.5 px-3 bg-neutral-800 hover:bg-neutral-750 text-neutral-200 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer mt-1 border border-neutral-700"
                     >
-                      <User className="h-4 w-4" />
-                      <span>Sign In to Zenoa</span>
+                      <UserPlus className="h-3.5 w-3.5" />
+                      <span>Use or Sign In with Another Account</span>
                     </button>
                   </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            /* Step 2: Permissions Consent */
-            <div className="space-y-4">
-              <div className="flex items-center justify-between pb-1">
-                <button 
-                  onClick={() => setWizardStep(1)}
-                  className="px-2.5 py-1 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg text-neutral-600 dark:text-neutral-300 text-xs font-bold flex items-center gap-1 transition-colors"
-                >
-                  <ArrowRight className="h-3.5 w-3.5 rotate-180" />
-                  <span>Switch Account</span>
-                </button>
-                <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Authorize Permissions</span>
-              </div>
-
-              {/* Selected account summary card */}
-              {effectiveActiveUser && (
-                <div className="p-3 bg-violet-50 dark:bg-violet-950/30 rounded-2xl border border-violet-200/60 dark:border-violet-800/40 flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-violet-200 dark:bg-violet-900/60 flex items-center justify-center overflow-hidden shrink-0">
-                    {effectiveActiveUser.avatar_url ? (
-                      <img src={effectiveActiveUser.avatar_url} alt="Avatar" className="h-full w-full object-cover" />
-                    ) : (
-                      <Bot className="h-5 w-5 text-violet-600 dark:text-violet-300" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h4 className="font-bold text-xs text-neutral-900 dark:text-white truncate">
-                      {effectiveActiveUser.display_name || effectiveActiveUser.username}
-                    </h4>
-                    <p className="text-[11px] text-violet-600 dark:text-violet-400 font-medium truncate">@{effectiveActiveUser.username}</p>
-                  </div>
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mr-1" />
-                </div>
-              )}
-
-              {/* Scopes permissions */}
-              <div className="space-y-2.5 p-3.5 bg-slate-50 dark:bg-neutral-800/40 rounded-2xl border border-slate-100 dark:border-neutral-800 text-xs">
-                <div className="flex items-start gap-2 text-neutral-700 dark:text-neutral-300">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                  <span><strong>Verify Identity:</strong> Confirm your Zenoa username (@{effectiveActiveUser?.username})</span>
-                </div>
-                <div className="flex items-start gap-2 text-neutral-700 dark:text-neutral-300">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                  <span><strong>Profile Data:</strong> View your name and profile picture</span>
-                </div>
-                <div className="flex items-start gap-2 text-neutral-700 dark:text-neutral-300">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                  <span><strong>Contact Info:</strong> Share your verified email address</span>
-                </div>
-              </div>
-
-              {/* Authorize button */}
-              <button 
-                onClick={handleAuthorize}
-                disabled={isAuthorizing}
-                className="w-full py-3.5 bg-violet-600 hover:bg-violet-700 text-white rounded-2xl text-xs font-bold shadow-lg shadow-violet-500/20 transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
-              >
-                {isAuthorizing ? (
-                  <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 ) : (
-                  <>
-                    <span>Authorize & Continue</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </>
+                  /* No accounts yet - Direct in-situ login */
+                  <div className="space-y-4">
+                    <div className="p-4 bg-neutral-950/60 rounded-2xl border border-neutral-800 text-center">
+                      <p className="text-xs text-neutral-300 mb-3 leading-relaxed">
+                        No accounts found on this browser. Sign in to your Zenoa account to authorize <strong className="text-white">{appConfig?.app_name || 'this app'}</strong>.
+                      </p>
+                      <button
+                        onClick={() => setShowInlineLoginForm(true)}
+                        className="w-full py-3 bg-white hover:bg-neutral-100 text-neutral-950 rounded-xl text-xs font-bold shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <User className="h-4 w-4" />
+                        <span>Sign In to Zenoa</span>
+                      </button>
+                    </div>
+                  </div>
                 )}
-              </button>
-
-              <div className="text-[10px] text-neutral-500 dark:text-neutral-400 leading-relaxed text-center mt-2 border-t border-neutral-100 dark:border-neutral-800 pt-3">
-                By clicking Authorize, you grant <strong className="text-neutral-700 dark:text-neutral-200">{appConfig?.app_name || 'this application'}</strong> access to your profile data in accordance with their terms.
               </div>
-            </div>
-          )}
+            ) : (
+              /* Step 2: Permissions Consent */
+              <div className="space-y-4">
+                <div className="flex items-center justify-between pb-1">
+                  <button 
+                    onClick={() => setWizardStep(1)}
+                    className="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-neutral-200 text-xs font-bold flex items-center gap-1 transition-colors border border-neutral-700 cursor-pointer"
+                  >
+                    <ArrowRight className="h-3.5 w-3.5 rotate-180" />
+                    <span>Switch Account</span>
+                  </button>
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Authorize Permissions</span>
+                </div>
 
-          {/* Footer Branding */}
-          <div className="mt-5 pt-3 border-t border-neutral-100 dark:border-neutral-800/60 flex items-center justify-center gap-1.5 text-neutral-400 text-[10px] font-bold uppercase tracking-wider">
-            <Lock className="h-3 w-3 text-violet-500" />
-            <span>256-Bit Encrypted OAuth Session</span>
+                {/* Selected account summary card */}
+                {effectiveActiveUser && (
+                  <div className="p-3 bg-neutral-950/80 rounded-2xl border border-neutral-800 flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-neutral-800 flex items-center justify-center overflow-hidden shrink-0 border border-neutral-700">
+                      {effectiveActiveUser.avatar_url ? (
+                        <img src={effectiveActiveUser.avatar_url} alt="Avatar" className="h-full w-full object-cover" />
+                      ) : (
+                        <Bot className="h-5 w-5 text-neutral-300" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="font-bold text-xs text-white truncate font-sans">
+                        {effectiveActiveUser.display_name || effectiveActiveUser.username}
+                      </h4>
+                      <p className="text-[11px] text-neutral-400 font-medium truncate font-mono">@{effectiveActiveUser.username}</p>
+                    </div>
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mr-1" />
+                  </div>
+                )}
+
+                {/* Scopes permissions */}
+                <div className="space-y-2.5 p-3.5 bg-neutral-950/60 rounded-2xl border border-neutral-800 text-xs">
+                  <div className="flex items-start gap-2 text-neutral-300">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>Verify Identity:</strong> Confirm your Zenoa username (@{effectiveActiveUser?.username})</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-neutral-300">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>Profile Data:</strong> View your name and profile picture</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-neutral-300">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>Contact Info:</strong> Share your verified email address</span>
+                  </div>
+                </div>
+
+                {/* Authorize button */}
+                <button 
+                  onClick={handleAuthorize}
+                  disabled={isAuthorizing}
+                  className="w-full py-3.5 bg-white hover:bg-neutral-100 text-neutral-950 rounded-2xl text-xs font-bold shadow-lg transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
+                >
+                  {isAuthorizing ? (
+                    <div className="h-4 w-4 border-2 border-neutral-950/30 border-t-neutral-950 rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <span>Authorize & Continue</span>
+                      <ArrowRight className="h-4 w-4" />
+                    </>
+                  )}
+                </button>
+
+                <div className="text-[10px] text-neutral-400 leading-relaxed text-center mt-2 border-t border-neutral-800 pt-3 font-sans">
+                  By clicking Authorize, you grant <strong className="text-neutral-200">{appConfig?.app_name || 'this application'}</strong> access to your profile data in accordance with their terms.
+                </div>
+              </div>
+            )}
+
+            {/* Footer Branding Inside Card */}
+            <div className="mt-5 pt-3 border-t border-neutral-800/80 flex items-center justify-center gap-1.5 text-neutral-400 text-[10px] font-mono uppercase tracking-wider">
+              <Lock className="h-3 w-3 text-emerald-400" />
+              <span>256-Bit Encrypted OAuth Session</span>
+            </div>
           </div>
+        </motion.div>
+      </main>
+
+      {/* Outer Bottom Footer Bar */}
+      <footer className="w-full max-w-4xl mx-auto pt-4 pb-2 border-t border-neutral-800/60 mt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-neutral-400 font-sans">
+        <div className="flex items-center gap-2 text-neutral-400 text-xs">
+          <Shield className="h-3.5 w-3.5 text-emerald-400" />
+          <span>Protected by Zenoa Security Protocol • End-to-End Encrypted OAuth 2.0</span>
         </div>
-      </motion.div>
+
+        <div className="flex items-center gap-6 text-xs text-neutral-400">
+          <a href="/sso" className="hover:text-white transition-colors cursor-pointer">Docs</a>
+          <a href="/sso?tab=help" className="hover:text-white transition-colors cursor-pointer">Help</a>
+          <a href="/" className="hover:text-white transition-colors cursor-pointer">Return to Zenoa</a>
+        </div>
+      </footer>
     </div>
   );
 };

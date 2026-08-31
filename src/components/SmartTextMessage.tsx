@@ -228,11 +228,14 @@ export const SmartTextMessage: React.FC<SmartTextMessageProps> = ({
   const hasOtpContext = /otp|verification|passcode|security code|verify|login code|authorization code|auth code/i.test(text) || isSenderServiceAccount;
   const detectedOtp = (otpMatch && hasOtpContext) ? otpMatch[1] : null;
 
+  // Detect Security Alert
+  const isSecurityAlert = /SECURITY ALERT/i.test(text);
+
   const handleCopyOtp = (e: React.MouseEvent, code: string) => {
     e.stopPropagation();
     navigator.clipboard.writeText(code);
     setCopiedOtp(true);
-    if (onToast) onToast(`OTP Code ${code} copied to clipboard!`);
+    if (onToast) onToast(`Authentication Code ${code} copied to clipboard.`);
     setTimeout(() => setCopiedOtp(false), 2500);
   };
 
@@ -261,6 +264,20 @@ export const SmartTextMessage: React.FC<SmartTextMessageProps> = ({
 
   return (
     <div className="text-xs leading-relaxed break-words min-w-0 [overflow-wrap:anywhere] max-w-full space-y-1">
+      {/* Smart Security Alert Banner */}
+      {isSecurityAlert && (
+        <div className={`my-1 p-2 rounded-xl border flex items-center gap-2 ${
+          isMe
+            ? 'bg-black/20 border-white/20 text-white'
+            : 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800 text-indigo-900 dark:text-indigo-200'
+        }`}>
+          <ShieldCheck className="h-4 w-4 text-indigo-500 shrink-0" />
+          <div className="text-left min-w-0">
+            <span className="text-[10px] font-bold uppercase tracking-wider block opacity-90">Official Security Advisory</span>
+          </div>
+        </div>
+      )}
+
       {/* Smart OTP Copy Quick Action Banner */}
       {detectedOtp && (
         <div 

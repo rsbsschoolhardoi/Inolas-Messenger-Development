@@ -14,6 +14,7 @@ import { getMediaUrlFromDrive } from '../lib/googleDrive';
 import { decryptFile } from '../cryptoUtils';
 import { decodeMessage } from '../chatUtils';
 import { SmartTextMessage } from './SmartTextMessage';
+import { formatMessageTime } from '../dateUtils';
 
 interface MessageCardProps {
   msg: Message;
@@ -61,7 +62,13 @@ export const MessageCard: React.FC<MessageCardProps> = ({
   const [resolvedMediaUrl, setResolvedMediaUrl] = useState<string | null>(null);
   const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string | null>(null);
   
-  const isRead = msg.read_by && msg.read_by.some(u => u !== (isMe ? 'me' : senderUsername));
+  const isRead = Array.isArray(msg.read_by) && msg.read_by.some(u => 
+    u && 
+    u !== 'me' && 
+    u !== senderUsername && 
+    u !== msg.sender &&
+    (!isMe || (u !== senderUsername && u !== 'me'))
+  );
   const activeTheme = getThemeById(themeId);
   // Fix service account text formatting
   let displayMsgText = decodeMessage(msg.text || '');
@@ -563,7 +570,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                   : activeTheme.bubble.subtextReceived || (isReceivedDark ? 'text-neutral-400' : 'text-slate-500')
               }`}>
                 {msg.starred && <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400 mr-0.5" />}
-                <span>{msg.timestamp}</span>
+                <span>{formatMessageTime(msg.created_at, msg.timestamp)}</span>
                 {msg.edited && <span>• Edited</span>}
                 {isMe && (
                   <span className="ml-0.5 inline-flex items-center">
