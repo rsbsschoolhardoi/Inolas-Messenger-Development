@@ -549,7 +549,7 @@ async function deliverBotChatMessage(opts: {
   if (db && botClean && recClean) {
     try {
       // 1. Check if this is an official Zenoa platform service or a Developer Business bot
-      const isOfficialZenoaAccount = ['zenoa', 'zenoa_verify', 'zenoa_official', 'zenoa_security', 'zenoa_auth'].includes(botClean) || botClean.startsWith('zenoa_');
+      const isOfficialZenoaAccount = ['zenoa', 'sa_zenoa', 'zenoa_official', 'zenoa_security', 'zenoa_auth'].includes(botClean) || botClean.startsWith('zenoa_');
       
       const botDocRef = doc(db, 'users', botClean);
       const botSnap = await getDoc(botDocRef);
@@ -1222,7 +1222,7 @@ app.get('/api/v1/apps/logs', authenticateApiKey, async (req: any, res: any) => {
 // 11. Update Settings
 app.post('/api/v1/apps/update', authenticateApiKey, async (req: any, res: any) => {
   try {
-    const { webhook_url, app_name, redirect_uris, website_url, app_description, allowed_ips, bot_username } = req.body;
+    const { webhook_url, app_name, redirect_uris, website_url, app_description, allowed_ips } = req.body;
     const updateData: any = {};
     if (webhook_url !== undefined) updateData.webhook_url = webhook_url;
     if (app_name !== undefined) updateData.app_name = app_name;
@@ -1231,67 +1231,16 @@ app.post('/api/v1/apps/update', authenticateApiKey, async (req: any, res: any) =
     if (app_description !== undefined) updateData.app_description = app_description;
     if (allowed_ips !== undefined) updateData.allowed_ips = allowed_ips;
 
-    const currentApp = req.appData;
-    let finalBotUsername = currentApp.bot_username;
-
     if (db) {
-      if (bot_username) {
-        const cleanNewBot = String(bot_username).trim().toLowerCase().replace(/^@/, '');
-        if (cleanNewBot && cleanNewBot !== currentApp.bot_username) {
-          const newSaSnap = await getDoc(doc(db, 'users', cleanNewBot));
-          if (newSaSnap.exists()) {
-            return res.status(400).json({ error: 'Username already taken by another account.' });
-          }
-          finalBotUsername = cleanNewBot;
-          updateData.bot_username = finalBotUsername;
-
-          await setDoc(doc(db, 'users', finalBotUsername), {
-            username: finalBotUsername,
-            display_name: app_name !== undefined ? app_name : (currentApp.app_name || 'Service Account'),
-            bio: app_description !== undefined ? app_description : (currentApp.app_description || 'Service Account'),
-            is_service_account: true,
-            is_business_account: true,
-            is_verified: false,
-            owner_username: currentApp.owner || 'developer_user',
-            registered_at: Date.now()
-          });
-
-          if (currentApp.bot_username) {
-            try {
-              await deleteDoc(doc(db, 'users', currentApp.bot_username));
-            } catch (e) {
-              console.warn("Could not delete old bot user doc:", e);
-            }
-          }
-        }
-      }
-
-      if (app_name !== undefined && !bot_username && currentApp.bot_username) {
-        try {
-          await updateDoc(doc(db, 'users', currentApp.bot_username), {
-            display_name: app_name
-          });
-        } catch (e) {
-          console.warn("Could not update user display_name:", e);
-        }
-      }
-
       try {
-        await updateDoc(doc(db, 'developer_apps', currentApp.id), updateData);
+        await updateDoc(doc(db, 'developer_apps', req.appData.id), updateData);
       } catch (e) {
         console.warn("Firestore update error on app settings:", e);
       }
     }
-
-    return res.status(200).json({ 
-      success: true, 
-      message: 'Settings saved successfully',
-      bot_username: finalBotUsername,
-      app_name: app_name !== undefined ? app_name : currentApp.app_name
-    });
-  } catch (err: any) {
-    console.error("Update settings error:", err);
-    res.status(500).json({ error: err.message || 'Failed to save settings.' });
+    return res.status(200).json({ success: true, message: 'Settings saved successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save settings.' });
   }
 });
 
@@ -1667,7 +1616,7 @@ app.post('/api/v1/sso/authorize', async (req: any, res: any) => {
     const securityAlertText = `SECURITY ALERT: SIGN-IN AUTHORIZED\n\nYour Zenoa account was successfully authorized to sign in to:\n\nApplication: ${targetAppName}\nClient ID: ${client_id}\nAuthorized At: ${alertTimeStr}\nStatus: Active Authorization\n\nSECURITY NOTICE: If you did not authorize this login request, please open Zenoa Settings > Developer & Security to revoke access immediately.`;
 
     deliverBotChatMessage({
-      senderBotUsername: 'zenoa_verify',
+      senderBotUsername: 'sa_zenoa',
       senderAppName: 'Zenoa Security',
       recipientUsername: cleanUser.username,
       recipientZenoaId: cleanUser.id,

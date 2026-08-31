@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-type ConsoleView = 'landing' | 'mobile_setup' | '2fa_verification' | 'portal';
+type ConsoleView = 'landing' | 'mobile_setup' | 'portal';
 
 export const DeveloperConsoleStandalone: React.FC = () => {
   const branding = useBranding();
@@ -22,13 +22,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<ConsoleView>('landing');
   const [showZenoaAuthModal, setShowZenoaAuthModal] = useState(false);
-  const [pendingUser, setPendingUser] = useState<UserData | null>(null);
-
-  // 2FA Verification State
-  const [devOtpSent, setDevOtpSent] = useState(false);
-  const [devOtpCode, setDevOtpCode] = useState('');
-  const [generatedDevOtp, setGeneratedDevOtp] = useState('');
-  const [isVerifyingDevOtp, setIsVerifyingDevOtp] = useState(false);
 
   // Mobile / Phone Verification State (for Developer API compliance)
   const [countryCode, setCountryCode] = useState('+91');
@@ -131,88 +124,24 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     };
   }, []);
 
-  const sendZenoaDMOTP = async (targetUser: UserData) => {
-    try {
-      if (!db) return;
-      setIsVerifyingDevOtp(true);
-      setError('');
-      
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
-      setGeneratedDevOtp(otp);
-
-      const botSender = 'zenoa_verify';
-      const userIdent = (targetUser.username || targetUser.id || '').toLowerCase().replace(/^@/, '');
-      const sortedDm = [userIdent, botSender].sort();
-      const chatId = `chat_dm_${sortedDm.join('_')}`;
-      const messageId = 'msg_otp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-
-      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const text = `SECURITY ALERT: DEVELOPER CONSOLE LOGIN\n\nYour Zenoa account is attempting to log into the Developer Console.\n\nYour Verification Code is: ${otp}\n\nTime: ${timeStr}\n\nIf this wasn't you, please secure your account immediately.`;
-
-      // Create/update chat
-      await setDoc(doc(db, 'chats', chatId), {
-        id: chatId,
-        type: 'dm',
-        participants: [userIdent, botSender],
-        updatedAt: Date.now(),
-        lastMessage: {
-          text: `Verification Code: ${otp}`,
-          timestamp: Date.now(),
-          senderId: botSender
-        }
-      }, { merge: true });
-
-      // Add message
-      await setDoc(doc(db, 'chats', chatId, 'messages', messageId), {
-        id: messageId,
-        text: text,
-        senderId: botSender,
-        timestamp: Date.now(),
-        type: 'text'
-      });
-
-      setDevOtpSent(true);
-      setIsVerifyingDevOtp(false);
-    } catch (e) {
-      console.error("Failed to send Zenoa DM OTP", e);
-      setIsVerifyingDevOtp(false);
-      setError("Failed to dispatch Zenoa OTP. Try again.");
-    }
-  };
-
-  const handleVerifyDevOtp = () => {
-    setError('');
-    if (devOtpCode !== generatedDevOtp) {
-      setError("Invalid 6-digit verification code. Please check your Zenoa DM.");
-      return;
-    }
-    
-    // Success
-    if (pendingUser) {
-      setUser(pendingUser);
-      localStorage.setItem('zenoa_dev_console_user', JSON.stringify(pendingUser));
-      if (pendingUser.is_truecaller_verified || pendingUser.mobile_number) {
-        setView('portal');
-      } else {
-        setView('mobile_setup');
-      }
-      setPendingUser(null);
-    }
-  };
-
   const handleAuthenticatedWithZenoa = async (authenticatedUser: UserData) => {
     try {
       const fresh = await fetchFullUserProfile(authenticatedUser.username, authenticatedUser.id);
       const userToUse = fresh || authenticatedUser;
 
-      setPendingUser(userToUse);
-      setView('2fa_verification');
-      await sendZenoaDMOTP(userToUse);
+      setUser(userToUse);
+      localStorage.setItem('zenoa_dev_console_user', JSON.stringify(userToUse));
+
+      if (userToUse.is_truecaller_verified || userToUse.mobile_number) {
+        setView('portal');
+      } else {
+        setView('portal');
+      }
     } catch (err) {
       console.error('Developer session setup error:', err);
-      setPendingUser(authenticatedUser);
-      setView('2fa_verification');
-      await sendZenoaDMOTP(authenticatedUser);
+      setUser(authenticatedUser);
+      localStorage.setItem('zenoa_dev_console_user', JSON.stringify(authenticatedUser));
+      setView('portal');
     }
   };
 
@@ -471,68 +400,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
           onAuthenticated={handleAuthenticatedWithZenoa}
           themeMode="dark"
         />
-      </div>
-    );
-  }
-
-  // 1B. 2FA VERIFICATION STEP
-  if (view === '2fa_verification' && pendingUser) {
-    return (
-      <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center p-4">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.96 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-3xl p-8 shadow-2xl text-center relative overflow-hidden"
-        >
-          {/* Subtle glow effect */}
-          <div className="absolute -top-20 -right-20 w-40 h-40 bg-violet-600/10 blur-3xl rounded-full" />
-          <div className="absolute -bottom-20 -left-20 w-40 h-40 bg-indigo-600/10 blur-3xl rounded-full" />
-
-          <div className="relative z-10">
-            <div className="h-12 w-12 rounded-2xl bg-violet-600/20 border border-violet-500/30 text-violet-400 flex items-center justify-center mx-auto mb-4">
-              <ShieldCheck className="h-6 w-6" />
-            </div>
-
-            <h2 className="text-xl font-bold text-white">Security Verification</h2>
-            <p className="text-xs text-neutral-400 mt-1 mb-6 leading-relaxed">
-              To protect developer credentials, we've sent a 6-digit OTP to your Zenoa DM inbox (<strong>@{pendingUser.username}</strong>) from the official Zenoa Verify account.
-            </p>
-
-            {error && (
-              <div className="mb-4 p-3 bg-rose-950/40 border border-rose-800/40 rounded-xl text-rose-300 text-xs font-medium">
-                {error}
-              </div>
-            )}
-
-            <div className="space-y-4 text-left">
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Enter Verification Code</label>
-                <input
-                  type="text"
-                  value={devOtpCode}
-                  onChange={(e) => setDevOtpCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
-                  placeholder="000000"
-                  maxLength={6}
-                  disabled={!devOtpSent || isVerifyingDevOtp}
-                  className="w-full bg-neutral-950 border border-neutral-800 focus:border-violet-500 rounded-xl px-3 py-3.5 text-lg text-white font-mono text-center tracking-[0.5em] transition-colors outline-none disabled:opacity-50"
-                />
-              </div>
-
-              <button
-                onClick={handleVerifyDevOtp}
-                disabled={devOtpCode.length !== 6 || isVerifyingDevOtp || !devOtpSent}
-                className="w-full py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold shadow-md shadow-violet-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                {isVerifyingDevOtp ? <RefreshCw className="h-4 w-4 animate-spin" /> : <span>Verify Identity</span>}
-              </button>
-            </div>
-            
-            <p className="text-[10px] text-neutral-500 mt-6 flex justify-center items-center gap-1.5">
-              <Lock className="h-3 w-3" />
-              <span>Zero-Trust Developer Authentication</span>
-            </p>
-          </div>
-        </motion.div>
       </div>
     );
   }

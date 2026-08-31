@@ -110,7 +110,7 @@ export const getOnlineStatusText = (user: PresenceUser | undefined | null): stri
 
   if (user.is_service_account || (user as any).is_business_account || isServiceAccount(user, user.username)) {
     const uname = (user.username || '').toLowerCase();
-    if (['zenoa', 'zenoa_verify', 'zenoa_official'].includes(uname)) {
+    if (['zenoa', 'sa_zenoa', 'zenoa_official'].includes(uname)) {
       return 'Official Zenoa Account';
     }
     return 'Business Account';
@@ -150,12 +150,12 @@ export const isServiceAccount = (user: PresenceUser | any | undefined | null, ex
   if (!uname) return false;
   
   const normalized = uname.toLowerCase();
-  return normalized.startsWith('sa_') || normalized === 'zenoa' || normalized === 'zenoa_verify' || normalized === 'zenoa_official' || normalized.startsWith('zenoa_');
+  return normalized.startsWith('sa_') || normalized === 'zenoa' || normalized === 'sa_zenoa' || normalized === 'zenoa_official' || normalized.startsWith('zenoa_');
 };
 
 export const isOfficialAccount = (user: PresenceUser | any | undefined | null, explicitUsername?: string): boolean => {
   const uname = (explicitUsername || user?.username || '').toLowerCase();
-  if (['zenoa', 'zenoa_verify', 'zenoa_official', 'zenoa_security', 'zenoa_auth', 'zenoa_support', 'zenoa_updates'].includes(uname) || uname.startsWith('zenoa_')) {
+  if (['zenoa', 'sa_zenoa', 'zenoa_official', 'zenoa_security', 'zenoa_auth', 'zenoa_support', 'zenoa_updates'].includes(uname) || uname.startsWith('zenoa_')) {
     return true;
   }
   return !!(user?.is_official || (user?.is_service_account && user?.verified_type === 'purple' && !user?.is_business_account));

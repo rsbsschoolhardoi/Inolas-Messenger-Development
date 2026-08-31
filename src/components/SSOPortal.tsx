@@ -9,7 +9,7 @@ import {
 import { UserData } from '../types';
 import { useBranding } from '../brandingUtils';
 import { apiFetch } from '../lib/fetchInterceptor';
-import { getDoc, collection, query, where, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebaseClient';
 
 interface SSOApp {

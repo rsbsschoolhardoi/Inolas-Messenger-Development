@@ -411,7 +411,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                         {isServiceAccount(users[targetUsernameLower], targetUsername) && (
                           <div className="mt-1.5 flex justify-center">
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide bg-blue-500/10 text-blue-600 dark:text-blue-400 dark:bg-blue-400/10 border border-blue-200/50 dark:border-blue-500/20 shadow-xs">
-                              <span>{['zenoa', 'zenoa_verify', 'zenoa_official'].includes(targetUsername.toLowerCase()) ? 'Official Zenoa Account' : 'Business Account'}</span>
+                              <span>{['zenoa', 'sa_zenoa', 'zenoa_official'].includes(targetUsername.toLowerCase()) ? 'Official Zenoa Account' : 'Business Account'}</span>
                             </span>
                           </div>
                         )}
