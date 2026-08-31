@@ -15,6 +15,31 @@ export const getDmChatId = (u1: string, u2: string): string => {
 };
 
 /**
+ * Normalizes participant usernames and IDs so Firestore array-contains queries match
+ * regardless of casing, @ prefixes, or user IDs.
+ */
+export const buildNormalizedParticipants = (u1: string, u2?: string, u1Id?: string, u2Id?: string): string[] => {
+  const set = new Set<string>();
+  const addVariant = (str?: string) => {
+    if (!str) return;
+    const s = str.trim();
+    if (!s) return;
+    set.add(s);
+    set.add(s.toLowerCase());
+    const stripped = s.replace(/^@/, '');
+    if (stripped) {
+      set.add(stripped);
+      set.add(stripped.toLowerCase());
+    }
+  };
+  addVariant(u1);
+  addVariant(u2);
+  if (u1Id) set.add(u1Id);
+  if (u2Id) set.add(u2Id);
+  return Array.from(set);
+};
+
+/**
  * Smartly decodes messages to handle potential encoding issues like '?'
  */
 export const decodeMessage = (text: string): string => {

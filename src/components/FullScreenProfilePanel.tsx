@@ -45,6 +45,10 @@ interface FullScreenProfilePanelProps {
   allUserCalls: any[];
   userAvatarSeed: string;
   userAvatarUrl: string;
+  onOpenDetailedProfile?: (username: string) => void;
+  blockedUsers?: string[];
+  handleToggleBlockUser?: (username: string) => void;
+  handleReportUser?: (username: string) => void;
 }
 
 export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
@@ -83,6 +87,10 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
   allUserCalls,
   userAvatarSeed,
   userAvatarUrl,
+  onOpenDetailedProfile,
+  blockedUsers = [],
+  handleToggleBlockUser,
+  handleReportUser,
 }) => {
   const [profileActiveTab, setProfileActiveTab] = useState<'info' | 'media' | 'calls'>('info');
   const [mediaSearchQuery, setMediaSearchQuery] = useState('');
@@ -122,15 +130,19 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                       <ChevronLeft className="h-6 w-6 stroke-[2.2]" />
                     </button>
                     
-                    <span className="text-xs font-semibold text-neutral-400">Details</span>
+                    <div className="flex-1 flex items-center justify-center gap-1.5 min-w-0 px-2">
+                      {selectedProfileUsername !== userUsername && users[targetUsername.toLowerCase()]?.is_private && (
+                        <Lock className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500 shrink-0" />
+                      )}
+                      <span className="text-sm font-extrabold tracking-wide text-neutral-800 dark:text-neutral-200 truncate">
+                        {selectedProfileUsername ? `@${selectedProfileUsername.replace(/^@/, '')}` : 'Details'}
+                      </span>
+                      {selectedProfileUsername && !!users[selectedProfileUsername.toLowerCase()]?.is_verified && (
+                        <PurpleVerifiedBadge size="sm" />
+                      )}
+                    </div>
 
-                    <button 
-                      onClick={() => setShowProfileOptionsModal(true)}
-                      className="p-2 -mr-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 transition-colors cursor-pointer"
-                      title="Options"
-                    >
-                      <MoreHorizontal className="h-5 w-5" />
-                    </button>
+                    <div className="w-10 h-10 shrink-0" />
                   </div>
 
                   {/* Main Scrollable Content Container */}
@@ -144,7 +156,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                         <div className="bg-white dark:bg-neutral-900 rounded-3xl p-8 border border-neutral-200 dark:border-neutral-800 shadow-xl text-center space-y-6">
                           <div className="flex flex-col items-center space-y-4">
                             <div className="p-1 rounded-full bg-gradient-to-tr from-neutral-200 to-neutral-100 dark:from-neutral-800 dark:to-neutral-900 shadow-lg">
-                              {renderAvatar(selectedUser?.avatar_seed, selectedUser?.display_name, selectedUser?.avatar_url, 'h-24 w-24 text-3xl opacity-50 grayscale-[0.5]')}
+                              {renderAvatar(selectedUser?.avatar_seed, selectedUser?.display_name, selectedUser?.avatar_url, 'h-24 w-24 text-3xl')}
                             </div>
                             <div className="space-y-1">
                               <h2 className="text-2xl font-black text-neutral-900 dark:text-white">@{selectedUser?.username}</h2>
@@ -379,24 +391,10 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                       /* CONTACT PROFILE VIEW (When viewing another user's profile) */
                       <>
                     
-                    {/* User Identity & Avatar Hero */}
-                    <div className="flex flex-col items-center text-center space-y-2.5">
-                      <div className="relative">
-                        <div className="p-1 rounded-full bg-gradient-to-tr from-neutral-200 to-neutral-400 dark:from-neutral-800 dark:to-neutral-700 shadow-xl">
-                          {renderAvatar(
-                            targetUsername || undefined, 
-                            users[targetUsernameLower]?.display_name || targetUsername, 
-                            users[targetUsernameLower]?.avatar_url, 
-                            'h-28 w-28 text-3xl shadow-inner'
-                          )}
-                        </div>
-                        {isUserEffectivelyOnline(users[targetUsernameLower]) && (
-                          <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full bg-emerald-500 border-3 border-white dark:border-[#0a0a0c]" />
-                        )}
-                      </div>
-
+                    {/* User Identity & Avatar Hero (PFP REMOVED as requested) */}
+                    <div className="flex flex-col items-center text-center space-y-2 py-4">
                       <div className="space-y-1">
-                        <h2 className="text-xl font-bold tracking-tight text-neutral-900 dark:text-white flex items-center justify-center gap-1.5">
+                        <h2 className="text-2xl font-black tracking-tight text-neutral-900 dark:text-white flex items-center justify-center gap-1.5">
                           {chatNicknames[targetUsername] ? (
                             <>
                               <span>{chatNicknames[targetUsername]}</span>
@@ -409,83 +407,44 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                             <PurpleVerifiedBadge size="sm"  />
                           )}
                         </h2>
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">
-                          @{targetUsername}
-                        </p>
+                        
                         {isServiceAccount(users[targetUsernameLower], targetUsername) && (
                           <div className="mt-1.5 flex justify-center">
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide bg-blue-500/10 text-blue-600 dark:text-blue-400 dark:bg-blue-400/10 border border-blue-200/50 dark:border-blue-500/20 shadow-xs">
-
-                              <span>{isServiceAccount(users[targetUsernameLower], targetUsername) ? (['zenoa', 'sa_zenoa', 'zenoa_official'].includes(targetUsername.toLowerCase()) ? 'Official Zenoa Account' : 'Business Account') : 'End-to-End Encrypted'}</span>
+                              <span>{['zenoa', 'sa_zenoa', 'zenoa_official'].includes(targetUsername.toLowerCase()) ? 'Official Zenoa Account' : 'Business Account'}</span>
                             </span>
                           </div>
                         )}
                       </div>
-
-                      {/* Followers and Following Metrics */}
-                      {!isServiceAccount(users[targetUsernameLower], targetUsername) && (
-                      <div className="flex items-center justify-center gap-6 py-2 px-6 rounded-2xl bg-neutral-100/60 dark:bg-neutral-900/60 border border-neutral-200/60 dark:border-neutral-800/60">
-                        <button 
-                          onClick={() => setShowFollowListModal({ type: 'followers', username: targetUsername })}
-                          className="flex items-center gap-1.5 hover:opacity-80 transition-opacity cursor-pointer"
-                        >
-                          <span className="text-sm font-bold text-neutral-900 dark:text-white">
-                            {users[targetUsernameLower]?.followers?.length || 0}
-                          </span>
-                          <span className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Followers</span>
-                        </button>
-                        <div className="h-3.5 w-px bg-neutral-300 dark:bg-neutral-700" />
-                        <button 
-                          onClick={() => setShowFollowListModal({ type: 'following', username: targetUsername })}
-                          className="flex items-center gap-1.5 hover:opacity-80 transition-opacity cursor-pointer"
-                        >
-                          <span className="text-sm font-bold text-neutral-900 dark:text-white">
-                            {users[targetUsernameLower]?.following?.length || 0}
-                          </span>
-                          <span className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Following</span>
-                        </button>
-                      </div>
-
-                      )}
-                      {/* Follow / Following Primary Action Button (Inside profile view only!) */}
-                      {targetUsername !== userUsername && !isServiceAccount(users[targetUsernameLower], targetUsername) && (
-                        <div className="pt-1 w-full max-w-xs">
-                          <button
-                            onClick={() => handleFollow(selectedUser!)}
-                            className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-98 ${
-                              users[targetUsernameLower]?.followers?.includes(userUsername)
-                                ? 'bg-neutral-200/80 hover:bg-neutral-300 dark:bg-neutral-850 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-300/80 dark:border-neutral-750'
-                                : 'bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900'
-                            }`}
-                          >
-                            {users[targetUsernameLower]?.followers?.includes(userUsername) ? 'Following' : 'Follow'}
-                          </button>
-                        </div>
-                      )}
                     </div>
                       </>
                     )}
 
-                    {/* 4 Quick Action Circular Buttons (Profile, Search, Mute, Options) */}
-                    <div className={`grid gap-2 pt-2 text-center ${isServiceAccount(users[targetUsernameLower], targetUsername) ? 'grid-cols-3' : 'grid-cols-4'}`}>
-                      {/* 1. Profile Link Copy */}
-                      {!isServiceAccount(users[targetUsernameLower], targetUsername) && (
-                      <div 
-                        onClick={() => {
-                          if (navigator.clipboard) {
-                            const shareLink = `${window.location.origin}/u/${targetUsername}`;
-                            navigator.clipboard.writeText(shareLink);
-                            showToast(`Copied profile link to clipboard!`);
-                          }
-                        }}
-                        className="flex flex-col items-center gap-1.5 cursor-pointer group"
-                        title="Copy public profile link"
-                      >
-                        <div className="h-12 w-12 rounded-full bg-neutral-200/70 hover:bg-neutral-300 dark:bg-neutral-850 dark:hover:bg-neutral-800 flex items-center justify-center text-neutral-800 dark:text-neutral-200 transition-transform group-hover:scale-105 active:scale-95 shadow-xs">
-                          <User className="h-5 w-5" />
+                    {/* 3 Quick Action Circular Buttons (Profile, Search, Mute) */}
+                    <div className="grid grid-cols-3 gap-2 pt-2 text-center">
+                      {/* 1. Open Full Profile Modal */}
+                      {!isServiceAccount(users[targetUsernameLower], targetUsername) ? (
+                        <div 
+                          onClick={() => {
+                            if (onOpenDetailedProfile) {
+                              onOpenDetailedProfile(targetUsername);
+                            }
+                          }}
+                          className="flex flex-col items-center gap-1.5 cursor-pointer group"
+                          title="View Full Profile"
+                        >
+                          <div className="h-12 w-12 rounded-full bg-neutral-200/70 hover:bg-neutral-300 dark:bg-neutral-850 dark:hover:bg-neutral-800 flex items-center justify-center text-neutral-800 dark:text-neutral-200 transition-transform group-hover:scale-105 active:scale-95 shadow-xs">
+                            <User className="h-5 w-5" />
+                          </div>
+                          <span className="text-[11px] font-medium text-neutral-700 dark:text-neutral-300">Profile</span>
                         </div>
-                        <span className="text-[11px] font-medium text-neutral-700 dark:text-neutral-300">Profile</span>
-                      </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-1.5 opacity-40 select-none">
+                          <div className="h-12 w-12 rounded-full bg-neutral-100 dark:bg-neutral-900 flex items-center justify-center text-neutral-400">
+                            <User className="h-5 w-5" />
+                          </div>
+                          <span className="text-[11px] font-medium text-neutral-400">Profile</span>
+                        </div>
                       )}
 
                       {/* 2. Search */}
@@ -519,17 +478,6 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                         <span className="text-[11px] font-medium text-neutral-700 dark:text-neutral-300">
                           {activeChat?.muted ? 'Unmute' : 'Mute'}
                         </span>
-                      </div>
-
-                      {/* 4. Options */}
-                      <div 
-                        onClick={() => setShowProfileOptionsModal(true)}
-                        className="flex flex-col items-center gap-1.5 cursor-pointer group"
-                      >
-                        <div className="h-12 w-12 rounded-full bg-neutral-200/70 hover:bg-neutral-300 dark:bg-neutral-850 dark:hover:bg-neutral-800 flex items-center justify-center text-neutral-800 dark:text-neutral-200 transition-transform group-hover:scale-105 active:scale-95 shadow-xs">
-                          <MoreHorizontal className="h-5 w-5" />
-                        </div>
-                        <span className="text-[11px] font-medium text-neutral-700 dark:text-neutral-300">Options</span>
                       </div>
                     </div>
 
@@ -703,85 +651,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                         );
                       })()}
                     </div>
-
-                    {/* Direct Call & Call History Section */}
-                    {!isServiceAccount(users[targetUsernameLower], targetUsername) && (
-                      <div className="space-y-3 pt-2">
-                        <h3 className="text-sm font-bold text-neutral-900 dark:text-white px-1">Audio & Video Calls</h3>
-                        
-                        <div className="grid grid-cols-2 gap-3">
-                          <button
-                            onClick={() => {
-                              setShowProfilePanel(false);
-                              handleStartCallWithUser(targetUsername, 'voice');
-                            }}
-                            className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-white dark:bg-neutral-900 hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-neutral-200 dark:border-neutral-800 text-neutral-900 dark:text-white font-semibold text-xs transition-colors cursor-pointer shadow-xs"
-                          >
-                            <Phone className="h-4 w-4 text-emerald-500" />
-                            <span>Voice Call</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              setShowProfilePanel(false);
-                              handleStartCallWithUser(targetUsername, 'video');
-                            }}
-                            className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-white dark:bg-neutral-900 hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-neutral-200 dark:border-neutral-800 text-neutral-900 dark:text-white font-semibold text-xs transition-colors cursor-pointer shadow-xs"
-                          >
-                            <Video className="h-4 w-4 text-indigo-500" />
-                            <span>Video Call</span>
-                          </button>
-                        </div>
-                        {/* Call logs list */}
-                        {(() => {
-                          const safeCalls = Array.isArray(allUserCalls) ? allUserCalls : [];
-                          const userPairCalls = safeCalls.filter(c => 
-                            c.partner_username === targetUsername ||
-                            c.caller === targetUsername ||
-                            c.receiver === targetUsername
-                          );
-                          if (userPairCalls.length > 0) {
-                            return (
-                              <div className="space-y-2 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-850 p-2 max-h-48 overflow-y-auto">
-                                {userPairCalls.slice(0, 5).map((call) => {
-                                  const isMissed = call.status === 'missed' || call.status === 'declined';
-                                  const isVideo = call.call_type === 'video';
-                                  return (
-                                    <div
-                                      key={`profile_call_${call.id}`}
-                                      className="p-2.5 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/40 flex items-center justify-between gap-2"
-                                    >
-                                      <div className="flex items-center gap-2.5 min-w-0">
-                                        <div className={`p-1.5 rounded-lg shrink-0 ${
-                                          isMissed ? 'bg-rose-100 dark:bg-rose-950/40 text-rose-600' :
-                                          isVideo ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600' :
-                                          'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600'
-                                        }`}>
-                                          {isVideo ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" />}
-                                        </div>
-                                        <div className="min-w-0">
-                                          <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 truncate">
-                                            {isVideo ? 'Video Call' : 'Voice Call'}
-                                          </p>
-                                          <p className="text-[10px] text-neutral-400 mt-0.5">
-                                            {call.timestamp} {call.duration_formatted ? `\u2022 ${call.duration_formatted}` : ''}
-                                          </p>
-                                        </div>
-                                      </div>
-                                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                                        isMissed ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-600' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
-                                      }`}>
-                                        {call.status}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            );
-                          }
-                          return null;
-                        })()}
-                      </div>
-                    )}                  </div>
+                  </div>
                 </motion.div>
               
   );

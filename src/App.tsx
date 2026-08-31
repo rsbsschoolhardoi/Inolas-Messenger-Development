@@ -41,6 +41,7 @@ import {  LandingPage } from './components/LandingPage';
 import {  AuthFlow } from './components/AuthFlow';
 import {  AccountSetup } from './components/AccountSetup';
 import { PublicProfileView } from './components/PublicProfileView';
+import { DetailedProfilePage } from './components/DetailedProfilePage';
 import { AdminPanel } from './components/AdminPanel';
 import { PurpleVerifiedBadge } from './components/PurpleVerifiedBadge';
 import {  NewGroupModal } from './components/NewGroupModal';
@@ -51,7 +52,7 @@ import { getThemeById, DEFAULT_THEME_ID } from './chatThemes';
 import { getMessageDateKey, formatChatDateDivider, formatChatListTime, formatCleanChatPreview, formatMessageTime } from './dateUtils';
 import { encryptMessageText, decryptMessageText, encryptFile, decryptFile } from './cryptoUtils';
 import { storageManager } from './storageManager';
-import { getDmChatId } from './chatUtils';
+import { getDmChatId, buildNormalizedParticipants } from './chatUtils';
 import { OpeningAnimation } from './components/OpeningAnimation';
 import {  encryptVault, decryptVault } from './utils/crypto';
 import {  findVaultFile, uploadVaultFile, downloadVaultFile, DriveFileInfo, uploadMediaToDrive, getMediaUrlFromDrive, uploadPublicMediaToDrive, deleteVaultFile } from './lib/googleDrive';
@@ -61,7 +62,7 @@ import {  CallModal, CallSession, CallEndMetadata } from './components/CallModal
 import {  blobToBase64, getSupportedMimeType, generateSyntheticVoiceNote } from './audioUtils';
 import OneSignal from 'react-onesignal';
 import {  
-  collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, query, where, getDocs, updateDoc, arrayUnion, arrayRemove 
+  collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, query, where, getDocs, updateDoc, arrayUnion, arrayRemove, increment 
 } from 'firebase/firestore';
 import { sendRelayMessage } from './services/messageService';
 import {  
@@ -353,18 +354,21 @@ export default function App() {
     const partnerAvatarSeed = targetUserObj?.avatar_seed || targetUsername;
     const partnerAvatarUrl = targetUserObj?.avatar_url || '';
 
+    const selfName = userUsername || 'me';
+    const targetChatId = getDmChatId(selfName, targetUsername);
+    const normalizedParts = buildNormalizedParticipants(selfName, targetUsername, userId, targetUserObj?.id);
+
     // Find or create chat if needed
-    let targetChat = chats.find(c => c.type === 'dm' && c.username === targetUsername);
+    let targetChat = chats.find(c => c.type === 'dm' && (c.id === targetChatId || c.username?.toLowerCase() === targetUsername.toLowerCase()));
     if (!targetChat) {
-      const newChatId = getDmChatId(userUsername, targetUsername);
       targetChat = {
-        id: newChatId,
+        id: targetChatId,
         type: 'dm',
         name: partnerName,
         username: targetUsername,
         avatar_seed: partnerAvatarSeed,
         avatar_url: partnerAvatarUrl,
-        participants: [userUsername, targetUsername],
+        participants: normalizedParts,
         unread: 0,
         last_message: 'Started conversation',
         last_time: 'now',
@@ -378,6 +382,24 @@ export default function App() {
       setChats(prev => [targetChat!, ...prev]);
     }
     setActiveChatId(targetChat.id);
+
+    // Persist DM chat to Firestore immediately
+    if (isFirebaseConfigured && db) {
+      setDoc(doc(db, 'chats', targetChatId), {
+        id: targetChatId,
+        type: 'dm',
+        name: partnerName,
+        username: targetUsername,
+        avatar_seed: partnerAvatarSeed,
+        avatar_url: partnerAvatarUrl,
+        participants: normalizedParts,
+        participant_details: {
+          [selfName.toLowerCase()]: { username: selfName, display_name: userDisplayName || selfName, avatar_seed: userAvatarSeed || selfName, avatar_url: userAvatarUrl || '' },
+          [targetUsername.toLowerCase()]: { username: targetUsername, display_name: partnerName, avatar_seed: partnerAvatarSeed, avatar_url: partnerAvatarUrl }
+        },
+        updated_at: Date.now()
+      }, { merge: true }).catch(err => console.warn("Firestore DM creation notice:", err));
+    }
 
     const nowTimestamp = Date.now();
     const nowTimeStr = new Date(nowTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -400,11 +422,14 @@ export default function App() {
       setDoc(doc(db, 'calls', newCallSession.id), {
         id: newCallSession.id,
         type: type,
-        caller: userUsername,
+        caller: selfName,
+        caller_clean: selfName.toLowerCase(),
         receiver: targetUsername,
-        caller_name: userDisplayName || userUsername,
+        receiver_clean: targetUsername.toLowerCase(),
+        receiver_uid: targetUserObj?.id || '',
+        caller_name: userDisplayName || selfName,
         receiver_name: partnerName,
-        caller_avatar_seed: userAvatarSeed || userUsername,
+        caller_avatar_seed: userAvatarSeed || selfName,
         caller_avatar_url: userAvatarUrl || '',
         receiver_avatar_seed: partnerAvatarSeed,
         receiver_avatar_url: partnerAvatarUrl,
@@ -418,17 +443,21 @@ export default function App() {
     // Local tab signaling accelerator
     try {
       if (typeof BroadcastChannel !== 'undefined' && targetUsername) {
-        const bc = new BroadcastChannel(`zenoa_incoming_calls_${targetUsername}`);
-        bc.postMessage({
+        const bc1 = new BroadcastChannel(`zenoa_incoming_calls_${targetUsername}`);
+        const bc2 = new BroadcastChannel(`zenoa_incoming_calls_${targetUsername.toLowerCase()}`);
+        const payload = {
           id: newCallSession.id,
           type: type,
-          caller: userUsername,
+          caller: selfName,
           receiver: targetUsername,
+          receiver_clean: targetUsername.toLowerCase(),
           status: 'dialing',
           created_at: nowTimestamp,
           start_time_str: nowTimeStr
-        });
-        setTimeout(() => bc.close(), 2000);
+        };
+        bc1.postMessage(payload);
+        bc2.postMessage(payload);
+        setTimeout(() => { try { bc1.close(); bc2.close(); } catch(e){} }, 2000);
       }
     } catch (bcErr) {
       console.warn("BroadcastChannel post notice:", bcErr);
@@ -609,6 +638,7 @@ export default function App() {
   const [firestoreCalls, setFirestoreCalls] = useState<CallHistoryRecord[]>([]);
   const [currentMediaFolder, setCurrentMediaFolder] = useState<'photos' | 'videos' | 'audio' | 'documents' | null>(null);
   const [publicProfileUsername, setPublicProfileUsername] = useState<string | null>(null);
+  const [detailedProfileUsername, setDetailedProfileUsername] = useState<string | null>(null);
   const [showFollowListModal, setShowFollowListModal] = useState<{ type: 'followers' | 'following'; username: string } | null>(null);
   const [chatNicknames, setChatNicknames] = useState<Record<string, string>>(() => {
     try {
@@ -1678,9 +1708,10 @@ export default function App() {
       return;
     }
 
+    const cleanSelfUsername = userUsername.toLowerCase().trim().replace(/^@/, '');
     const chatsQuery = query(
       collection(db, 'chats'),
-      where('participants', 'array-contains', userUsername)
+      where('participants', 'array-contains', cleanSelfUsername)
     );
 
     const unsubscribeChats = onSnapshot(
@@ -1693,26 +1724,31 @@ export default function App() {
             const participants = Array.isArray(c.participants) ? c.participants : [];
             const participantIds = Array.isArray(c.participant_ids) ? c.participant_ids : [];
             
-            // Strict Zero-Trust Privacy Gate: Verify user is a participant or group member
-            const isParticipant = participants.some((p: string) => isSenderMe(p) || p === userUsername || p === userId) ||
-                                  participantIds.some((p: string) => p === userId || p === userUsername);
+            // Resilient Zero-Trust Privacy Gate: Verify user is a participant or group member (Case-Insensitive)
+            const isParticipant = participants.some((p: string) => isSenderMe(p) || p.toLowerCase() === userUsername.toLowerCase() || p.toLowerCase() === cleanSelfUsername || (userId && p === userId)) ||
+                                  participantIds.some((p: string) => (userId && p === userId) || p.toLowerCase() === userUsername.toLowerCase() || p.toLowerCase() === cleanSelfUsername);
             if (!isParticipant) {
               return; // DROP: Current user is NOT a participant of this chat
             }
 
-            const otherUser = participants.find((p: string) => !isSenderMe(p) && p !== userUsername && p !== userId) || (c.username !== userUsername ? c.username : '') || '';
-            const uProfile = users[otherUser] || Object.values(users).find(u => u.username === otherUser || u.id === otherUser || u.previous_usernames?.includes(otherUser));
+            const otherUser = participants.find((p: string) => !isSenderMe(p) && p.toLowerCase() !== userUsername.toLowerCase() && p.toLowerCase() !== cleanSelfUsername && p !== userId) || (c.username?.toLowerCase() !== userUsername.toLowerCase() ? c.username : '') || '';
+            const uProfile = users[otherUser] || users[otherUser.toLowerCase()] || Object.values(users).find(u => u.username?.toLowerCase() === otherUser.toLowerCase() || u.id === otherUser || u.previous_usernames?.includes(otherUser));
+            const participantDetail = c.participant_details?.[otherUser] || c.participant_details?.[otherUser.toLowerCase()];
 
-            const resolvedPartnerUsername = uProfile?.username || otherUser || c.username || '';
-            const resolvedPartnerName = c.type === 'dm' ? (uProfile?.display_name || resolvedPartnerUsername) : (c.name || '');
+            const resolvedPartnerUsername = uProfile?.username || participantDetail?.username || otherUser || c.username || '';
+            const resolvedPartnerName = c.type === 'dm' ? (uProfile?.display_name || participantDetail?.display_name || resolvedPartnerUsername) : (c.name || '');
+            const resolvedPartnerAvatarSeed = c.type === 'dm' ? (uProfile?.avatar_seed || participantDetail?.avatar_seed || resolvedPartnerUsername) : (c.avatar_seed || c.name || c.id || '');
+            const resolvedPartnerAvatarUrl = c.type === 'dm' ? (uProfile?.avatar_url || participantDetail?.avatar_url || '') : (c.avatar_url || '');
+
+            const computedUnread = c.unread_by_user?.[cleanSelfUsername] ?? c.unread_by_user?.[userUsername.toLowerCase()] ?? c.unread_by_user?.[userUsername] ?? (c.last_message_sender?.toLowerCase() !== userUsername.toLowerCase() ? (c.unread || 0) : 0);
 
             const chatObj: Chat = {
               id: c.id,
               type: (c.type || 'dm') as 'dm' | 'group',
               name: c.type === 'group' ? (c.name || 'Group Chat') : resolvedPartnerName,
               username: c.type === 'dm' ? resolvedPartnerUsername : (c.username || c.id || ''),
-              avatar_seed: c.type === 'dm' ? (uProfile?.avatar_seed || resolvedPartnerUsername) : (c.avatar_seed || c.name || c.id || ''),
-              avatar_url: c.type === 'dm' ? (uProfile?.avatar_url || '') : (c.avatar_url || ''),
+              avatar_seed: resolvedPartnerAvatarSeed,
+              avatar_url: resolvedPartnerAvatarUrl,
               participants: c.participants || [],
               participant_ids: c.participant_ids || [],
               admin: c.admin,
@@ -1721,13 +1757,13 @@ export default function App() {
               group_notice: c.group_notice || '',
               edit_info_permission: c.edit_info_permission || 'all',
               send_messages_permission: c.send_messages_permission || 'all',
-              unread: c.unread || 0,
+              unread: computedUnread,
               last_message: c.last_message || '',
               last_time: c.last_time || '',
               pinned: c.pinned || false,
               muted: c.muted || false,
-              typing: (c.typing_username && c.typing_username !== userUsername && c.typing_updated_at && (Date.now() - c.typing_updated_at < 6000)) || (c.typing && c.typing_username !== userUsername) || false,
-              typing_username: c.typing_username && c.typing_username !== userUsername ? c.typing_username : undefined,
+              typing: (c.typing_username && c.typing_username.toLowerCase() !== userUsername.toLowerCase() && c.typing_updated_at && (Date.now() - c.typing_updated_at < 6000)) || (c.typing && c.typing_username !== userUsername) || false,
+              typing_username: c.typing_username && c.typing_username.toLowerCase() !== userUsername.toLowerCase() ? c.typing_username : undefined,
               typing_updated_at: c.typing_updated_at,
               online: c.type === 'dm' ? isUserEffectivelyOnline(uProfile) : (c.online || false),
               last_seen: c.type === 'dm' ? (uProfile?.last_seen || '') : (c.last_seen || ''),
@@ -1964,8 +2000,8 @@ export default function App() {
     if (!currentChat) {
       return;
     }
-    const isParticipant = (currentChat.participants || []).some((p: string) => isSenderMe(p) || p === userUsername || p === userId) ||
-                          (currentChat.participant_ids || []).some((p: string) => p === userId || p === userUsername);
+    const isParticipant = (currentChat.participants || []).some((p: string) => isSenderMe(p) || p.toLowerCase() === userUsername.toLowerCase() || (userId && p === userId)) ||
+                          (currentChat.participant_ids || []).some((p: string) => (userId && p === userId) || p.toLowerCase() === userUsername.toLowerCase());
     if (!isParticipant) {
       console.warn("Unauthorized active chat access attempt blocked:", activeChatId);
       setActiveChatId('');
@@ -2068,22 +2104,25 @@ export default function App() {
 
           // 2. Mark incoming unread messages as read in real-time
           let hasUnreadIncoming = false;
+          const cleanSelf = userUsername.toLowerCase().trim().replace(/^@/, '');
           snapshot.docs.forEach(docSnap => {
             const m = docSnap.data();
-            if (m.sender !== userUsername && (!m.read_by || !Array.isArray(m.read_by) || !m.read_by.includes(userUsername))) {
+            const mSender = (m.sender || '').toLowerCase();
+            if (mSender !== userUsername.toLowerCase() && mSender !== cleanSelf && (!m.read_by || !Array.isArray(m.read_by) || (!m.read_by.includes(userUsername) && !m.read_by.includes(cleanSelf)))) {
               hasUnreadIncoming = true;
               updateDoc(doc(db, 'messages', docSnap.id), {
-                read_by: arrayUnion(userUsername)
+                read_by: arrayUnion(userUsername, cleanSelf)
               }).catch(() => {});
             }
           });
 
-          // Mark chat as read only if incoming unread messages were read
-          if (hasUnreadIncoming) {
-            setDoc(doc(db, 'chats', activeChatId), {
-              last_message_status: 'read'
-            }, { merge: true }).catch(() => {});
-          }
+          // Reset unread counts on active chat document
+          setDoc(doc(db, 'chats', activeChatId), {
+            last_message_status: 'read',
+            [`unread_by_user.${cleanSelf}`]: 0,
+            [`unread_by_user.${userUsername.toLowerCase()}`]: 0,
+            [`unread_by_user.${userUsername}`]: 0
+          }, { merge: true }).catch(() => {});
         }
 
         // Fetch all local messages from IndexedDB for this chat to combine history
@@ -2308,47 +2347,61 @@ export default function App() {
   // Live Voice & Video Signaling Listener for Incoming Calls (Firestore + BroadcastChannel)
   useEffect(() => {
     let unsubscribeCalls: (() => void) | null = null;
-    let localBroadcastChannel: BroadcastChannel | null = null;
+    let unsubscribeCallsClean: (() => void) | null = null;
+    let localBc1: BroadcastChannel | null = null;
+    let localBc2: BroadcastChannel | null = null;
 
     if (isFirebaseConfigured && db && userUsername) {
-      const q = query(
-        collection(db, 'calls'),
-        where('receiver', '==', userUsername),
-        where('status', '==', 'dialing')
-      );
+      const cleanSelf = userUsername.toLowerCase().trim().replace(/^@/, '');
 
-      unsubscribeCalls = onSnapshot(q, (snapshot) => {
-        snapshot.docChanges().forEach((change) => {
+      const handleCallSnap = (snapshot: any) => {
+        snapshot.docChanges().forEach((change: any) => {
           if (change.type === 'added' || change.type === 'modified') {
             const callData = change.doc.data();
-            if (callData.status === 'dialing' && (callData.receiver === userUsername || callData.receiver_uid === userId)) {
-              const callerUserObj = users[callData.caller] || Object.values(users).find(u => u.username === callData.caller);
+            const recClean = callData.receiver_clean || callData.receiver?.toLowerCase();
+            if (callData.status === 'dialing' && (recClean === cleanSelf || callData.receiver === userUsername || callData.receiver_uid === userId)) {
+              const callerUserObj = users[callData.caller] || users[callData.caller_clean] || Object.values(users).find(u => u.username?.toLowerCase() === callData.caller_clean || u.username === callData.caller);
               setActiveCallSession({
                 id: callData.id,
                 type: callData.type as 'voice' | 'video',
                 status: 'ringing', // Mark as ringing for recipient
                 isIncoming: true,
                 partnerUsername: callData.caller,
-                partnerName: callerUserObj?.display_name || callData.caller,
-                partnerAvatarSeed: callerUserObj?.avatar_seed || callData.caller,
-                partnerAvatarUrl: callerUserObj?.avatar_url,
+                partnerName: callData.caller_name || callerUserObj?.display_name || callData.caller,
+                partnerAvatarSeed: callData.caller_avatar_seed || callerUserObj?.avatar_seed || callData.caller,
+                partnerAvatarUrl: callData.caller_avatar_url || callerUserObj?.avatar_url,
                 startedAt: callData.created_at || Date.now(),
                 startTimeStr: callData.start_time_str || new Date(callData.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               });
             }
           }
         });
-      }, (err) => {
-        console.warn("Call signaling snapshot notice:", err);
-      });
+      };
+
+      const qClean = query(
+        collection(db, 'calls'),
+        where('receiver_clean', '==', cleanSelf),
+        where('status', '==', 'dialing')
+      );
+      unsubscribeCallsClean = onSnapshot(qClean, handleCallSnap, (err) => console.warn("Call signaling notice:", err));
+
+      if (userUsername !== cleanSelf) {
+        const qOrig = query(
+          collection(db, 'calls'),
+          where('receiver', '==', userUsername),
+          where('status', '==', 'dialing')
+        );
+        unsubscribeCalls = onSnapshot(qOrig, handleCallSnap, (err) => console.warn("Call signaling notice:", err));
+      }
     }
 
     try {
       if (typeof BroadcastChannel !== 'undefined' && userUsername) {
-        localBroadcastChannel = new BroadcastChannel(`zenoa_incoming_calls_${userUsername}`);
-        localBroadcastChannel.onmessage = (e) => {
+        const handleBcMsg = (e: MessageEvent) => {
           const callData = e.data;
-          if (callData && callData.status === 'dialing' && (callData.receiver === userUsername || callData.receiver_uid === userId)) {
+          const cleanSelf = userUsername.toLowerCase().trim().replace(/^@/, '');
+          const recClean = callData?.receiver_clean || callData?.receiver?.toLowerCase();
+          if (callData && callData.status === 'dialing' && (recClean === cleanSelf || callData.receiver === userUsername || callData.receiver_uid === userId)) {
             const callerUserObj = users[callData.caller] || Object.values(users).find(u => u.username === callData.caller);
             setActiveCallSession({
               id: callData.id,
@@ -2364,6 +2417,15 @@ export default function App() {
             });
           }
         };
+
+        localBc1 = new BroadcastChannel(`zenoa_incoming_calls_${userUsername}`);
+        localBc1.onmessage = handleBcMsg;
+
+        const cleanSelf = userUsername.toLowerCase().trim().replace(/^@/, '');
+        if (userUsername !== cleanSelf) {
+          localBc2 = new BroadcastChannel(`zenoa_incoming_calls_${cleanSelf}`);
+          localBc2.onmessage = handleBcMsg;
+        }
       }
     } catch (bcErr) {
       console.warn("BroadcastChannel initialization notice:", bcErr);
@@ -2371,9 +2433,11 @@ export default function App() {
 
     return () => {
       if (unsubscribeCalls) unsubscribeCalls();
-      if (localBroadcastChannel) localBroadcastChannel.close();
+      if (unsubscribeCallsClean) unsubscribeCallsClean();
+      if (localBc1) localBc1.close();
+      if (localBc2) localBc2.close();
     };
-  }, [userUsername, isFirebaseConfigured, db, users]);
+  }, [userUsername, userId, isFirebaseConfigured, db, users]);
 
   // Live Call History Listener across all devices & sessions (Caller and Receiver)
   useEffect(() => {
@@ -4208,15 +4272,42 @@ export default function App() {
              currentActiveChat = { ...currentActiveChat };
              delete currentActiveChat.isLocalPending;
           }
+          const selfName = userUsername || 'me';
+          const normalizedParts = buildNormalizedParticipants(selfName, currentActiveChat.username, userId);
+
+          // Compute unread map for target users
+          const targetUsers = (currentActiveChat.participants || []).filter(p => p && p.toLowerCase() !== selfName.toLowerCase() && p !== userId);
+          const unreadByMap: Record<string, any> = {};
+          targetUsers.forEach(p => {
+            if (p) {
+              const cleanP = p.toLowerCase().trim().replace(/^@/, '');
+              unreadByMap[cleanP] = increment(1);
+              unreadByMap[p] = increment(1);
+            }
+          });
+          unreadByMap[selfName.toLowerCase()] = 0;
+          unreadByMap[selfName] = 0;
+
           await setDoc(doc(db, 'chats', activeChatId), {
             id: activeChatId,
-            type: currentActiveChat.type,
+            type: currentActiveChat.type || 'dm',
             name: currentActiveChat.name,
             username: currentActiveChat.username,
             avatar_seed: currentActiveChat.avatar_seed,
-            participants: currentActiveChat.participants,
+            avatar_url: currentActiveChat.avatar_url || '',
+            participants: normalizedParts,
+            participant_details: {
+              [selfName.toLowerCase()]: { username: selfName, display_name: userDisplayName || selfName, avatar_seed: userAvatarSeed || selfName, avatar_url: userAvatarUrl || '' },
+              ...(currentActiveChat.username ? {
+                [currentActiveChat.username.toLowerCase()]: { username: currentActiveChat.username, display_name: currentActiveChat.name, avatar_seed: currentActiveChat.avatar_seed || currentActiveChat.username, avatar_url: currentActiveChat.avatar_url || '' }
+              } : {})
+            },
             last_message: text,
-            last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
+            last_time: 'now',
+            updated_at: Date.now(),
+            last_message_sender: selfName,
+            last_message_status: 'delivered' as const,
+            unread_by_user: unreadByMap,
             unread: 0,
             pinned: false,
             muted: false,
@@ -5515,6 +5606,7 @@ export default function App() {
     });
 
     const targetChatId = existingChat ? existingChat.id : canonicalChatId;
+    const normalizedParts = buildNormalizedParticipants(selfName, user.username, userId, user.id);
 
     if (!existingChat) {
       const newChat: Chat = {
@@ -5524,7 +5616,7 @@ export default function App() {
         username: user.username,
         avatar_seed: user.avatar_seed || user.username,
         avatar_url: user.avatar_url,
-        participants: [selfName, user.username],
+        participants: normalizedParts,
         unread: 0,
         last_message: '',
         last_time: 'now',
@@ -5547,6 +5639,28 @@ export default function App() {
         ...prev,
         [targetChatId]: prev[targetChatId] || []
       }));
+    }
+
+    // Persist DM chat to Firestore immediately so recipient can discover chat in real-time
+    if (isFirebaseConfigured && db) {
+      try {
+        await setDoc(doc(db, 'chats', targetChatId), {
+          id: targetChatId,
+          type: 'dm',
+          name: user.display_name,
+          username: user.username,
+          avatar_seed: user.avatar_seed || user.username,
+          avatar_url: user.avatar_url || '',
+          participants: normalizedParts,
+          participant_details: {
+            [selfName.toLowerCase()]: { username: selfName, display_name: userDisplayName || selfName, avatar_seed: userAvatarSeed || selfName, avatar_url: userAvatarUrl || '' },
+            [targetUserClean]: { username: user.username, display_name: user.display_name, avatar_seed: user.avatar_seed || user.username, avatar_url: user.avatar_url || '' }
+          },
+          updated_at: Date.now()
+        }, { merge: true });
+      } catch (err) {
+        console.warn("Firestore DM creation notice:", err);
+      }
     }
 
     setActiveChatId(targetChatId);
@@ -6388,7 +6502,16 @@ export default function App() {
   const renderAvatar = (seed?: string, name?: string, avatarUrl?: string, sizeClass: string = 'h-10 w-10 text-sm') => {
     const s = seed || name || 'user';
     
-    // Official Zenoa Account Custom Avatar
+    // 1. If custom uploaded avatar URL is present, ALWAYS render it
+    if (avatarUrl) {
+      return (
+        <div className={`${sizeClass} rounded-full overflow-hidden shrink-0 border border-neutral-200/60 dark:border-neutral-700/60 bg-neutral-100 dark:bg-neutral-800`}>
+          <img src={avatarUrl} alt={name || 'Avatar'} className="w-full h-full object-cover" />
+        </div>
+      );
+    }
+
+    // 2. Official Zenoa Service Account Fallback Avatar (when no custom avatar URL)
     if (isServiceAccount(null, s)) {
       return (
         <div className={`${sizeClass} rounded-full overflow-hidden shrink-0 border border-neutral-200/60 dark:border-neutral-700/60 bg-neutral-800 dark:bg-neutral-900 border border-neutral-700 flex items-center justify-center`}>
@@ -6397,13 +6520,7 @@ export default function App() {
       );
     }
 
-    if (avatarUrl) {
-      return (
-        <div className={`${sizeClass} rounded-full overflow-hidden shrink-0 border border-neutral-200/60 dark:border-neutral-700/60 bg-neutral-100 dark:bg-neutral-800`}>
-          <img src={avatarUrl} alt={name || 'Avatar'} className="w-full h-full object-cover" />
-        </div>
-      );
-    }
+    // 3. Initials / Seed Fallback Avatar
     return (
       <div className={`${sizeClass} rounded-full ${getAvatarBgClass(s)} font-bold flex items-center justify-center shrink-0`}>
         {getAvatarLetter(s, name || '')}
@@ -8167,11 +8284,11 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW 3: Instagram-Style Profile Screen */}
+        {/* VIEW 3: Main User Profile Screen */}
         {activeView === 'profile' && (
           <div data-auth={authMethod} className="flex-1 h-full overflow-y-auto bg-neutral-50/40 dark:bg-neutral-950 transition-colors pb-24 md:pb-6 overscroll-contain">
             
-            {/* Top Instagram-Style Header Bar */}
+            {/* Top Navigation Header Bar */}
             <div className="sticky top-0 z-10 backdrop-blur-md bg-white/85 dark:bg-neutral-900/85 border-b border-neutral-200/80 dark:border-neutral-800 px-4 md:px-8 py-3.5 flex items-center justify-between">
               {/* Left: Username in clean plain text */}
               <div className="flex items-center gap-2">
@@ -8198,7 +8315,7 @@ export default function App() {
             {/* Profile Content Container */}
             <div className="max-w-3xl mx-auto p-4 md:p-8 space-y-6">
               
-              {/* Instagram Profile Header: Avatar, Stats & Bio */}
+              {/* Profile Header: Avatar, Stats & Bio */}
               <div className="bg-white dark:bg-neutral-900 rounded-3xl p-6 md:p-8 border border-neutral-200/80 dark:border-neutral-800 shadow-md space-y-6">
                 <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 md:gap-8">
                   {/* Professional Avatar with Status Ring */}
@@ -8337,7 +8454,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* Instagram Profile Tabs: Media & Saved */}
+              {/* Profile Tabs: Media & Saved */}
               <div className="bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-200/80 dark:border-neutral-800 shadow-sm overflow-hidden">
                 {/* Tabs Bar */}
                 <div className="flex items-center border-b border-neutral-200/80 dark:border-neutral-800">
@@ -8992,7 +9109,7 @@ export default function App() {
           />
         )}
 
-            {/* Full-Screen Profile & Chat Details View (Matching Instagram/Messenger Details Screen) */}
+            {/* Full-Screen Profile & Chat Details View */}
             <AnimatePresence>
               {showProfilePanel && (
                 <FullScreenProfilePanel
@@ -9041,6 +9158,10 @@ export default function App() {
                   allUserCalls={firestoreCalls}
                   userAvatarSeed={userAvatarSeed}
                   userAvatarUrl={userAvatarUrl}
+                  onOpenDetailedProfile={(uname) => setDetailedProfileUsername(uname)}
+                  blockedUsers={blockedUsers}
+                  handleToggleBlockUser={handleToggleBlockUser}
+                  handleReportUser={handleReportUser}
                 />
               )}
             </AnimatePresence>
@@ -9088,7 +9209,7 @@ export default function App() {
       )}
 
       {/* ========================================================================= */}
-      {/* INSTAGRAM EDIT PROFILE MODAL (DISPLAY NAME & USERNAME RATE LIMIT POLICIES) */}
+      {/* USER EDIT PROFILE MODAL (DISPLAY NAME & USERNAME RATE LIMIT POLICIES) */}
       {/* ========================================================================= */}
       {showEditProfileModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 md:p-6 animate-fade-in">
@@ -9259,7 +9380,7 @@ export default function App() {
       )}
 
       {/* ========================================================================= */}
-      {/* INSTAGRAM SHARE PROFILE MODAL                                            */}
+      {/* PROFILE SHARING DIALOG                                                    */}
       {/* ========================================================================= */}
       {showShareProfileModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
@@ -10384,6 +10505,32 @@ export default function App() {
 
           </div>
         </div>
+      )}
+
+      {/* DETAILED USER PROFILE PAGE */}
+      {detailedProfileUsername && (
+        <DetailedProfilePage
+          targetUsername={detailedProfileUsername}
+          onClose={() => setDetailedProfileUsername(null)}
+          userUsername={userUsername}
+          users={users}
+          themeMode={themeMode}
+          handleFollow={handleFollow}
+          renderAvatar={renderAvatar}
+          onOpenDM={(targetU) => {
+            setDetailedProfileUsername(null);
+            setShowProfilePanel(false);
+            const activeId = getDmChatId(userUsername, targetU);
+            setActiveChatId(activeId);
+            setActiveView('chats');
+          }}
+          onOpenFollowers={(u) => setShowFollowListModal({ type: 'followers', username: u })}
+          onOpenFollowing={(u) => setShowFollowListModal({ type: 'following', username: u })}
+          showToast={showToast}
+          blockedUsers={blockedUsers}
+          handleToggleBlockUser={handleToggleBlockUser}
+          handleReportUser={handleReportUser}
+        />
       )}
 
       {/* FOLLOWERS / FOLLOWING LIST MODAL */}

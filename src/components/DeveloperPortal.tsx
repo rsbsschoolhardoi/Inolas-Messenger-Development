@@ -50,6 +50,10 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
+  // Service Account Profile Picture (PFP) State
+  const [saAvatarUrlInput, setSaAvatarUrlInput] = useState<string>('');
+  const [isSavingSaAvatar, setIsSavingSaAvatar] = useState<boolean>(false);
+
   // One-time Secret Revelation State (Displayed ONLY upon creation or regeneration)
   const [newlyGeneratedSecret, setNewlyGeneratedSecret] = useState<{
     clientId: string;
@@ -1204,6 +1208,52 @@ curl -X POST "${origin}/api/v1/sso/token" \\
     }
   };
 
+  const handleSaveSaAvatar = async (imageUrl: string) => {
+    if (!selectedApp || !imageUrl) return;
+    const botUser = (selectedApp.bot_username || selectedApp.owner || `sa_${currentUser?.username}`).toLowerCase().replace(/^@+/, '');
+    setIsSavingSaAvatar(true);
+    try {
+      if (db) {
+        await setDoc(doc(db, 'users', botUser), {
+          avatar_url: imageUrl,
+          updated_at: Date.now()
+        }, { merge: true });
+
+        await setDoc(doc(db, 'developer_apps', selectedApp.id), {
+          avatar_url: imageUrl,
+          updated_at: Date.now()
+        }, { merge: true });
+      }
+
+      const updated = apps.map(a => a.id === selectedApp.id ? { ...a, avatar_url: imageUrl } : a);
+      setApps(updated);
+      showToast('Service Account PFP updated successfully!');
+    } catch (err: any) {
+      console.error('Error updating Service Account PFP:', err);
+      showToast('Failed to update Service Account PFP');
+    } finally {
+      setIsSavingSaAvatar(false);
+    }
+  };
+
+  const handleSaAvatarFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Image size must be under 5MB');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        setSaAvatarUrlInput(result);
+        handleSaveSaAvatar(result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     setCopiedKey(text);
@@ -1499,6 +1549,74 @@ curl -X POST "${origin}/api/v1/sso/token" \\
                             <RefreshCw className={`h-3 w-3 ${isRegeneratingSecret ? 'animate-spin' : ''}`} />
                             <span>Roll / Regenerate Secret</span>
                           </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Service Account Avatar (PFP) Configuration Card */}
+                    <div className="p-5 bg-zinc-950 rounded-xl border border-zinc-800 space-y-4">
+                      <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                        <div>
+                          <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                            <Shield className="h-4 w-4 text-emerald-400" />
+                            Service Account Profile Picture (PFP)
+                          </h4>
+                          <p className="text-xs text-zinc-400 mt-0.5">
+                            Set a custom avatar image for @{selectedApp?.bot_username || selectedApp?.owner} that users see in chats & profiles.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row items-center gap-5 pt-1">
+                        <div className="relative shrink-0">
+                          <div className="h-20 w-20 rounded-full overflow-hidden bg-zinc-900 border-2 border-emerald-500/40 flex items-center justify-center shadow-lg">
+                            {selectedApp?.avatar_url || saAvatarUrlInput ? (
+                              <img 
+                                src={selectedApp?.avatar_url || saAvatarUrlInput} 
+                                alt="Service Account Avatar" 
+                                className="w-full h-full object-cover" 
+                              />
+                            ) : (
+                              <Shield className="h-10 w-10 text-emerald-400" />
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex-1 w-full space-y-3">
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <label className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl cursor-pointer flex items-center justify-center gap-2 transition-all shadow-sm shrink-0">
+                              <Download className="h-3.5 w-3.5 rotate-180" />
+                              <span>Upload Image File</span>
+                              <input 
+                                type="file" 
+                                accept="image/*" 
+                                onChange={handleSaAvatarFileUpload} 
+                                className="hidden" 
+                              />
+                            </label>
+
+                            <div className="flex-1 flex gap-2">
+                              <input
+                                type="text"
+                                value={saAvatarUrlInput}
+                                onChange={(e) => setSaAvatarUrlInput(e.target.value)}
+                                placeholder="Or paste image URL (https://...)"
+                                className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-emerald-500"
+                              />
+                              <button
+                                type="button"
+                                disabled={!saAvatarUrlInput || isSavingSaAvatar}
+                                onClick={() => handleSaveSaAvatar(saAvatarUrlInput)}
+                                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-100 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                              >
+                                {isSavingSaAvatar ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5 text-emerald-400" />}
+                                <span>Save</span>
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-zinc-500">
+                            Supports PNG, JPG, WebP, or base64 images under 5MB. Applied instantly across Messenger.
+                          </p>
                         </div>
                       </div>
                     </div>
