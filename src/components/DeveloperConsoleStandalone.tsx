@@ -140,7 +140,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
       setGeneratedDevOtp(otp);
 
-      const botSender = 'sa_zenoa';
+      const botSender = 'zenoa_verify';
       const userIdent = (targetUser.username || targetUser.id || '').toLowerCase().replace(/^@/, '');
       const sortedDm = [userIdent, botSender].sort();
       const chatId = `chat_dm_${sortedDm.join('_')}`;
@@ -495,7 +495,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
 
             <h2 className="text-xl font-bold text-white">Security Verification</h2>
             <p className="text-xs text-neutral-400 mt-1 mb-6 leading-relaxed">
-              To protect developer credentials, we've sent a 6-digit OTP to your Zenoa DM inbox (<strong>@{pendingUser.username}</strong>) from the official Zenoa Security account.
+              To protect developer credentials, we've sent a 6-digit OTP to your Zenoa DM inbox (<strong>@{pendingUser.username}</strong>) from the official Zenoa Verify account.
             </p>
 
             {error && (

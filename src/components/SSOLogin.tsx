@@ -362,13 +362,13 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
       // 2. Save auth code to Firestore (in oauth_codes collection for server.ts verification)
       await setDoc(doc(db, 'oauth_codes', authCode), authPayload);
 
-      // 3. Dispatch Live Security Alert to user's chat from sa_zenoa
+      // 3. Dispatch Live Security Alert to user's chat from zenoa_verify
       const targetAppName = appConfig?.name || appConfig?.app_name || 'Application';
       const alertTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const securityAlertText = `SECURITY ALERT: SIGN-IN AUTHORIZED\n\nYour Zenoa account was successfully authorized to sign in to:\n\nApplication: ${targetAppName}\nClient ID: ${clientId}\nAuthorized At: ${alertTimeStr}\nStatus: Active Authorization\n\nSECURITY NOTICE: If you did not authorize this login request, please open Zenoa Settings > Developer & Security to revoke access immediately.`;
 
       const userIdent = (targetUser.username || targetUser.id || 'user').toLowerCase().replace(/^@/, '');
-      const botSender = 'sa_zenoa';
+      const botSender = 'zenoa_verify';
       const sortedDm = [userIdent, botSender].sort();
       const chatId = `chat_dm_${sortedDm.join('_')}`;
       const messageId = 'msg_alert_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);

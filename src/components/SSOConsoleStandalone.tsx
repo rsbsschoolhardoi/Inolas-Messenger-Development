@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebaseClient';
-import { doc, getDoc } from 'firebase/firestore';
+import { setDoc, doc, getDoc } from 'firebase/firestore';
 import { SSOPortal } from './SSOPortal';
 import { ZenoaAuthGatewayModal } from './ZenoaAuthGatewayModal';
 import { UserData } from '../types';
@@ -73,7 +73,7 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
       setGeneratedDevOtp(otp);
 
-      const botSender = 'sa_zenoa';
+      const botSender = 'zenoa_verify';
       const userIdent = (targetUser.username || targetUser.id || '').toLowerCase().replace(/^@/, '');
       const sortedDm = [userIdent, botSender].sort();
       const chatId = `chat_dm_${sortedDm.join('_')}`;
@@ -82,8 +82,8 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const text = `SECURITY ALERT: SSO CONSOLE LOGIN\n\nYour Zenoa account is attempting to log into the SSO Console.\n\nYour Verification Code is: ${otp}\n\nTime: ${timeStr}\n\nIf this wasn't you, please secure your account immediately.`;
 
-      await doc; // To avoid unused imports if any
-      const { setDoc, doc } = require('firebase/firestore');
+      
+      
 
       // Create/update chat
       await setDoc(doc(db, 'chats', chatId), {
@@ -335,7 +335,7 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
 
             <h2 className="text-xl font-bold text-white">Security Verification</h2>
             <p className="text-xs text-neutral-400 mt-1 mb-6 leading-relaxed">
-              To protect the SSO registry, we've sent a 6-digit OTP to your Zenoa DM inbox (<strong>@{pendingUser.username}</strong>) from the official Zenoa Security account.
+              To protect the SSO registry, we've sent a 6-digit OTP to your Zenoa DM inbox (<strong>@{pendingUser.username}</strong>) from the official Zenoa Verify account.
             </p>
 
             {error && (

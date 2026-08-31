@@ -7553,7 +7553,7 @@ export default function App() {
                       ) : isServiceAccount(users[activeChat?.username], activeChat?.username) ? (
                         <span className="inline-flex items-center gap-1.5 font-bold text-[10px] tracking-wide text-blue-500 dark:text-blue-400">
 
-                          <span>{isServiceAccount(users[activeChat?.username], activeChat?.username) ? (['zenoa', 'sa_zenoa', 'zenoa_official'].includes(activeChat?.username.toLowerCase()) ? 'Official Zenoa Account' : 'Business Account') : 'End-to-End Encrypted'}</span>
+                          <span>{isServiceAccount(users[activeChat?.username], activeChat?.username) ? (['zenoa', 'zenoa_verify', 'zenoa_official'].includes(activeChat?.username.toLowerCase()) ? 'Official Zenoa Account' : 'Business Account') : 'End-to-End Encrypted'}</span>
                         </span>
                       ) : isUserEffectivelyOnline(users[activeChat?.username]) ? (
                         <span className="text-emerald-600 dark:text-emerald-400 font-medium">
@@ -7682,7 +7682,7 @@ export default function App() {
                   <div className={`max-w-md w-full border rounded-2xl p-3 text-center shadow-2xs backdrop-blur-xs ${isServiceAccount(users[activeChat?.username], activeChat?.username) ? 'bg-blue-50/50 dark:bg-blue-900/20 border-blue-200/80 dark:border-blue-800/50' : 'bg-neutral-100 dark:bg-neutral-800/90 dark:bg-neutral-900/90 border-amber-200/80 dark:border-neutral-800'}`}>
                     <div className={`flex items-center justify-center gap-1.5 font-bold text-xs mb-1 ${isServiceAccount(users[activeChat?.username], activeChat?.username) ? 'text-blue-900 dark:text-blue-300' : 'text-amber-900 dark:text-amber-300'}`}>
                       {isServiceAccount(users[activeChat?.username], activeChat?.username) ? <Shield className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" /> : <Lock className="h-3.5 w-3.5 text-neutral-600 dark:text-neutral-400" />}
-                      <span>{isServiceAccount(users[activeChat?.username], activeChat?.username) ? (['zenoa', 'sa_zenoa', 'zenoa_official'].includes(activeChat?.username.toLowerCase()) ? 'Official Zenoa Account' : 'Business Account') : 'End-to-End Encrypted'}</span>
+                      <span>{isServiceAccount(users[activeChat?.username], activeChat?.username) ? (['zenoa', 'zenoa_verify', 'zenoa_official'].includes(activeChat?.username.toLowerCase()) ? 'Official Zenoa Account' : 'Business Account') : 'End-to-End Encrypted'}</span>
                     </div>
                     <p className={`text-[11px] leading-relaxed font-medium ${isServiceAccount(users[activeChat?.username], activeChat?.username) ? 'text-blue-950/80 dark:text-blue-200/80' : 'text-amber-950/80 dark:text-neutral-300'}`}>
                       {isServiceAccount(users[activeChat?.username], activeChat?.username) ? 'This business uses Zenoa Business securely. System updates, verification codes, and direct messages are delivered safely.' : 'Messages and calls are secured with end-to-end encryption. No third party can read or listen to them, not even Zenoa.'}

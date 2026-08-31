@@ -36,6 +36,8 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
   const [webhookUrl, setWebhookUrl] = useState('');
   const [redirectUris, setRedirectUris] = useState<string[]>([]);
   const [allowedIps, setAllowedIps] = useState('');
+  const [editBotUsername, setEditBotUsername] = useState('');
+  const [editAppName, setEditAppName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
   const [isRegeneratingSecret, setIsRegeneratingSecret] = useState(false);
@@ -1038,6 +1040,8 @@ curl -X POST "${origin}/api/v1/sso/token" \\
       setAppDescription(selectedApp.app_description || '');
       setRedirectUris(selectedApp.redirect_uris || [window.location.origin + '/auth/sso']);
       setAllowedIps(selectedApp.allowed_ips || '');
+      setEditBotUsername(selectedApp.bot_username || '');
+      setEditAppName(selectedApp.app_name || '');
 
       const effectiveApiKey = selectedApp.client_id || selectedApp.api_key;
 
@@ -1142,7 +1146,7 @@ curl -X POST "${origin}/api/v1/sso/token" \\
     setIsSaving(true);
     try {
       const effectiveApiKey = selectedApp.client_id || selectedApp.api_key;
-      await fetch('/api/v1/apps/update', {
+      const res = await fetch('/api/v1/apps/update', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${effectiveApiKey}`,
@@ -1153,21 +1157,39 @@ curl -X POST "${origin}/api/v1/sso/token" \\
           redirect_uris: redirectUris,
           website_url: websiteUrl.trim(),
           app_description: appDescription.trim(),
-          allowed_ips: allowedIps.trim()
+          allowed_ips: allowedIps.trim(),
+          app_name: editAppName.trim() || selectedApp.app_name,
+          bot_username: editBotUsername.trim()
         })
       });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to save settings.');
+      }
+
+      const updatedBot = data.bot_username || selectedApp.bot_username;
+      const updatedAppName = data.app_name || editAppName.trim() || selectedApp.app_name;
 
       const updated = apps.map(a => a.id === selectedApp.id ? { 
         ...a, 
         webhook_url: webhookUrl.trim(), 
         redirect_uris: redirectUris,
         website_url: websiteUrl.trim(),
-        app_description: appDescription.trim()
+        app_description: appDescription.trim(),
+        bot_username: updatedBot,
+        app_name: updatedAppName
       } : a);
+      
       setApps(updated);
+      setAppName(updatedAppName);
+      setEditAppName(updatedAppName);
+      setEditBotUsername(updatedBot);
+      
       showToast('Settings saved successfully!');
-    } catch (err) {
-      showToast('Failed to save settings.');
+    } catch (err: any) {
+      console.error(err);
+      showToast(err.message || 'Failed to save settings.');
     } finally {
       setIsSaving(false);
     }
@@ -1434,6 +1456,41 @@ curl -X POST "${origin}/api/v1/sso/token" \\
                 {/* List of Developer's Apps */}
                 {apps.length > 0 && (
                   <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-zinc-300 mb-1">Service Account Username</label>
+                        <div className="relative">
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-mono text-xs">@</span>
+                          <input 
+                            type="text" 
+                            value={editBotUsername}
+                            onChange={e => setEditBotUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
+                            placeholder="my_bot" 
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-8 pr-4 py-2.5 text-xs font-mono outline-none text-zinc-100 focus:border-zinc-700"
+                          />
+                        </div>
+                        <p className="text-[10px] text-zinc-500 mt-1">This will change the bot's username (Zenoa ID).</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-zinc-300 mb-1">Service Account Name</label>
+                        <input 
+                          type="text" 
+                          value={editAppName}
+                          onChange={e => setEditAppName(e.target.value)}
+                          placeholder="My Awesome App" 
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs outline-none text-zinc-100 focus:border-zinc-700"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end pt-1">
+                      <button
+                        onClick={handleUpdateSettings}
+                        disabled={isSaving}
+                        className="px-4 py-2 bg-zinc-100 hover:bg-white text-zinc-950 rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
+                      >
+                        {isSaving ? 'Updating...' : 'Update Account'}
+                      </button>
+                    </div>
                     <div className="flex items-center justify-between px-1">
                       <h3 className="text-xs font-mono font-medium text-zinc-400 uppercase tracking-wider">Service Account</h3>
                       <button onClick={fetchApps} className="text-xs text-zinc-400 hover:text-zinc-200 font-medium flex items-center gap-1 cursor-pointer">
@@ -2096,6 +2153,33 @@ Body: {
                   </div>
 
                   <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-zinc-300 mb-1">Service Account Username</label>
+                        <div className="relative">
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-mono text-xs">@</span>
+                          <input 
+                            type="text" 
+                            value={editBotUsername}
+                            onChange={e => setEditBotUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
+                            placeholder="my_bot" 
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-8 pr-4 py-2.5 text-xs font-mono outline-none text-zinc-100 focus:border-zinc-700"
+                          />
+                        </div>
+                        <p className="text-[10px] text-zinc-500 mt-1">This will change the bot's username (Zenoa ID).</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-zinc-300 mb-1">Service Account Name</label>
+                        <input 
+                          type="text" 
+                          value={editAppName}
+                          onChange={e => setEditAppName(e.target.value)}
+                          placeholder="My Awesome App" 
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs outline-none text-zinc-100 focus:border-zinc-700"
+                        />
+                      </div>
+                    </div>
+
                     <div>
                       <label className="block text-xs font-semibold text-zinc-300 mb-1">Webhook URL</label>
                       <input 
