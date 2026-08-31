@@ -13,6 +13,7 @@ import { getThemeById } from '../chatThemes';
 import { getMediaUrlFromDrive } from '../lib/googleDrive';
 import { decryptFile } from '../cryptoUtils';
 import { decodeMessage } from '../chatUtils';
+import { SmartTextMessage } from './SmartTextMessage';
 
 interface MessageCardProps {
   msg: Message;
@@ -542,49 +543,17 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                 </div>
               )}
 
-              {/* PLAIN TEXT CONTENT WITH SEE MORE / SEE LESS UNIFORM WRAPPING */}
+              {/* SMART INTELLIGENT TEXT CONTENT WITH MARKDOWN, CODE BLOCKS, OTP & SEE MORE */}
               {displayMsgText && msg.type === 'text' && (
-                <div className="text-xs leading-relaxed whitespace-pre-wrap break-words min-w-0 [overflow-wrap:anywhere] max-w-full overflow-hidden">
-                  {displayMsgText.length > MAX_TEXT_LENGTH && !isExpanded ? (
-                    <>
-                      <span>{displayMsgText.slice(0, MAX_TEXT_LENGTH)}...</span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setIsExpanded(true);
-                        }}
-                        className={`font-bold ml-1 text-[11px] underline cursor-pointer inline-flex items-center gap-0.5 ${
-                          isMe
-                            ? (activeTheme.bubble.linkSent || (isSentDark ? 'text-white underline hover:opacity-90' : 'text-slate-900 underline font-bold'))
-                            : (activeTheme.bubble.linkReceived || (isReceivedDark ? 'text-indigo-300 underline' : 'text-neutral-900 dark:text-neutral-100 underline'))
-                        }`}
-                      >
-                        <span>See More</span>
-                        <ChevronDown className="h-3 w-3" />
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <span>{displayMsgText}</span>
-                      {displayMsgText.length > MAX_TEXT_LENGTH && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setIsExpanded(false);
-                          }}
-                          className={`font-bold ml-1.5 text-[11px] underline cursor-pointer inline-flex items-center gap-0.5 ${
-                            isMe
-                              ? (activeTheme.bubble.linkSent || (isSentDark ? 'text-white underline hover:opacity-90' : 'text-slate-900 underline font-bold'))
-                              : (activeTheme.bubble.linkReceived || (isReceivedDark ? 'text-indigo-300 underline' : 'text-neutral-900 dark:text-neutral-100 underline'))
-                          }`}
-                        >
-                          <span>See Less</span>
-                          <ChevronUp className="h-3 w-3" />
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
+                <SmartTextMessage
+                  text={displayMsgText}
+                  isMe={isMe}
+                  isSentDark={isSentDark}
+                  isReceivedDark={isReceivedDark}
+                  isSenderServiceAccount={isSenderServiceAccount}
+                  onToast={onToast}
+                  maxTextLength={MAX_TEXT_LENGTH}
+                />
               )}
 
               {/* MESSAGE FOOTER: TIMESTAMP, EDITED & TICKS */}

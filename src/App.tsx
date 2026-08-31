@@ -6658,13 +6658,13 @@ export default function App() {
               </div>
 
               <h2 className="text-xl sm:text-2xl font-black text-neutral-900 dark:text-white mb-2">
-                Aapka Account Doosri Jagah Login Hua Hai
+                Account Logged In Elsewhere
               </h2>
 
               <p className="text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed mb-6">
-                Aapka Zenoa account <strong className="text-neutral-900 dark:text-white font-bold">@{kickoutData.username}</strong> kisi doosre browser tab, window ya device par login kiya gaya hai.
+                Your Zenoa account <strong className="text-neutral-900 dark:text-white font-bold">@{kickoutData.username}</strong> was logged in on another browser tab, window, or device.
                 <br className="my-1" />
-                Security aur data integrity ke liye ek waqt par sirf ek hi active login allow hai. Is page se automatic logout kiya ja raha hai.
+                For security and data integrity, only one active session is permitted at a time. This session is being logged out automatically.
               </p>
 
               <div className="p-4 bg-rose-50 dark:bg-rose-950/40 rounded-2xl border border-rose-200 dark:border-rose-800/60 mb-6 flex items-center justify-center gap-3">
@@ -6672,8 +6672,8 @@ export default function App() {
                   {kickoutData.countdown}s
                 </div>
                 <div className="text-left">
-                  <p className="text-xs font-bold text-rose-900 dark:text-rose-200">Automatic Logout Ho Raha Hai</p>
-                  <p className="text-[11px] text-rose-700 dark:text-rose-400">Yeh window {kickoutData.countdown} second mein logout ho jayegi...</p>
+                  <p className="text-xs font-bold text-rose-900 dark:text-rose-200">Logging Out Automatically</p>
+                  <p className="text-[11px] text-rose-700 dark:text-rose-400">This window will log out in {kickoutData.countdown} second{kickoutData.countdown !== 1 ? 's' : ''}...</p>
                 </div>
               </div>
 
@@ -6685,7 +6685,7 @@ export default function App() {
                 className="w-full py-3.5 px-6 rounded-2xl bg-rose-600 hover:bg-rose-700 active:scale-98 text-white font-bold text-sm shadow-lg shadow-rose-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <LogOut className="h-4 w-4" />
-                <span>Abhi Log Out Karein (Logout Now)</span>
+                <span>Log Out Now</span>
               </button>
             </motion.div>
           </div>
@@ -7411,7 +7411,7 @@ export default function App() {
                       <span>{isServiceAccount(users[activeChat?.username], activeChat?.username) ? (['zenoa', 'sa_zenoa', 'zenoa_official'].includes(activeChat?.username.toLowerCase()) ? 'Official Zenoa Account' : 'Business Account') : 'End-to-End Encrypted'}</span>
                     </div>
                     <p className={`text-[11px] leading-relaxed font-medium ${isServiceAccount(users[activeChat?.username], activeChat?.username) ? 'text-blue-950/80 dark:text-blue-200/80' : 'text-amber-950/80 dark:text-neutral-300'}`}>
-                      {isServiceAccount(users[activeChat?.username], activeChat?.username) ? 'This account is officially associated with Zenoa. System updates and direct messages will be sent here.' : 'Messages and calls are secured with end-to-end encryption. No third party can read or listen to them, not even Zenoa.'}
+                      {isServiceAccount(users[activeChat?.username], activeChat?.username) ? 'This business uses Zenoa Business securely. System updates, verification codes, and direct messages are delivered safely.' : 'Messages and calls are secured with end-to-end encryption. No third party can read or listen to them, not even Zenoa.'}
                     </p>
                   </div>
                 </div>

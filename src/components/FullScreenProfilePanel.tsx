@@ -177,7 +177,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                             <div className="space-y-2">
                               <h3 className="text-base font-black text-neutral-900 dark:text-white">This Account is Private</h3>
                               <p className="text-xs text-neutral-500 max-w-[280px] mx-auto leading-relaxed">
-                                Inhone apne account ko private karke rakha hai. Unki profile aur activity dekhne ke liye unhe follow karein.
+                                This account is private. Follow this user to view their profile and activity.
                               </p>
                             </div>
                           </div>

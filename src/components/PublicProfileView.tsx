@@ -348,7 +348,7 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
               <span>Connect with @{cleanUsername} on Zenoa</span>
             </h4>
             <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-              Dekhne aur chat karne ke liye login karen ya account banayein.
+              Log in or create an account to view profile and start chatting.
             </p>
           </div>
 

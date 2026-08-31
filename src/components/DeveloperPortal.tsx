@@ -39,7 +39,7 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
 
   // Code Snippet & Auto-Generated SDK State
   const [codeLang, setCodeLang] = useState<'node' | 'python' | 'php' | 'curl' | 'go' | 'button'>('node');
-  const [sdkTab, setSdkTab] = useState<'ts' | 'node' | 'python' | 'env' | 'html' | 'curl'>('ts');
+  const [sdkTab, setSdkTab] = useState<'ts' | 'node' | 'python' | 'php' | 'env' | 'html' | 'curl'>('ts');
 
   // Analytics & Logs State
   const [analytics, setAnalytics] = useState<any>(null);
@@ -201,8 +201,8 @@ export const DeveloperPortal: React.FC<DeveloperPortalProps> = ({ currentUser, o
     const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
     return `/**
- * SDK for ${app.app_name}
- * Business Account • End-to-End Encrypted
+ * Zenoa Production TypeScript SDK for ${app.app_name}
+ * Service Account • End-to-End Encrypted OTP & Messaging
  * Pre-Configured & Ready for Production
  */
 
@@ -214,10 +214,20 @@ export interface ZenoaConfig {
 
 export interface SendOtpOptions {
   recipient?: string;
+  phone?: string;
+  mobile?: string;
+  username?: string;
   zenoaId?: string;
-  mobileNumber?: string;
-  templateType?: 'standard_otp' | 'security_code' | 'login_verification' | 'transaction_auth';
+  templateType?: 'standard_otp' | '2fa_auth' | 'password_reset' | 'transaction_auth' | string;
+  customCode?: string;
+  customMessage?: string;
   expiryMins?: number;
+}
+
+export interface VerifyOtpOptions {
+  recipient: string;
+  code?: string;
+  autoVerify?: boolean;
 }
 
 export class ZenoaSDK {
@@ -232,23 +242,24 @@ export class ZenoaSDK {
   }
 
   /**
-   * Dispatch high-priority automated OTP / verification code
+   * Dispatch high-priority automated OTP directly to user's Zenoa DM inbox
    */
   async sendOtp(options: SendOtpOptions | string, templateType = "standard_otp", expiryMins = 10) {
     const payload = typeof options === 'string' 
       ? { recipient: options, template_type: templateType, expiry_mins: expiryMins }
       : { 
-          recipient: options.recipient || options.zenoaId || options.mobileNumber, 
-          zenoa_id: options.zenoaId,
-          mobile_number: options.mobileNumber,
-          template_type: options.templateType || 'standard_otp', 
-          expiry_mins: options.expiryMins || 10 
+          recipient: options.recipient || options.phone || options.mobile || options.username || options.zenoaId, 
+          template_type: options.templateType || templateType, 
+          custom_code: options.customCode,
+          custom_message: options.customMessage,
+          expiry_mins: options.expiryMins || expiryMins 
         };
 
     const res = await fetch(\`\${this.baseUrl}/api/v1/otp/send\`, {
       method: "POST",
       headers: {
         "Authorization": \`Bearer \${this.clientId}\`,
+        "X-API-Key": this.clientId,
         "Content-Type": "application/json"
       },
       body: JSON.stringify(payload)
@@ -259,14 +270,40 @@ export class ZenoaSDK {
   /**
    * Validate recipient OTP code
    */
-  async verifyOtp(recipient: string, code: string) {
+  async verifyOtp(recipientOrOptions: string | VerifyOtpOptions, code?: string) {
+    const payload = typeof recipientOrOptions === 'string'
+      ? { recipient: recipientOrOptions, code: code || '' }
+      : { recipient: recipientOrOptions.recipient, code: recipientOrOptions.code, auto_verify: recipientOrOptions.autoVerify };
+
     const res = await fetch(\`\${this.baseUrl}/api/v1/otp/verify\`, {
       method: "POST",
       headers: {
         "Authorization": \`Bearer \${this.clientId}\`,
+        "X-API-Key": this.clientId,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ recipient, code })
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
+  }
+
+  /**
+   * Dispatch notification or DM message as Service Account
+   */
+  async sendMessage(recipientUsernameOrPhone: string, messageText: string, mediaUrl?: string) {
+    const res = await fetch(\`\${this.baseUrl}/api/v1/bot/send\`, {
+      method: "POST",
+      headers: {
+        "Authorization": \`Bearer \${this.clientSecret || this.clientId}\`,
+        "X-API-Key": this.clientId,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        client_id: this.clientId,
+        recipient: recipientUsernameOrPhone,
+        message: messageText,
+        media_url: mediaUrl
+      })
     });
     return await res.json();
   }
@@ -274,7 +311,7 @@ export class ZenoaSDK {
   /**
    * Exchange OAuth 2.0 Authorization Code for User Access Token
    */
-  async exchangeSsoCode(code: string, redirectUri: string) {
+  async exchangeSsoCode(code: string, redirectUri?: string) {
     const res = await fetch(\`\${this.baseUrl}/api/v1/sso/token\`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -289,21 +326,24 @@ export class ZenoaSDK {
   }
 
   /**
-   * Send notification or message as Bot / Service Account
+   * Retrieve authenticated user profile with Access Token
    */
-  async sendMessage(recipientUsernameOrPhone: string, messageText: string, metadata?: Record<string, any>) {
-    const res = await fetch(\`\${this.baseUrl}/api/v1/bot/send\`, {
+  async getUserInfo(accessToken: string) {
+    const res = await fetch(\`\${this.baseUrl}/api/v1/sso/userinfo\`, {
+      method: "GET",
+      headers: { "Authorization": \`Bearer \${accessToken}\` }
+    });
+    return await res.json();
+  }
+
+  /**
+   * Revoke SSO token
+   */
+  async revokeToken(token: string) {
+    const res = await fetch(\`\${this.baseUrl}/api/v1/sso/revoke\`, {
       method: "POST",
-      headers: {
-        "Authorization": \`Bearer \${this.clientSecret}\`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        client_id: this.clientId,
-        recipient: recipientUsernameOrPhone,
-        text: messageText,
-        metadata: metadata || {}
-      })
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: this.clientId, token })
     });
     return await res.json();
   }
@@ -319,9 +359,9 @@ export default ZenoaSDK;
     const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
     return `/**
- * CommonJS / Node.js SDK for ${app.app_name}
- * Business Account • End-to-End Encrypted
- * Supports: Mobile Number, Username, & Zenoa ID routing
+ * Node.js CommonJS SDK for ${app.app_name}
+ * Production Service Account & OTP Integration
+ * Supports: Mobile (+91...), Username (@azad1), & Zenoa ID routing
  */
 
 class ZenoaNodeSDK {
@@ -332,17 +372,16 @@ class ZenoaNodeSDK {
   }
 
   /**
-   * Dispatch high-priority automated OTP / verification code
-   * Options can specify recipient (mobile/username), zenoaId, or mobileNumber
+   * Dispatch high-priority automated OTP code
    */
   async sendOtp(options, templateType = "standard_otp", expiryMins = 10) {
     const payload = typeof options === 'string'
       ? { recipient: options, template_type: templateType, expiry_mins: expiryMins }
       : {
-          recipient: options.recipient || options.zenoaId || options.mobileNumber,
-          zenoa_id: options.zenoaId,
-          mobile_number: options.mobileNumber,
+          recipient: options.recipient || options.phone || options.mobile || options.username || options.zenoaId,
           template_type: options.templateType || templateType,
+          custom_code: options.customCode,
+          custom_message: options.customMessage,
           expiry_mins: options.expiryMins || expiryMins
         };
 
@@ -350,6 +389,7 @@ class ZenoaNodeSDK {
       method: "POST",
       headers: {
         "Authorization": \`Bearer \${this.clientId}\`,
+        "X-API-Key": this.clientId,
         "Content-Type": "application/json"
       },
       body: JSON.stringify(payload)
@@ -360,34 +400,68 @@ class ZenoaNodeSDK {
   /**
    * Validate recipient OTP code
    */
-  async verifyOtp(recipient, code) {
+  async verifyOtp(recipientOrOptions, code) {
+    const payload = typeof recipientOrOptions === 'string'
+      ? { recipient: recipientOrOptions, code: code || '' }
+      : { recipient: recipientOrOptions.recipient, code: recipientOrOptions.code, auto_verify: recipientOrOptions.autoVerify };
+
     const res = await fetch(\`\${this.baseUrl}/api/v1/otp/verify\`, {
       method: "POST",
       headers: {
         "Authorization": \`Bearer \${this.clientId}\`,
+        "X-API-Key": this.clientId,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ recipient, code })
+      body: JSON.stringify(payload)
     });
     return await res.json();
   }
 
   /**
-   * Send notification or message as Bot / Service Account
+   * Dispatch notification or message as Service Account
    */
-  async sendMessage(recipient, text, metadata = {}) {
+  async sendMessage(recipient, message, mediaUrl = null) {
     const res = await fetch(\`\${this.baseUrl}/api/v1/bot/send\`, {
       method: "POST",
       headers: {
-        "Authorization": \`Bearer \${this.clientSecret}\`,
+        "Authorization": \`Bearer \${this.clientSecret || this.clientId}\`,
+        "X-API-Key": this.clientId,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
         client_id: this.clientId,
         recipient,
-        text,
-        metadata
+        message,
+        media_url: mediaUrl
       })
+    });
+    return await res.json();
+  }
+
+  /**
+   * Exchange OAuth 2.0 Authorization Code for Token
+   */
+  async exchangeSsoCode(code, redirectUri = '') {
+    const res = await fetch(\`\${this.baseUrl}/api/v1/sso/token\`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: this.clientId,
+        client_secret: this.clientSecret,
+        code,
+        redirect_uri: redirectUri
+      })
+    });
+    return await res.json();
+  }
+
+  /**
+   * Retrieve authenticated user profile
+   */
+  async getUserInfo(accessToken) {
+    const res = await fetch(\`\${this.baseUrl}/api/v1/sso/userinfo\`, {
+      method: "GET",
+      headers: { "Authorization": \`Bearer \${accessToken}\` }
     });
     return await res.json();
   }
@@ -403,8 +477,8 @@ module.exports = ZenoaNodeSDK;
     const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
     return `"""
-Python SDK for ${app.app_name}
-Business Account • End-to-End Encrypted
+Python Production SDK for ${app.app_name}
+Service Account & OTP DM Integration
 Pre-Configured & Ready for Production
 """
 
@@ -425,41 +499,77 @@ class ZenoaSDK:
     def send_otp(
         self, 
         recipient: Optional[str] = None, 
-        zenoa_id: Optional[str] = None,
-        mobile_number: Optional[str] = None,
+        phone: Optional[str] = None,
+        username: Optional[str] = None,
         template_type: str = "standard_otp", 
+        custom_code: Optional[str] = None,
+        custom_message: Optional[str] = None,
         expiry_mins: int = 10
     ) -> Dict[str, Any]:
-        """Dispatch an automated OTP to a recipient's phone number (+91...), username (@azad1), or Zenoa ID (usr_...)."""
+        """Dispatch automated OTP directly to user's Zenoa DM inbox."""
         url = f"{self.base_url}/api/v1/otp/send"
         headers = {
             "Authorization": f"Bearer {self.client_id}",
+            "X-API-Key": self.client_id,
             "Content-Type": "application/json"
         }
-        target_rec = recipient or zenoa_id or mobile_number
         payload = {
-            "recipient": target_rec,
-            "zenoa_id": zenoa_id,
-            "mobile_number": mobile_number,
+            "recipient": recipient or phone or username,
             "template_type": template_type,
+            "custom_code": custom_code,
+            "custom_message": custom_message,
             "expiry_mins": expiry_mins
         }
+        payload = {k: v for k, v in payload.items() if v is not None}
         res = requests.post(url, json=payload, headers=headers, timeout=10)
         return res.json()
 
-    def verify_otp(self, recipient: str, code: str) -> Dict[str, Any]:
-        """Verify an OTP code submitted by the user."""
+    def verify_otp(
+        self, 
+        recipient: str, 
+        code: str, 
+        auto_verify: bool = False
+    ) -> Dict[str, Any]:
+        """Verify an OTP code submitted by recipient."""
         url = f"{self.base_url}/api/v1/otp/verify"
         headers = {
             "Authorization": f"Bearer {self.client_id}",
+            "X-API-Key": self.client_id,
             "Content-Type": "application/json"
         }
-        payload = {"recipient": recipient, "code": code}
+        payload = {"recipient": recipient, "code": code, "auto_verify": auto_verify}
         res = requests.post(url, json=payload, headers=headers, timeout=10)
         return res.json()
 
-    def exchange_sso_code(self, code: str, redirect_uri: str) -> Dict[str, Any]:
-        """Exchange SSO authorization code for user profile and access token."""
+    def send_message(
+        self, 
+        recipient: str, 
+        message: str, 
+        media_url: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Dispatch a direct message as Service Account."""
+        url = f"{self.base_url}/api/v1/bot/send"
+        headers = {
+            "Authorization": f"Bearer {self.client_secret or self.client_id}",
+            "X-API-Key": self.client_id,
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "client_id": self.client_id,
+            "recipient": recipient,
+            "message": message,
+            "media_url": media_url
+        }
+        payload = {k: v for k, v in payload.items() if v is not None}
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        return res.json()
+
+    def exchange_sso_code(
+        self, 
+        code: str, 
+        redirect_uri: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Exchange SSO authorization code for user access token."""
         url = f"{self.base_url}/api/v1/sso/token"
         payload = {
             "client_id": self.client_id,
@@ -470,21 +580,102 @@ class ZenoaSDK:
         res = requests.post(url, json=payload, timeout=10)
         return res.json()
 
-    def send_message(self, recipient: str, text: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Dispatch a direct message from this Service Account."""
-        url = f"{self.base_url}/api/v1/bot/send"
-        headers = {
-            "Authorization": f"Bearer {self.client_secret}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "client_id": self.client_id,
-            "recipient": recipient,
-            "text": text,
-            "metadata": metadata or {}
-        }
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+    def get_user_info(self, access_token: str) -> Dict[str, Any]:
+        """Retrieve user profile with Access Token."""
+        url = f"{self.base_url}/api/v1/sso/userinfo"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        res = requests.get(url, headers=headers, timeout=10)
         return res.json()
+`;
+  };
+
+  const generatePhpSdk = (app: any) => {
+    if (!app) return '';
+    const cid = app.client_id || app.api_key || 'zen_client_prod';
+    const sec = app.client_secret || 'zen_sec_secret';
+    const origin = window.location.origin;
+    return `<?php
+/**
+ * PHP Production SDK for ${app.app_name}
+ * Service Account & OTP DM Integration
+ */
+
+class ZenoaSDK {
+    private string $clientId;
+    private string $clientSecret;
+    private string $baseUrl;
+
+    public function __construct(?string $clientId = null, ?string $clientSecret = null, ?string $baseUrl = null) {
+        $this->clientId = $clientId ?? "${cid}";
+        $this->clientSecret = $clientSecret ?? "${sec}";
+        $this->baseUrl = rtrim($baseUrl ?? "${origin}", '/');
+    }
+
+    public function sendOtp($recipient, string $templateType = "standard_otp", int $expiryMins = 10, ?string $customCode = null): array {
+        $url = $this->baseUrl . "/api/v1/otp/send";
+        $payload = is_array($recipient) ? $recipient : [
+            "recipient" => $recipient,
+            "template_type" => $templateType,
+            "expiry_mins" => $expiryMins,
+            "custom_code" => $customCode
+        ];
+
+        return $this->request("POST", $url, $payload, [
+            "Authorization: Bearer " . $this->clientId,
+            "X-API-Key: " . $this->clientId,
+            "Content-Type: application/json"
+        ]);
+    }
+
+    public function verifyOtp(string $recipient, string $code): array {
+        $url = $this->baseUrl . "/api/v1/otp/verify";
+        return $this->request("POST", $url, [
+            "recipient" => $recipient,
+            "code" => $code
+        ], [
+            "Authorization: Bearer " . $this->clientId,
+            "X-API-Key: " . $this->clientId,
+            "Content-Type: application/json"
+        ]);
+    }
+
+    public function sendMessage(string $recipient, string $message, ?string $mediaUrl = null): array {
+        $url = $this->baseUrl . "/api/v1/bot/send";
+        return $this->request("POST", $url, [
+            "client_id" => $this->clientId,
+            "recipient" => $recipient,
+            "message" => $message,
+            "media_url" => $mediaUrl
+        ], [
+            "Authorization: Bearer " . ($this->clientSecret ?: $this->clientId),
+            "X-API-Key: " . $this->clientId,
+            "Content-Type: application/json"
+        ]);
+    }
+
+    public function exchangeSsoCode(string $code, string $redirectUri = ""): array {
+        $url = $this->baseUrl . "/api/v1/sso/token";
+        return $this->request("POST", $url, [
+            "client_id" => $this->clientId,
+            "client_secret" => $this->clientSecret,
+            "code" => $code,
+            "redirect_uri" => $redirectUri
+        ], ["Content-Type: application/json"]);
+    }
+
+    private function request(string $method, string $url, array $data = [], array $headers = []): array {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        if ($method === "POST") {
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+        }
+        $res = curl_exec($ch);
+        curl_close($ch);
+        return json_decode($res, true) ?: ["error" => "Request failed"];
+    }
+}
 `;
   };
 
@@ -503,6 +694,7 @@ ZENOA_SSO_AUTH_URL="${origin}/sso/authorize"
 ZENOA_SSO_TOKEN_URL="${origin}/api/v1/sso/token"
 ZENOA_OTP_SEND_URL="${origin}/api/v1/otp/send"
 ZENOA_OTP_VERIFY_URL="${origin}/api/v1/otp/verify"
+ZENOA_BOT_SEND_URL="${origin}/api/v1/bot/send"
 `;
   };
 
@@ -529,23 +721,24 @@ ZENOA_OTP_VERIFY_URL="${origin}/api/v1/otp/verify"
     const cid = app.client_id || app.api_key || 'zen_client_prod';
     const sec = app.client_secret || 'zen_sec_secret';
     const origin = window.location.origin;
-    return `# 1. Send OTP by Verified Mobile Number
+    return `# 1. Send OTP by Verified Mobile Number (+91...)
 curl -X POST "${origin}/api/v1/otp/send" \\
   -H "Authorization: Bearer ${cid}" \\
+  -H "X-API-Key: ${cid}" \\
   -H "Content-Type: application/json" \\
-  -d '{"recipient": "+917991482672", "template_type": "standard_otp"}'
+  -d '{"recipient": "+917991482672", "template_type": "standard_otp", "expiry_mins": 10}'
 
-# 2. Send OTP by Immutable Zenoa ID (usr_...)
+# 2. Send OTP with Custom Template Message
 curl -X POST "${origin}/api/v1/otp/send" \\
   -H "Authorization: Bearer ${cid}" \\
   -H "Content-Type: application/json" \\
-  -d '{"zenoa_id": "usr_9f81a7b2c", "template_type": "transaction_auth"}'
+  -d '{"phone": "+917991482672", "custom_message": "Your verification code for MyApp is {code}."}'
 
-# 3. Send OTP by Username (@azad1)
+# 3. Send OTP by Username (@azad1) or Zenoa ID
 curl -X POST "${origin}/api/v1/otp/send" \\
   -H "Authorization: Bearer ${cid}" \\
   -H "Content-Type: application/json" \\
-  -d '{"recipient": "azad1", "template_type": "standard_otp"}'
+  -d '{"recipient": "azad1", "template_type": "transaction_auth"}'
 
 # 4. Verify OTP Code
 curl -X POST "${origin}/api/v1/otp/verify" \\
@@ -556,8 +749,14 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
 # 5. Dispatch Direct Message as Service Account
 curl -X POST "${origin}/api/v1/bot/send" \\
   -H "Authorization: Bearer ${sec}" \\
+  -H "X-API-Key: ${cid}" \\
   -H "Content-Type: application/json" \\
-  -d '{"client_id": "${cid}", "recipient": "+917991482672", "text": "Hello from Zenoa Service Account!"}'`;
+  -d '{"client_id": "${cid}", "recipient": "+917991482672", "message": "Hello from Zenoa Service Account!"}'
+
+# 6. Exchange OAuth 2.0 Authorization Code for Token
+curl -X POST "${origin}/api/v1/sso/token" \\
+  -H "Content-Type: application/json" \\
+  -d '{"client_id": "${cid}", "client_secret": "${sec}", "code": "AUTH_CODE_HERE"}'`;
   };
 
   useEffect(() => {
@@ -1134,6 +1333,13 @@ curl -X POST "${origin}/api/v1/bot/send" \\
                             <span>zenoa_sdk.py</span>
                           </button>
                           <button
+                            onClick={() => downloadSdkFile('ZenoaSDK.php', generatePhpSdk(selectedApp))}
+                            className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 font-medium text-xs transition-all border border-zinc-800 flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            <span>ZenoaSDK.php</span>
+                          </button>
+                          <button
                             onClick={() => downloadSdkFile('.env.production', generateEnvConfig(selectedApp))}
                             className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 font-medium text-xs transition-all border border-zinc-800 flex items-center gap-1.5 cursor-pointer"
                           >
@@ -1150,6 +1356,7 @@ curl -X POST "${origin}/api/v1/bot/send" \\
                             { id: 'ts', label: 'TypeScript' },
                             { id: 'node', label: 'Node.js (CJS)' },
                             { id: 'python', label: 'Python' },
+                            { id: 'php', label: 'PHP' },
                             { id: 'env', label: '.env' },
                             { id: 'html', label: 'HTML SSO Button' },
                             { id: 'curl', label: 'cURL' }
@@ -1175,6 +1382,7 @@ curl -X POST "${origin}/api/v1/bot/send" \\
                               {sdkTab === 'ts' && 'zenoa-sdk.ts'}
                               {sdkTab === 'node' && 'zenoa-node-sdk.js'}
                               {sdkTab === 'python' && 'zenoa_sdk.py'}
+                              {sdkTab === 'php' && 'ZenoaSDK.php'}
                               {sdkTab === 'env' && '.env'}
                               {sdkTab === 'html' && 'zenoa-sso-button.html'}
                               {sdkTab === 'curl' && 'curl_requests.sh'}
@@ -1184,6 +1392,7 @@ curl -X POST "${origin}/api/v1/bot/send" \\
                                 const content = sdkTab === 'ts' ? generateTsSdk(selectedApp)
                                   : sdkTab === 'node' ? generateNodeSdk(selectedApp)
                                   : sdkTab === 'python' ? generatePythonSdk(selectedApp)
+                                  : sdkTab === 'php' ? generatePhpSdk(selectedApp)
                                   : sdkTab === 'env' ? generateEnvConfig(selectedApp)
                                   : sdkTab === 'html' ? generateHtmlSnippet(selectedApp)
                                   : generateCurlSnippets(selectedApp);
@@ -1200,6 +1409,7 @@ curl -X POST "${origin}/api/v1/bot/send" \\
                             {sdkTab === 'ts' && generateTsSdk(selectedApp)}
                             {sdkTab === 'node' && generateNodeSdk(selectedApp)}
                             {sdkTab === 'python' && generatePythonSdk(selectedApp)}
+                            {sdkTab === 'php' && generatePhpSdk(selectedApp)}
                             {sdkTab === 'env' && generateEnvConfig(selectedApp)}
                             {sdkTab === 'html' && generateHtmlSnippet(selectedApp)}
                             {sdkTab === 'curl' && generateCurlSnippets(selectedApp)}

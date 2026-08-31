@@ -52,7 +52,7 @@ export const ConcurrentLogoutModal: React.FC<ConcurrentLogoutModalProps> = ({
 
           {/* Heading */}
           <h2 id="concurrent-logout-title" className="text-xl sm:text-2xl font-bold tracking-tight mb-2">
-            Ek Account, Ek Jagah Login
+            Single Active Session Allowed
           </h2>
 
           {/* User badge */}
@@ -65,7 +65,7 @@ export const ConcurrentLogoutModal: React.FC<ConcurrentLogoutModalProps> = ({
 
           {/* Details / Explanation */}
           <p className={`text-sm leading-relaxed mb-6 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-            Aapka Zenoa account doosre tab, browser ya device par login kar liya gaya hai. Security aur privacy ke niyam ke anusaar ek samay me ek hi jagah login rah sakta hai.
+            Your Zenoa account was logged in on another tab, browser, or device. For security and privacy, only one active session is permitted at a time.
           </p>
 
           {/* 5-Second Timer Countdown Display */}
@@ -83,7 +83,7 @@ export const ConcurrentLogoutModal: React.FC<ConcurrentLogoutModalProps> = ({
                   Automatic Logout
                 </p>
                 <p className={`text-xs font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  {countdown > 0 ? `${countdown} second me logout ho jaega...` : 'Logging out now...'}
+                  {countdown > 0 ? `Logging out in ${countdown} second${countdown !== 1 ? 's' : ''}...` : 'Logging out now...'}
                 </p>
               </div>
             </div>
@@ -105,7 +105,7 @@ export const ConcurrentLogoutModal: React.FC<ConcurrentLogoutModalProps> = ({
               className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg shadow-rose-600/25 active:scale-[0.98] transition-all cursor-pointer"
             >
               <LogOut className="w-4 h-4" />
-              <span>Logout Karen</span>
+              <span>Log Out Now</span>
             </button>
           </div>
         </motion.div>
