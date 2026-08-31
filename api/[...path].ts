@@ -15,7 +15,7 @@ export default function handler(req: any, res: any) {
     return;
   }
 
-  // Handle Vercel URL mapping
+  // Handle dynamic path on Vercel
   if (req.url) {
     if (!req.url.startsWith('/api') && (req.url.startsWith('/v1') || req.url.startsWith('/health'))) {
       req.url = '/api' + req.url;
@@ -24,5 +24,3 @@ export default function handler(req: any, res: any) {
 
   return app(req, res);
 }
-
-
