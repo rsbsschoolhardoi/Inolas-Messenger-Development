@@ -338,7 +338,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         const primaryZenoaId = currentUser?.id || (currentUser as any)?.uid || userUsername;
         const phonePayload = {
           id: primaryZenoaId,
-          zenoa_id: primaryZenoaId,
+          zenoa_id: currentUser?.zenoa_id || primaryZenoaId,
           username: userUsername,
           mobile_number: formatted,
           phone_number: formatted,
@@ -349,9 +349,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
         if (primaryZenoaId) {
           await setDoc(doc(db, 'users', primaryZenoaId), phonePayload, { merge: true });
-        }
-        if (userUsername) {
-          await setDoc(doc(db, 'users', userUsername.toLowerCase()), phonePayload, { merge: true });
         }
       }
       setLocalPhone(formatted);

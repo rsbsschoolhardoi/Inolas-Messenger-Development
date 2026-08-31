@@ -54,6 +54,7 @@ import { encryptMessageText, decryptMessageText, encryptFile, decryptFile } from
 import { storageManager } from './storageManager';
 import { getDmChatId, buildNormalizedParticipants } from './chatUtils';
 import { OpeningAnimation } from './components/OpeningAnimation';
+import { useBranding, initBrandingSync } from './brandingUtils';
 import {  encryptVault, decryptVault } from './utils/crypto';
 import {  findVaultFile, uploadVaultFile, downloadVaultFile, DriveFileInfo, uploadMediaToDrive, getMediaUrlFromDrive, uploadPublicMediaToDrive, deleteVaultFile } from './lib/googleDrive';
 import {  compressImage } from './mediaCompressor';
@@ -168,6 +169,14 @@ export const checkUsernameIsTakenInFirestore = async (
 };
 
 export default function App() {
+  const branding = useBranding();
+
+  // Initialize Real-time App Branding Sync
+  useEffect(() => {
+    const unsub = initBrandingSync();
+    return () => unsub();
+  }, []);
+
   // Initialize OneSignal Web Push SDK
   useEffect(() => {
     const initOneSignal = async () => {
@@ -831,8 +840,9 @@ export default function App() {
             setUserPhone(formattedPhone);
             if (db) {
               const primaryZenoaId = currentUserObj?.zenoa_id || (userUsername ? `${userUsername}@zenoa` : (userId || auth?.currentUser?.uid || 'user'));
+              const targetId = userId || auth?.currentUser?.uid || userUsername;
               const phonePayload = {
-                id: userId || auth?.currentUser?.uid || userUsername,
+                id: targetId,
                 zenoa_id: primaryZenoaId,
                 username: userUsername,
                 mobile_number: formattedPhone,
@@ -843,11 +853,8 @@ export default function App() {
                 updated_at: Date.now()
               };
 
-              if (primaryZenoaId) {
-                await setDoc(doc(db, 'users', primaryZenoaId), phonePayload, { merge: true }).catch(() => {});
-              }
-              if (userUsername) {
-                await setDoc(doc(db, 'users', userUsername.toLowerCase()), phonePayload, { merge: true }).catch(() => {});
+              if (targetId) {
+                await setDoc(doc(db, 'users', targetId), phonePayload, { merge: true }).catch(() => {});
               }
             }
           }
@@ -1224,24 +1231,42 @@ export default function App() {
   }, [userUsername]);
 
   useEffect(() => {
+    let active = true;
     const loadMessages = async () => {
       try {
         const loadedMessages: Record<string, Message[]> = {};
+        let hasNew = false;
         for (const chat of chats) {
           const msgs = await storageManager.getMessagesForChat(chat.id);
-          if (msgs.length > 0) {
+          if (msgs && msgs.length > 0) {
             loadedMessages[chat.id] = msgs;
+            hasNew = true;
           }
         }
-        setMessagesByChat(prev => ({ ...prev, ...loadedMessages }));
+        if (hasNew && active) {
+          setMessagesByChat(prev => {
+            const merged = { ...prev };
+            Object.entries(loadedMessages).forEach(([cid, msgs]) => {
+              // Only merge if we don't already have messages in memory for this chat ID
+              // This strictly prevents older local database records from overwriting live incoming messages!
+              if (!merged[cid] || merged[cid].length === 0) {
+                merged[cid] = msgs;
+              }
+            });
+            return merged;
+          });
+        }
       } catch (err) {
         console.error("Failed to load messages from IndexedDB", err);
       }
     };
     if (chats.length > 0) {
-        loadMessages();
+      loadMessages();
     }
-  }, [chats]);
+    return () => {
+      active = false;
+    };
+  }, [chats.length]);
 
   const [visibleMessageCountByChat, setVisibleMessageCountByChat] = useState<Record<string, number>>({});
   const MESSAGE_PAGE_SIZE = 40;
@@ -1486,15 +1511,27 @@ export default function App() {
                 return;
               }
 
+              // Auto-cleanup legacy duplicate documents to enforce single Zenoa ID truth
+              if (p.id && docId !== p.id) {
+                deleteDoc(doc(db, 'users', docId)).catch(() => {});
+                return;
+              }
+              if (!p.id && docId.toLowerCase() === rawUsername.toLowerCase()) {
+                deleteDoc(doc(db, 'users', docId)).catch(() => {});
+                return;
+              }
+
               const isOfficial = isOfficialAccount(p, rawUsername);
 
               const userObj: UserData = {
-                id: docId,
+                id: p.id || docId,
+                zenoa_id: p.zenoa_id || `${rawUsername}@zenoa`,
                 username: rawUsername,
                 display_name: p.display_name || p.fullName || (isOfficial ? 'Zenoa Official' : rawUsername),
                 bio: p.bio || (isOfficial ? 'Official Zenoa Account • Security & Updates' : ''),
                 avatar_seed: p.avatar_seed || rawUsername,
                 avatar_url: p.avatar_url || '',
+                role: p.role || 'user',
                 online: isUserEffectivelyOnline(p as any),
                 last_seen: getOnlineStatusText(p as any),
                 last_seen_timestamp: p.last_seen_timestamp || 0,
@@ -2099,8 +2136,8 @@ export default function App() {
           });
 
         if (activeMsgs.length > 0) {
-          // 1. Save all incoming messages to local device IndexedDB
-          storageManager.saveMessages(activeMsgs).catch(() => {});
+          // 1. Save all incoming messages to local device IndexedDB (awaited to guarantee write sequencing)
+          await storageManager.saveMessages(activeMsgs).catch(() => {});
 
           // 2. Mark incoming unread messages as read in real-time
           let hasUnreadIncoming = false;
@@ -2161,11 +2198,11 @@ export default function App() {
 
   // Real Presence & User Status Sync Heartbeat with Instant Offline Cleanup
   useEffect(() => {
-    if (!isFirebaseConfigured || !db || !userUsername) return;
+    if (!isFirebaseConfigured || !db || !userId) return;
 
     const syncPresence = (isOnline = true) => {
       const now = Date.now();
-      setDoc(doc(db, 'users', userUsername), {
+      setDoc(doc(db, 'users', userId), {
         online: isOnline && myPresenceStatus !== 'offline',
         activity_status: myPresenceStatus,
         custom_status: myCustomStatus,
@@ -2201,7 +2238,7 @@ export default function App() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       syncPresence(false);
     };
-  }, [userUsername, myPresenceStatus, myCustomStatus, myActivityType, isFirebaseConfigured, db]);
+  }, [userId, myPresenceStatus, myCustomStatus, myActivityType, isFirebaseConfigured, db]);
 
   // Execute Automatic Logout when Concurrent Login Modal is triggered (5 second countdown)
   const executeConcurrentLogout = async () => {
@@ -2255,11 +2292,11 @@ export default function App() {
 
   // Register Active Session Token in Firestore & Listen for Multi-Device / Concurrent Login
   useEffect(() => {
-    if (!isFirebaseConfigured || !db || !userUsername || !currentSessionToken) {
+    if (!isFirebaseConfigured || !db || !userUsername || !currentSessionToken || !userId) {
       return;
     }
 
-    const userDocRef = userId ? doc(db, 'users', userId) : doc(db, 'users', userUsername);
+    const userDocRef = doc(db, 'users', userId);
 
     // Register active session token in Firestore
     setDoc(userDocRef, {
@@ -3544,22 +3581,6 @@ export default function App() {
 
         await setDoc(userDocRef, profilePayload, { merge: true });
 
-        // Synchronize active username lookup document in users collection
-        if (formattedUsername) {
-          await setDoc(doc(db, 'users', formattedUsername.toLowerCase()), profilePayload, { merge: true });
-        }
-
-        // Maintain backward mapping for previous username if username changed
-        if (isUsernameChanged && oldUsername) {
-          await setDoc(doc(db, 'users', oldUsername.toLowerCase()), {
-            id: userId,
-            zenoa_id: userId,
-            current_username: formattedUsername,
-            previous_usernames: prevList,
-            updated_at: Date.now()
-          }, { merge: true });
-        }
-
         // If username changed, update chat participant arrays in Firestore in the background
         if (isUsernameChanged && oldUsername) {
           const chatsColRef = collection(db, 'chats');
@@ -4047,6 +4068,7 @@ export default function App() {
     const myUserData = users[userUsername] || {};
     const myFollowing = myUserData.following || [];
     const myFollowers = myUserData.followers || [];
+    const isUserAdmin = myUserData?.role === 'admin' || myUserData?.role === 'super_admin';
 
     return uniqueUserList
       .filter(user => {
@@ -4057,6 +4079,15 @@ export default function App() {
         if ((cleanCurrentU && uName === cleanCurrentU) || (cleanCurrentId && uId === cleanCurrentId)) {
           return false;
         }
+
+        // Service accounts are unfindable for normal users unless they have an old chat
+        if (user.is_service_account) {
+          const hasOldChat = chats.some(c => c.type === 'dm' && c.username?.toLowerCase() === uName);
+          if (!isUserAdmin && !hasOldChat) {
+            return false;
+          }
+        }
+
         return true;
       })
       .map(user => {
@@ -4102,7 +4133,7 @@ export default function App() {
       .filter(item => item.score > 0)
       .sort((a, b) => b.score - a.score)
       .map(item => item.user);
-  }, [globalSearchQuery, uniqueUserList, userUsername, userId, users]);
+  }, [globalSearchQuery, uniqueUserList, userUsername, userId, users, chats]);
 
   // Active contacts list (Only mutual followers: I follow them and they follow me)
   const activeContactsList = useMemo(() => {
@@ -4134,6 +4165,8 @@ export default function App() {
     if (!q) return [];
     const cleanCurrentU = (userUsername || '').trim().toLowerCase();
     const cleanCurrentId = (userId || '').trim().toLowerCase();
+    const myUserData = users[userUsername] || {};
+    const isUserAdmin = myUserData?.role === 'admin' || myUserData?.role === 'super_admin';
 
     return uniqueUserList.filter(user => {
       const uName = (user.username || '').toLowerCase();
@@ -4144,9 +4177,17 @@ export default function App() {
         return false;
       }
 
+      // Service accounts are unfindable for normal users unless they have an old chat
+      if (user.is_service_account) {
+        const hasOldChat = chats.some(c => c.type === 'dm' && c.username?.toLowerCase() === uName);
+        if (!isUserAdmin && !hasOldChat) {
+          return false;
+        }
+      }
+
       return uName.includes(q) || dName.includes(q);
     });
-  }, [chatSearchQuery, uniqueUserList, userUsername, userId]);
+  }, [chatSearchQuery, uniqueUserList, userUsername, userId, users, chats]);
 
   const getExpiresAt = (chatId: string) => {
     const mode = chatDisappearing[chatId] || 'off';
@@ -6625,17 +6666,25 @@ export default function App() {
     );
   }
 
+  const dbUserObj = userUsername ? users[userUsername.toLowerCase()] : null;
+
   const currentUserObj: UserData | null = isAuthenticated ? {
     id: userId,
     username: userUsername,
-    display_name: userDisplayName,
+    display_name: dbUserObj?.display_name || userDisplayName,
     email: userEmail,
-    bio: userBio,
-    avatar_seed: userAvatarSeed,
-    avatar_url: userAvatarUrl,
+    bio: dbUserObj?.bio || userBio,
+    avatar_seed: dbUserObj?.avatar_seed || userAvatarSeed,
+    avatar_url: dbUserObj?.avatar_url || userAvatarUrl,
     mobile_number: userPhone,
     online: true,
-    last_seen: 'Online'
+    last_seen: 'Online',
+    is_verified: dbUserObj?.is_verified ?? false,
+    verified_type: dbUserObj?.verified_type ?? null,
+    is_official: dbUserObj?.is_official ?? false,
+    followers: dbUserObj?.followers || [],
+    following: dbUserObj?.following || [],
+    is_private: dbUserObj?.is_private ?? false
   } : null;
 
   // 1. DEDICATED STANDALONE SERVICES ROUTING (Independent identities & "Continue with Zenoa" gateways)
@@ -7032,11 +7081,20 @@ export default function App() {
       <aside className={`hidden md:flex flex-col w-64 border-r shrink-0 h-full max-h-[100dvh] transition-colors ${themeMode === 'dark' ? 'bg-[#0f1422] border-slate-800/80' : 'bg-slate-50/80 border-slate-200/80'}`}>
         {/* Brand App Header */}
         <div className="flex items-center gap-2.5 h-16 px-4 border-b border-slate-200/80 dark:border-slate-800/80">
-          <div className="h-9 w-9 rounded-xl bg-neutral-900 dark:bg-neutral-800 border border-neutral-700 text-white font-zenoa font-bold text-base flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
-            Z
-          </div>
+          {branding.messenger_logo ? (
+            <img 
+              src={branding.messenger_logo} 
+              className="h-9 w-9 rounded-xl object-contain border border-slate-200/40 dark:border-slate-800/40 shadow-sm shrink-0" 
+              alt="App Logo" 
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="h-9 w-9 rounded-xl bg-neutral-900 dark:bg-neutral-800 border border-neutral-700 text-white font-zenoa font-bold text-base flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
+              Z
+            </div>
+          )}
           <span className="font-zenoa font-bold text-base tracking-[0.14em] uppercase text-slate-900 dark:text-white truncate">
-            Zenoa
+            {branding.app_name || 'Zenoa'}
           </span>
           {isAuthenticated && (
             <div className="relative ml-auto">
@@ -7206,8 +7264,16 @@ export default function App() {
               <div className="p-4 border-b border-slate-200/80 dark:border-slate-800/80">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <h1 className="font-zenoa text-xl md:text-2xl font-bold tracking-[0.14em] uppercase text-slate-900 dark:text-white select-none transition-colors">
-                      Zenoa
+                    {branding.messenger_logo && (
+                      <img 
+                        src={branding.messenger_logo} 
+                        className="h-6 w-6 object-contain rounded-lg border border-slate-200/40 dark:border-slate-800/40 shadow-xs shrink-0" 
+                        alt="Logo" 
+                        referrerPolicy="no-referrer"
+                      />
+                    )}
+                    <h1 className="font-zenoa text-xl md:text-2xl font-bold tracking-[0.14em] uppercase text-slate-900 dark:text-white select-none transition-colors truncate">
+                      {branding.app_name || 'Zenoa'}
                     </h1>
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -8153,10 +8219,19 @@ export default function App() {
       ) : (
         <div className="hidden md:flex flex-1 flex-col items-center justify-center text-center p-8 bg-slate-50/50 dark:bg-[#0b0f19]">
           <div className="max-w-md w-full p-8 rounded-3xl bg-white/90 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800/80 shadow-xl backdrop-blur-md">
-            <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-950/60 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-indigo-100 dark:border-indigo-900/60 text-indigo-600 dark:text-indigo-400 shadow-sm">
-              <MessageSquare className="h-8 w-8" />
-            </div>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Welcome to Zenoa Desktop</h2>
+            {branding.messenger_logo ? (
+              <img 
+                src={branding.messenger_logo} 
+                className="w-16 h-16 object-contain rounded-2xl mx-auto mb-4 border border-slate-200/50 dark:border-slate-800/50 shadow-sm" 
+                alt="App Logo" 
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-950/60 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-indigo-100 dark:border-indigo-900/60 text-indigo-600 dark:text-indigo-400 shadow-sm">
+                <MessageSquare className="h-8 w-8" />
+              </div>
+            )}
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Welcome to {branding.app_name || 'Zenoa'} Desktop</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
               Select a conversation from the sidebar to start encrypted messaging, voice/video calls, or access developer integrations.
             </p>

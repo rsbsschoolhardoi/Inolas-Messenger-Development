@@ -5,6 +5,7 @@ import {
   ArrowRight, RefreshCw, Sun, Moon, ShieldCheck, Check, Sparkles, Key, Phone
 } from 'lucide-react';
 import { LegalModal, LegalDocType } from './LegalModal';
+import { useBranding } from '../brandingUtils';
 
 interface AuthFlowProps {
   initialMode?: 'login' | 'register';
@@ -48,6 +49,8 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   initialRegStep = 1,
   truecallerProfile
 }) => {
+  const branding = useBranding();
+  const activeLogo = branding.oauth_logo || branding.public_logo || branding.messenger_logo;
   const [mode, setMode] = useState<'login' | 'register'>(isOnboarding || truecallerProfile ? 'register' : initialMode);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -316,12 +319,21 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
         {/* Brand Header */}
         <div className="flex items-center gap-3 mb-5">
-          <div className="h-10 w-10 rounded-2xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-zenoa font-black text-xl flex items-center justify-center shadow-md">
-            Z
-          </div>
+          {activeLogo ? (
+            <img 
+              src={activeLogo} 
+              alt="App Logo" 
+              className="h-10 w-10 rounded-2xl object-contain border border-neutral-200/40 dark:border-neutral-800/40 shadow-sm"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="h-10 w-10 rounded-2xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-zenoa font-black text-xl flex items-center justify-center shadow-md">
+              Z
+            </div>
+          )}
           <div>
             <h2 className="font-zenoa text-xl font-extrabold tracking-[0.14em] uppercase text-neutral-900 dark:text-white leading-none">
-              Zenoa
+              {branding.app_name || 'Zenoa'}
             </h2>
             <p className="text-[11px] text-neutral-500 font-medium mt-0.5">
               {mode === 'login' ? 'Sign in to your private account' : `Account Setup (Step ${regStep} of 3)`}

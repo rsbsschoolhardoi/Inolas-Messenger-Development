@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { UserData, ReportItem, AuditLogItem, ServiceAccountData, SystemBroadcast, Chat } from '../types';
 import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
+import { ImageCropperModal } from './ImageCropperModal';
 import { db } from '../firebaseClient';
 import { useBranding, saveBranding, AppBrandingConfig } from '../brandingUtils';
 import {
@@ -64,6 +65,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [brandingForm, setBrandingForm] = useState<AppBrandingConfig>(branding);
   const [brandingSavedNotice, setBrandingSavedNotice] = useState<string | null>(null);
 
+  // Logo Cropper States
+  const [cropperOpen, setCropperOpen] = useState<boolean>(false);
+  const [cropperSource, setCropperSource] = useState<string>('');
+  const [activeCropSlot, setActiveCropSlot] = useState<'oauth_logo' | 'public_logo' | 'messenger_logo' | 'favicon_logo' | 'dev_console_logo' | null>(null);
+
   useEffect(() => {
     setBrandingForm(branding);
   }, [branding]);
@@ -81,10 +87,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     reader.onload = (e) => {
       const result = e.target?.result as string;
       if (result) {
-        setBrandingForm(prev => ({ ...prev, [slot]: result }));
+        setCropperSource(result);
+        setActiveCropSlot(slot);
+        setCropperOpen(true);
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleCroppedLogo = (croppedDataUrl: string) => {
+    if (activeCropSlot) {
+      setBrandingForm(prev => ({ ...prev, [activeCropSlot]: croppedDataUrl }));
+    }
+    setCropperOpen(false);
+    setCropperSource('');
+    setActiveCropSlot(null);
   };
 
   // Live Firestore State Collections
@@ -94,9 +111,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [serviceAccounts, setServiceAccounts] = useState<ServiceAccountData[]>([]);
   const [broadcasts, setBroadcasts] = useState<SystemBroadcast[]>([]);
 
+  // Action Processing Animation State Map
+  const [processingActions, setProcessingActions] = useState<Record<string, boolean>>({});
+
   // User Management State
   const [userSearch, setUserSearch] = useState<string>('');
-  const [userFilter, setUserFilter] = useState<'all' | 'verified' | 'service' | 'banned' | 'reported' | 'online'>('all');
+  const [userFilter, setUserFilter] = useState<'all' | 'verified' | 'official_service' | 'developer_service' | 'banned' | 'reported' | 'online'>('all');
   const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserData | null>(null);
   const [editDisplayName, setEditDisplayName] = useState<string>('');
   const [editBio, setEditBio] = useState<string>('');
@@ -272,6 +292,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Toggle Purple Verification Badge Action
   const handleTogglePurpleVerification = async (user: UserData) => {
+    // Official system service accounts are always verified
+    if (user.is_service_account && !user.is_business_account) {
+      return;
+    }
+
     const isCurrentlyVerified = !!user.is_verified;
     const updatedStatus = !isCurrentlyVerified;
     const verifiedType = updatedStatus ? 'purple' : null;
@@ -281,6 +306,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       is_verified: updatedStatus,
       verified_type: verifiedType
     };
+
+    const actionKey = `verify_${user.username}`;
+    setProcessingActions(prev => ({ ...prev, [actionKey]: true }));
 
     // Update local state
     setDbUsers((prev) => prev.map((u) => u.username === user.username ? updatedUser : u));
@@ -296,7 +324,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         });
       } catch (err) {
         console.error('Error updating verification status in Firestore:', err);
+      } finally {
+        setProcessingActions(prev => ({ ...prev, [actionKey]: false }));
       }
+    } else {
+      setProcessingActions(prev => ({ ...prev, [actionKey]: false }));
     }
 
     logAuditEvent(
@@ -319,6 +351,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       ban_timestamp: Date.now()
     };
 
+    const actionKey = `ban_${userToBan.username}`;
+    setProcessingActions(prev => ({ ...prev, [actionKey]: true }));
+
     setDbUsers((prev) => prev.map((u) => u.username === userToBan.username ? updatedUser : u));
     onUpdateUser(updatedUser);
 
@@ -332,7 +367,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         });
       } catch (err) {
         console.error('Error banning user in Firestore:', err);
+      } finally {
+        setProcessingActions(prev => ({ ...prev, [actionKey]: false }));
       }
+    } else {
+      setProcessingActions(prev => ({ ...prev, [actionKey]: false }));
     }
 
     logAuditEvent('ban_user', `Suspended profile. Reason: "${reason}"`, userToBan.username, userToBan.id);
@@ -349,6 +388,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       ban_timestamp: undefined
     };
 
+    const actionKey = `ban_${user.username}`;
+    setProcessingActions(prev => ({ ...prev, [actionKey]: true }));
+
     setDbUsers((prev) => prev.map((u) => u.username === user.username ? updatedUser : u));
     onUpdateUser(updatedUser);
 
@@ -362,7 +404,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         });
       } catch (err) {
         console.error('Error unbanning user in Firestore:', err);
+      } finally {
+        setProcessingActions(prev => ({ ...prev, [actionKey]: false }));
       }
+    } else {
+      setProcessingActions(prev => ({ ...prev, [actionKey]: false }));
     }
 
     logAuditEvent('unban_user', 'Reinstated suspended profile', user.username, user.id);
@@ -381,6 +427,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     e.preventDefault();
     if (!selectedUserForEdit) return;
 
+    setProcessingActions(prev => ({ ...prev, edit_user: true }));
+
     const updatedUser: UserData = {
       ...selectedUserForEdit,
       display_name: editDisplayName,
@@ -393,13 +441,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     onUpdateUser(updatedUser);
 
     if (db) {
-      const docId = updatedUser.id || updatedUser.username;
-      await updateDoc(doc(db, 'users', docId), {
-        display_name: updatedUser.display_name,
-        bio: updatedUser.bio,
-        role: updatedUser.role,
-        avatar_url: updatedUser.avatar_url || ''
-      }).catch(err => console.warn('Firestore user update notice:', err));
+      try {
+        const docId = updatedUser.id || updatedUser.username;
+        await updateDoc(doc(db, 'users', docId), {
+          display_name: updatedUser.display_name,
+          bio: updatedUser.bio,
+          role: updatedUser.role,
+          avatar_url: updatedUser.avatar_url || ''
+        });
+      } catch (err) {
+        console.warn('Firestore user update notice:', err);
+      } finally {
+        setProcessingActions(prev => ({ ...prev, edit_user: false }));
+      }
+    } else {
+      setProcessingActions(prev => ({ ...prev, edit_user: false }));
     }
 
     logAuditEvent('update_user', `Updated user details and PFP for @${updatedUser.username}`, updatedUser.username, updatedUser.id);
@@ -414,6 +470,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const confirmDeleteUserPermanently = async () => {
     if (!userToDelete) return;
     const user = userToDelete;
+
+    const actionKey = `delete_${user.username}`;
+    setProcessingActions(prev => ({ ...prev, [actionKey]: true }));
+
     // 1. Immediately remove from local state
     setDbUsers((prev) => prev.filter((u) => u.username !== user.username && u.id !== user.id));
     // 2. Notify parent container (App.tsx) to purge state & caches
@@ -433,7 +493,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         }
       } catch (err) {
         console.error('Error deleting user from Firestore:', err);
+      } finally {
+        setProcessingActions(prev => ({ ...prev, [actionKey]: false }));
       }
+    } else {
+      setProcessingActions(prev => ({ ...prev, [actionKey]: false }));
     }
     logAuditEvent('config_change', `Permanently deleted user profile @${user.username}`, user.username, user.id);
     if (selectedUserForEdit?.username === user.username) {
@@ -460,8 +524,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       online: true,
       last_seen: 'Just now',
       is_verified: true,
+      is_official: true,
       verified_type: 'purple',
       is_service_account: true,
+      is_business_account: false,
       service_category: saCategory,
       registered_at: Date.now()
     };
@@ -613,7 +679,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (!matchSearch) return false;
 
       if (userFilter === 'verified') return !!u.is_verified;
-      if (userFilter === 'service') return !!u.is_service_account;
+      if (userFilter === 'official_service') return !!u.is_service_account && !u.is_business_account;
+      if (userFilter === 'developer_service') return !!u.is_service_account && !!u.is_business_account;
       if (userFilter === 'banned') return !!u.is_banned;
       if (userFilter === 'online') return u.online;
 
@@ -644,7 +711,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const totalUsers = dbUsers.length;
     const activeOnline = dbUsers.filter((u) => u.online).length;
     const purpleVerified = dbUsers.filter((u) => u.is_verified).length;
-    const serviceAccs = dbUsers.filter((u) => u.is_service_account).length;
+    const officialServiceAccs = dbUsers.filter((u) => u.is_service_account && !u.is_business_account).length;
+    const developerServiceAccs = dbUsers.filter((u) => u.is_service_account && u.is_business_account).length;
     const bannedUsers = dbUsers.filter((u) => u.is_banned).length;
     const pendingReports = reports.filter((r) => r.status === 'pending').length;
     const groupChatsCount = allChats.filter((c) => c.is_group).length;
@@ -653,7 +721,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       totalUsers,
       activeOnline,
       purpleVerified,
-      serviceAccs,
+      officialServiceAccs,
+      developerServiceAccs,
       bannedUsers,
       pendingReports,
       groupChatsCount
@@ -846,7 +915,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <span>Service Accounts & Broadcast</span>
               </div>
               <span className="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 text-[10px] font-mono">
-                {metrics.serviceAccs}
+                {metrics.officialServiceAccs + metrics.developerServiceAccs}
               </span>
             </button>
 
@@ -1042,9 +1111,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
 
                 <div className="p-4 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-1">
-                  <div className="text-xs font-mono text-neutral-400 uppercase">Service Accounts</div>
-                  <div className="text-3xl font-black text-white">{metrics.serviceAccs}</div>
+                  <div className="text-xs font-mono text-neutral-400 uppercase">Official Zenoa Bots</div>
+                  <div className="text-3xl font-black text-purple-400">{metrics.officialServiceAccs}</div>
                   <div className="text-[11px] font-mono text-neutral-500">Official System Bots</div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-1">
+                  <div className="text-xs font-mono text-neutral-400 uppercase">Dev Business Bots</div>
+                  <div className="text-3xl font-black text-white">{metrics.developerServiceAccs}</div>
+                  <div className="text-[11px] font-mono text-neutral-500">Developer Integrations</div>
                 </div>
 
                 <div className="p-4 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-1">
@@ -1198,14 +1273,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     Purple Verified ({metrics.purpleVerified})
                   </button>
                   <button
-                    onClick={() => setUserFilter('service')}
+                    onClick={() => setUserFilter('official_service')}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap transition-colors ${
-                      userFilter === 'service'
+                      userFilter === 'official_service'
                         ? 'bg-neutral-800 text-neutral-200 border border-neutral-700'
                         : 'bg-neutral-800 text-neutral-400 hover:text-white'
                     }`}
                   >
-                    Service Bots
+                    Official Zenoa Bots ({metrics.officialServiceAccs})
+                  </button>
+                  <button
+                    onClick={() => setUserFilter('developer_service')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap transition-colors ${
+                      userFilter === 'developer_service'
+                        ? 'bg-neutral-800 text-neutral-200 border border-neutral-700'
+                        : 'bg-neutral-800 text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    Dev Business Bots ({metrics.developerServiceAccs})
                   </button>
                   <button
                     onClick={() => setUserFilter('banned')}
@@ -1467,17 +1552,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               )}
                             </td>
 
-                            <td className="p-4 text-right">
-                              <button
-                                onClick={() => handleTogglePurpleVerification(user)}
-                                className={`px-4 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all ${
-                                  isVerified
-                                    ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-300 border-neutral-700 hover:text-white'
-                                    : 'bg-purple-900 hover:bg-purple-850 text-white border-purple-700 hover:shadow-[0_0_12px_rgba(139,92,246,0.3)]'
-                                }`}
-                              >
-                                {isVerified ? 'Revoke Verified Badge' : 'Grant Verified Badge'}
-                              </button>
+                             <td className="p-4 text-right">
+                              {user.is_service_account && !user.is_business_account ? (
+                                <span className="px-4 py-1.5 rounded-xl text-xs font-bold border bg-purple-950/40 text-purple-400 border-purple-800/50 inline-flex items-center gap-1.5 justify-center min-w-[155px]">
+                                  Always Verified
+                                </span>
+                              ) : (
+                                <button
+                                  disabled={processingActions[`verify_${user.username}`]}
+                                  onClick={() => handleTogglePurpleVerification(user)}
+                                  className={`px-4 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all inline-flex items-center gap-1.5 justify-center min-w-[155px] ${
+                                    isVerified
+                                      ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-300 border-neutral-700 hover:text-white'
+                                      : 'bg-purple-900 hover:bg-purple-850 text-white border-purple-700 hover:shadow-[0_0_12px_rgba(139,92,246,0.3)]'
+                                  }`}
+                                >
+                                  {processingActions[`verify_${user.username}`] ? (
+                                    <>
+                                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                      <span>Updating...</span>
+                                    </>
+                                  ) : (
+                                    <span>{isVerified ? 'Revoke Verified Badge' : 'Grant Verified Badge'}</span>
+                                  )}
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );
@@ -2085,9 +2184,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                   <div className="space-y-3">
                     {/* Image Preview Box */}
-                    <div className="h-28 w-full rounded-xl bg-neutral-950 border border-dashed border-neutral-800 flex items-center justify-center overflow-hidden p-2 relative group">
+                    <div className="h-28 w-full rounded-xl bg-neutral-950 flex items-center justify-center overflow-hidden relative group">
                       {brandingForm.oauth_logo ? (
-                        <img src={brandingForm.oauth_logo} alt="OAuth Logo" className="h-full max-w-full object-contain" />
+                        <img src={brandingForm.oauth_logo} alt="OAuth Logo" className="h-full w-full object-cover" />
                       ) : (
                         <div className="text-center p-2">
                           <ImageIcon className="h-8 w-8 text-neutral-600 mx-auto mb-1" />
@@ -2146,9 +2245,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
 
                   <div className="space-y-3">
-                    <div className="h-28 w-full rounded-xl bg-neutral-950 border border-dashed border-neutral-800 flex items-center justify-center overflow-hidden p-2 relative group">
+                    <div className="h-28 w-full rounded-xl bg-neutral-950 flex items-center justify-center overflow-hidden relative group">
                       {brandingForm.public_logo ? (
-                        <img src={brandingForm.public_logo} alt="Public Logo" className="h-full max-w-full object-contain" />
+                        <img src={brandingForm.public_logo} alt="Public Logo" className="h-full w-full object-cover" />
                       ) : (
                         <div className="text-center p-2">
                           <ImageIcon className="h-8 w-8 text-neutral-600 mx-auto mb-1" />
@@ -2207,9 +2306,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
 
                   <div className="space-y-3">
-                    <div className="h-28 w-full rounded-xl bg-neutral-950 border border-dashed border-neutral-800 flex items-center justify-center overflow-hidden p-2 relative group">
+                    <div className="h-28 w-full rounded-xl bg-neutral-950 flex items-center justify-center overflow-hidden relative group">
                       {brandingForm.messenger_logo ? (
-                        <img src={brandingForm.messenger_logo} alt="Messenger Logo" className="h-full max-w-full object-contain" />
+                        <img src={brandingForm.messenger_logo} alt="Messenger Logo" className="h-full w-full object-cover" />
                       ) : (
                         <div className="text-center p-2">
                           <ImageIcon className="h-8 w-8 text-neutral-600 mx-auto mb-1" />
@@ -2268,9 +2367,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
 
                   <div className="space-y-3">
-                    <div className="h-28 w-full rounded-xl bg-neutral-950 border border-dashed border-neutral-800 flex items-center justify-center overflow-hidden p-2 relative group">
+                    <div className="h-28 w-full rounded-xl bg-neutral-950 flex items-center justify-center overflow-hidden relative group">
                       {brandingForm.favicon_logo ? (
-                        <img src={brandingForm.favicon_logo} alt="Favicon" className="h-12 w-12 object-contain rounded-lg shadow-sm" />
+                        <img src={brandingForm.favicon_logo} alt="Favicon" className="h-full w-full object-cover" />
                       ) : (
                         <div className="text-center p-2">
                           <ImageIcon className="h-8 w-8 text-neutral-600 mx-auto mb-1" />
@@ -2329,9 +2428,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
 
                   <div className="space-y-3">
-                    <div className="h-28 w-full rounded-xl bg-neutral-950 border border-dashed border-neutral-800 flex items-center justify-center overflow-hidden p-2 relative group">
+                    <div className="h-28 w-full rounded-xl bg-neutral-950 flex items-center justify-center overflow-hidden relative group">
                       {brandingForm.dev_console_logo ? (
-                        <img src={brandingForm.dev_console_logo} alt="Developer Console Logo" className="h-full max-w-full object-contain" />
+                        <img src={brandingForm.dev_console_logo} alt="Developer Console Logo" className="h-full w-full object-cover" />
                       ) : (
                         <div className="text-center p-2">
                           <ImageIcon className="h-8 w-8 text-neutral-600 mx-auto mb-1" />
@@ -2380,16 +2479,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
                 <button
                   type="button"
+                  disabled={processingActions['save_branding']}
                   onClick={async () => {
-                    await saveBranding(brandingForm, currentUser?.username || 'admin');
-                    logAuditEvent('config_change', 'Admin Updated Application Branding & Logos');
-                    setBrandingSavedNotice('Branding configuration saved and published successfully!');
-                    setTimeout(() => setBrandingSavedNotice(null), 4000);
+                    setProcessingActions(prev => ({ ...prev, save_branding: true }));
+                    try {
+                      await saveBranding(brandingForm, currentUser?.username || 'admin');
+                      logAuditEvent('config_change', 'Admin Updated Application Branding & Logos');
+                      setBrandingSavedNotice('Branding configuration saved and published successfully!');
+                      setTimeout(() => setBrandingSavedNotice(null), 4000);
+                    } catch (err) {
+                      console.error('Error saving branding:', err);
+                    } finally {
+                      setTimeout(() => {
+                        setProcessingActions(prev => ({ ...prev, save_branding: false }));
+                      }, 700);
+                    }
                   }}
-                  className="px-6 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs uppercase tracking-wider cursor-pointer border border-purple-400 shadow-lg shadow-purple-900/40 transition-all flex items-center gap-2 shrink-0"
+                  className="px-6 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:bg-purple-800/80 disabled:opacity-80 text-white font-bold text-xs uppercase tracking-wider cursor-pointer border border-purple-400 shadow-lg shadow-purple-900/40 transition-all flex items-center gap-2 shrink-0"
                 >
-                  <CheckCircle2 className="h-4 w-4" />
-                  <span>Save & Apply Branding</span>
+                  {processingActions['save_branding'] ? (
+                    <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4" />
+                  )}
+                  <span>{processingActions['save_branding'] ? 'Saving & Applying...' : 'Save & Apply Branding'}</span>
                 </button>
               </div>
             </div>
@@ -2766,16 +2879,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
+                      disabled={processingActions['edit_user']}
                       onClick={() => setSelectedUserForEdit(null)}
-                      className="px-4 py-2.5 rounded-xl border border-neutral-800 hover:bg-neutral-800 text-neutral-300 text-xs font-bold cursor-pointer"
+                      className="px-4 py-2.5 rounded-xl border border-neutral-800 hover:bg-neutral-800 text-neutral-300 text-xs font-bold cursor-pointer disabled:opacity-55"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
-                      className="px-5 py-2.5 rounded-xl bg-purple-900 hover:bg-purple-800 text-white font-bold text-xs uppercase tracking-wider transition-all cursor-pointer border border-purple-700 shadow-md"
+                      disabled={processingActions['edit_user']}
+                      className="px-5 py-2.5 rounded-xl bg-purple-900 hover:bg-purple-800 disabled:bg-purple-950 disabled:opacity-80 text-white font-bold text-xs uppercase tracking-wider transition-all cursor-pointer border border-purple-700 shadow-md flex items-center gap-1.5"
                     >
-                      Save Changes
+                      {processingActions['edit_user'] ? (
+                        <>
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                          <span>Saving...</span>
+                        </>
+                      ) : (
+                        <span>Save Changes</span>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -2784,6 +2906,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         )}
       </AnimatePresence>
+
+      <ImageCropperModal
+        isOpen={cropperOpen}
+        srcImage={cropperSource}
+        title="Crop Brand Logo"
+        onClose={() => {
+          setCropperOpen(false);
+          setCropperSource('');
+          setActiveCropSlot(null);
+        }}
+        onCrop={handleCroppedLogo}
+      />
     </div>
   );
 };

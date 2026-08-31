@@ -7,6 +7,7 @@ interface ImageCropperModalProps {
   srcImage: string; // Base64 or image URL
   onClose: () => void;
   onCrop: (croppedDataUrl: string) => void;
+  title?: string;
 }
 
 export const ImageCropperModal: React.FC<ImageCropperModalProps> = ({
@@ -14,6 +15,7 @@ export const ImageCropperModal: React.FC<ImageCropperModalProps> = ({
   srcImage,
   onClose,
   onCrop,
+  title = 'Crop Profile Picture',
 }) => {
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0); // 0, 90, 180, 270
@@ -140,7 +142,7 @@ export const ImageCropperModal: React.FC<ImageCropperModalProps> = ({
         <div className="px-5 py-4 border-b border-neutral-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Camera className="h-4 w-4 text-indigo-400" />
-            <h3 className="font-bold text-sm">Crop Profile Picture</h3>
+            <h3 className="font-bold text-sm">{title}</h3>
           </div>
           <button
             onClick={onClose}

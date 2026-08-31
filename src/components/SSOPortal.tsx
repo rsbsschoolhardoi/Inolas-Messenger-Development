@@ -110,15 +110,41 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     const ownerName = currentUser?.username || 'developer_user';
     setIsLoading(true);
     try {
+      let firestoreApps: SSOApp[] = [];
+      const officialApp: SSOApp = {
+        id: 'sso_official_default',
+        client_id: 'zenoa_official_app',
+        client_secret: 'zen_sec_official_9999',
+        app_name: 'Zenoa Official OAuth Client',
+        app_description: 'Pre-configured official Zenoa OAuth 2.0 client for production SSO login, token exchange, and user profile verification.',
+        website_url: window.location.origin,
+        logo_url: '',
+        redirect_uris: [window.location.origin + '/auth/sso', 'http://localhost:3000/auth/sso'],
+        scopes: ['profile', 'email', 'phone'],
+        type: 'sso_oauth_client',
+        created_at: Date.now(),
+        owner: ownerName
+      };
+
       if (db) {
         const ssoRef = collection(db, 'sso_applications');
         const q = query(ssoRef, where('owner', '==', ownerName));
         const snap = await getDocs(q);
-        const firestoreApps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as SSOApp[];
-        setApps(firestoreApps);
-      } else {
-        setApps([]);
+        firestoreApps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as SSOApp[];
+
+        // Also check if official app exists in db, if not save it
+        const officialRef = doc(db, 'sso_applications', 'sso_official_default');
+        const officialSnap = await getDoc(officialRef);
+        if (!officialSnap.exists()) {
+          await setDoc(officialRef, officialApp).catch(() => {});
+        }
       }
+
+      if (!firestoreApps.some(a => a.client_id === 'zenoa_official_app')) {
+        firestoreApps.unshift(officialApp);
+      }
+
+      setApps(firestoreApps);
     } catch (err: any) {
       console.warn('Failed to load SSO apps:', err);
       showNotification('error', err.message);

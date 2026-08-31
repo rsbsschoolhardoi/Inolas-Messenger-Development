@@ -198,31 +198,32 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
       try {
         if (!db) throw new Error("Database not initialized");
 
-        // Special handling for local demo sandbox client
-        if (effectiveClientId === 'demo_app') {
-          const demoRegistered = normalizeRedirectUri(window.location.origin + '/auth/sso');
+        // Special handling for local demo / official sandbox client
+        if (effectiveClientId === 'demo_app' || effectiveClientId === 'zenoa_official_app') {
+          const validUris = [window.location.origin + '/auth/sso', 'http://localhost:3000/auth/sso'];
           const attemptedNormalized = normalizeRedirectUri(effectiveRedirectUri);
-          
-          if (attemptedNormalized !== demoRegistered) {
+          const isMatch = validUris.some(u => normalizeRedirectUri(u) === attemptedNormalized);
+
+          if (!isMatch) {
             setSecurityBlock({
               code: 'UNAUTHORIZED_REDIRECT_URI',
               title: 'Unauthorized Access: Redirect URI Mismatch',
               attemptedUri: effectiveRedirectUri,
               attemptedDomain: parsedAttemptedUrl.hostname,
-              reason: `The requested Redirect URI "${effectiveRedirectUri}" is not authorized for demo_app. The demo client only authorizes exact match on "${window.location.origin}/auth/sso". Domain-level matching is disabled.`,
-              recommendation: 'Use the authorized demo callback URI or register your application in the Zenoa SSO Console (/sso) to configure your own exact Redirect URIs.'
+              reason: `The requested Redirect URI "${effectiveRedirectUri}" is not authorized for ${effectiveClientId}.`,
+              recommendation: 'Use the authorized callback URI or register your application in the Zenoa SSO Console (/sso).'
             });
             setIsLoading(false);
             return;
           }
 
           setAppConfig({
-            app_name: 'Zenoa Developer Demo',
+            app_name: effectiveClientId === 'zenoa_official_app' ? 'Zenoa Official OAuth Client' : 'Zenoa Developer Demo',
             bot_username: 'zenoabot',
             app_description: 'Interactive OAuth 2.0 & Single Sign-On testing application',
             website_url: window.location.origin,
-            client_secret: 'demo_secret',
-            redirect_uris: [window.location.origin + '/auth/sso']
+            client_secret: effectiveClientId === 'zenoa_official_app' ? 'zen_sec_official_9999' : 'demo_secret',
+            redirect_uris: validUris
           });
           setIsLoading(false);
           return;
