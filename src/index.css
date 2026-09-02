@@ -3,7 +3,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
   -webkit-font-smoothing: antialiased;
@@ -11,8 +11,8 @@
 }
 
 h1, h2, h3, h4, h5, h6, .font-zenoa, .font-zenoa-modern, .font-zenoa-serif {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  letter-spacing: -0.025em;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  letter-spacing: -0.02em;
 }
 
 html, body {
@@ -20,8 +20,9 @@ html, body {
   padding: 0;
   width: 100%;
   height: 100%;
-  background-color: #fafafa;
-  color: #09090b;
+  background-color: #ffffff;
+  color: #111827;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #root {
@@ -29,8 +30,8 @@ html, body {
   height: 100%;
   overflow-x: hidden;
   overflow-y: auto;
-  background-color: #fafafa;
-  color: #09090b;
+  background-color: #ffffff;
+  color: #111827;
 }
 
 html.dark, html.dark body, html.dark #root {

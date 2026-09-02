@@ -823,7 +823,7 @@ export default function App() {
   const [isAuthResolving, setIsAuthResolving] = useState<boolean>(true);
   const [isEmailVerificationPending, setIsEmailVerificationPending] = useState<boolean>(false);
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string>('');
-  const [showLandingPage, setShowLandingPage] = useState<boolean>(true);
+  const [showLandingPage, setShowLandingPage] = useState<boolean>(false);
   const [truecallerProfile, setTruecallerProfile] = useState<any>(null);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -910,9 +910,8 @@ export default function App() {
         }
       } else {
         setShowAdminPanel(false);
-        if (!isAuthenticated) {
-          setShowLandingPage(true);
-        }
+        setShowLandingPage(false);
+        setAuthFlowInitialMode('login');
       }
     };
 
@@ -2318,24 +2317,28 @@ export default function App() {
 
     const userDocRef = doc(db, 'users', userId);
 
-    // Register active session token in Firestore
-    setDoc(userDocRef, {
-      active_session_token: currentSessionToken,
-      active_session_created_at: Date.now(),
-      last_login_device: navigator.userAgent || 'Web Browser'
-    }, { merge: true }).catch(err => console.warn("Session token registration notice:", err));
+    // Only register session token if this tab explicitly initiated login or if no session token exists yet
+    const isExplicitLogin = sessionStorage.getItem('zenoa_is_explicit_login') === 'true';
+    if (isExplicitLogin) {
+      sessionStorage.removeItem('zenoa_is_explicit_login');
+      setDoc(userDocRef, {
+        active_session_token: currentSessionToken,
+        active_session_created_at: Date.now(),
+        last_login_device: navigator.userAgent || 'Web Browser'
+      }, { merge: true }).catch(err => console.warn("Session token registration notice:", err));
 
-    // Notify BroadcastChannel for same-device multi-tab synchronization
-    try {
-      if (typeof BroadcastChannel !== 'undefined') {
-        const sessionBc = new BroadcastChannel(`zenoa_session_sync_${userUsername.toLowerCase()}`);
-        sessionBc.postMessage({
-          type: 'NEW_LOGIN',
-          sessionToken: currentSessionToken
-        });
-        setTimeout(() => sessionBc.close(), 1000);
-      }
-    } catch {}
+      // Broadcast NEW_LOGIN to invalidate old tabs on the same device
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          const sessionBc = new BroadcastChannel(`zenoa_session_sync_${userUsername.toLowerCase()}`);
+          sessionBc.postMessage({
+            type: 'NEW_LOGIN',
+            sessionToken: currentSessionToken
+          });
+          setTimeout(() => sessionBc.close(), 1000);
+        }
+      } catch {}
+    }
 
     let broadcastChannel: BroadcastChannel | null = null;
     let unsubscribeUserDoc: () => void = () => {};
@@ -2347,7 +2350,7 @@ export default function App() {
         broadcastChannel.onmessage = (event) => {
           const data = event.data;
           if (data && data.type === 'NEW_LOGIN' && data.sessionToken && data.sessionToken !== currentSessionToken) {
-            console.warn("New session started in another tab!");
+            console.warn("New session started in another tab! Terminating old session.");
             setShowConcurrentLoginModal(true);
             setKickoutData({ username: userUsername, countdown: 5 });
           }
@@ -2363,8 +2366,9 @@ export default function App() {
       (snap) => {
         if (!snap.exists()) return;
         const data = snap.data();
+        // If Firestore contains a different active session token, this session is older and must terminate
         if (data && data.active_session_token && data.active_session_token !== currentSessionToken) {
-          console.warn("Concurrent login detected on another device/browser!", data.active_session_token, currentSessionToken);
+          console.warn("Concurrent login detected on another device/browser! Terminating old session.", data.active_session_token, currentSessionToken);
           setShowConcurrentLoginModal(true);
           setKickoutData({ username: userUsername, countdown: 5 });
         }
@@ -3268,14 +3272,29 @@ export default function App() {
         // Deliver all system broadcasts & welcome message to new account
         deliverBroadcastsToUser(userObj.uid, cleanUsername, cleanFullName);
 
-        try {
-          await sendEmailVerification(userObj);
-        } catch (verifErr) {
-          console.warn("Verification email notice:", verifErr);
-        }
+        const isMobileSignUp = Boolean(data.mobile_number && data.mobile_number.trim());
+        const isInternalEmail = !data.email || data.email.endsWith('@zenoa.mail') || data.email.endsWith('@zenoa.internal');
 
-        setIsEmailVerificationPending(true);
-        setPendingVerificationEmail(data.email);
+        if (!isMobileSignUp && !isInternalEmail) {
+          try {
+            await sendEmailVerification(userObj);
+          } catch (verifErr) {
+            console.warn("Verification email notice:", verifErr);
+          }
+
+          setIsEmailVerificationPending(true);
+          setPendingVerificationEmail(data.email);
+        } else {
+          // If registered via Mobile Number, NEVER send magic link or email verification
+          setUserId(userObj.uid);
+          setUserEmail(data.email);
+          setUserUsername(cleanUsername);
+          setUserDisplayName(cleanFullName);
+          setUserAvatarSeed(cleanUsername);
+          setIsAuthenticated(true);
+          setIsEmailVerificationPending(false);
+          setPendingVerificationEmail('');
+        }
 
         return { success: true };
       } catch (err: any) {
@@ -6918,6 +6937,22 @@ export default function App() {
         checkUsernameAvailability={handleCheckUsernameAvailability}
         isOnboarding={onboardingStep > 0}
         initialRegStep={onboardingStep}
+        allUsers={uniqueUserList}
+        onFollowUser={handleFollow}
+        onSaveProfilePicture={async (avatarUrl: string, avatarSeed: string) => {
+          setUserAvatarUrl(avatarUrl);
+          setUserAvatarSeed(avatarSeed);
+          if (isFirebaseConfigured && db && userId) {
+            try {
+              await setDoc(doc(db, 'users', userId), { avatar_url: avatarUrl, avatar_seed: avatarSeed }, { merge: true });
+            } catch (e) {}
+          }
+        }}
+        onCompleteAuth={() => {
+          setIsAuthenticated(true);
+          setOnboardingStep(0);
+          showToast('Welcome to Zenoa Messenger!');
+        }}
       />
     );
   }
@@ -6929,7 +6964,7 @@ export default function App() {
   // MAIN RUNTIME APPLICATION (Zenoa Messenger)
   return (
 
-    <div className={`w-full h-[100dvh] flex flex-col overflow-hidden select-none touch-manipulation font-sans transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-white' : 'bg-white text-neutral-800'}`}>
+    <div className={`w-full h-[100dvh] flex flex-col md:flex-row overflow-hidden select-none touch-manipulation font-sans transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-white' : 'bg-white text-neutral-800'}`}>
       {/* Central Kickout Modal (Account Logged In On Another Page with 5-Second Timer) */}
       <AnimatePresence>
         {kickoutData && (
