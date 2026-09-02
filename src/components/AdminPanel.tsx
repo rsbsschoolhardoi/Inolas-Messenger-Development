@@ -6,7 +6,7 @@ import {
   Check, X, Search, RefreshCw, AlertTriangle, Eye, Edit3,
   LogOut, ArrowRight, Activity, Terminal, CheckCircle2,
   Trash2, Upload, Send, Download, Layers, CornerDownRight, Zap, ChevronRight,
-  Palette, Globe, Image as ImageIcon, Sparkles
+  Palette, Globe, Image as ImageIcon, Sparkles, FileCode, Clock, XCircle, FileText
 } from 'lucide-react';
 import { UserData, ReportItem, AuditLogItem, ServiceAccountData, SystemBroadcast, Chat } from '../types';
 import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
@@ -58,7 +58,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   });
 
   // Active Tab Management
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'verified_management' | 'sessions' | 'service_accounts' | 'reports' | 'groups' | 'audit' | 'settings' | 'branding'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'verified_management' | 'sessions' | 'service_accounts' | 'developer_service_accounts' | 'templates' | 'reports' | 'groups' | 'audit' | 'settings' | 'branding'>('overview');
+  const [serviceSubTab, setServiceSubTab] = useState<'official' | 'developer'>('official');
 
   // App Branding Management
   const branding = useBranding();
@@ -109,7 +110,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
   const [serviceAccounts, setServiceAccounts] = useState<ServiceAccountData[]>([]);
+  const [developerApps, setDeveloperApps] = useState<any[]>([]);
+  const [messageTemplates, setMessageTemplates] = useState<any[]>([]);
   const [broadcasts, setBroadcasts] = useState<SystemBroadcast[]>([]);
+
+  // Template Requests Filter State
+  const [templateFilterStatus, setTemplateFilterStatus] = useState<string>('ALL');
+  const [templateSearch, setTemplateSearch] = useState<string>('');
 
   // Action Processing Animation State Map
   const [processingActions, setProcessingActions] = useState<Record<string, boolean>>({});
@@ -176,6 +183,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     let unsubscribeReports = () => {};
     let unsubscribeAudit = () => {};
     let unsubscribeService = () => {};
+    let unsubscribeDevApps = () => {};
+    let unsubscribeTemplates = () => {};
     let unsubscribeBroadcasts = () => {};
 
     if (db) {
@@ -217,6 +226,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         setServiceAccounts(fetched);
       }, (err) => console.log('Admin service accounts snapshot note:', err));
 
+      // Developer apps feed
+      unsubscribeDevApps = onSnapshot(collection(db, 'developer_apps'), (snapshot) => {
+        const fetched: any[] = [];
+        snapshot.forEach((docSnap) => {
+          fetched.push({ id: docSnap.id, ...docSnap.data() });
+        });
+        setDeveloperApps(fetched);
+      }, (err) => console.log('Admin developer_apps snapshot note:', err));
+
+      // Message templates feed
+      unsubscribeTemplates = onSnapshot(collection(db, 'message_templates'), (snapshot) => {
+        const fetched: any[] = [];
+        snapshot.forEach((docSnap) => {
+          fetched.push({ id: docSnap.id, ...docSnap.data() });
+        });
+        fetched.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        setMessageTemplates(fetched);
+      }, (err) => console.log('Admin message_templates snapshot note:', err));
+
       // Broadcasts feed
       unsubscribeBroadcasts = onSnapshot(collection(db, 'broadcasts'), (snapshot) => {
         const fetched: SystemBroadcast[] = [];
@@ -233,6 +261,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       unsubscribeReports();
       unsubscribeAudit();
       unsubscribeService();
+      unsubscribeDevApps();
+      unsubscribeTemplates();
       unsubscribeBroadcasts();
     };
   }, [isAdminAuthenticated]);
@@ -241,11 +271,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleTerminateSession = async (targetUsername: string) => {
     if (!db || !targetUsername) return;
     try {
-      await updateDoc(doc(db, 'users', targetUsername), {
+      await setDoc(doc(db, 'users', targetUsername), {
         active_session_token: '',
         online: false,
         last_seen_timestamp: Date.now()
-      });
+      }, { merge: true });
       logAuditEvent('ban_user', `Terminated active session for user @${targetUsername}`, targetUsername);
       if (onRefreshData) onRefreshData();
     } catch (err) {
@@ -311,17 +341,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setProcessingActions(prev => ({ ...prev, [actionKey]: true }));
 
     // Update local state
-    setDbUsers((prev) => prev.map((u) => u.username === user.username ? updatedUser : u));
+    setDbUsers((prev) => prev.map((u) => (u.username === user.username || u.id === user.id) ? updatedUser : u));
+    setDeveloperApps((prev) => prev.map((a) => (a.id === user.id || a.bot_username === user.username || a.client_id === user.id) ? { ...a, is_verified: updatedStatus, verified_type: verifiedType } : a));
     onUpdateUser(updatedUser);
 
-    // Persist to Firestore
+    // Persist to Firestore safely using setDoc with merge: true
     if (db) {
       try {
-        const userRef = doc(db, 'users', user.id || user.username);
-        await updateDoc(userRef, {
-          is_verified: updatedStatus,
-          verified_type: verifiedType
-        });
+        if (user.id) {
+          await setDoc(doc(db, 'users', user.id), {
+            is_verified: updatedStatus,
+            verified_type: verifiedType
+          }, { merge: true }).catch(() => {});
+          await setDoc(doc(db, 'developer_apps', user.id), {
+            is_verified: updatedStatus,
+            verified_type: verifiedType
+          }, { merge: true }).catch(() => {});
+        }
+        if (user.username) {
+          await setDoc(doc(db, 'users', user.username), {
+            is_verified: updatedStatus,
+            verified_type: verifiedType
+          }, { merge: true }).catch(() => {});
+          await setDoc(doc(db, 'users', user.username.toLowerCase()), {
+            is_verified: updatedStatus,
+            verified_type: verifiedType
+          }, { merge: true }).catch(() => {});
+          await setDoc(doc(db, 'developer_apps', user.username), {
+            is_verified: updatedStatus,
+            verified_type: verifiedType
+          }, { merge: true }).catch(() => {});
+        }
       } catch (err) {
         console.error('Error updating verification status in Firestore:', err);
       } finally {
@@ -360,11 +410,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (db) {
       try {
         const userRef = doc(db, 'users', userToBan.id || userToBan.username);
-        await updateDoc(userRef, {
+        await setDoc(userRef, {
           is_banned: true,
           ban_reason: reason,
           ban_timestamp: Date.now()
-        });
+        }, { merge: true });
       } catch (err) {
         console.error('Error banning user in Firestore:', err);
       } finally {
@@ -397,11 +447,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (db) {
       try {
         const userRef = doc(db, 'users', user.id || user.username);
-        await updateDoc(userRef, {
+        await setDoc(userRef, {
           is_banned: false,
           ban_reason: null,
           ban_timestamp: null
-        });
+        }, { merge: true });
       } catch (err) {
         console.error('Error unbanning user in Firestore:', err);
       } finally {
@@ -443,12 +493,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (db) {
       try {
         const docId = updatedUser.id || updatedUser.username;
-        await updateDoc(doc(db, 'users', docId), {
+        await setDoc(doc(db, 'users', docId), {
           display_name: updatedUser.display_name,
           bio: updatedUser.bio,
           role: updatedUser.role,
           avatar_url: updatedUser.avatar_url || ''
-        });
+        }, { merge: true });
       } catch (err) {
         console.warn('Firestore user update notice:', err);
       } finally {
@@ -504,6 +554,86 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setSelectedUserForEdit(null);
     }
     setUserToDelete(null);
+  };
+
+  // Delete Service Account (Admin / Developer)
+  const handleDeleteServiceAccount = async (saId: string, username: string, isDevApp: boolean = false) => {
+    if (!confirm(`Are you sure you want to delete service account @${username || saId}? This action is irreversible.`)) return;
+
+    const actionKey = `delete_sa_${username || saId}`;
+    setProcessingActions(prev => ({ ...prev, [actionKey]: true }));
+
+    // 1. Immediately remove from local state
+    if (isDevApp) {
+      setDeveloperApps((prev) => prev.filter((a) => a.id !== saId && a.client_id !== saId));
+    } else {
+      setServiceAccounts((prev) => prev.filter((sa) => sa.id !== saId && sa.username !== username));
+    }
+    setDbUsers((prev) => prev.filter((u) => u.username !== username && u.id !== saId));
+
+    if (onDeleteUser && username) {
+      onDeleteUser(username, saId);
+    }
+
+    // 2. Delete from Firestore
+    if (db) {
+      try {
+        if (saId) {
+          await deleteDoc(doc(db, isDevApp ? 'developer_apps' : 'service_accounts', saId)).catch(() => {});
+          await deleteDoc(doc(db, 'users', saId)).catch(() => {});
+        }
+        if (username) {
+          await deleteDoc(doc(db, 'service_accounts', username)).catch(() => {});
+          await deleteDoc(doc(db, 'service_accounts', username.toLowerCase())).catch(() => {});
+          await deleteDoc(doc(db, 'users', username)).catch(() => {});
+          await deleteDoc(doc(db, 'users', username.toLowerCase())).catch(() => {});
+          await deleteDoc(doc(db, 'usernames', username.toLowerCase())).catch(() => {});
+        }
+      } catch (err) {
+        console.error('Error deleting service account from Firestore:', err);
+      } finally {
+        setProcessingActions(prev => ({ ...prev, [actionKey]: false }));
+      }
+    } else {
+      setProcessingActions(prev => ({ ...prev, [actionKey]: false }));
+    }
+
+    logAuditEvent('config_change', `Permanently deleted service account @${username || saId}`, username, saId);
+  };
+
+  // Template Requests Governance Handlers
+  const handleApproveTemplate = async (templateId: string) => {
+    if (!db) return;
+    try {
+      await setDoc(doc(db, 'message_templates', templateId), { status: 'approved', updated_at: Date.now() }, { merge: true });
+      setMessageTemplates(prev => prev.map(t => t.id === templateId ? { ...t, status: 'approved' } : t));
+      logAuditEvent('config_change', `Approved message template ${templateId}`);
+    } catch (err) {
+      console.error('Error approving template:', err);
+    }
+  };
+
+  const handleRejectTemplate = async (templateId: string) => {
+    if (!db) return;
+    try {
+      await setDoc(doc(db, 'message_templates', templateId), { status: 'rejected', updated_at: Date.now() }, { merge: true });
+      setMessageTemplates(prev => prev.map(t => t.id === templateId ? { ...t, status: 'rejected' } : t));
+      logAuditEvent('config_change', `Rejected message template ${templateId}`);
+    } catch (err) {
+      console.error('Error rejecting template:', err);
+    }
+  };
+
+  const handleDeleteTemplate = async (templateId: string) => {
+    if (!confirm('Are you sure you want to delete this template request?')) return;
+    if (!db) return;
+    try {
+      await deleteDoc(doc(db, 'message_templates', templateId));
+      setMessageTemplates(prev => prev.filter(t => t.id !== templateId));
+      logAuditEvent('config_change', `Deleted message template ${templateId}`);
+    } catch (err) {
+      console.error('Error deleting template:', err);
+    }
   };
 
   // Create Zenoa Official Service Account
@@ -711,8 +841,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const totalUsers = dbUsers.length;
     const activeOnline = dbUsers.filter((u) => u.online).length;
     const purpleVerified = dbUsers.filter((u) => u.is_verified).length;
-    const officialServiceAccs = dbUsers.filter((u) => u.is_service_account && !u.is_business_account).length;
-    const developerServiceAccs = dbUsers.filter((u) => u.is_service_account && u.is_business_account).length;
+    const officialServiceAccs = serviceAccounts.length || dbUsers.filter((u) => u.is_service_account && !u.is_business_account).length;
+    const developerServiceAccs = developerApps.length || dbUsers.filter((u) => u.is_service_account && u.is_business_account).length;
+    const pendingTemplatesCount = messageTemplates.filter((t) => t.status === 'pending_review').length;
+    const totalTemplatesCount = messageTemplates.length;
     const bannedUsers = dbUsers.filter((u) => u.is_banned).length;
     const pendingReports = reports.filter((r) => r.status === 'pending').length;
     const groupChatsCount = allChats.filter((c) => c.is_group).length;
@@ -723,11 +855,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       purpleVerified,
       officialServiceAccs,
       developerServiceAccs,
+      pendingTemplatesCount,
+      totalTemplatesCount,
       bannedUsers,
       pendingReports,
       groupChatsCount
     };
-  }, [dbUsers, reports, allChats]);
+  }, [dbUsers, serviceAccounts, developerApps, messageTemplates, reports, allChats]);
 
   // UNAUTHENTICATED ADMIN PASSCODE SCREEN
   if (!isAdminAuthenticated) {
@@ -916,6 +1050,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
               <span className="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 text-[10px] font-mono">
                 {metrics.officialServiceAccs + metrics.developerServiceAccs}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('templates')}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-bold text-left flex items-center justify-between transition-colors cursor-pointer ${
+                activeTab === 'templates'
+                  ? 'bg-neutral-800 text-white border border-neutral-700'
+                  : 'text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <FileCode className="h-4 w-4 text-amber-400" />
+                <span>Template Requests</span>
+              </div>
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
+                metrics.pendingTemplatesCount > 0 
+                  ? 'bg-amber-950/80 text-amber-300 border border-amber-800 animate-pulse' 
+                  : 'bg-neutral-800 text-neutral-400'
+              }`}>
+                {metrics.totalTemplatesCount}
               </span>
             </button>
 
@@ -1694,59 +1849,218 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <div>
                   <h2 className="text-xl font-black text-white uppercase tracking-tight">Zenoa Service Accounts & Broadcast</h2>
                   <p className="text-xs text-neutral-400 font-mono mt-0.5">
-                    Provision official verified system bots and dispatch global emergency broadcast transmissions.
+                    Manage official verified admin service accounts, review developer service accounts, and dispatch global broadcasts.
                   </p>
                 </div>
 
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowCreateServiceAccountModal(true)}
+                    className="px-4 py-2.5 rounded-xl bg-purple-900 hover:bg-purple-800 text-white font-bold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 border border-purple-700 shadow-md"
+                  >
+                    <Radio className="h-4 w-4" />
+                    <span>Create Service Account</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Sub-Tab Selector for Service Accounts */}
+              <div className="flex rounded-xl bg-neutral-900 border border-neutral-800 p-1 w-full max-w-md">
                 <button
-                  onClick={() => setShowCreateServiceAccountModal(true)}
-                  className="px-4 py-2.5 rounded-xl bg-purple-900 hover:bg-purple-800 text-white font-bold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 border border-purple-700 shadow-md"
+                  onClick={() => setServiceSubTab('official')}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                    serviceSubTab === 'official'
+                      ? 'bg-neutral-800 text-purple-300 border border-neutral-700 shadow-sm'
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
                 >
-                  <Radio className="h-4 w-4" />
-                  <span>Create Service Account</span>
+                  <ShieldCheck className="h-4 w-4 text-purple-400" />
+                  <span>Official Service Accounts ({serviceAccounts.length})</span>
+                </button>
+                <button
+                  onClick={() => setServiceSubTab('developer')}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                    serviceSubTab === 'developer'
+                      ? 'bg-neutral-800 text-indigo-300 border border-neutral-700 shadow-sm'
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  <Radio className="h-4 w-4 text-indigo-400" />
+                  <span>Developer Service Accounts ({metrics.developerServiceAccs})</span>
                 </button>
               </div>
 
-              {/* Service Accounts Cards Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {serviceAccounts.length === 0 ? (
-                  <div className="col-span-full p-8 rounded-2xl bg-neutral-900 border border-neutral-800 text-center font-mono text-neutral-500 text-xs">
-                    No active service accounts created yet. Click 'Create Service Account' above.
-                  </div>
-                ) : (
-                  serviceAccounts.map((sa, idx) => (
-                    <div key={`sa_${sa.id || sa.username || "sa"}_${idx}`} className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2.5">
-                          <div className="h-10 w-10 rounded-xl bg-purple-950 border border-purple-800 flex items-center justify-center font-bold text-purple-300 text-sm">
-                            <ShieldCheck className="h-5 w-5 text-purple-400" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-bold text-white text-sm">{sa.display_name}</span>
-                              <CheckCircle2 className="h-3.5 w-3.5 fill-purple-400 text-neutral-950" />
+              {/* SUB-TAB 1: OFFICIAL SERVICE ACCOUNTS */}
+              {serviceSubTab === 'official' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {serviceAccounts.length === 0 ? (
+                    <div className="col-span-full p-8 rounded-2xl bg-neutral-900 border border-neutral-800 text-center font-mono text-neutral-500 text-xs">
+                      No official service accounts created yet. Click 'Create Service Account' above.
+                    </div>
+                  ) : (
+                    serviceAccounts.map((sa, idx) => (
+                      <div key={`sa_${sa.id || sa.username || "sa"}_${idx}`} className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-3 relative group">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="h-10 w-10 rounded-xl bg-purple-950 border border-purple-800 flex items-center justify-center font-bold text-purple-300 text-sm">
+                              <ShieldCheck className="h-5 w-5 text-purple-400" />
                             </div>
-                            <span className="text-xs font-mono text-neutral-400">@{sa.username}</span>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-white text-sm">{sa.display_name}</span>
+                                <PurpleVerifiedBadge size="sm" />
+                              </div>
+                              <span className="text-xs font-mono text-neutral-400">@{sa.username}</span>
+                            </div>
                           </div>
+
+                          <span className="px-2 py-0.5 rounded bg-purple-950 border border-purple-800 text-purple-300 text-[10px] font-mono font-bold">
+                            {sa.service_category || 'Official Bot'}
+                          </span>
                         </div>
 
-                        <span className="px-2 py-0.5 rounded bg-purple-950 border border-purple-800 text-purple-300 text-[10px] font-mono font-bold">
-                          {sa.service_category}
-                        </span>
-                      </div>
+                        <p className="text-xs text-neutral-400 line-clamp-2 font-normal">
+                          {sa.bio || 'Official Zenoa System Service Account'}
+                        </p>
 
-                      <p className="text-xs text-neutral-400 line-clamp-2 font-normal">
-                        {sa.bio}
-                      </p>
-
-                      <div className="pt-3 border-t border-neutral-800 flex items-center justify-between text-[11px] font-mono text-neutral-500">
-                        <span>Dispatches: {sa.broadcast_count}</span>
-                        <span className="text-emerald-400 font-bold">● ACTIVE BOT</span>
+                        <div className="pt-3 border-t border-neutral-800 flex items-center justify-between text-[11px] font-mono text-neutral-500">
+                          <span>Dispatches: {sa.broadcast_count || 0}</span>
+                          <button
+                            onClick={() => handleDeleteServiceAccount(sa.id || sa.username, sa.username, false)}
+                            className="px-2.5 py-1 rounded bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/80 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                            title="Delete Service Account"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            <span>Delete</span>
+                          </button>
+                        </div>
                       </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* SUB-TAB 2: DEVELOPER SERVICE ACCOUNTS */}
+              {serviceSubTab === 'developer' && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-xl bg-indigo-950/40 border border-indigo-800/60 text-xs text-indigo-200 flex items-start gap-3">
+                    <Radio className="h-5 w-5 text-indigo-400 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold text-white block">Developer Service Accounts & Bots</span>
+                      <span className="text-indigo-300 font-mono text-[11px] block mt-0.5">
+                        These are service accounts and application bots created by registered users via Developer Console. By default, Developer accounts are marked as Business Accounts and are unverified.
+                      </span>
                     </div>
-                  ))
-                )}
-              </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {developerApps.length === 0 && dbUsers.filter(u => u.is_service_account && u.is_business_account).length === 0 ? (
+                      <div className="col-span-full p-8 rounded-2xl bg-neutral-900 border border-neutral-800 text-center font-mono text-neutral-500 text-xs">
+                        No developer service accounts created yet via Developer Console.
+                      </div>
+                    ) : (
+                      <>
+                        {developerApps.map((app, idx) => (
+                          <div key={`dev_app_${app.id || app.client_id || idx}`} className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2.5">
+                                <div className="h-10 w-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-indigo-400 text-sm">
+                                  <Radio className="h-5 w-5" />
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-bold text-white text-sm">{app.name}</span>
+                                    {app.is_verified ? (
+                                      <PurpleVerifiedBadge size="sm" />
+                                    ) : (
+                                      <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700 text-[9px] font-mono">
+                                        Business Bot
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-xs font-mono text-neutral-400">@{app.bot_username || app.client_id || 'dev_bot'}</span>
+                                </div>
+                              </div>
+                              <span className="px-2 py-0.5 rounded bg-slate-800 text-indigo-300 border border-slate-700 text-[10px] font-mono">
+                                Developer App
+                              </span>
+                            </div>
+
+                            <div className="space-y-1 text-xs font-mono text-neutral-400">
+                              <div>Owner: <span className="text-neutral-200">@{app.owner_username || 'developer'}</span></div>
+                              <div>Client ID: <span className="text-neutral-300">{app.client_id ? app.client_id.slice(0, 16) + '...' : 'dev_client_id'}</span></div>
+                            </div>
+
+                            <div className="pt-3 border-t border-neutral-800 flex items-center justify-between">
+                              <button
+                                onClick={() => handleTogglePurpleVerification({ id: app.id || app.bot_username, username: app.bot_username || app.id, is_verified: app.is_verified } as UserData)}
+                                className={`px-2.5 py-1 rounded text-[10px] font-bold font-mono transition-colors cursor-pointer border ${
+                                  app.is_verified
+                                    ? 'bg-purple-950 text-purple-300 border-purple-800 hover:bg-purple-900'
+                                    : 'bg-neutral-800 text-neutral-300 border-neutral-700 hover:bg-neutral-750'
+                                }`}
+                              >
+                                {app.is_verified ? 'Revoke Verified Badge' : 'Grant Purple Badge'}
+                              </button>
+
+                              <button
+                                onClick={() => handleDeleteServiceAccount(app.id || app.client_id, app.bot_username || app.client_id, true)}
+                                className="px-2.5 py-1 rounded bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/80 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+
+                        {dbUsers.filter(u => u.is_service_account && u.is_business_account && !developerApps.some(a => a.bot_username === u.username || a.id === u.id)).map((u, idx) => (
+                          <div key={`dev_user_sa_${u.id || u.username}_${idx}`} className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2.5">
+                                <div className="h-10 w-10 rounded-xl bg-indigo-950 border border-indigo-800 flex items-center justify-center font-bold text-indigo-300 text-sm">
+                                  <Radio className="h-5 w-5 text-indigo-400" />
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-bold text-white text-sm">{u.display_name}</span>
+                                    {u.is_verified ? (
+                                      <PurpleVerifiedBadge size="sm" />
+                                    ) : (
+                                      <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700 text-[9px] font-mono">
+                                        Business Account
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-xs font-mono text-neutral-400">@{u.username}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <p className="text-xs text-neutral-400 line-clamp-2">{u.bio || 'Developer Service Account'}</p>
+
+                            <div className="pt-3 border-t border-neutral-800 flex items-center justify-between">
+                              <button
+                                onClick={() => handleTogglePurpleVerification(u)}
+                                className="px-2 py-1 rounded bg-neutral-800 text-neutral-300 border border-neutral-700 text-[10px] font-mono font-bold hover:bg-neutral-700 cursor-pointer"
+                              >
+                                {u.is_verified ? 'Revoke Verified Badge' : 'Grant Purple Badge'}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteServiceAccount(u.id || u.username, u.username, true)}
+                                className="px-2.5 py-1 rounded bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/80 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Broadcast Dispatch Form Card */}
               <div className="p-6 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-4">
@@ -1907,6 +2221,202 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <span>Dispatch Official Broadcast</span>
                   </button>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: TEMPLATE REQUESTS GOVERNANCE */}
+          {activeTab === 'templates' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-black text-white uppercase tracking-tight flex items-center gap-2">
+                    <FileCode className="h-5 w-5 text-amber-400" />
+                    <span>Template Requests Governance</span>
+                  </h2>
+                  <p className="text-xs text-neutral-400 font-mono mt-0.5">
+                    Review and verify message template requests submitted by developers via Zenoa Developer Console.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 text-xs font-mono font-bold text-neutral-300">
+                    Pending: <span className="text-amber-400">{metrics.pendingTemplatesCount}</span> / Total: {metrics.totalTemplatesCount}
+                  </span>
+                </div>
+              </div>
+
+              {/* Filters Bar */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 bg-neutral-900 border border-neutral-800 rounded-2xl">
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <div className="relative flex-1 sm:w-64">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-neutral-500" />
+                    <input
+                      type="text"
+                      value={templateSearch}
+                      onChange={(e) => setTemplateSearch(e.target.value)}
+                      placeholder="Search templates..."
+                      className="w-full pl-9 pr-4 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-700 font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+                  {['ALL', 'pending_review', 'approved', 'rejected'].map((st) => (
+                    <button
+                      key={st}
+                      onClick={() => setTemplateFilterStatus(st)}
+                      className={`px-3 py-1.5 rounded-xl text-[11px] font-mono font-bold uppercase transition-all cursor-pointer whitespace-nowrap ${
+                        templateFilterStatus === st
+                          ? st === 'pending_review'
+                            ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                            : st === 'approved'
+                            ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                            : st === 'rejected'
+                            ? 'bg-rose-950 text-rose-300 border border-rose-800'
+                            : 'bg-neutral-800 text-white border border-neutral-700'
+                          : 'bg-neutral-950 text-neutral-400 border border-neutral-800 hover:text-white'
+                      }`}
+                    >
+                      {st === 'ALL' ? 'All Requests' : st === 'pending_review' ? 'Pending Review' : st}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Templates Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {messageTemplates.filter((t) => {
+                  const searchLower = templateSearch.toLowerCase();
+                  const matchSearch =
+                    !templateSearch ||
+                    (t.name || '').toLowerCase().includes(searchLower) ||
+                    (t.id || '').toLowerCase().includes(searchLower) ||
+                    (t.category || '').toLowerCase().includes(searchLower) ||
+                    (t.body || '').toLowerCase().includes(searchLower);
+
+                  if (!matchSearch) return false;
+                  if (templateFilterStatus !== 'ALL' && t.status !== templateFilterStatus) return false;
+                  return true;
+                }).length === 0 ? (
+                  <div className="col-span-full p-12 rounded-2xl bg-neutral-900 border border-neutral-800 text-center font-mono text-neutral-500 text-xs space-y-2">
+                    <FileCode className="h-8 w-8 text-neutral-600 mx-auto" />
+                    <p>No message template requests match the selected filter.</p>
+                  </div>
+                ) : (
+                  messageTemplates
+                    .filter((t) => {
+                      const searchLower = templateSearch.toLowerCase();
+                      const matchSearch =
+                        !templateSearch ||
+                        (t.name || '').toLowerCase().includes(searchLower) ||
+                        (t.id || '').toLowerCase().includes(searchLower) ||
+                        (t.category || '').toLowerCase().includes(searchLower) ||
+                        (t.body || '').toLowerCase().includes(searchLower);
+
+                      if (!matchSearch) return false;
+                      if (templateFilterStatus !== 'ALL' && t.status !== templateFilterStatus) return false;
+                      return true;
+                    })
+                    .map((tpl, idx) => {
+                      const isPending = tpl.status === 'pending_review' || !tpl.status;
+                      const isApproved = tpl.status === 'approved';
+                      const isRejected = tpl.status === 'rejected';
+
+                      return (
+                        <div key={`tpl_${tpl.id || idx}`} className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-4 shadow-sm flex flex-col justify-between">
+                          <div className="space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h3 className="font-bold text-white text-base">{tpl.name || 'Untitled Template'}</h3>
+                                  <span className="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 border border-neutral-700 text-[10px] font-mono">
+                                    {tpl.category || 'TRANSACTIONAL'}
+                                  </span>
+                                </div>
+                                <span className="text-[11px] font-mono text-neutral-400 block mt-0.5">
+                                  ID: {tpl.id} • App: {tpl.client_id || 'Dev App'}
+                                </span>
+                              </div>
+
+                              <div>
+                                {isPending && (
+                                  <span className="px-2.5 py-1 rounded-full bg-amber-950 text-amber-300 border border-amber-800 text-[10px] font-mono font-bold flex items-center gap-1.5 animate-pulse">
+                                    <Clock className="h-3 w-3" />
+                                    <span>Pending Review</span>
+                                  </span>
+                                )}
+                                {isApproved && (
+                                  <span className="px-2.5 py-1 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 text-[10px] font-mono font-bold flex items-center gap-1.5">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    <span>Verified</span>
+                                  </span>
+                                )}
+                                {isRejected && (
+                                  <span className="px-2.5 py-1 rounded-full bg-rose-950 text-rose-300 border border-rose-800 text-[10px] font-mono font-bold flex items-center gap-1.5">
+                                    <XCircle className="h-3 w-3" />
+                                    <span>Rejected</span>
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Template Content Box */}
+                            <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 font-mono text-xs text-neutral-300 leading-relaxed whitespace-pre-wrap">
+                              {tpl.body || 'No template body content provided.'}
+                            </div>
+
+                            {tpl.variables && tpl.variables.length > 0 && (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] font-mono text-neutral-500">Variables:</span>
+                                {tpl.variables.map((v: string, vIdx: number) => (
+                                  <span key={vIdx} className="px-1.5 py-0.5 rounded bg-neutral-800 text-amber-300 text-[10px] font-mono">
+                                    {`{{${v}}}`}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="pt-3 border-t border-neutral-800 flex items-center justify-between text-xs font-mono">
+                            <span className="text-neutral-500 text-[10px]">
+                              {tpl.created_at ? new Date(tpl.created_at).toLocaleDateString() : 'Recent Request'}
+                            </span>
+
+                            <div className="flex items-center gap-2">
+                              {!isApproved && (
+                                <button
+                                  onClick={() => handleApproveTemplate(tpl.id)}
+                                  className="px-3 py-1.5 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-800 font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
+                                >
+                                  <Check className="h-3.5 w-3.5" />
+                                  <span>Approve</span>
+                                </button>
+                              )}
+
+                              {!isRejected && (
+                                <button
+                                  onClick={() => handleRejectTemplate(tpl.id)}
+                                  className="px-3 py-1.5 rounded-lg bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                  <span>Reject</span>
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => handleDeleteTemplate(tpl.id)}
+                                className="p-1.5 rounded-lg bg-neutral-800 hover:bg-rose-950 text-neutral-400 hover:text-rose-300 border border-neutral-700 hover:border-rose-800 cursor-pointer transition-colors"
+                                title="Delete Template"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                )}
               </div>
             </div>
           )}

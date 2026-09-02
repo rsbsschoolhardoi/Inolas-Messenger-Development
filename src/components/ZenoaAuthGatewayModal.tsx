@@ -16,6 +16,7 @@ interface ZenoaAuthGatewayModalProps {
   serviceDescription: string;
   onAuthenticated: (user: UserData) => void;
   themeMode?: 'light' | 'dark';
+  disableSavedAccounts?: boolean;
 }
 
 export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
@@ -24,10 +25,11 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
   serviceTitle,
   serviceDescription,
   onAuthenticated,
-  themeMode = 'dark'
+  themeMode = 'dark',
+  disableSavedAccounts = false
 }) => {
   const [savedAccounts, setSavedAccounts] = useState<UserData[]>([]);
-  const [activeTab, setActiveTab] = useState<'saved' | 'credentials'>('saved');
+  const [activeTab, setActiveTab] = useState<'saved' | 'credentials'>('credentials');
   
   // Credentials Form State
   const [identifier, setIdentifier] = useState('');
@@ -38,6 +40,10 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     setError(null);
+    if (disableSavedAccounts) {
+      setActiveTab('credentials');
+      return;
+    }
     try {
       const raw = localStorage.getItem('zenoa_saved_browser_accounts');
       if (raw) {
@@ -52,7 +58,7 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
     } catch (e) {
       setActiveTab('credentials');
     }
-  }, [isOpen]);
+  }, [isOpen, disableSavedAccounts]);
 
   const fetchFullUserProfile = async (searchIdent: string, uid?: string): Promise<UserData | null> => {
     if (!db) return null;
@@ -267,7 +273,7 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
         )}
 
         {/* Tab Switcher if saved accounts exist */}
-        {savedAccounts.length > 0 && (
+        {!disableSavedAccounts && savedAccounts.length > 0 && (
           <div className={`flex rounded-xl p-1 border mb-5 ${isDark ? 'bg-neutral-950 border-neutral-800' : 'bg-neutral-100 border-neutral-200'}`}>
             <button
               onClick={() => { setActiveTab('saved'); setError(null); }}
@@ -293,7 +299,7 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
         )}
 
         {/* Option 1: Choose Saved Account */}
-        {activeTab === 'saved' && savedAccounts.length > 0 ? (
+        {!disableSavedAccounts && activeTab === 'saved' && savedAccounts.length > 0 ? (
           <div className="space-y-2.5 max-h-64 overflow-y-auto pr-0.5">
             {savedAccounts.map((acc) => (
               <div

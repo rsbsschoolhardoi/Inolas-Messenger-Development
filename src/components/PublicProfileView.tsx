@@ -226,6 +226,34 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
             <div className="h-6 w-40 bg-neutral-200 dark:bg-neutral-800 mx-auto rounded-md" />
             <div className="h-4 w-24 bg-neutral-200 dark:bg-neutral-800 mx-auto rounded-md" />
           </div>
+        ) : isServiceAccount(profile, username) ? (
+          <div className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-3xl p-8 shadow-xl text-center space-y-6">
+            <div className="w-20 h-20 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 flex items-center justify-center mx-auto text-blue-600 dark:text-blue-400">
+              <Shield className="h-10 w-10 stroke-[2]" />
+            </div>
+
+            <div className="space-y-2">
+              <h2 className="text-xl font-bold text-neutral-900 dark:text-white">
+                @{cleanUsername}
+              </h2>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                Automated Service Account
+              </span>
+            </div>
+
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-sm mx-auto leading-relaxed">
+              This account is a registered automated business service account designated exclusively for secure API and OTP deliveries. Personal profile views, follow requests, and voice/video calls are restricted.
+            </p>
+
+            <div className="pt-2">
+              <button
+                onClick={onGoToLogin}
+                className="px-6 py-2.5 rounded-xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 font-bold text-xs hover:opacity-90 transition-opacity"
+              >
+                Go to Messenger
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="w-full bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800/80 rounded-3xl shadow-2xl overflow-hidden transition-all duration-300 hover:shadow-indigo-500/5 hover:border-indigo-500/20">
             {/* Top Cover Gradient Banner */}

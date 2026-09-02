@@ -62,6 +62,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Message templates collection
+    match /message_templates/{templateId} {
+      allow read, write: if true;
+    }
+
     // OTP collection
     match /otps/{otpId} {
       allow read, write: if true;

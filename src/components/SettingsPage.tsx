@@ -46,7 +46,6 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { storageManager, StorageEstimateInfo } from '../storageManager';
-import { DeveloperPortal } from './DeveloperPortal';
 import { UserData } from '../types';
 
 interface SettingsPageProps {

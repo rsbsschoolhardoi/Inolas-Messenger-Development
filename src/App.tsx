@@ -4,7 +4,8 @@ import { FollowListModal } from './components/FollowListModal';
 // Inolas Messenger - Verified UTF-8 Source Code
 import { SSOConsoleStandalone } from "./components/SSOConsoleStandalone";
 import { SSOLogin } from "./components/SSOLogin";
-import { DeveloperConsoleStandalone } from './components/DeveloperConsoleStandalone';
+import { DeveloperConsoleStandalone } from './components/developer/DeveloperConsole';
+import { DocumentationStandalone } from './components/developer/DocumentationStandalone';
 import { ConcurrentLogoutModal } from './components/ConcurrentLogoutModal';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MediaPreviewLightbox } from './components/MediaPreviewLightbox';
@@ -31,7 +32,7 @@ import {  MessageCard } from './components/MessageCard';
 import {  InlineVideoPlayer } from './components/InlineVideoPlayer';
 import {  VoiceNotePlayer } from './components/VoiceNotePlayer';
 import { SettingsPage } from './components/SettingsPage';
-import { DeveloperPortal } from './components/DeveloperPortal';
+import { PortalDashboard } from './components/developer/views/PortalDashboard';
 import {  MediaEditorModal, MediaEditorData } from './components/MediaEditorModal';
 import {  ImageCropperModal } from './components/ImageCropperModal';
 import { NotificationsModal } from './components/NotificationsModal';
@@ -358,7 +359,14 @@ export default function App() {
 
   const handleStartCallWithUser = (targetUsername: string, type: 'voice' | 'video') => {
     if (!targetUsername) return;
-    const targetUserObj = users[targetUsername] || Object.values(users).find(u => u.username === targetUsername);
+    const cleanTarget = targetUsername.toLowerCase().replace(/^@/, '');
+    const targetUserObj = users[cleanTarget] || Object.values(users).find(u => (u.username || '').toLowerCase() === cleanTarget);
+
+    if (isServiceAccount(targetUserObj, cleanTarget) || cleanTarget.startsWith('sa_')) {
+      showToast("Service accounts and bot entities cannot receive voice or video calls.");
+      return;
+    }
+
     const partnerName = targetUserObj?.display_name || targetUsername;
     const partnerAvatarSeed = targetUserObj?.avatar_seed || targetUsername;
     const partnerAvatarUrl = targetUserObj?.avatar_url || '';
@@ -1421,6 +1429,18 @@ export default function App() {
 
   // Selected Profile state for Slide-over Panel
   const [selectedProfileUsername, setSelectedProfileUsername] = useState<string>('');
+
+  const handleOpenUserProfile = (targetUserOrUsername: string | undefined) => {
+    if (!targetUserOrUsername) return;
+    const cleanU = targetUserOrUsername.toLowerCase().replace(/^@/, '');
+    const targetUserObj = users[cleanU] || Object.values(users).find(u => (u.username || '').toLowerCase() === cleanU);
+    if (isServiceAccount(targetUserObj, cleanU) && currentUserObj?.role !== 'admin' && currentUserObj?.role !== 'super_admin') {
+      showToast("Service accounts are automated business entities and cannot be viewed as personal user profiles.");
+      return;
+    }
+    setSelectedProfileUsername(cleanU);
+    setShowProfilePanel(true);
+  };
 
   // Chat scroll ref
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -5712,8 +5732,7 @@ export default function App() {
     if (isAuthenticated && publicProfileUsername) {
       const cleanUsername = publicProfileUsername.replace(/^@/, '').trim();
       if (cleanUsername) {
-        setSelectedProfileUsername(cleanUsername);
-        setShowProfilePanel(true);
+        handleOpenUserProfile(cleanUsername);
         setPublicProfileUsername(null);
         try { window.history.pushState({}, '', '/'); } catch(e){}
       }
@@ -5835,6 +5854,10 @@ export default function App() {
   // Follow/Unfollow
   const handleFollow = async (targetUser: UserData | undefined) => {
     if (!targetUser) return;
+    if (isServiceAccount(targetUser, targetUser.username) || targetUser.is_service_account || targetUser.is_business_account) {
+      showToast('Service accounts and bot entities cannot be followed.');
+      return;
+    }
     if (!isAuthenticated) {
       showToast('Please login to follow users');
       return;
@@ -6720,10 +6743,40 @@ export default function App() {
     );
   }
 
+  const isDocsPath = typeof window !== "undefined" && (
+    window.location.pathname === "/docs" || 
+    window.location.pathname === "/documentation" || 
+    window.location.pathname === "/api-docs" ||
+    new URLSearchParams(window.location.search).get("view") === "docs" ||
+    new URLSearchParams(window.location.search).get("view") === "documentation"
+  );
+  if (isDocsPath) {
+    return (
+      <DocumentationStandalone 
+        onBackToApp={() => {
+          try {
+            window.history.pushState({}, '', '/');
+            window.location.href = '/';
+          } catch(e) {}
+        }}
+        onOpenConsole={() => {
+          try {
+            window.history.pushState({}, '', '/developer');
+            window.location.href = '/developer';
+          } catch(e) {}
+        }}
+      />
+    );
+  }
+
   const isSSOConsolePath = typeof window !== "undefined" && (window.location.pathname === "/sso" || window.location.pathname === "/developer/sso"); 
   if (isSSOConsolePath) return <SSOConsoleStandalone currentUser={currentUserObj} />; 
 
-  const isDeveloperPath = typeof window !== "undefined" && window.location.pathname === "/developer";
+  const isDeveloperPath = typeof window !== "undefined" && (
+    window.location.pathname === "/developer" || 
+    window.location.pathname === "/portal" ||
+    new URLSearchParams(window.location.search).get("view") === "developer"
+  );
   if (isDeveloperPath) return <DeveloperConsoleStandalone />;
   
   if (!isAuthenticated) {
@@ -7482,8 +7535,7 @@ export default function App() {
                       } else {
                         const targetUser = activeChat?.username || activeChat.avatar_seed;
                         if (targetUser) {
-                          setSelectedProfileUsername(targetUser);
-                          setShowProfilePanel(true);
+                          handleOpenUserProfile(targetUser);
                         }
                       }
                     }}
@@ -7499,8 +7551,7 @@ export default function App() {
                         } else {
                           const targetUser = activeChat?.username || activeChat.avatar_seed;
                           if (targetUser) {
-                            setSelectedProfileUsername(targetUser);
-                            setShowProfilePanel(true);
+                            handleOpenUserProfile(targetUser);
                           }
                         }
                       }} 
@@ -8298,7 +8349,7 @@ export default function App() {
                       {activeContactsList.map((user, idx) => (
                         <div 
                           key={`contact_user_${user.id || user.username}_${idx}`}
-                          onClick={() => { setSelectedProfileUsername(user.username); setShowProfilePanel(true); }}
+                          onClick={() => { handleOpenUserProfile(user.username); }}
                           className="p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 flex items-center justify-between gap-3 cursor-pointer hover:border-neutral-900 dark:border-neutral-100 hover:bg-neutral-100/10 transition-all text-left group"
                         >
                           <div className="flex items-center gap-3 min-w-0">
@@ -8337,7 +8388,7 @@ export default function App() {
                     globalSearchResults.map((user, idx) => (
                       <div 
                         key={`search_user_${user.id || user.username}_${idx}`}
-                        onClick={() => { setSelectedProfileUsername(user.username); setShowProfilePanel(true); }}
+                        onClick={() => { handleOpenUserProfile(user.username); }}
                         className="p-3.5 rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 flex items-center justify-between cursor-pointer hover:border-neutral-900 dark:border-neutral-100 hover:shadow-md transition-all text-left"
                       >
                         <div className="flex items-center gap-3 min-w-0">
@@ -9114,9 +9165,10 @@ export default function App() {
 
         {/* VIEW 4: Full Page Settings View */}
         {activeView === 'developer_portal' && (
-          <DeveloperPortal 
+          <PortalDashboard 
             currentUser={currentUserObj || users[userUsername]}
-            onBack={() => setActiveView('chats')}
+            onHome={() => setActiveView('chats')}
+            onLogout={() => setActiveView('chats')}
           />
         )}
         
@@ -10624,8 +10676,7 @@ export default function App() {
         themeMode={themeMode}
         onSelectUser={(uname) => {
           setShowFollowListModal(null);
-          setSelectedProfileUsername(uname);
-          setShowProfilePanel(true);
+          handleOpenUserProfile(uname);
         }}
         onFollow={(u) => handleFollow(u)}
         renderAvatar={renderAvatar}
