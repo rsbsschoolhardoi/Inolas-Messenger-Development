@@ -22,7 +22,7 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
   onSignOut
 }) => {
   const [fullName, setFullName] = useState(initialFullName);
-  const [username, setUsername] = useState(() => initialUsername.toLowerCase().replace(/[^a-z0-9_]/g, ''));
+  const [username, setUsername] = useState(() => initialUsername.toLowerCase().replace(/[^a-z0-9_.]/g, ''));
   const [bio, setBio] = useState('Hey there! I am using Zenoa Messenger.');
   const [avatarSeed, setAvatarSeed] = useState(() => initialUsername || 'zenoa');
 
@@ -41,7 +41,7 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
       setFullName(initialFullName);
     }
     if (initialUsername && !username) {
-      setUsername(initialUsername.toLowerCase().replace(/[^a-z0-9_]/g, ''));
+      setUsername(initialUsername.toLowerCase().replace(/[^a-z0-9_.]/g, ''));
     }
   }, [initialFullName, initialUsername]);
 
@@ -56,14 +56,14 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
       return;
     }
 
-    if (clean.length < 3 || clean.length > 20) {
-      setUsernameStatus({ isAvailable: false, message: 'Username must be 3-20 characters' });
+    if (clean.length < 3 || clean.length > 25) {
+      setUsernameStatus({ isAvailable: false, message: 'Username must be 3-25 characters' });
       setIsCheckingUsername(false);
       return;
     }
 
-    if (!/^[a-z0-9_]+$/.test(clean)) {
-      setUsernameStatus({ isAvailable: false, message: 'Only lowercase letters, numbers, and underscores allowed' });
+    if (!/^[a-z0-9_.]+$/.test(clean)) {
+      setUsernameStatus({ isAvailable: false, message: 'Only letters, numbers, underscores, and dots (.) allowed' });
       setIsCheckingUsername(false);
       return;
     }
@@ -244,7 +244,7 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
               <input
                 type="text"
                 value={username}
-                onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '').trim())}
+                onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, '').trim())}
                 placeholder="username"
                 className={`w-full pl-8 pr-4 py-2.5 text-xs rounded-2xl border bg-neutral-50/50 dark:bg-neutral-800/40 outline-none transition-colors font-mono font-bold text-neutral-900 dark:text-white ${
                   usernameStatus.isAvailable

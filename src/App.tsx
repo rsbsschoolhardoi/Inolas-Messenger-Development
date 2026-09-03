@@ -53,7 +53,7 @@ import { getThemeById, DEFAULT_THEME_ID } from './chatThemes';
 import { getMessageDateKey, formatChatDateDivider, formatChatListTime, formatCleanChatPreview, formatMessageTime } from './dateUtils';
 import { encryptMessageText, decryptMessageText, encryptFile, decryptFile } from './cryptoUtils';
 import { storageManager } from './storageManager';
-import { getDmChatId, buildNormalizedParticipants } from './chatUtils';
+import { getDmChatId, buildNormalizedParticipants, isInternalGhostEmail } from './chatUtils';
 import { OpeningAnimation } from './components/OpeningAnimation';
 import { useBranding, initBrandingSync } from './brandingUtils';
 import {  encryptVault, decryptVault } from './utils/crypto';
@@ -742,13 +742,21 @@ export default function App() {
   });
 
   // Concurrent Single-Session Login Security States
-  const [currentSessionToken] = useState<string>(() => {
+  const [currentSessionToken, setCurrentSessionToken] = useState<string>(() => {
     let token = sessionStorage.getItem('zenoa_active_session_token');
     if (!token) {
       token = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
       sessionStorage.setItem('zenoa_active_session_token', token);
     }
     return token;
+  });
+  const [currentSessionCreatedAt, setCurrentSessionCreatedAt] = useState<number>(() => {
+    const raw = sessionStorage.getItem('zenoa_active_session_created_at');
+    const parsed = raw ? parseInt(raw, 10) : 0;
+    if (parsed > 0) return parsed;
+    const now = Date.now();
+    sessionStorage.setItem('zenoa_active_session_created_at', String(now));
+    return now;
   });
   const [showConcurrentLoginModal, setShowConcurrentLoginModal] = useState<boolean>(false);
   const [concurrentLogoutCountdown, setConcurrentLogoutCountdown] = useState<number>(5);
@@ -847,7 +855,7 @@ export default function App() {
           if (formattedPhone) {
             setUserPhone(formattedPhone);
             if (db) {
-              const primaryZenoaId = currentUserObj?.zenoa_id || (userUsername ? `${userUsername}@zenoa` : (userId || auth?.currentUser?.uid || 'user'));
+              const primaryZenoaId = (currentUserObj?.zenoa_id || (userUsername ? `${userUsername}@zenoa` : (userId || auth?.currentUser?.uid || 'user'))).replace(/^@+/, '');
               const targetId = userId || auth?.currentUser?.uid || userUsername;
               const phonePayload = {
                 id: targetId,
@@ -1238,13 +1246,21 @@ export default function App() {
   }, [userUsername]);
 
   useEffect(() => {
+    if (userUsername) {
+      storageManager.setSessionUser(userUsername);
+    } else {
+      storageManager.setSessionUser('');
+    }
+  }, [userUsername]);
+
+  useEffect(() => {
     let active = true;
     const loadMessages = async () => {
       try {
         const loadedMessages: Record<string, Message[]> = {};
         let hasNew = false;
         for (const chat of chats) {
-          const msgs = await storageManager.getMessagesForChat(chat.id);
+          const msgs = await storageManager.getMessagesForChat(chat.id, userUsername);
           if (msgs && msgs.length > 0) {
             loadedMessages[chat.id] = msgs;
             hasNew = true;
@@ -1541,12 +1557,16 @@ export default function App() {
               }
 
               const isOfficial = isOfficialAccount(p, rawUsername);
+              const cleanUserEmail = isInternalGhostEmail(p.email) ? '' : (p.email || '').trim();
 
               const userObj: UserData = {
                 id: p.id || docId,
-                zenoa_id: p.zenoa_id || `${rawUsername}@zenoa`,
+                zenoa_id: (p.zenoa_id || `${rawUsername}@zenoa`).replace(/^@+/, ''),
                 username: rawUsername,
                 display_name: p.display_name || p.fullName || (isOfficial ? 'Zenoa Official' : rawUsername),
+                email: cleanUserEmail,
+                mobile_number: p.mobile_number || p.phone_number || '',
+                phone_number: p.mobile_number || p.phone_number || '',
                 bio: p.bio || (isOfficial ? 'Official Zenoa Account • Security & Updates' : ''),
                 avatar_seed: p.avatar_seed || rawUsername,
                 avatar_url: p.avatar_url || '',
@@ -1586,17 +1606,20 @@ export default function App() {
         unsubscribeAuth = onAuthStateChanged(auth, async (userObj) => {
           try {
             if (userObj) {
+              const rawAuthEmail = userObj.email || '';
+              const cleanAuthEmail = isInternalGhostEmail(rawAuthEmail) ? '' : rawAuthEmail;
+
               // Check if email/password account and not verified
               const isPasswordProvider = userObj.providerData.some(p => p.providerId === 'password') || userObj.providerData.length === 0;
-              if (!userObj.emailVerified && isPasswordProvider) {
+              if (cleanAuthEmail && !userObj.emailVerified && isPasswordProvider) {
                 setIsEmailVerificationPending(true);
-                setPendingVerificationEmail(userObj.email || '');
+                setPendingVerificationEmail(cleanAuthEmail);
                 setIsAuthenticated(false);
                 return;
               }
               
               setUserId(userObj.uid);
-              setUserEmail(userObj.email || '');
+              setUserEmail(cleanAuthEmail);
   
               // Fetch user profile from Firestore
               try {
@@ -1605,6 +1628,8 @@ export default function App() {
   
                 if (userSnap.exists() && userSnap.data()?.username && userSnap.data()?.display_name) {
                   const profile = userSnap.data();
+                  const profileEmail = isInternalGhostEmail(profile.email) ? '' : (profile.email || '').trim();
+                  setUserEmail(profileEmail);
 
                   if (profile?.is_service_account) {
                     await firebaseSignOut(auth);
@@ -1903,20 +1928,10 @@ export default function App() {
       const now = Date.now();
       let broadcastList: SystemBroadcast[] = broadcastsSnap.docs.map(d => ({ id: d.id, ...d.data() } as SystemBroadcast));
 
-      if (broadcastList.length === 0) {
-        const defaultBc: SystemBroadcast = {
-          id: 'bc_welcome_' + now,
-          sender_username: 'zenoa_official',
-          sender_display_name: 'Zenoa Official',
-          title: 'Welcome to Zenoa',
-          content: 'Welcome to Zenoa!      Your account is active. Connect, chat securely, share media, and customize your experience.',
-          urgency: 'normal',
-          created_at: now,
-          created_by: 'system'
-        };
-        await setDoc(doc(db, 'broadcasts', defaultBc.id), defaultBc).catch(() => {});
-        broadcastList = [defaultBc];
-      }
+      // Filter out historical broadcasts sent in the past for new accounts
+      // Only process recent broadcasts (e.g. created within last 2 minutes or welcome)
+      const freshCutoff = now - 120000;
+      broadcastList = broadcastList.filter(bc => bc.id.startsWith('bc_welcome_') || (bc.created_at && bc.created_at >= freshCutoff));
 
       for (const bc of broadcastList) {
         const senderUsername = bc.sender_username || 'zenoa_official';
@@ -1957,7 +1972,7 @@ export default function App() {
 
   useEffect(() => {
     if (!isFirebaseConfigured || !db || !userUsername) return;
-    deliverBroadcastsToUser(userId, userUsername, userDisplayName);
+    const sessionStartTime = Date.now();
 
     const unsubscribeBroadcasts = onSnapshot(
       collection(db, 'broadcasts'),
@@ -1966,6 +1981,9 @@ export default function App() {
         snapshot.docs.forEach((docSnap) => {
           const bc = docSnap.data() as SystemBroadcast;
           if (!bc || !bc.title || !bc.content) return;
+          // Skip historical broadcasts sent before this session
+          if (bc.created_at && bc.created_at < sessionStartTime - 30000) return;
+
           const senderUsername = bc.sender_username || 'zenoa_official';
           const senderName = bc.sender_display_name || 'Zenoa Official';
           const chatId = 'chat_dm_' + [userUsername.toLowerCase(), senderUsername.toLowerCase()].sort().join('_');
@@ -2321,19 +2339,21 @@ export default function App() {
     const isExplicitLogin = sessionStorage.getItem('zenoa_is_explicit_login') === 'true';
     if (isExplicitLogin) {
       sessionStorage.removeItem('zenoa_is_explicit_login');
+      const now = Date.now();
       setDoc(userDocRef, {
         active_session_token: currentSessionToken,
-        active_session_created_at: Date.now(),
+        active_session_created_at: now,
         last_login_device: navigator.userAgent || 'Web Browser'
       }, { merge: true }).catch(err => console.warn("Session token registration notice:", err));
 
-      // Broadcast NEW_LOGIN to invalidate old tabs on the same device
+      // Broadcast NEW_LOGIN to invalidate older tabs on the same device
       try {
         if (typeof BroadcastChannel !== 'undefined') {
           const sessionBc = new BroadcastChannel(`zenoa_session_sync_${userUsername.toLowerCase()}`);
           sessionBc.postMessage({
             type: 'NEW_LOGIN',
-            sessionToken: currentSessionToken
+            sessionToken: currentSessionToken,
+            createdAt: now
           });
           setTimeout(() => sessionBc.close(), 1000);
         }
@@ -2343,16 +2363,20 @@ export default function App() {
     let broadcastChannel: BroadcastChannel | null = null;
     let unsubscribeUserDoc: () => void = () => {};
 
-    // 1. Same-device multi-tab BroadcastChannel listener
+    // 1. Same-device multi-tab BroadcastChannel listener (Only older tabs are terminated)
     try {
       if (typeof BroadcastChannel !== 'undefined') {
         broadcastChannel = new BroadcastChannel(`zenoa_session_sync_${userUsername.toLowerCase()}`);
         broadcastChannel.onmessage = (event) => {
           const data = event.data;
           if (data && data.type === 'NEW_LOGIN' && data.sessionToken && data.sessionToken !== currentSessionToken) {
-            console.warn("New session started in another tab! Terminating old session.");
-            setShowConcurrentLoginModal(true);
-            setKickoutData({ username: userUsername, countdown: 5 });
+            const remoteCreatedAt = Number(data.createdAt) || 0;
+            // Never terminate if this session is newer or equal
+            if (remoteCreatedAt > currentSessionCreatedAt) {
+              console.warn("Newer session started elsewhere! Terminating this older session.");
+              setShowConcurrentLoginModal(true);
+              setKickoutData({ username: userUsername, countdown: 5 });
+            }
           }
         };
       }
@@ -2360,15 +2384,24 @@ export default function App() {
       console.warn("Session BroadcastChannel listener notice:", bcErr);
     }
 
-    // 2. Cross-device / multi-browser Firestore snapshot listener
+    // 2. Cross-device / multi-browser Firestore snapshot listener (Only older sessions terminate)
     unsubscribeUserDoc = onSnapshot(
       userDocRef,
       (snap) => {
         if (!snap.exists()) return;
         const data = snap.data();
-        // If Firestore contains a different active session token, this session is older and must terminate
-        if (data && data.active_session_token && data.active_session_token !== currentSessionToken) {
-          console.warn("Concurrent login detected on another device/browser! Terminating old session.", data.active_session_token, currentSessionToken);
+        if (!data || !data.active_session_token) return;
+
+        // If the token in Firestore matches our own token, we are active
+        if (data.active_session_token === currentSessionToken) {
+          return;
+        }
+
+        const remoteCreatedAt = Number(data.active_session_created_at) || 0;
+        // Strictly terminate ONLY if Firestore has a session created AFTER this current session
+        // and grace period of 4 seconds has passed since our session was born
+        if (remoteCreatedAt > currentSessionCreatedAt && (Date.now() - currentSessionCreatedAt > 4000)) {
+          console.warn("Newer concurrent login session detected on another device/browser! Terminating this superseded session.", data.active_session_token, currentSessionToken);
           setShowConcurrentLoginModal(true);
           setKickoutData({ username: userUsername, countdown: 5 });
         }
@@ -2382,7 +2415,7 @@ export default function App() {
       unsubscribeUserDoc();
       if (broadcastChannel) broadcastChannel.close();
     };
-  }, [isFirebaseConfigured, db, userUsername, userId, currentSessionToken]);
+  }, [isFirebaseConfigured, db, userUsername, userId, currentSessionToken, currentSessionCreatedAt]);
 
   // Monitor active call document status changes to close Call Modal on both sides if ended or declined
   useEffect(() => {
@@ -3075,42 +3108,89 @@ export default function App() {
   };
 
   const handleAuthFlowLogin = async (identifier: string, pass: string): Promise<{ success: boolean; requiresOtp?: boolean; error?: string }> => {
-    const cleanId = identifier.toLowerCase().replace(/^@/, '').trim();
+    const rawInput = identifier.trim();
+    const cleanId = rawInput.toLowerCase().replace(/^@/, '').trim();
     if (cleanId.startsWith('sa_')) {
       return { success: false, error: 'Service Accounts cannot be logged in directly. They are designated strictly for automated API dispatches and OTP services.' };
     }
 
-    let emailToUse = identifier;
+    let emailToUse = rawInput;
 
-    if (!identifier.includes('@')) {
-      const cleanUsername = identifier.toLowerCase().replace('@', '').trim();
+    const isExplicitEmail = rawInput.includes('@') && !rawInput.toLowerCase().includes('@zenoa');
+    if (!isExplicitEmail) {
+      const cleanTarget = rawInput.toLowerCase().replace(/^@/, '').replace(/@zenoa$/, '').trim();
+      const rawDigits = rawInput.replace(/[^0-9]/g, '');
 
       if (isFirebaseConfigured && db) {
         try {
           const usersRef = collection(db, 'users');
-          const q = query(usersRef, where('username', '==', cleanUsername));
-          const querySnap = await getDocs(q);
+          
+          // 1. Try username
+          let q = query(usersRef, where('username', '==', cleanTarget));
+          let querySnap = await getDocs(q);
+
+          // 2. Try Zenoa ID directly
+          if (querySnap.empty) {
+            q = query(usersRef, where('zenoa_id', '==', rawInput.toLowerCase()));
+            querySnap = await getDocs(q);
+          }
+          if (querySnap.empty) {
+            q = query(usersRef, where('zenoa_id', '==', `@${cleanTarget}@zenoa`));
+            querySnap = await getDocs(q);
+          }
+          if (querySnap.empty) {
+            q = query(usersRef, where('zenoa_id', '==', `${cleanTarget}@zenoa`));
+            querySnap = await getDocs(q);
+          }
+
+          // 3. Try phone/mobile number
+          if (querySnap.empty && rawDigits.length >= 7) {
+            const candPhones = [rawInput, rawDigits, `+91${rawDigits.slice(-10)}`, rawDigits.slice(-10)];
+            for (const cand of candPhones) {
+              const qMob = query(usersRef, where('mobile_number', '==', cand));
+              const snapMob = await getDocs(qMob);
+              if (!snapMob.empty) {
+                querySnap = snapMob;
+                break;
+              }
+              const qPhone = query(usersRef, where('phone_number', '==', cand));
+              const snapPhone = await getDocs(qPhone);
+              if (!snapPhone.empty) {
+                querySnap = snapPhone;
+                break;
+              }
+            }
+          }
+
           if (!querySnap.empty) {
             const matchedUser = querySnap.docs[0].data();
             if (matchedUser.is_service_account || matchedUser.is_business_account) {
               return { success: false, error: 'Service Accounts cannot be logged in directly. They are designated strictly for automated API dispatches and OTP services.' };
             }
 
-            if (matchedUser.email) {
+            if (matchedUser.email && !isInternalGhostEmail(matchedUser.email)) {
               emailToUse = matchedUser.email;
+            } else if (matchedUser.username) {
+              emailToUse = `${matchedUser.username.toLowerCase()}@zenoa.auth`;
             }
           } else {
-            return { success: false, error: `No account found with username @${cleanUsername}` };
+            return { success: false, error: `No account found for "${rawInput}". Please check your username, Zenoa ID, or mobile number.` };
           }
         } catch (err: any) {
-          console.warn("Username lookup notice:", err);
+          console.warn("User lookup notice:", err);
         }
       } else {
-        const localUser = Object.values(users).find(u => u && (u.username || '').toLowerCase() === cleanUsername);
+        const localUser = Object.values(users).find(u => {
+          if (!u) return false;
+          const uName = (u.username || '').toLowerCase();
+          const uZenoa = (u.zenoa_id || '').toLowerCase();
+          const uMob = (u.mobile_number || u.phone_number || '').replace(/[^0-9]/g, '');
+          return uName === cleanTarget || uZenoa === rawInput.toLowerCase() || (rawDigits && uMob.includes(rawDigits.slice(-10)));
+        });
         if (localUser && localUser.email) {
           emailToUse = localUser.email;
         } else {
-          return { success: false, error: `No account found with username @${cleanUsername}` };
+          return { success: false, error: `No account found for "${rawInput}".` };
         }
       }
     }
@@ -3134,6 +3214,22 @@ export default function App() {
           return { success: true };
         }
 
+        // Establish strictly active new session token & timestamp
+        const freshToken = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+        const freshTime = Date.now();
+        sessionStorage.setItem('zenoa_active_session_token', freshToken);
+        sessionStorage.setItem('zenoa_active_session_created_at', String(freshTime));
+        sessionStorage.removeItem('zenoa_is_explicit_login');
+        setCurrentSessionToken(freshToken);
+        setCurrentSessionCreatedAt(freshTime);
+        setShowConcurrentLoginModal(false);
+
+        await setDoc(userDocRef, {
+          active_session_token: freshToken,
+          active_session_created_at: freshTime,
+          last_login_device: navigator.userAgent || 'Web Browser'
+        }, { merge: true }).catch(err => console.warn("Session token update notice:", err));
+
         setUserId(userObj.uid);
         setUserEmail(userObj.email || '');
         setAuthMethod('email');
@@ -3147,6 +3243,19 @@ export default function App() {
           setUserAvatarUrl(profile.avatar_url || '');
           setIsAuthenticated(true);
           setIsNewUserSetupPending(false);
+
+          // Broadcast to immediately invalidate any older session on same machine
+          try {
+            if (typeof BroadcastChannel !== 'undefined') {
+              const sessionBc = new BroadcastChannel(`zenoa_session_sync_${profile.username.toLowerCase()}`);
+              sessionBc.postMessage({
+                type: 'NEW_LOGIN',
+                sessionToken: freshToken,
+                createdAt: freshTime
+              });
+              setTimeout(() => sessionBc.close(), 1000);
+            }
+          } catch {}
         } else {
           setPendingUserAuth(userObj);
           setUserDisplayName(userObj.displayName || '');
@@ -3160,15 +3269,23 @@ export default function App() {
         console.warn("Login auth error:", err);
         const code = err.code || (err.message && err.message.includes('/') ? err.message : '');
         if (code.includes('auth/invalid-credential') || code.includes('auth/wrong-password') || code.includes('auth/user-not-found')) {
-          return { success: false, error: 'Incorrect email/username or password. Please check your credentials and try again.' };
+          return { success: false, error: 'Incorrect credentials. Please verify your username, Zenoa ID, or password.' };
         }
         if (code.includes('auth/too-many-requests')) {
-          return { success: false, error: 'Too many failed login attempts. This account has been temporarily locked to protect your privacy. Please try again in a few minutes or reset your password.' };
+          return { success: false, error: 'Too many failed attempts. Please try again in a few moments.' };
         }
-        return { success: false, error: 'Sign in failed. Please verify your internet connection and credentials.' };
+        return { success: false, error: 'Sign in failed. Please verify your credentials and try again.' };
       }
     } else {
-      const resolvedUsername = emailToUse.split('@')[0].replace(/[^a-z0-9_]/g, '');
+      const resolvedUsername = emailToUse.split('@')[0].replace(/[^a-z0-9_.]/g, '');
+      const freshToken = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+      const freshTime = Date.now();
+      sessionStorage.setItem('zenoa_active_session_token', freshToken);
+      sessionStorage.setItem('zenoa_active_session_created_at', String(freshTime));
+      setCurrentSessionToken(freshToken);
+      setCurrentSessionCreatedAt(freshTime);
+      setShowConcurrentLoginModal(false);
+
       setUserId('u_' + Math.random().toString(36).substring(2, 9));
       setUserEmail(emailToUse);
       setUserUsername(resolvedUsername);
@@ -3215,51 +3332,90 @@ export default function App() {
       return { success: false, error: checkRes.reason || `@${cleanUsername} is already taken by another account.` };
     }
 
-    // Check if phone number is already registered to another account
-    if (data.mobile_number && data.mobile_number.trim() && isFirebaseConfigured && db) {
-      try {
-        const rawDigits = data.mobile_number.replace(/[^0-9]/g, '');
-        const candPhones = Array.from(new Set([
-          data.mobile_number.trim(),
-          rawDigits,
-          rawDigits.length >= 10 ? `+91${rawDigits.slice(-10)}` : null
-        ].filter(Boolean))) as string[];
+    // Check if phone number is already registered to another account (Strict 1-to-1 Phone Constraint)
+    if (data.mobile_number && data.mobile_number.trim()) {
+      const rawDigits = data.mobile_number.replace(/[^0-9]/g, '');
+      const candPhones = Array.from(new Set([
+        data.mobile_number.trim(),
+        rawDigits,
+        rawDigits.length >= 10 ? `+91${rawDigits.slice(-10)}` : null,
+        rawDigits.length >= 10 ? rawDigits.slice(-10) : null
+      ].filter(Boolean))) as string[];
 
-        const usersRef = collection(db, 'users');
-        for (const cand of candPhones) {
-          const qMob = query(usersRef, where('mobile_number', '==', cand));
-          const snapMob = await getDocs(qMob);
-          if (!snapMob.empty) {
-            return {
-              success: false,
-              error: 'This mobile number is already linked to another Zenoa account. For account security, each mobile number can only be associated with a single account. Please use a different phone number or sign in to your existing account.'
-            };
+      // Check local state cache
+      const localPhoneConflict = Object.values(users).some(u => {
+        if (!u) return false;
+        const uMob = (u.mobile_number || u.phone_number || '').replace(/[^0-9]/g, '');
+        return uMob && rawDigits && (uMob === rawDigits || (uMob.length >= 10 && rawDigits.length >= 10 && uMob.slice(-10) === rawDigits.slice(-10)));
+      });
+
+      if (localPhoneConflict) {
+        return {
+          success: false,
+          error: 'This mobile number is already linked to another Zenoa account. For account security, each mobile number can only be associated with a single account. Please use a different phone number or sign in to your existing account.'
+        };
+      }
+
+      if (isFirebaseConfigured && db) {
+        try {
+          const usersRef = collection(db, 'users');
+          for (const cand of candPhones) {
+            const qMob = query(usersRef, where('mobile_number', '==', cand));
+            const snapMob = await getDocs(qMob);
+            if (!snapMob.empty) {
+              return {
+                success: false,
+                error: 'This mobile number is already linked to another Zenoa account. For account security, each mobile number can only be associated with a single account. Please use a different phone number or sign in to your existing account.'
+              };
+            }
+            const qPhone = query(usersRef, where('phone_number', '==', cand));
+            const snapPhone = await getDocs(qPhone);
+            if (!snapPhone.empty) {
+              return {
+                success: false,
+                error: 'This mobile number is already linked to another Zenoa account. For account security, each mobile number can only be associated with a single account. Please use a different phone number or sign in to your existing account.'
+              };
+            }
           }
+        } catch (pErr) {
+          console.warn("Registration phone uniqueness check note:", pErr);
         }
-      } catch (pErr) {
-        console.warn("Registration phone uniqueness check note:", pErr);
       }
     }
 
     if (isFirebaseConfigured && auth && db) {
       try {
-        const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
+        const isMobileSignUp = Boolean(data.mobile_number && data.mobile_number.trim());
+        const isRealEmailSignUp = Boolean(!isMobileSignUp && data.email && !isInternalGhostEmail(data.email));
+
+        const userRealEmail = isRealEmailSignUp ? data.email.trim() : '';
+        const userRealPhone = isMobileSignUp ? data.mobile_number!.trim() : '';
+
+        // Internal credential string strictly for Firebase Auth SDK login
+        const firebaseAuthEmail = isRealEmailSignUp ? data.email.trim() : `${cleanUsername}@zenoa.auth`;
+
+        const userCredential = await createUserWithEmailAndPassword(auth, firebaseAuthEmail, data.password);
         const userObj = userCredential.user;
 
         const now = Date.now();
+        const freshToken = 'session_' + now + '_' + Math.random().toString(36).substring(2, 9);
+
         await setDoc(doc(db, 'users', userObj.uid), {
           id: userObj.uid,
           zenoa_id: cleanZenoaId,
-          email: data.email,
+          email: userRealEmail,
           display_name: cleanFullName,
           username: cleanUsername,
           dob: data.dob,
           gender: data.gender,
           avatar_seed: cleanUsername,
           bio: 'Hey there! I am using Zenoa Messenger.',
-          mobile_number: data.mobile_number || '',
-          phone_number: data.mobile_number || '',
-          created_at: now
+          mobile_number: userRealPhone,
+          phone_number: userRealPhone,
+          created_at: now,
+          active_session_token: freshToken,
+          active_session_created_at: now,
+          last_login_device: navigator.userAgent || 'Web Browser'
         });
 
         await setDoc(doc(db, 'usernames', cleanUsername), {
@@ -3272,10 +3428,7 @@ export default function App() {
         // Deliver all system broadcasts & welcome message to new account
         deliverBroadcastsToUser(userObj.uid, cleanUsername, cleanFullName);
 
-        const isMobileSignUp = Boolean(data.mobile_number && data.mobile_number.trim());
-        const isInternalEmail = !data.email || data.email.endsWith('@zenoa.mail') || data.email.endsWith('@zenoa.internal');
-
-        if (!isMobileSignUp && !isInternalEmail) {
+        if (isRealEmailSignUp) {
           try {
             await sendEmailVerification(userObj);
           } catch (verifErr) {
@@ -3283,11 +3436,19 @@ export default function App() {
           }
 
           setIsEmailVerificationPending(true);
-          setPendingVerificationEmail(data.email);
+          setPendingVerificationEmail(userRealEmail);
         } else {
-          // If registered via Mobile Number, NEVER send magic link or email verification
+          // If registered via Mobile Number, NEVER send magic link or email verification & set email to empty
+          sessionStorage.setItem('zenoa_active_session_token', freshToken);
+          sessionStorage.setItem('zenoa_active_session_created_at', String(now));
+          sessionStorage.removeItem('zenoa_is_explicit_login');
+          setCurrentSessionToken(freshToken);
+          setCurrentSessionCreatedAt(now);
+          setShowConcurrentLoginModal(false);
+
           setUserId(userObj.uid);
-          setUserEmail(data.email);
+          setUserEmail('');
+          setUserPhone(userRealPhone);
           setUserUsername(cleanUsername);
           setUserDisplayName(cleanFullName);
           setUserAvatarSeed(cleanUsername);
@@ -3301,7 +3462,7 @@ export default function App() {
         console.warn("Registration auth error:", err);
         const code = err.code || (err.message && err.message.includes('/') ? err.message : '');
         if (code.includes('auth/email-already-in-use')) {
-          return { success: false, error: 'An account with this email address is already registered. Please sign in instead.' };
+          return { success: false, error: 'An account with this email address or username is already registered. Please sign in instead.' };
         }
         if (code.includes('auth/invalid-email')) {
           return { success: false, error: 'The email address format is invalid. Please verify and try again.' };
@@ -3309,13 +3470,19 @@ export default function App() {
         if (code.includes('auth/weak-password')) {
           return { success: false, error: 'The password is too weak. Please ensure your password is at least 6 characters long.' };
         }
-        return { success: false, error: 'Registration failed. The selected email or username might already be in use.' };
+        return { success: false, error: 'Registration failed. The selected email, phone, or username might already be in use.' };
       }
     } else {
       const mockUid = 'u_' + Math.random().toString(36).substring(2, 9);
+      const isMobileSignUp = Boolean(data.mobile_number && data.mobile_number.trim());
+      const userRealEmail = isMobileSignUp ? '' : (data.email || '');
+      const userRealPhone = isMobileSignUp ? data.mobile_number!.trim() : '';
+
       const mockUser = {
         id: mockUid,
-        email: data.email,
+        email: userRealEmail,
+        mobile_number: userRealPhone,
+        phone_number: userRealPhone,
         display_name: cleanFullName,
         username: cleanUsername,
         avatar_seed: cleanUsername,
@@ -3329,11 +3496,12 @@ export default function App() {
       }));
 
       setUserId(mockUid);
-      setUserEmail(data.email);
+      setUserEmail(userRealEmail);
+      setUserPhone(userRealPhone);
       setUserUsername(cleanUsername);
       setUserDisplayName(cleanFullName);
       setUserAvatarSeed(cleanUsername);
-      setAuthMethod('email');
+      setAuthMethod(isMobileSignUp ? 'phone' : 'email');
 
       return { success: true };
     }
@@ -9263,6 +9431,7 @@ export default function App() {
             userUid={userId}
             userPhone={userPhone}
             onUpdatePhone={(phone: string) => setUserPhone(phone)}
+            onUpdateEmail={(email: string) => setUserEmail(email)}
             authMethod={authMethod}
             renderAvatar={renderAvatar}
             onOpenEditProfile={handleOpenEditProfile}

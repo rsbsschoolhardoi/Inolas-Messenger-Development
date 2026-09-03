@@ -836,6 +836,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     });
   }, [dbUsers, verifiedSearch, verifiedFilter]);
 
+  // Combined Official Service Accounts (Merges service_accounts collection with any ghost service account documents in dbUsers)
+  const combinedOfficialServiceAccounts = useMemo(() => {
+    const saMap = new Map<string, ServiceAccountData>();
+    serviceAccounts.forEach((sa) => {
+      const key = (sa.username || sa.id || '').toLowerCase();
+      if (key) saMap.set(key, sa);
+    });
+    dbUsers.forEach((u) => {
+      if ((u.is_service_account || u.username?.startsWith('sa_') || u.username === 'zenoa_official') && !u.is_business_account) {
+        const key = (u.username || u.id || '').toLowerCase();
+        if (key && !saMap.has(key)) {
+          saMap.set(key, {
+            id: u.id || key,
+            username: u.username || u.id || key,
+            display_name: u.display_name || u.username || 'Official Service Bot',
+            bio: u.bio || 'Official Zenoa Service Account',
+            avatar_seed: u.avatar_seed || u.username || key,
+            created_at: Date.now(),
+            created_by: 'system',
+            service_category: 'System',
+            badge_type: 'official',
+            broadcast_count: 0,
+            status: 'active'
+          });
+        }
+      }
+    });
+    return Array.from(saMap.values());
+  }, [serviceAccounts, dbUsers]);
+
   // Telemetry Metrics
   const metrics = useMemo(() => {
     const totalUsers = dbUsers.length;
@@ -1875,7 +1905,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   }`}
                 >
                   <ShieldCheck className="h-4 w-4 text-purple-400" />
-                  <span>Official Service Accounts ({serviceAccounts.length})</span>
+                  <span>Official Service Accounts ({combinedOfficialServiceAccounts.length})</span>
                 </button>
                 <button
                   onClick={() => setServiceSubTab('developer')}
@@ -1893,12 +1923,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               {/* SUB-TAB 1: OFFICIAL SERVICE ACCOUNTS */}
               {serviceSubTab === 'official' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {serviceAccounts.length === 0 ? (
+                  {combinedOfficialServiceAccounts.length === 0 ? (
                     <div className="col-span-full p-8 rounded-2xl bg-neutral-900 border border-neutral-800 text-center font-mono text-neutral-500 text-xs">
                       No official service accounts created yet. Click 'Create Service Account' above.
                     </div>
                   ) : (
-                    serviceAccounts.map((sa, idx) => (
+                    combinedOfficialServiceAccounts.map((sa, idx) => (
                       <div key={`sa_${sa.id || sa.username || "sa"}_${idx}`} className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-3 relative group">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2.5">

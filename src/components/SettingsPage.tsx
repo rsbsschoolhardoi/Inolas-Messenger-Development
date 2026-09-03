@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GoogleDriveLogo } from './GoogleDriveLogo';
 import { VaultPasswordModal } from './VaultPasswordModal';
+import { isInternalGhostEmail } from '../chatUtils';
 import { APP_BUILD_INFO } from '../version';
 import { db } from '../firebaseClient';
 import { doc, updateDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
@@ -99,6 +100,7 @@ interface SettingsPageProps {
   userUid?: string;
   userPhone?: string;
   onUpdatePhone?: (phone: string) => void;
+  onUpdateEmail?: (email: string) => void;
   authMethod?: string;
   renderAvatar: (seed?: string, name?: string, url?: string, sizeClasses?: string) => React.ReactNode;
   onOpenEditProfile: () => void;
@@ -166,6 +168,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   userUid,
   userPhone,
   onUpdatePhone,
+  onUpdateEmail,
   authMethod,
   renderAvatar,
   onOpenEditProfile,
@@ -180,6 +183,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onDeleteBackupFromDrive,
 }) => {
   const [section, setSection] = useState<SettingsSection>('main');
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+  const [emailEditInput, setEmailEditInput] = useState('');
+  const [emailEditLoading, setEmailEditLoading] = useState(false);
+  const [emailEditError, setEmailEditError] = useState('');
+
+  const cleanDisplayEmail = (userEmail && !isInternalGhostEmail(userEmail)) ? userEmail : '';
   const [storageInfo, setStorageInfo] = useState<StorageEstimateInfo | null>(null);
   const [isCleaningStorage, setIsCleaningStorage] = useState<boolean>(false);
   const [pendingPrivacyState, setPendingPrivacyState] = useState<boolean | null>(null);
@@ -1529,11 +1538,43 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   </div>
 
                   {/* Email address */}
-                  <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/10 border border-neutral-150 dark:border-neutral-800/40 text-left">
-                    <p className="text-[10px] uppercase font-bold tracking-wider text-neutral-400">Email Address</p>
-                    <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 mt-1 truncate">
-                      {userEmail || 'Not available'}
-                    </p>
+                  <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/10 border border-neutral-150 dark:border-neutral-800/40 text-left flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] uppercase font-bold tracking-wider text-neutral-400">Email Address</p>
+                        {cleanDisplayEmail ? (
+                          <span className="text-[9px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800/40 font-bold flex items-center gap-1">
+                            <ShieldCheck className="h-2.5 w-2.5" />
+                            Linked
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-mono text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800/40 font-bold">
+                            Not Linked (Optional)
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 mt-1 truncate">
+                        {cleanDisplayEmail || 'No email attached'}
+                      </p>
+                    </div>
+
+                    <div className="mt-3 pt-2 border-t border-neutral-200/60 dark:border-neutral-800/60 flex items-center justify-between">
+                      <p className="text-[10px] text-neutral-500">
+                        {cleanDisplayEmail ? 'Used for password recovery' : 'Add email anytime in profile'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEmailEditInput(cleanDisplayEmail);
+                          setEmailEditError('');
+                          setIsEmailModalOpen(true);
+                        }}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 hover:opacity-90 transition-all cursor-pointer flex items-center gap-1"
+                      >
+                        <Mail className="h-3 w-3" />
+                        <span>{cleanDisplayEmail ? 'Change' : 'Link Email'}</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Phone Number */}
@@ -1753,6 +1794,116 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 className="flex-1 py-3 rounded-2xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 font-bold text-xs hover:opacity-90 transition-opacity cursor-pointer"
               >
                 Confirm Change
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Link/Update Email Modal */}
+      {isEmailModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-sm bg-white dark:bg-neutral-900 rounded-3xl p-6 border border-neutral-200 dark:border-neutral-800 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                  <Mail className="h-4 w-4" />
+                </div>
+                <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
+                  {cleanDisplayEmail ? 'Update Email Address' : 'Link Email Address'}
+                </h3>
+              </div>
+              <button 
+                onClick={() => setIsEmailModalOpen(false)}
+                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 text-xs font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-4">
+              {cleanDisplayEmail
+                ? 'Enter your new email address. This will update your recovery contact.'
+                : 'Link an email address to your account for recovery and notifications (Optional).'}
+            </p>
+
+            {emailEditError && (
+              <div className="mb-3 p-2.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/40 text-[11px] text-red-600 dark:text-red-400 font-medium">
+                {emailEditError}
+              </div>
+            )}
+
+            <div className="mb-4">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">
+                Email Address
+              </label>
+              <input
+                type="email"
+                value={emailEditInput}
+                onChange={e => setEmailEditInput(e.target.value)}
+                placeholder="name@example.com"
+                className="w-full px-3.5 py-2.5 text-xs font-semibold rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50 text-neutral-900 dark:text-white outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsEmailModalOpen(false)}
+                className="flex-1 py-2.5 text-xs font-bold rounded-xl border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={emailEditLoading || !emailEditInput.trim().includes('@')}
+                onClick={async () => {
+                  const clean = emailEditInput.trim().toLowerCase();
+                  if (!clean || !clean.includes('@')) {
+                    setEmailEditError('Please enter a valid email address.');
+                    return;
+                  }
+                  setEmailEditLoading(true);
+                  setEmailEditError('');
+                  try {
+                    if (db) {
+                      const usersRef = collection(db, 'users');
+                      const q = query(usersRef, where('email', '==', clean));
+                      const snap = await getDocs(q);
+                      const isTaken = snap.docs.some(d => d.id !== currentUser?.id && d.data().username !== userUsername);
+                      if (isTaken) {
+                        setEmailEditError('This email is already linked to another Zenoa account.');
+                        setEmailEditLoading(false);
+                        return;
+                      }
+                      const targetId = currentUser?.id || userUsername;
+                      if (targetId) {
+                        await updateDoc(doc(db, 'users', targetId), {
+                          email: clean,
+                          updated_at: Date.now()
+                        }).catch(async () => {
+                          await setDoc(doc(db, 'users', targetId), { email: clean }, { merge: true });
+                        });
+                      }
+                    }
+                    if (onUpdateEmail) {
+                      onUpdateEmail(clean);
+                    }
+                    showToast('Email address linked successfully!');
+                    setIsEmailModalOpen(false);
+                  } catch (err: any) {
+                    setEmailEditError(err.message || 'Failed to update email address.');
+                  } finally {
+                    setEmailEditLoading(false);
+                  }
+                }}
+                className={`flex-1 py-2.5 text-xs font-bold rounded-xl text-white transition-all ${
+                  emailEditInput.trim().includes('@') && !emailEditLoading
+                    ? 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer'
+                    : 'bg-neutral-300 dark:bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                }`}
+              >
+                {emailEditLoading ? 'Saving...' : 'Save Email'}
               </button>
             </div>
           </div>

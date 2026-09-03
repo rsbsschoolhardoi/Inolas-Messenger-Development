@@ -1,10 +1,11 @@
 /**
  * StorageManager - High-Capacity IndexedDB & Storage Optimization Engine for Zenoa
- * Expands storage limits from 5MB (localStorage) to Gigabytes (IndexedDB).
+ * Expands storage limits from 5MB (localStorage) to Gigabytes (IndexedDB)
+ * with strict Multi-User Session Isolation and Zero-Leakage guarantees.
  */
 
-const DB_NAME = 'zenoa_storage_v1';
-const DB_VERSION = 1;
+const DB_NAME = 'zenoa_storage_v2';
+const DB_VERSION = 2;
 
 export interface StorageEstimateInfo {
   usageBytes: number;
@@ -19,11 +20,30 @@ export interface StorageEstimateInfo {
 
 class StorageManager {
   private dbPromise: Promise<IDBDatabase> | null = null;
+  private currentSessionUser: string = '';
 
   constructor() {
     if (typeof window !== 'undefined' && 'indexedDB' in window) {
       this.initDB();
     }
+  }
+
+  /**
+   * Set the active authenticated session user so all local storage queries
+   * are strictly quarantined and partitioned per user.
+   */
+  public setSessionUser(usernameOrUid: string): void {
+    const clean = (usernameOrUid || '').trim().toLowerCase().replace(/^@/, '');
+    if (this.currentSessionUser && this.currentSessionUser !== clean) {
+      // Switched account in same runtime
+      this.currentSessionUser = clean;
+    } else {
+      this.currentSessionUser = clean;
+    }
+  }
+
+  public getSessionUser(): string {
+    return this.currentSessionUser;
   }
 
   private initDB(): Promise<IDBDatabase> {
@@ -41,6 +61,7 @@ class StorageManager {
             const mediaStore = db.createObjectStore('media_cache', { keyPath: 'id' });
             mediaStore.createIndex('timestamp', 'timestamp', { unique: false });
             mediaStore.createIndex('chat_id', 'chat_id', { unique: false });
+            mediaStore.createIndex('owner_user', 'owner_user', { unique: false });
           }
 
           // Store 2: Offline Messages
@@ -48,6 +69,7 @@ class StorageManager {
             const msgStore = db.createObjectStore('messages', { keyPath: 'id' });
             msgStore.createIndex('chat_id', 'chat_id', { unique: false });
             msgStore.createIndex('created_at', 'created_at', { unique: false });
+            msgStore.createIndex('owner_user', 'owner_user', { unique: false });
           }
 
           // Store 3: Key-Value Config / Drafts
@@ -76,13 +98,14 @@ class StorageManager {
   /**
    * Save media asset (photo, audio, video, document) into high-capacity IndexedDB
    */
-  async saveMedia(id: string, dataUrlOrBlob: string | Blob, meta?: { chat_id?: string; fileName?: string; mimeType?: string }): Promise<void> {
+  async saveMedia(id: string, dataUrlOrBlob: string | Blob, meta?: { chat_id?: string; fileName?: string; mimeType?: string; owner_user?: string }): Promise<void> {
     try {
       const db = await this.initDB();
       const tx = db.transaction('media_cache', 'readwrite');
       const store = tx.objectStore('media_cache');
       
       const sizeBytes = typeof dataUrlOrBlob === 'string' ? dataUrlOrBlob.length : dataUrlOrBlob.size;
+      const owner = (meta?.owner_user || this.currentSessionUser || '').toLowerCase().trim();
       
       store.put({
         id,
@@ -91,6 +114,7 @@ class StorageManager {
         chat_id: meta?.chat_id || '',
         fileName: meta?.fileName || '',
         mimeType: meta?.mimeType || '',
+        owner_user: owner,
         timestamp: Date.now()
       });
 
@@ -129,10 +153,13 @@ class StorageManager {
   }
 
   /**
-   * Persist messages batch to local IndexedDB for fast offline retrieval
+   * Persist messages batch to local IndexedDB with strict session-quarantining
    */
-  async saveMessages(messages: any[]): Promise<void> {
+  async saveMessages(messages: any[], explicitOwnerUser?: string): Promise<void> {
     if (!messages || messages.length === 0) return;
+    const owner = (explicitOwnerUser || this.currentSessionUser || '').toLowerCase().trim();
+    if (!owner) return; // Do not persist messages without an identified session user
+
     try {
       const db = await this.initDB();
       const tx = db.transaction('messages', 'readwrite');
@@ -140,7 +167,13 @@ class StorageManager {
 
       for (const msg of messages) {
         if (msg && msg.id) {
-          store.put(msg);
+          // Normalize sender if set to placeholder 'me'
+          const safeMsg = { ...msg };
+          if (safeMsg.sender === 'me') {
+            safeMsg.sender = owner;
+          }
+          safeMsg.owner_user = owner;
+          store.put(safeMsg);
         }
       }
 
@@ -154,9 +187,12 @@ class StorageManager {
   }
 
   /**
-   * Load cached messages for a chat from IndexedDB
+   * Load cached messages for a chat from IndexedDB, isolated strictly to the active user
    */
-  async getMessagesForChat(chatId: string): Promise<any[]> {
+  async getMessagesForChat(chatId: string, sessionUser?: string): Promise<any[]> {
+    const owner = (sessionUser || this.currentSessionUser || '').toLowerCase().trim();
+    if (!owner) return [];
+
     try {
       const db = await this.initDB();
       const tx = db.transaction('messages', 'readonly');
@@ -167,8 +203,17 @@ class StorageManager {
       return new Promise((resolve) => {
         request.onsuccess = () => {
           const results = request.result || [];
-          results.sort((a: any, b: any) => (a.created_at || 0) - (b.created_at || 0));
-          resolve(results);
+          // Strict user-isolation filter: Only return messages saved for this owner
+          const filtered = results.filter((m: any) => {
+            const mOwner = (m.owner_user || '').toLowerCase().trim();
+            if (mOwner && mOwner === owner) return true;
+            // Backward-compat check: sender or read_by matches session user
+            if (m.sender && (m.sender.toLowerCase() === owner || m.sender === 'me')) return true;
+            if (Array.isArray(m.read_by) && m.read_by.some((r: string) => r && r.toLowerCase() === owner)) return true;
+            return false;
+          });
+          filtered.sort((a: any, b: any) => (a.created_at || 0) - (b.created_at || 0));
+          resolve(filtered);
         };
         request.onerror = () => resolve([]);
       });
@@ -222,7 +267,7 @@ class StorageManager {
   }
 
   /**
-   * Retrieve all messages stored across all chats in local IndexedDB
+   * Retrieve all messages stored locally for the current active user session
    */
   async getAllMessages(): Promise<any[]> {
     try {
@@ -230,10 +275,23 @@ class StorageManager {
       const tx = db.transaction('messages', 'readonly');
       const store = tx.objectStore('messages');
       const request = store.getAll();
+      const owner = (this.currentSessionUser || '').toLowerCase().trim();
 
       return new Promise((resolve) => {
         request.onsuccess = () => {
-          resolve(request.result || []);
+          const results = request.result || [];
+          if (!owner) {
+            resolve(results);
+            return;
+          }
+          const filtered = results.filter((m: any) => {
+            const mOwner = (m.owner_user || '').toLowerCase().trim();
+            if (mOwner && mOwner === owner) return true;
+            if (m.sender && (m.sender.toLowerCase() === owner || m.sender === 'me')) return true;
+            if (Array.isArray(m.read_by) && m.read_by.some((r: string) => r && r.toLowerCase() === owner)) return true;
+            return false;
+          });
+          resolve(filtered);
         };
         request.onerror = () => resolve([]);
       });
@@ -243,9 +301,10 @@ class StorageManager {
   }
 
   /**
-   * Clear all local message & chat data from device
+   * Clear all local message, media, and KV cache from device
    */
   async wipeAllData(): Promise<void> {
+    this.currentSessionUser = '';
     try {
       const db = await this.initDB();
       const tx = db.transaction(['messages', 'media_cache', 'kv_store'], 'readwrite');
@@ -253,7 +312,13 @@ class StorageManager {
       tx.objectStore('media_cache').clear();
       tx.objectStore('kv_store').clear();
       return new Promise((resolve) => {
-        tx.oncomplete = () => resolve();
+        tx.oncomplete = () => {
+          try {
+            // Also purge any legacy v1 IndexedDB if present
+            indexedDB.deleteDatabase('zenoa_storage_v1');
+          } catch(e) {}
+          resolve();
+        };
         tx.onerror = () => resolve();
       });
     } catch (err) {

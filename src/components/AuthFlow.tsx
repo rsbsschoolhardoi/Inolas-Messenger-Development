@@ -129,33 +129,88 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   // OTP Verification state (Only when explicitly needed for Email fallback)
   const [showOtpScreen, setShowOtpScreen] = useState<boolean>(false);
 
-  // Step 1: Name (First / Last)
+  // Step 1: Name (First / Last) & Username (User enters their own username, allows dots)
   const [regFirstName, setRegFirstName] = useState<string>(truecallerProfile?.firstName || '');
   const [regLastName, setRegLastName] = useState<string>(truecallerProfile?.lastName || '');
+  const [regUsername, setRegUsername] = useState<string>(
+    truecallerProfile?.firstName ? `${truecallerProfile.firstName.toLowerCase().replace(/[^a-z0-9_.]/g, '')}` : ''
+  );
+  const [isCheckingRegUsername, setIsCheckingRegUsername] = useState<boolean>(false);
+  const [regUsernameAsyncTaken, setRegUsernameAsyncTaken] = useState<boolean>(false);
+  const [regUsernameReason, setRegUsernameReason] = useState<string>('');
 
-  // Step 2: Zenoa ID selection
+  // Step 2: Zenoa ID selection (Suggestions provided based on entered username + custom option)
   // Option types: 'sug1' | 'sug2' | 'custom'
   const [selectedIdOption, setSelectedIdOption] = useState<'sug1' | 'sug2' | 'custom'>('sug1');
   const [customZenoaHandle, setCustomZenoaHandle] = useState<string>('');
-  const [isCheckingCustomUsername, setIsCheckingCustomUsername] = useState<boolean>(false);
-  const [customUsernameAsyncTaken, setCustomUsernameAsyncTaken] = useState<boolean>(false);
+  const [isCheckingCustomZenoaId, setIsCheckingCustomZenoaId] = useState<boolean>(false);
+  const [customZenoaIdAsyncTaken, setCustomZenoaIdAsyncTaken] = useState<boolean>(false);
 
-  // Generated handle choices based on name, checked against existingUsernames
-  const cleanFirst = regFirstName.trim().toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
-  const cleanLast = regLastName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-
+  // Taken usernames set
   const takenUsernamesSet = useMemo(
     () => new Set(existingUsernames.filter(Boolean).map(u => u.toLowerCase())),
     [existingUsernames]
   );
 
+  const cleanRegUsername = regUsername.trim().toLowerCase();
+  const cleanFirst = regFirstName.trim().toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
+  const cleanLast = regLastName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  // Step 1 Username validation
+  const isRegUsernameValidFormat = cleanRegUsername.length >= 3 && 
+    cleanRegUsername.length <= 25 && 
+    /^[a-z0-9_.]+$/.test(cleanRegUsername) && 
+    !cleanRegUsername.startsWith('sa_') && 
+    cleanRegUsername !== 'zenoa';
+
+  const isRegUsernameTakenSync = takenUsernamesSet.has(cleanRegUsername);
+  const isRegUsernameAvailable = isRegUsernameValidFormat && !isRegUsernameTakenSync && !regUsernameAsyncTaken;
+
+  // Debounced check for Step 1 Username
+  useEffect(() => {
+    setRegUsernameAsyncTaken(false);
+    setRegUsernameReason('');
+
+    if (!cleanRegUsername || cleanRegUsername.length < 3 || !/^[a-z0-9_.]+$/.test(cleanRegUsername)) {
+      setIsCheckingRegUsername(false);
+      return;
+    }
+
+    if (takenUsernamesSet.has(cleanRegUsername)) {
+      setRegUsernameAsyncTaken(true);
+      setRegUsernameReason(`@${cleanRegUsername} is already taken.`);
+      setIsCheckingRegUsername(false);
+      return;
+    }
+
+    if (checkUsernameAvailability) {
+      setIsCheckingRegUsername(true);
+      const timer = setTimeout(async () => {
+        try {
+          const res = await checkUsernameAvailability(cleanRegUsername);
+          setRegUsernameAsyncTaken(res.isTaken);
+          if (res.isTaken) {
+            setRegUsernameReason(res.reason || `@${cleanRegUsername} is already taken.`);
+          }
+        } catch {
+          setRegUsernameAsyncTaken(false);
+        } finally {
+          setIsCheckingRegUsername(false);
+        }
+      }, 300);
+
+      return () => clearTimeout(timer);
+    }
+  }, [cleanRegUsername, takenUsernamesSet, checkUsernameAvailability]);
+
+  // Generated Zenoa ID suggestion choices based on the user's entered username
   const { sug1Handle, sug2Handle } = useMemo(() => {
-    const base1 = cleanLast ? `${cleanFirst}.${cleanLast}` : cleanFirst;
-    const base2 = cleanLast ? `${cleanFirst}_${cleanLast}` : `${cleanFirst}99`;
+    const base1 = cleanRegUsername || cleanFirst;
+    const base2 = cleanLast ? `${cleanFirst}_${cleanLast}` : `${base1}99`;
 
     let candidate1 = base1;
     let n1 = 1;
-    while (takenUsernamesSet.has(candidate1)) {
+    while (takenUsernamesSet.has(candidate1) && candidate1 !== cleanRegUsername) {
       candidate1 = `${base1}${n1}`;
       n1++;
     }
@@ -168,7 +223,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     }
 
     return { sug1Handle: candidate1, sug2Handle: candidate2 };
-  }, [cleanFirst, cleanLast, takenUsernamesSet]);
+  }, [cleanRegUsername, cleanFirst, cleanLast, takenUsernamesSet]);
 
   // Step 3: Contact Method (Choose Mobile Number OR Email Address strictly)
   const [contactType, setContactType] = useState<'phone' | 'email'>('phone');
@@ -201,39 +256,40 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     sessionStorage.setItem('zenoa_is_explicit_login', 'true');
     const freshToken = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
     sessionStorage.setItem('zenoa_active_session_token', freshToken);
+    sessionStorage.setItem('zenoa_active_session_created_at', String(Date.now()));
   };
 
-  // Custom Username validation check
+  // Custom Zenoa ID validation check
   useEffect(() => {
     if (selectedIdOption !== 'custom') {
-      setIsCheckingCustomUsername(false);
-      setCustomUsernameAsyncTaken(false);
+      setIsCheckingCustomZenoaId(false);
+      setCustomZenoaIdAsyncTaken(false);
       return;
     }
 
     const clean = customZenoaHandle.trim().toLowerCase();
-    setCustomUsernameAsyncTaken(false);
+    setCustomZenoaIdAsyncTaken(false);
     if (!clean || clean.length < 3 || !/^[a-zA-Z0-9_.]+$/.test(clean)) {
-      setIsCheckingCustomUsername(false);
+      setIsCheckingCustomZenoaId(false);
       return;
     }
 
     if (existingUsernames.filter(Boolean).map(u => u.toLowerCase()).includes(clean)) {
-      setCustomUsernameAsyncTaken(true);
-      setIsCheckingCustomUsername(false);
+      setCustomZenoaIdAsyncTaken(true);
+      setIsCheckingCustomZenoaId(false);
       return;
     }
 
     if (checkUsernameAvailability) {
-      setIsCheckingCustomUsername(true);
+      setIsCheckingCustomZenoaId(true);
       const timer = setTimeout(async () => {
         try {
           const res = await checkUsernameAvailability(clean);
-          setCustomUsernameAsyncTaken(res.isTaken);
+          setCustomZenoaIdAsyncTaken(res.isTaken);
         } catch {
-          setCustomUsernameAsyncTaken(false);
+          setCustomZenoaIdAsyncTaken(false);
         } finally {
-          setIsCheckingCustomUsername(false);
+          setIsCheckingCustomZenoaId(false);
         }
       }, 300);
 
@@ -241,22 +297,23 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     }
   }, [customZenoaHandle, selectedIdOption, existingUsernames, checkUsernameAvailability]);
 
-  // Determine active handle & Zenoa ID
-  const getActiveHandle = (): string => {
+  // Determine active Zenoa ID handle
+  const getActiveZenoaHandle = (): string => {
     if (selectedIdOption === 'sug1') return sug1Handle;
     if (selectedIdOption === 'sug2') return sug2Handle;
     return customZenoaHandle.trim().toLowerCase();
   };
 
-  const activeHandle = getActiveHandle();
-  const activeZenoaId = `${activeHandle}@zenoa`;
+  const activeZenoaHandle = getActiveZenoaHandle();
+  const activeZenoaId = `${activeZenoaHandle}@zenoa`;
+  const activeHandle = cleanRegUsername || activeZenoaHandle;
 
-  const isCustomHandleValid = customZenoaHandle.length >= 3 && 
+  const isCustomZenoaHandleValid = customZenoaHandle.length >= 3 && 
     /^[a-zA-Z0-9_.]+$/.test(customZenoaHandle) && 
     !existingUsernames.filter(Boolean).map(u => u.toLowerCase()).includes(customZenoaHandle.toLowerCase()) &&
-    !customUsernameAsyncTaken;
+    !customZenoaIdAsyncTaken;
 
-  const isZenoaIdValid = selectedIdOption === 'custom' ? isCustomHandleValid : activeHandle.length >= 2;
+  const isZenoaIdValid = selectedIdOption === 'custom' ? isCustomZenoaHandleValid : activeZenoaHandle.length >= 2;
 
   // Truecaller Verification Trigger
   const handleTruecallerVerification = () => {
@@ -316,8 +373,8 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     const cleanFirstName = regFirstName.trim();
     const cleanLastName = regLastName.trim();
     const cleanFullName = `${cleanFirstName} ${cleanLastName}`.trim();
-    const finalHandle = getActiveHandle();
-    const finalZenoaId = `${finalHandle}@zenoa`;
+    const finalUsername = cleanRegUsername || activeZenoaHandle;
+    const finalZenoaId = activeZenoaId;
 
     // Mutual exclusivity: Either Mobile OR Email
     const finalMobile = contactType === 'phone' && regPhoneDigits.trim() 
@@ -326,7 +383,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     
     const finalEmail = contactType === 'email' && regEmail.trim()
       ? regEmail.trim()
-      : `${finalHandle}@zenoa.internal`;
+      : '';
 
     if (!regAgreedToLegal) {
       setErrorMessage('Please accept the Terms to continue.');
@@ -338,7 +395,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     const res = await onRegisterSubmit({
       email: finalEmail,
       fullName: cleanFullName,
-      username: finalHandle,
+      username: finalUsername,
       zenoa_id: finalZenoaId,
       dob: '2000-01-01',
       gender: 'prefer_not',
@@ -349,7 +406,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
     if (res.success) {
       confetti({ particleCount: 90, spread: 60, origin: { y: 0.6 } });
-      setSelectedAvatarSeed(finalHandle);
+      setSelectedAvatarSeed(finalUsername);
       setMode('onboarding_photo');
     } else {
       setErrorMessage(res.error || 'Registration failed. Please check your details.');
@@ -625,15 +682,15 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
             <div className="flex items-center justify-between text-[11px] text-neutral-400 dark:text-neutral-500 font-medium">
               <span>Step {wizardStep} of 5</span>
               <span className="capitalize">
-                {wizardStep === 1 && 'Name'}
-                {wizardStep === 2 && 'Username'}
+                {wizardStep === 1 && 'Name & Username'}
+                {wizardStep === 2 && 'Zenoa ID'}
                 {wizardStep === 3 && 'Contact'}
                 {wizardStep === 4 && 'Password'}
                 {wizardStep === 5 && 'Agreement'}
               </span>
             </div>
 
-            {/* STEP 1: NAME (First Name, Last Name) */}
+            {/* STEP 1: NAME & USERNAME */}
             {wizardStep === 1 && (
               <motion.div
                 key="step-1"
@@ -645,10 +702,10 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
               >
                 <div>
                   <h2 className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-white">
-                    What's your name?
+                    Create your profile
                   </h2>
                   <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                    Enter your real name to personalize your account.
+                    Enter your real name and pick your username.
                   </p>
                 </div>
 
@@ -684,9 +741,58 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                   </div>
                 </div>
 
-                <p className="text-[11px] text-neutral-500 dark:text-neutral-400 pt-0.5">
-                  You will choose your username in the next step.
-                </p>
+                {/* USERNAME INPUT (User inputs directly, dot (.) allowed, clean & elegant) */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400">
+                      Username
+                    </label>
+                    <div className="text-[11px] font-medium">
+                      {isCheckingRegUsername ? (
+                        <span className="text-neutral-400 flex items-center gap-1">
+                          <RefreshCw className="h-3 w-3 animate-spin" /> Checking...
+                        </span>
+                      ) : cleanRegUsername.length >= 3 ? (
+                        isRegUsernameAvailable ? (
+                          <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
+                            <Check className="h-3 w-3" /> Available
+                          </span>
+                        ) : (
+                          <span className="text-rose-500">
+                            {regUsernameReason || 'Username taken'}
+                          </span>
+                        )
+                      ) : cleanRegUsername.length > 0 ? (
+                        <span className="text-neutral-400">Min 3 characters</span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="relative flex items-center">
+                    <span className="absolute left-3.5 text-neutral-400 text-xs sm:text-sm font-semibold pointer-events-none">@</span>
+                    <input
+                      type="text"
+                      value={regUsername}
+                      onChange={e => {
+                        const clean = e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, '');
+                        setRegUsername(clean);
+                      }}
+                      placeholder="e.g. aman.kumar"
+                      autoComplete="off"
+                      spellCheck={false}
+                      className={`w-full pl-8 pr-3.5 py-2.5 text-xs sm:text-sm font-medium rounded-xl border bg-neutral-50/70 dark:bg-neutral-900/70 outline-none transition-colors text-neutral-900 dark:text-white ${
+                        cleanRegUsername.length >= 3 && isRegUsernameAvailable
+                          ? 'border-emerald-500/60 focus:border-emerald-500'
+                          : cleanRegUsername.length >= 3 && !isRegUsernameAvailable
+                          ? 'border-rose-300 dark:border-rose-900 focus:border-rose-500'
+                          : 'border-neutral-200 dark:border-neutral-800 focus:border-neutral-900 dark:focus:border-neutral-100'
+                      }`}
+                    />
+                  </div>
+                  <p className="text-[11px] text-neutral-400 dark:text-neutral-500 mt-1">
+                    Letters, numbers, underscores, and dots (.) allowed.
+                  </p>
+                </div>
 
                 <div className="flex items-center gap-2 pt-1">
                   <button
@@ -703,18 +809,18 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
                   <button
                     type="button"
-                    disabled={!regFirstName.trim()}
+                    disabled={!regFirstName.trim() || !isRegUsernameAvailable || isCheckingRegUsername}
                     onClick={() => {
-                      if (regFirstName.trim()) {
+                      if (regFirstName.trim() && isRegUsernameAvailable) {
                         if (!customZenoaHandle) {
-                          setCustomZenoaHandle(sug1Handle);
+                          setCustomZenoaHandle(cleanRegUsername);
                         }
                         setWizardStep(2);
                         setErrorMessage('');
                       }
                     }}
                     className={`flex-1 h-11 text-xs sm:text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer ${
-                      regFirstName.trim()
+                      regFirstName.trim() && isRegUsernameAvailable && !isCheckingRegUsername
                         ? 'bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-950'
                         : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-600 cursor-not-allowed'
                     }`}
@@ -726,7 +832,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
               </motion.div>
             )}
 
-            {/* STEP 2: CHOOSE USERNAME */}
+            {/* STEP 2: CHOOSE ZENOA ID (Primary Identity with Suggestions & Custom Handle) */}
             {wizardStep === 2 && (
               <motion.div
                 key="step-2"
@@ -738,20 +844,20 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
               >
                 <div>
                   <h2 className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-white">
-                    Choose Username
+                    Choose your Zenoa ID
                   </h2>
                   <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                    Select a handle or enter a custom one.
+                    Your Zenoa ID is your primary global identity across the entire Zenoa ecosystem.
                   </p>
                 </div>
 
                 <div className="space-y-2">
-                  {/* Option 1 */}
+                  {/* Suggestion 1 */}
                   <label 
                     onClick={() => setSelectedIdOption('sug1')}
-                    className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                    className={`flex items-center justify-between p-3.5 rounded-xl border cursor-pointer transition-all ${
                       selectedIdOption === 'sug1'
-                        ? 'border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-900/80'
+                        ? 'border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-900/80 shadow-xs'
                         : 'border-neutral-200 dark:border-neutral-800/80 bg-white dark:bg-[#121215] hover:border-neutral-300 dark:hover:border-neutral-700'
                     }`}
                   >
@@ -763,21 +869,26 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                       }`}>
                         {selectedIdOption === 'sug1' && <div className="h-1.5 w-1.5 rounded-full bg-white dark:bg-neutral-950" />}
                       </div>
-                      <span className="text-xs sm:text-sm font-semibold text-neutral-900 dark:text-white truncate">
-                        @{sug1Handle}
-                      </span>
+                      <div className="min-w-0">
+                        <div className="text-xs sm:text-sm font-semibold text-neutral-900 dark:text-white truncate">
+                          {sug1Handle}@zenoa
+                        </div>
+                        <div className="text-[10px] text-neutral-400">
+                          Primary identity based on your username
+                        </div>
+                      </div>
                     </div>
                     {selectedIdOption === 'sug1' && (
                       <Check className="h-4 w-4 text-neutral-900 dark:text-white shrink-0" />
                     )}
                   </label>
 
-                  {/* Option 2 */}
+                  {/* Suggestion 2 */}
                   <label 
                     onClick={() => setSelectedIdOption('sug2')}
-                    className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                    className={`flex items-center justify-between p-3.5 rounded-xl border cursor-pointer transition-all ${
                       selectedIdOption === 'sug2'
-                        ? 'border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-900/80'
+                        ? 'border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-900/80 shadow-xs'
                         : 'border-neutral-200 dark:border-neutral-800/80 bg-white dark:bg-[#121215] hover:border-neutral-300 dark:hover:border-neutral-700'
                     }`}
                   >
@@ -789,26 +900,31 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                       }`}>
                         {selectedIdOption === 'sug2' && <div className="h-1.5 w-1.5 rounded-full bg-white dark:bg-neutral-950" />}
                       </div>
-                      <span className="text-xs sm:text-sm font-semibold text-neutral-900 dark:text-white truncate">
-                        @{sug2Handle}
-                      </span>
+                      <div className="min-w-0">
+                        <div className="text-xs sm:text-sm font-semibold text-neutral-900 dark:text-white truncate">
+                          {sug2Handle}@zenoa
+                        </div>
+                        <div className="text-[10px] text-neutral-400">
+                          Alternative Zenoa ID suggestion
+                        </div>
+                      </div>
                     </div>
                     {selectedIdOption === 'sug2' && (
                       <Check className="h-4 w-4 text-neutral-900 dark:text-white shrink-0" />
                     )}
                   </label>
 
-                  {/* Option 3: Custom Username */}
+                  {/* Option 3: Custom Zenoa ID */}
                   <div 
                     onClick={() => {
                       setSelectedIdOption('custom');
                       if (!customZenoaHandle) {
-                        setCustomZenoaHandle(sug1Handle);
+                        setCustomZenoaHandle(cleanRegUsername || sug1Handle);
                       }
                     }}
-                    className={`p-3 rounded-xl border cursor-pointer transition-all space-y-2.5 ${
+                    className={`p-3.5 rounded-xl border cursor-pointer transition-all space-y-2.5 ${
                       selectedIdOption === 'custom'
-                        ? 'border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-900/80'
+                        ? 'border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-900/80 shadow-xs'
                         : 'border-neutral-200 dark:border-neutral-800/80 bg-white dark:bg-[#121215] hover:border-neutral-300 dark:hover:border-neutral-700'
                     }`}
                   >
@@ -821,17 +937,22 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                         }`}>
                           {selectedIdOption === 'custom' && <div className="h-1.5 w-1.5 rounded-full bg-white dark:bg-neutral-950" />}
                         </div>
-                        <span className="text-xs sm:text-sm font-semibold text-neutral-900 dark:text-white">
-                          Custom username
-                        </span>
+                        <div>
+                          <span className="text-xs sm:text-sm font-semibold text-neutral-900 dark:text-white">
+                            Custom Zenoa ID
+                          </span>
+                          <div className="text-[10px] text-neutral-400">
+                            Create your own personalized Zenoa ID handle
+                          </div>
+                        </div>
                       </div>
 
                       {selectedIdOption === 'custom' && (
                         <div className="flex items-center gap-1.5">
-                          {isCheckingCustomUsername ? (
+                          {isCheckingCustomZenoaId ? (
                             <RefreshCw className="h-3.5 w-3.5 animate-spin text-neutral-400" />
                           ) : customZenoaHandle.length >= 3 ? (
-                            isCustomHandleValid ? (
+                            isCustomZenoaHandleValid ? (
                               <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                                 <Check className="h-3.5 w-3.5" /> Available
                               </span>
@@ -848,7 +969,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                     </div>
 
                     {selectedIdOption === 'custom' && (
-                      <div className="pt-0.5" onClick={e => e.stopPropagation()}>
+                      <div className="pt-1" onClick={e => e.stopPropagation()}>
                         <div className="relative flex items-center">
                           <span className="absolute left-3 text-neutral-400 text-xs sm:text-sm font-semibold pointer-events-none">@</span>
                           <input
@@ -858,22 +979,23 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                               const clean = e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, '');
                               setCustomZenoaHandle(clean);
                             }}
-                            placeholder="username"
+                            placeholder="handle"
                             autoComplete="off"
                             spellCheck={false}
                             autoFocus
-                            className="w-full pl-7 pr-3 py-2 text-xs sm:text-sm font-semibold rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 outline-none focus:border-neutral-900 dark:focus:border-neutral-100 text-neutral-900 dark:text-white transition-colors"
+                            className="w-full pl-7 pr-16 py-2 text-xs sm:text-sm font-semibold rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 outline-none focus:border-neutral-900 dark:focus:border-neutral-100 text-neutral-900 dark:text-white transition-colors"
                           />
+                          <span className="absolute right-3 text-neutral-400 text-xs font-semibold pointer-events-none">@zenoa</span>
                         </div>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* Subtle handle confirmation */}
-                <div className="flex items-center justify-between px-1 text-xs text-neutral-500 dark:text-neutral-400">
-                  <span className="text-[11px]">Selected handle</span>
-                  <span className="font-semibold text-neutral-900 dark:text-white text-xs">@{activeHandle}</span>
+                {/* Selected primary identity badge */}
+                <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-neutral-100/70 dark:bg-neutral-800/40 text-xs text-neutral-500 dark:text-neutral-400">
+                  <span className="text-[11px] font-medium">Primary Zenoa ID</span>
+                  <span className="font-mono font-bold text-neutral-900 dark:text-white text-xs">{activeZenoaId}</span>
                 </div>
 
                 <div className="flex items-center gap-2 pt-1">
@@ -888,7 +1010,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
                   <button
                     type="button"
-                    disabled={!isZenoaIdValid || (selectedIdOption === 'custom' && isCheckingCustomUsername)}
+                    disabled={!isZenoaIdValid || (selectedIdOption === 'custom' && isCheckingCustomZenoaId)}
                     onClick={() => {
                       if (isZenoaIdValid) {
                         setWizardStep(3);
@@ -896,7 +1018,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                       }
                     }}
                     className={`flex-1 h-11 text-xs sm:text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer ${
-                      isZenoaIdValid && !(selectedIdOption === 'custom' && isCheckingCustomUsername)
+                      isZenoaIdValid && !(selectedIdOption === 'custom' && isCheckingCustomZenoaId)
                         ? 'bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-950'
                         : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-600 cursor-not-allowed'
                     }`}
@@ -1234,7 +1356,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-neutral-400">Zenoa ID:</span>
-                    <span className="font-mono text-neutral-700 dark:text-neutral-300">@{activeHandle}@zenoa</span>
+                    <span className="font-mono text-neutral-700 dark:text-neutral-300">{activeHandle}@zenoa</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-neutral-400">Contact:</span>

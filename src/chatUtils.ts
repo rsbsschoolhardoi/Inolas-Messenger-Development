@@ -47,3 +47,21 @@ export const decodeMessage = (text: string): string => {
   // Replace potential replacement characters or broken encodings with empty or sensible alternatives
   return text.replace(/\ufffd/g, '').trim();
 };
+
+/**
+ * Checks if an email string is an internal/dummy ghost email address.
+ * Used to ensure mobile-only accounts have zero email requirement and never store or display ghost emails.
+ */
+export const isInternalGhostEmail = (email?: string | null): boolean => {
+  if (!email || !email.trim()) return true;
+  const clean = email.trim().toLowerCase();
+  return (
+    clean.endsWith('@zenoa.internal') ||
+    clean.endsWith('@zenoa.mail') ||
+    clean.endsWith('@zenoa.auth') ||
+    clean.endsWith('@zenoa.local') ||
+    clean.endsWith('@zenoa.im') ||
+    clean.endsWith('@example.com') ||
+    clean.startsWith('phone_')
+  );
+};

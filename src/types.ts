@@ -31,6 +31,7 @@ export interface UserData {
   role?: 'user' | 'admin' | 'super_admin';
   registered_at?: number;
   mobile_number?: string;
+  phone_number?: string;
   is_business_verified?: boolean;
   is_truecaller_verified?: boolean;
 }
