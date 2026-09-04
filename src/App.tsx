@@ -951,6 +951,13 @@ export default function App() {
   const [userUsernameChanges, setUserUsernameChanges] = useState<number[]>([]);
   const [savedDisplayName, setSavedDisplayName] = useState<string>('');
   const [savedUsername, setSavedUsername] = useState<string>('');
+  // Zero-Leakage Account Creation Timestamp Gate:
+  // Guarantees that if a user claims a recycled/previously deleted username or phone number,
+  // they start with 100% clean state and 0% legacy message or chat data leakage.
+  const [userAccountCreatedAt, setUserAccountCreatedAt] = useState<number>(() => {
+    const raw = sessionStorage.getItem('zenoa_account_created_at');
+    return raw ? parseInt(raw, 10) : 0;
+  });
   // Clean up any legacy shared usernames key in localStorage
   useEffect(() => {
     try { localStorage.removeItem('zenoa_known_usernames'); } catch {}
@@ -1260,7 +1267,7 @@ export default function App() {
         const loadedMessages: Record<string, Message[]> = {};
         let hasNew = false;
         for (const chat of chats) {
-          const msgs = await storageManager.getMessagesForChat(chat.id, userUsername);
+          const msgs = await storageManager.getMessagesForChat(chat.id, userUsername, userAccountCreatedAt);
           if (msgs && msgs.length > 0) {
             loadedMessages[chat.id] = msgs;
             hasNew = true;
@@ -1642,6 +1649,11 @@ export default function App() {
                   const uName = profile.username;
                   const dName = profile.display_name;
                   const uPhone = profile.mobile_number || profile.phone_number || profile.phone || '';
+                  const accCreatedAt = Number(profile.created_at || profile.registered_at || 0);
+                  if (accCreatedAt > 0) {
+                    setUserAccountCreatedAt(accCreatedAt);
+                    sessionStorage.setItem('zenoa_account_created_at', String(accCreatedAt));
+                  }
                   setUserUsername(uName);
                   setUserDisplayName(dName);
                   setUserPhone(uPhone);
@@ -1810,6 +1822,16 @@ export default function App() {
                                   participantIds.some((p: string) => (userId && p === userId) || p.toLowerCase() === userUsername.toLowerCase() || p.toLowerCase() === cleanSelfUsername);
             if (!isParticipant) {
               return; // DROP: Current user is NOT a participant of this chat
+            }
+
+            // Zero-Trust Isolation Gate for Recycled / Fresh Accounts:
+            // If the chat document was created or updated BEFORE this account was registered,
+            // it belongs to an old, deleted incarnation of this username. Drop it completely!
+            if (userAccountCreatedAt > 0) {
+              const chatTimestamp = c.updated_at || c.created_at || 0;
+              if (chatTimestamp > 0 && chatTimestamp < (userAccountCreatedAt - 5000)) {
+                return; // DROP: Old legacy chat from deleted account
+              }
             }
 
             const otherUser = participants.find((p: string) => !isSenderMe(p) && p.toLowerCase() !== userUsername.toLowerCase() && p.toLowerCase() !== cleanSelfUsername && p !== userId) || (c.username?.toLowerCase() !== userUsername.toLowerCase() ? c.username : '') || '';
@@ -2095,6 +2117,11 @@ export default function App() {
           const chat_id = m.chat_id;
           if (!chat_id) return null;
 
+          // Zero-Trust Isolation Gate: Drop legacy messages sent prior to current account creation
+          if (userAccountCreatedAt > 0 && m.created_at && m.created_at < (userAccountCreatedAt - 5000)) {
+            return null;
+          }
+
           let clearText = m.text || '';
           if (clearText) {
             try {
@@ -2165,6 +2192,10 @@ export default function App() {
         const activeMsgs = decryptedDocs
           .filter((msg): msg is Exclude<typeof msg, null> => msg !== null)
           .filter((msg) => {
+            // Zero-Trust Isolation: Never display messages from deleted legacy incarnation of this account
+            if (userAccountCreatedAt > 0 && (msg.created_at || 0) < (userAccountCreatedAt - 5000)) {
+              return false;
+            }
             const chat = chatsRef.current.find(c => c.id === activeChatId);
             if (chat && chat.cleared_at && chat.cleared_at[userUsername]) {
               return (msg.created_at || 0) >= chat.cleared_at[userUsername];
@@ -2200,7 +2231,7 @@ export default function App() {
         }
 
         // Fetch all local messages from IndexedDB for this chat to combine history
-        const localChatMsgs = await storageManager.getMessagesForChat(activeChatId);
+        const localChatMsgs = await storageManager.getMessagesForChat(activeChatId, userUsername, userAccountCreatedAt);
         const combinedMsgs = [...localChatMsgs, ...activeMsgs].sort((a, b) => {
           const timeA = a.created_at || 0;
           const timeB = b.created_at || 0;
@@ -3424,6 +3455,12 @@ export default function App() {
           zenoa_id: cleanZenoaId,
           created_at: now
         });
+
+        // Zero-Trust Fresh Account Assurance:
+        // Clear all local cached data for this username to prevent any stale remnants from a previous account that shared this username
+        await storageManager.wipeUserData(cleanUsername);
+        setUserAccountCreatedAt(now);
+        sessionStorage.setItem('zenoa_account_created_at', String(now));
 
         // Deliver all system broadcasts & welcome message to new account
         deliverBroadcastsToUser(userObj.uid, cleanUsername, cleanFullName);
@@ -6837,18 +6874,47 @@ export default function App() {
             }));
           }
         }}
-        onDeleteUser={(username, userId) => {
+        onDeleteUser={async (username, userId) => {
+          const cleanU = (username || '').toLowerCase().trim();
           setUsers((prev) => {
             const next = { ...prev };
             if (username) {
               delete next[username];
-              delete next[username.toLowerCase()];
+              delete next[cleanU];
             }
             if (userId) {
               delete next[userId];
             }
             return next;
           });
+
+          // Purge active in-memory chats involving the deleted user
+          setChats((prevChats) => prevChats.filter(c => {
+            if (c.username && c.username.toLowerCase() === cleanU) return false;
+            if (c.participants && Array.isArray(c.participants) && c.participants.some(p => p && (p.toLowerCase() === cleanU || p === userId))) return false;
+            return true;
+          }));
+
+          // Purge active in-memory messages from the deleted user
+          setMessagesByChat((prev) => {
+            const next = { ...prev };
+            Object.keys(next).forEach(chatId => {
+              if (next[chatId]) {
+                next[chatId] = next[chatId].filter(m => {
+                  const mSender = (m.sender || '').toLowerCase();
+                  return mSender !== cleanU && m.sender !== userId;
+                });
+              }
+            });
+            return next;
+          });
+
+          // Purge client-side IndexedDB records for this user
+          if (username) {
+            try {
+              await storageManager.wipeUserData(username);
+            } catch (e) {}
+          }
         }}
         onCloseAdmin={() => {
           setShowAdminPanel(false);

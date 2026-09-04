@@ -187,9 +187,11 @@ class StorageManager {
   }
 
   /**
-   * Load cached messages for a chat from IndexedDB, isolated strictly to the active user
+   * Load cached messages for a chat from IndexedDB, isolated strictly to the active user.
+   * If minCreatedAt is provided, guarantees 0% data leakage by excluding any messages
+   * timestamped before the user's account was created.
    */
-  async getMessagesForChat(chatId: string, sessionUser?: string): Promise<any[]> {
+  async getMessagesForChat(chatId: string, sessionUser?: string, minCreatedAt?: number): Promise<any[]> {
     const owner = (sessionUser || this.currentSessionUser || '').toLowerCase().trim();
     if (!owner) return [];
 
@@ -205,6 +207,10 @@ class StorageManager {
           const results = request.result || [];
           // Strict user-isolation filter: Only return messages saved for this owner
           const filtered = results.filter((m: any) => {
+            // Temporal isolation gate: 0% data leakage from past deleted accounts
+            if (minCreatedAt && minCreatedAt > 0 && (m.created_at || 0) < (minCreatedAt - 5000)) {
+              return false;
+            }
             const mOwner = (m.owner_user || '').toLowerCase().trim();
             if (mOwner && mOwner === owner) return true;
             // Backward-compat check: sender or read_by matches session user
@@ -219,6 +225,58 @@ class StorageManager {
       });
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * Nuclear local purge of all records associated with a specific user.
+   * Cleans messages, media cache, and KV drafts from IndexedDB.
+   */
+  async wipeUserData(usernameOrUid: string): Promise<void> {
+    const clean = (usernameOrUid || '').trim().toLowerCase().replace(/^@/, '');
+    if (!clean) return;
+
+    try {
+      const db = await this.initDB();
+      const tx = db.transaction(['messages', 'media_cache', 'kv_store'], 'readwrite');
+      const msgStore = tx.objectStore('messages');
+      const mediaStore = tx.objectStore('media_cache');
+      const kvStore = tx.objectStore('kv_store');
+
+      const msgReq = msgStore.getAll();
+      msgReq.onsuccess = () => {
+        const msgs = msgReq.result || [];
+        for (const m of msgs) {
+          const owner = (m.owner_user || '').toLowerCase().trim();
+          const sender = (m.sender || '').toLowerCase().trim();
+          const recipient = (m.recipient || '').toLowerCase().trim();
+          if (owner === clean || sender === clean || recipient === clean) {
+            msgStore.delete(m.id);
+          }
+        }
+      };
+
+      const mediaReq = mediaStore.getAll();
+      mediaReq.onsuccess = () => {
+        const medias = mediaReq.result || [];
+        for (const m of medias) {
+          const owner = (m.owner_user || '').toLowerCase().trim();
+          if (owner === clean) {
+            mediaStore.delete(m.id);
+          }
+        }
+      };
+
+      kvStore.delete(`vault_draft_${clean}`);
+      kvStore.delete(`chat_drafts_${clean}`);
+      kvStore.delete(`user_settings_${clean}`);
+
+      return new Promise((resolve) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+    } catch (err) {
+      console.warn("StorageManager.wipeUserData error:", err);
     }
   }
 

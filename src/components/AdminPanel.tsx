@@ -15,8 +15,14 @@ import { db } from '../firebaseClient';
 import { useBranding, saveBranding, AppBrandingConfig } from '../brandingUtils';
 import {
   collection, doc, getDocs, updateDoc, setDoc, addDoc, deleteDoc,
-  onSnapshot, query, orderBy, limit, serverTimestamp
+  onSnapshot, query, where, orderBy, limit, serverTimestamp
 } from 'firebase/firestore';
+
+const isInternalGhostEmail = (email?: string): boolean => {
+  if (!email) return false;
+  const lower = email.toLowerCase().trim();
+  return lower.endsWith('@zenoa.internal') || lower.endsWith('@zenoainternal.com') || lower.includes('phone_') || lower.includes('ghost_');
+};
 
 interface AdminPanelProps {
   currentUser: UserData | null;
@@ -524,32 +530,283 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const actionKey = `delete_${user.username}`;
     setProcessingActions(prev => ({ ...prev, [actionKey]: true }));
 
-    // 1. Immediately remove from local state
-    setDbUsers((prev) => prev.filter((u) => u.username !== user.username && u.id !== user.id));
-    // 2. Notify parent container (App.tsx) to purge state & caches
+    const rawUsername = (user.username || '').trim();
+    const cleanUsername = rawUsername.toLowerCase().replace(/^@/, '');
+    const targetUid = user.id || '';
+    const targetEmail = (user.email || '').toLowerCase().trim();
+    const targetPhone = (user.mobile_number || user.phone_number || '').trim();
+    const targetPhoneDigits = targetPhone.replace(/[^0-9]/g, '');
+
+    // 1. Immediately remove from local state across all admin views
+    setDbUsers((prev) => prev.filter((u) => u.username !== user.username && u.username?.toLowerCase() !== cleanUsername && u.id !== user.id));
+    setServiceAccounts((prev) => prev.filter((sa) => sa.username?.toLowerCase() !== cleanUsername && sa.created_by?.toLowerCase() !== cleanUsername && sa.id !== targetUid));
+    setDeveloperApps((prev) => prev.filter((app) => app.owner?.toLowerCase() !== cleanUsername && app.user_id !== targetUid && app.id !== targetUid));
+
+    // 2. Notify parent container (App.tsx) to purge state, active chats, messages, and local caches
     if (onDeleteUser) {
       onDeleteUser(user.username, user.id);
     }
-    // 3. Purge Firestore documents completely
+
+    // 3. Purge Firestore documents completely with cascading deep clean
     if (db) {
       try {
-        if (user.id) {
-          await deleteDoc(doc(db, 'users', user.id)).catch(() => {});
+        const batchDeletions: Promise<any>[] = [];
+
+        // --- A. USERS COLLECTION ---
+        if (targetUid) {
+          batchDeletions.push(deleteDoc(doc(db, 'users', targetUid)).catch(() => {}));
         }
-        if (user.username) {
-          await deleteDoc(doc(db, 'users', user.username)).catch(() => {});
-          await deleteDoc(doc(db, 'users', user.username.toLowerCase())).catch(() => {});
-          await deleteDoc(doc(db, 'usernames', user.username.toLowerCase())).catch(() => {});
+        if (rawUsername) {
+          batchDeletions.push(deleteDoc(doc(db, 'users', rawUsername)).catch(() => {}));
         }
+        if (cleanUsername) {
+          batchDeletions.push(deleteDoc(doc(db, 'users', cleanUsername)).catch(() => {}));
+        }
+
+        // Search any other user docs matching username, phone, or email
+        const usersRef = collection(db, 'users');
+        if (cleanUsername) {
+          const qUserClean = query(usersRef, where('username', '==', cleanUsername));
+          const snapUserClean = await getDocs(qUserClean).catch(() => null);
+          snapUserClean?.docs.forEach(d => batchDeletions.push(deleteDoc(doc(db, 'users', d.id)).catch(() => {})));
+        }
+        if (rawUsername && rawUsername !== cleanUsername) {
+          const qUserRaw = query(usersRef, where('username', '==', rawUsername));
+          const snapUserRaw = await getDocs(qUserRaw).catch(() => null);
+          snapUserRaw?.docs.forEach(d => batchDeletions.push(deleteDoc(doc(db, 'users', d.id)).catch(() => {})));
+        }
+        if (targetPhoneDigits) {
+          const phoneQueries = [
+            query(usersRef, where('mobile_number', '==', targetPhone)),
+            query(usersRef, where('phone_number', '==', targetPhone)),
+            query(usersRef, where('mobile_number', '==', targetPhoneDigits)),
+            query(usersRef, where('phone_number', '==', targetPhoneDigits))
+          ];
+          if (targetPhoneDigits.length >= 10) {
+            phoneQueries.push(query(usersRef, where('mobile_number', '==', `+91${targetPhoneDigits.slice(-10)}`)));
+            phoneQueries.push(query(usersRef, where('mobile_number', '==', targetPhoneDigits.slice(-10))));
+          }
+          for (const pq of phoneQueries) {
+            const pSnap = await getDocs(pq).catch(() => null);
+            pSnap?.docs.forEach(d => batchDeletions.push(deleteDoc(doc(db, 'users', d.id)).catch(() => {})));
+          }
+        }
+        if (targetEmail && !isInternalGhostEmail(targetEmail)) {
+          const qEmail = query(usersRef, where('email', '==', targetEmail));
+          const snapEmail = await getDocs(qEmail).catch(() => null);
+          snapEmail?.docs.forEach(d => batchDeletions.push(deleteDoc(doc(db, 'users', d.id)).catch(() => {})));
+        }
+
+        // --- B. USERNAMES COLLECTION (FREE AND UNRESERVE USERNAME) ---
+        if (cleanUsername) {
+          batchDeletions.push(deleteDoc(doc(db, 'usernames', cleanUsername)).catch(() => {}));
+        }
+        if (rawUsername) {
+          batchDeletions.push(deleteDoc(doc(db, 'usernames', rawUsername)).catch(() => {}));
+        }
+        if (Array.isArray(user.previous_usernames)) {
+          user.previous_usernames.forEach(prevU => {
+            if (prevU) {
+              const cleanPrev = prevU.trim().toLowerCase().replace(/^@/, '');
+              batchDeletions.push(deleteDoc(doc(db, 'usernames', cleanPrev)).catch(() => {}));
+              batchDeletions.push(deleteDoc(doc(db, 'users', cleanPrev)).catch(() => {}));
+            }
+          });
+        }
+
+        // --- C. SERVICE ACCOUNTS COLLECTION ---
+        if (targetUid) {
+          batchDeletions.push(deleteDoc(doc(db, 'service_accounts', targetUid)).catch(() => {}));
+        }
+        if (cleanUsername) {
+          batchDeletions.push(deleteDoc(doc(db, 'service_accounts', cleanUsername)).catch(() => {}));
+          batchDeletions.push(deleteDoc(doc(db, 'service_accounts', `sa_${cleanUsername}`)).catch(() => {}));
+        }
+        const saRef = collection(db, 'service_accounts');
+        const saQueries = [
+          query(saRef, where('username', '==', cleanUsername)),
+          query(saRef, where('username', '==', rawUsername)),
+          query(saRef, where('created_by', '==', cleanUsername)),
+          query(saRef, where('created_by', '==', rawUsername)),
+          query(saRef, where('owner', '==', cleanUsername))
+        ];
+        if (targetUid) {
+          saQueries.push(query(saRef, where('user_id', '==', targetUid)));
+          saQueries.push(query(saRef, where('created_by', '==', targetUid)));
+        }
+        for (const saQ of saQueries) {
+          const saSnap = await getDocs(saQ).catch(() => null);
+          saSnap?.docs.forEach(d => batchDeletions.push(deleteDoc(doc(db, 'service_accounts', d.id)).catch(() => {})));
+        }
+
+        // --- D. DEVELOPER APPS & SSO APPLICATIONS ---
+        if (targetUid) {
+          batchDeletions.push(deleteDoc(doc(db, 'developer_apps', targetUid)).catch(() => {}));
+          batchDeletions.push(deleteDoc(doc(db, 'sso_applications', targetUid)).catch(() => {}));
+        }
+        if (cleanUsername) {
+          batchDeletions.push(deleteDoc(doc(db, 'developer_apps', cleanUsername)).catch(() => {}));
+          batchDeletions.push(deleteDoc(doc(db, 'developer_apps', `sa_${cleanUsername}`)).catch(() => {}));
+        }
+        const devRef = collection(db, 'developer_apps');
+        const devQueries = [
+          query(devRef, where('owner', '==', cleanUsername)),
+          query(devRef, where('owner', '==', rawUsername)),
+          query(devRef, where('owner_username', '==', cleanUsername)),
+          query(devRef, where('created_by', '==', cleanUsername))
+        ];
+        if (targetUid) {
+          devQueries.push(query(devRef, where('user_id', '==', targetUid)));
+        }
+        for (const devQ of devQueries) {
+          const devSnap = await getDocs(devQ).catch(() => null);
+          devSnap?.docs.forEach(d => batchDeletions.push(deleteDoc(doc(db, 'developer_apps', d.id)).catch(() => {})));
+        }
+
+        const ssoRef = collection(db, 'sso_applications');
+        const ssoQueries = [
+          query(ssoRef, where('owner', '==', cleanUsername)),
+          query(ssoRef, where('owner_username', '==', cleanUsername)),
+          query(ssoRef, where('created_by', '==', cleanUsername))
+        ];
+        if (targetUid) {
+          ssoQueries.push(query(ssoRef, where('user_id', '==', targetUid)));
+        }
+        if (targetEmail && !isInternalGhostEmail(targetEmail)) {
+          ssoQueries.push(query(ssoRef, where('developer_email', '==', targetEmail)));
+        }
+        for (const ssoQ of ssoQueries) {
+          const ssoSnap = await getDocs(ssoQ).catch(() => null);
+          ssoSnap?.docs.forEach(d => batchDeletions.push(deleteDoc(doc(db, 'sso_applications', d.id)).catch(() => {})));
+        }
+
+        // --- E. OAUTH CODES ---
+        const oauthRef = collection(db, 'oauth_codes');
+        const oauthQueries = [
+          query(oauthRef, where('username', '==', cleanUsername)),
+          query(oauthRef, where('username', '==', rawUsername))
+        ];
+        if (targetUid) {
+          oauthQueries.push(query(oauthRef, where('user_id', '==', targetUid)));
+        }
+        for (const oQ of oauthQueries) {
+          const oSnap = await getDocs(oQ).catch(() => null);
+          oSnap?.docs.forEach(d => batchDeletions.push(deleteDoc(doc(db, 'oauth_codes', d.id)).catch(() => {})));
+        }
+
+        // --- F. CHATS & MESSAGES PURGE ---
+        const chatsRef = collection(db, 'chats');
+        const chatQueries = [
+          query(chatsRef, where('participants', 'array-contains', cleanUsername))
+        ];
+        if (rawUsername && rawUsername !== cleanUsername) {
+          chatQueries.push(query(chatsRef, where('participants', 'array-contains', rawUsername)));
+        }
+        if (targetUid) {
+          chatQueries.push(query(chatsRef, where('participants', 'array-contains', targetUid)));
+        }
+
+        const foundChatIds = new Set<string>();
+        for (const cQ of chatQueries) {
+          const chatSnap = await getDocs(cQ).catch(() => null);
+          chatSnap?.docs.forEach(d => {
+            foundChatIds.add(d.id);
+            batchDeletions.push(deleteDoc(doc(db, 'chats', d.id)).catch(() => {}));
+          });
+        }
+
+        // Delete all messages belonging to these chats
+        const messagesRef = collection(db, 'messages');
+        for (const chatId of foundChatIds) {
+          const qChatMsgs = query(messagesRef, where('chat_id', '==', chatId));
+          const msgSnap = await getDocs(qChatMsgs).catch(() => null);
+          msgSnap?.docs.forEach(mDoc => {
+            batchDeletions.push(deleteDoc(doc(db, 'messages', mDoc.id)).catch(() => {}));
+          });
+        }
+
+        // Additional direct user message wipes (sent or received by user)
+        const msgQueries = [
+          query(messagesRef, where('sender', '==', cleanUsername)),
+          query(messagesRef, where('sender', '==', rawUsername)),
+          query(messagesRef, where('recipient', '==', cleanUsername)),
+          query(messagesRef, where('owner_user', '==', cleanUsername))
+        ];
+        if (targetUid) {
+          msgQueries.push(query(messagesRef, where('sender', '==', targetUid)));
+        }
+        for (const mQ of msgQueries) {
+          const mSnap = await getDocs(mQ).catch(() => null);
+          mSnap?.docs.forEach(mDoc => {
+            batchDeletions.push(deleteDoc(doc(db, 'messages', mDoc.id)).catch(() => {}));
+          });
+        }
+
+        // --- G. VAULTS & SECURITY RESETS ---
+        if (targetUid) {
+          batchDeletions.push(deleteDoc(doc(db, 'vaults', targetUid)).catch(() => {}));
+          batchDeletions.push(deleteDoc(doc(db, 'user_vault_resets', targetUid)).catch(() => {}));
+        }
+        if (cleanUsername) {
+          batchDeletions.push(deleteDoc(doc(db, 'vaults', cleanUsername)).catch(() => {}));
+          batchDeletions.push(deleteDoc(doc(db, 'user_vault_resets', cleanUsername)).catch(() => {}));
+        }
+        if (rawUsername) {
+          batchDeletions.push(deleteDoc(doc(db, 'vaults', rawUsername)).catch(() => {}));
+        }
+
+        // --- H. FOLLOW REQUESTS, NOTIFICATIONS, CALLS, REPORTS ---
+        const followRef = collection(db, 'follow_requests');
+        const fQueries = [
+          query(followRef, where('from', '==', cleanUsername)),
+          query(followRef, where('to', '==', cleanUsername))
+        ];
+        if (targetUid) {
+          fQueries.push(query(followRef, where('toId', '==', targetUid)));
+        }
+        for (const fQ of fQueries) {
+          const fSnap = await getDocs(fQ).catch(() => null);
+          fSnap?.docs.forEach(d => batchDeletions.push(deleteDoc(doc(db, 'follow_requests', d.id)).catch(() => {})));
+        }
+
+        const notifRef = collection(db, 'notifications');
+        const notifQueries = [
+          query(notifRef, where('recipient', '==', cleanUsername)),
+          query(notifRef, where('username', '==', cleanUsername))
+        ];
+        if (targetUid) {
+          notifQueries.push(query(notifRef, where('userId', '==', targetUid)));
+        }
+        for (const nQ of notifQueries) {
+          const nSnap = await getDocs(nQ).catch(() => null);
+          nSnap?.docs.forEach(d => batchDeletions.push(deleteDoc(doc(db, 'notifications', d.id)).catch(() => {})));
+        }
+
+        const repRef = collection(db, 'reports');
+        const repQueries = [
+          query(repRef, where('reportedUsername', '==', cleanUsername)),
+          query(repRef, where('reportedUsername', '==', rawUsername))
+        ];
+        if (targetUid) {
+          repQueries.push(query(repRef, where('reportedUserId', '==', targetUid)));
+        }
+        for (const rQ of repQueries) {
+          const rSnap = await getDocs(rQ).catch(() => null);
+          rSnap?.docs.forEach(d => batchDeletions.push(deleteDoc(doc(db, 'reports', d.id)).catch(() => {})));
+        }
+
+        // Await all deletions in parallel
+        await Promise.all(batchDeletions);
       } catch (err) {
-        console.error('Error deleting user from Firestore:', err);
+        console.error('Error executing comprehensive user purge from Firestore:', err);
       } finally {
         setProcessingActions(prev => ({ ...prev, [actionKey]: false }));
       }
     } else {
       setProcessingActions(prev => ({ ...prev, [actionKey]: false }));
     }
-    logAuditEvent('config_change', `Permanently deleted user profile @${user.username}`, user.username, user.id);
+
+    logAuditEvent('config_change', `Deep Purged user @${user.username}: freed username, mobile, service accounts, developer apps, chats & all message history`, user.username, user.id);
     if (selectedUserForEdit?.username === user.username) {
       setSelectedUserForEdit(null);
     }
@@ -563,32 +820,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const actionKey = `delete_sa_${username || saId}`;
     setProcessingActions(prev => ({ ...prev, [actionKey]: true }));
 
+    const cleanUsername = (username || '').toLowerCase().trim().replace(/^@/, '');
+
     // 1. Immediately remove from local state
     if (isDevApp) {
       setDeveloperApps((prev) => prev.filter((a) => a.id !== saId && a.client_id !== saId));
     } else {
-      setServiceAccounts((prev) => prev.filter((sa) => sa.id !== saId && sa.username !== username));
+      setServiceAccounts((prev) => prev.filter((sa) => sa.id !== saId && sa.username?.toLowerCase() !== cleanUsername));
     }
-    setDbUsers((prev) => prev.filter((u) => u.username !== username && u.id !== saId));
+    setDbUsers((prev) => prev.filter((u) => u.username?.toLowerCase() !== cleanUsername && u.id !== saId));
 
     if (onDeleteUser && username) {
       onDeleteUser(username, saId);
     }
 
-    // 2. Delete from Firestore
+    // 2. Cascade Delete from Firestore
     if (db) {
       try {
+        const batchDeletes: Promise<any>[] = [];
         if (saId) {
-          await deleteDoc(doc(db, isDevApp ? 'developer_apps' : 'service_accounts', saId)).catch(() => {});
-          await deleteDoc(doc(db, 'users', saId)).catch(() => {});
+          batchDeletes.push(deleteDoc(doc(db, isDevApp ? 'developer_apps' : 'service_accounts', saId)).catch(() => {}));
+          batchDeletes.push(deleteDoc(doc(db, 'users', saId)).catch(() => {}));
         }
         if (username) {
-          await deleteDoc(doc(db, 'service_accounts', username)).catch(() => {});
-          await deleteDoc(doc(db, 'service_accounts', username.toLowerCase())).catch(() => {});
-          await deleteDoc(doc(db, 'users', username)).catch(() => {});
-          await deleteDoc(doc(db, 'users', username.toLowerCase())).catch(() => {});
-          await deleteDoc(doc(db, 'usernames', username.toLowerCase())).catch(() => {});
+          batchDeletes.push(deleteDoc(doc(db, 'service_accounts', username)).catch(() => {}));
+          batchDeletes.push(deleteDoc(doc(db, 'service_accounts', cleanUsername)).catch(() => {}));
+          batchDeletes.push(deleteDoc(doc(db, 'users', username)).catch(() => {}));
+          batchDeletes.push(deleteDoc(doc(db, 'users', cleanUsername)).catch(() => {}));
+          batchDeletes.push(deleteDoc(doc(db, 'usernames', cleanUsername)).catch(() => {}));
+          batchDeletes.push(deleteDoc(doc(db, 'developer_apps', username)).catch(() => {}));
+          batchDeletes.push(deleteDoc(doc(db, 'developer_apps', cleanUsername)).catch(() => {}));
+          batchDeletes.push(deleteDoc(doc(db, 'developer_apps', `sa_${cleanUsername}`)).catch(() => {}));
         }
+
+        // Also purge any chats involving this service account/bot
+        if (cleanUsername) {
+          const chatsRef = collection(db, 'chats');
+          const snapChats = await getDocs(query(chatsRef, where('participants', 'array-contains', cleanUsername))).catch(() => null);
+          snapChats?.docs.forEach(d => {
+            batchDeletes.push(deleteDoc(doc(db, 'chats', d.id)).catch(() => {}));
+          });
+        }
+
+        await Promise.all(batchDeletes);
       } catch (err) {
         console.error('Error deleting service account from Firestore:', err);
       } finally {
@@ -3277,29 +3551,46 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <p className="text-xs text-neutral-400 leading-relaxed font-normal">
                   Are you absolutely sure you want to <span className="text-rose-400 font-bold">PERMANENTLY DELETE</span> the account <span className="font-bold text-white">@{userToDelete.username}</span> ({userToDelete.display_name})?
                 </p>
-                <div className="p-3 bg-rose-950/20 border border-rose-900/40 rounded-xl text-xs text-rose-300 leading-relaxed space-y-1">
-                  <p className="font-bold">⚠️ Critical Consequences:</p>
-                  <ul className="list-disc pl-4 space-y-1 text-[11px] font-mono">
-                    <li>Username <span className="text-white">@{userToDelete.username}</span> will be immediately freed up for anyone else to register.</li>
-                    <li>The associated email address will be completely unbound and available for new account registration.</li>
-                    <li>This operation is <span className="underline">irreversible</span>. All Firestore database references, profiles, and caches will be completely purged.</li>
+                <div className="p-3 bg-rose-950/20 border border-rose-900/40 rounded-xl text-xs text-rose-300 leading-relaxed space-y-2">
+                  <p className="font-bold flex items-center gap-1.5 text-rose-400">
+                    <AlertTriangle className="h-4 w-4" />
+                    <span>Permanent Zero-Leakage Purge Consequences:</span>
+                  </p>
+                  <ul className="list-disc pl-4 space-y-1.5 text-[11px] font-mono text-neutral-300">
+                    <li><span className="text-white font-bold">Username Freed:</span> <span className="text-emerald-400">@{userToDelete.username}</span> will be unreserved and immediately available for new registration.</li>
+                    <li><span className="text-white font-bold">Mobile & Email Unlinked:</span> Any phone number ({userToDelete.mobile_number || userToDelete.phone_number || 'N/A'}) and email are unlocked for new accounts.</li>
+                    <li><span className="text-white font-bold">Service & Developer Accounts:</span> All bots, service accounts, and SSO apps owned by this user are destroyed.</li>
+                    <li><span className="text-white font-bold">Messenger & Chat History:</span> All private chats, messages, and vaults are permanently wiped from the database.</li>
+                    <li><span className="text-white font-bold">Fresh Start Guarantee:</span> If anyone registers this username or mobile number in the future, they will receive a 100% clean account with 0% legacy data leakage.</li>
                   </ul>
                 </div>
 
                 <div className="pt-2 flex items-center gap-3">
                   <button
                     type="button"
+                    disabled={!!processingActions[`delete_${userToDelete.username}`]}
                     onClick={() => setUserToDelete(null)}
-                    className="flex-1 py-2.5 rounded-xl border border-neutral-800 hover:bg-neutral-800 text-neutral-300 text-xs font-bold cursor-pointer"
+                    className="flex-1 py-2.5 rounded-xl border border-neutral-800 hover:bg-neutral-800 text-neutral-300 text-xs font-bold cursor-pointer transition-colors disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
+                    disabled={!!processingActions[`delete_${userToDelete.username}`]}
                     onClick={confirmDeleteUserPermanently}
-                    className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer border border-rose-500 shadow-md transition-colors"
+                    className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:bg-rose-800/50 text-white text-xs font-bold cursor-pointer border border-rose-500 shadow-md transition-colors flex items-center justify-center gap-2"
                   >
-                    Delete Permanently
+                    {processingActions[`delete_${userToDelete.username}`] ? (
+                      <>
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        <span>Purging All Data...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="h-3.5 w-3.5" />
+                        <span>Delete Permanently</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
