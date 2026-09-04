@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   BellOff, Users, Bell, Lock, Share2, Shield, ImageIcon, User, Clock, 
   Palette, RefreshCw, Edit3, Camera, Play, ChevronRight, Search, 
-  ChevronLeft, MoreHorizontal, Edit2, Video, ShieldCheck, Phone
+  ChevronLeft, MoreHorizontal, Edit2, Video, ShieldCheck, Phone, Settings
 } from 'lucide-react';
 import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
 import { UserData, Message, FollowRequest } from '../types';
@@ -159,11 +159,10 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                               {renderAvatar(selectedUser?.avatar_seed, selectedUser?.display_name, selectedUser?.avatar_url, 'h-24 w-24 text-3xl')}
                             </div>
                             <div className="space-y-1">
-                              <h2 className="text-2xl font-black text-neutral-900 dark:text-white">@{selectedUser?.username}</h2>
-                              <p className="text-xs font-semibold text-neutral-500 uppercase tracking-widest flex items-center justify-center gap-1.5">
-                                <Shield className="h-3.5 w-3.5" />
-                                Private Account
-                              </p>
+                              <h2 className="text-2xl font-black text-neutral-900 dark:text-white flex items-center justify-center gap-1.5">
+                                <Lock className="h-5 w-5 text-neutral-400 shrink-0" />
+                                <span>{selectedUser?.display_name || selectedUser?.username}</span>
+                              </h2>
                             </div>
                           </div>
 
@@ -249,7 +248,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                               </button>
                             </div>
 
-                            {/* User Name & Handle */}
+                            {/* Full Display Name (Username is strictly in the header) */}
                             <div className="space-y-1">
                               <h2 className="text-2xl font-black tracking-tight text-neutral-900 dark:text-white flex items-center justify-center gap-2">
                                 <span>{userDisplayName || userUsername}</span>
@@ -257,9 +256,6 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                                   <PurpleVerifiedBadge size="sm"  />
                                 )}
                               </h2>
-                              <p className="text-xs font-mono font-semibold text-neutral-400 dark:text-neutral-500">
-                                @{userUsername}
-                              </p>
                             </div>
 
                             {/* Interactive Metric Showcase Cards */}
@@ -349,7 +345,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                             className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl hover:bg-neutral-100 dark:hover:bg-neutral-800/60 transition-colors text-left cursor-pointer group"
                           >
                             <div className="h-9 w-9 rounded-xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-neutral-800 dark:text-neutral-200 shrink-0 font-bold">
-                              \u2699\uFE0F
+                              <Settings className="h-5 w-5 stroke-[1.8]" />
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-bold text-neutral-900 dark:text-white">Account Settings</p>
@@ -541,7 +537,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-neutral-900 dark:text-white">Privacy & safety</p>
-                          <p className="text-xs text-neutral-500 dark:text-neutral-400">{isServiceAccount(users[targetUsernameLower], targetUsername) ? 'Business Account \u2022 Verified Developer' : 'End-to-end encrypted \u2022 Safety controls'}</p>
+                          <p className="text-xs text-neutral-500 dark:text-neutral-400">{isServiceAccount(users[targetUsernameLower], targetUsername) ? 'Business Account • Verified Developer' : 'End-to-end encrypted • Safety controls'}</p>
                         </div>
                         <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
                       </button>

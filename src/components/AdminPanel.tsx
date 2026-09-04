@@ -795,6 +795,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           rSnap?.docs.forEach(d => batchDeletions.push(deleteDoc(doc(db, 'reports', d.id)).catch(() => {})));
         }
 
+        // --- I. CALLS PURGE ---
+        const callsRef = collection(db, 'calls');
+        const callQueries = [
+          query(callsRef, where('caller_username', '==', cleanUsername)),
+          query(callsRef, where('receiver_username', '==', cleanUsername)),
+          query(callsRef, where('caller_username', '==', rawUsername)),
+          query(callsRef, where('receiver_username', '==', rawUsername))
+        ];
+        if (targetUid) {
+          callQueries.push(query(callsRef, where('caller_id', '==', targetUid)));
+          callQueries.push(query(callsRef, where('receiver_id', '==', targetUid)));
+        }
+        for (const cQ of callQueries) {
+          const cSnap = await getDocs(cQ).catch(() => null);
+          cSnap?.docs.forEach(d => batchDeletions.push(deleteDoc(doc(db, 'calls', d.id)).catch(() => {})));
+        }
+
         // Await all deletions in parallel
         await Promise.all(batchDeletions);
       } catch (err) {

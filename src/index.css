@@ -39,3 +39,32 @@ html.dark, html.dark body, html.dark #root {
   color: #f4f4f5;
 }
 
+@keyframes marquee-running {
+  0% {
+    transform: translateX(0%);
+  }
+  15% {
+    transform: translateX(0%);
+  }
+  75% {
+    transform: translateX(calc(-100% + 140px));
+  }
+  90% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(0%);
+  }
+}
+
+.animate-marquee-running {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee-running 7s ease-in-out infinite;
+}
+
+.animate-marquee-running:hover {
+  animation-play-state: paused;
+}
+
+

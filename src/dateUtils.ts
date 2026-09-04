@@ -179,11 +179,12 @@ export function formatChatListTime(updatedAt?: number | any, fallbackStr?: strin
   if (diffDays === 1) {
     return 'Yesterday';
   }
-  if (diffDays > 1 && diffDays < 7) {
-    return targetDate.toLocaleDateString('en-US', { weekday: 'short' });
-  }
-
-  return targetDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  
+  // Format as M/D/YY (e.g., 8/27/26) matching WhatsApp realistic standard
+  const month = targetDate.getMonth() + 1;
+  const day = targetDate.getDate();
+  const yearShort = String(targetDate.getFullYear()).slice(-2);
+  return `${month}/${day}/${yearShort}`;
 }
 
 /**

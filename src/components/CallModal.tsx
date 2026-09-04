@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Phone, PhoneOff, Video, VideoOff, Mic, MicOff, 
-  Volume2, VolumeX, Shield, User, SwitchCamera, Sparkles,
+  Volume2, Volume1, VolumeX, Shield, User, SwitchCamera, Sparkles,
   AlertCircle, Radio, Check, Activity
 } from 'lucide-react';
 import { doc, setDoc, onSnapshot, updateDoc, collection, addDoc, getDoc } from 'firebase/firestore';
@@ -65,7 +65,8 @@ export const CallModal: React.FC<CallModalProps> = ({
 }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(session.type === 'voice');
-  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  // Voice calls default to false (earpiece/handset mode). Video calls default to true (speakerphone).
+  const [isSpeakerOn, setIsSpeakerOn] = useState(session.type === 'video');
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [callDuration, setCallDuration] = useState(0);
   const [micVolume, setMicVolume] = useState(0);
@@ -112,6 +113,30 @@ export const CallModal: React.FC<CallModalProps> = ({
   useEffect(() => {
     callDurationRef.current = callDuration;
   }, [callDuration]);
+
+  // Handle speakerphone / hands-free mode vs handset/earpiece mode
+  useEffect(() => {
+    if (remoteAudioRef.current) {
+      // Set volume proportional to hands-free vs earpiece mode
+      remoteAudioRef.current.volume = isSpeakerOn ? 1.0 : 0.45;
+      // Try to route output device if setSinkId is supported by browser/device
+      if ('setSinkId' in remoteAudioRef.current && typeof (remoteAudioRef.current as any).setSinkId === 'function') {
+        if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+          navigator.mediaDevices.enumerateDevices().then(devices => {
+            const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+            if (audioOutputs.length > 0) {
+              const target = isSpeakerOn
+                ? audioOutputs.find(d => d.label.toLowerCase().includes('speaker')) || audioOutputs[0]
+                : audioOutputs.find(d => d.label.toLowerCase().includes('earpiece') || d.label.toLowerCase().includes('receiver') || d.deviceId === 'default') || audioOutputs[0];
+              if (target?.deviceId) {
+                (remoteAudioRef.current as any).setSinkId(target.deviceId).catch(() => {});
+              }
+            }
+          }).catch(() => {});
+        }
+      }
+    }
+  }, [isSpeakerOn]);
 
   // Synthesized tone generator for dialing / ringing
   const startAudioTone = useCallback((mode: 'dialing' | 'ringing') => {
@@ -1032,7 +1057,7 @@ export const CallModal: React.FC<CallModalProps> = ({
         ref={remoteAudioRef} 
         autoPlay 
         playsInline 
-        muted={!isSpeakerOn}
+        muted={false}
         className="opacity-0 pointer-events-none absolute w-px h-px" 
       />
 
@@ -1396,14 +1421,14 @@ export const CallModal: React.FC<CallModalProps> = ({
               </>
             )}
 
-            {/* Speaker Toggle */}
+            {/* Speaker / Hands-free Toggle */}
             <button 
               id="btn_toggle_speaker"
               onClick={() => setIsSpeakerOn(!isSpeakerOn)}
-              className={`p-3.5 rounded-full transition-all cursor-pointer active:scale-90 ${isSpeakerOn ? 'bg-indigo-600 text-white' : 'bg-neutral-800 text-neutral-200 hover:bg-neutral-700 hover:text-white'}`}
-              title={isSpeakerOn ? 'Mute Speaker' : 'Turn Speaker On'}
+              className={`p-3.5 rounded-full transition-all cursor-pointer active:scale-90 ${isSpeakerOn ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' : 'bg-neutral-800 text-neutral-200 hover:bg-neutral-700 hover:text-white'}`}
+              title={isSpeakerOn ? 'Hands-Free (Speakerphone On - Tap for Earpiece)' : 'Earpiece Mode (Tap for Hands-Free Speakerphone)'}
             >
-              {isSpeakerOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+              {isSpeakerOn ? <Volume2 className="h-5 w-5" /> : <Volume1 className="h-5 w-5" />}
             </button>
 
             {/* Hang Up Button */}

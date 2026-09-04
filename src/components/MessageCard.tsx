@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Check, CheckCheck, MoreVertical, Maximize2, FileText, 
   MapPin, ExternalLink, Download, UserPlus, BarChart2, 
@@ -34,6 +34,9 @@ interface MessageCardProps {
   driveAccessToken?: string | null;
   isSenderVerified?: boolean;
   isSenderServiceAccount?: boolean;
+  isSelected?: boolean;
+  isInSelectionMode?: boolean;
+  onToggleSelect?: (msgId: string, mode?: 'select' | 'unselect' | 'toggle') => void;
 }
 
 const EMOJIS = ['❤️', '👍', '🔥', '😂', '🎉', '👏', '😮', '🙏'];
@@ -57,10 +60,117 @@ export const MessageCard: React.FC<MessageCardProps> = ({
   driveAccessToken,
   isSenderVerified = false,
   isSenderServiceAccount = false,
+  isSelected = false,
+  isInSelectionMode = false,
+  onToggleSelect,
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [resolvedMediaUrl, setResolvedMediaUrl] = useState<string | null>(null);
   const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string | null>(null);
+  const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const isTouchRef = useRef<boolean>(false);
+  const longPressFiredRef = useRef<boolean>(false);
+
+  const triggerSelection = (mode: 'select' | 'unselect' | 'toggle' = 'toggle') => {
+    if (onToggleSelect && !msg.deleted_for_everyone) {
+      if (typeof window !== 'undefined' && window.navigator && window.navigator.vibrate) {
+        try { window.navigator.vibrate(50); } catch (_) {}
+      }
+      onToggleSelect(msg.id, mode);
+    }
+  };
+
+  const startLongPressTimer = (x: number, y: number) => {
+    longPressFiredRef.current = false;
+    touchStartPosRef.current = { x, y };
+    if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
+    touchTimerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      triggerSelection('toggle');
+      touchTimerRef.current = null;
+    }, 280); // Butter smooth 280ms threshold
+  };
+
+  const cancelLongPressTimer = () => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    isTouchRef.current = true;
+    if (e.touches && e.touches[0]) {
+      startLongPressTimer(e.touches[0].clientX, e.touches[0].clientY);
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    cancelLongPressTimer();
+    if (longPressFiredRef.current) {
+      if (e.cancelable) e.preventDefault();
+      setTimeout(() => {
+        longPressFiredRef.current = false;
+      }, 100);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchStartPosRef.current && e.touches && e.touches[0]) {
+      const dx = Math.abs(e.touches[0].clientX - touchStartPosRef.current.x);
+      const dy = Math.abs(e.touches[0].clientY - touchStartPosRef.current.y);
+      if (dx > 12 || dy > 12) {
+        cancelLongPressTimer();
+      }
+    }
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (isTouchRef.current) return;
+    if (e.button === 0) {
+      startLongPressTimer(e.clientX, e.clientY);
+    }
+  };
+
+  const handleMouseUp = () => {
+    if (!isTouchRef.current) {
+      cancelLongPressTimer();
+      if (longPressFiredRef.current) {
+        setTimeout(() => {
+          longPressFiredRef.current = false;
+        }, 100);
+      }
+    }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    cancelLongPressTimer();
+    longPressFiredRef.current = true;
+    triggerSelection('toggle');
+    setTimeout(() => {
+      longPressFiredRef.current = false;
+    }, 100);
+  };
+
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (longPressFiredRef.current) {
+      e.stopPropagation();
+      e.preventDefault();
+      return;
+    }
+
+    if (isInSelectionMode) {
+      e.stopPropagation();
+      e.preventDefault();
+      triggerSelection('toggle');
+    }
+  };
+
+
+
   
   const isRead = Array.isArray(msg.read_by) && msg.read_by.some(u => 
     u && 
@@ -156,12 +266,18 @@ export const MessageCard: React.FC<MessageCardProps> = ({
 
   return (
     <div 
-      className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative my-0.5 max-w-full`}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        onOpenActions(msg);
-      }}
+      className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative my-0.5 max-w-full transition-all duration-200 ${
+        isSelected ? 'bg-black/15 dark:bg-white/15 backdrop-blur-xs -mx-3 px-3 py-1 rounded-xl transition-all' : ''
+      }`}
+      onClick={handleCardClick}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchMove}
+      onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
+      onContextMenu={handleContextMenu}
     >
+
       {/* Reply banner preview if replying to another message */}
       {msg.reply_to && !msg.deleted_for_everyone && (
         <div 
@@ -184,11 +300,17 @@ export const MessageCard: React.FC<MessageCardProps> = ({
       <div className="flex items-center gap-1.5 max-w-[88%] sm:max-w-md md:max-w-lg min-w-0">
         
         {/* Left Action trigger for sent messages */}
-        {isMe && (
+        {isMe && !isInSelectionMode && (
           <button
-            onClick={() => onOpenActions(msg)}
+            onClick={() => {
+              if (onToggleSelect) {
+                onToggleSelect(msg.id);
+              } else {
+                onOpenActions(msg);
+              }
+            }}
             className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-black/20 text-neutral-400 hover:text-white transition-opacity shrink-0 cursor-pointer"
-            title="Message Options"
+            title="Select Message"
           >
             <MoreVertical className="h-3.5 w-3.5" />
           </button>
@@ -196,7 +318,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
 
         {/* Message Bubble Card */}
         <div
-          className={`text-left min-w-[110px] break-words [overflow-wrap:anywhere] transition-all ${
+          className={`text-left min-w-[110px] break-words [overflow-wrap:anywhere] transition-all relative ${
             isMediaOnly ? 'p-1 bg-transparent border-0' : 'p-3 shadow-xs'
           } ${
             msg.reply_to ? 'rounded-b-2xl' : 'rounded-2xl'
@@ -210,6 +332,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                 : `${activeTheme.bubble.receivedBg || 'bg-white dark:bg-neutral-900'} ${activeTheme.bubble.receivedText || 'text-neutral-900 dark:text-neutral-100'} rounded-tl-xs ${activeTheme.bubble.borderStyle || 'border border-neutral-200/70 dark:border-neutral-800'} shadow-neutral-900/5`
           }`}
         >
+
           {/* SENDER NAME AT TOP INSIDE CARD (Group chats only) */}
           {!isMe && isGroup && isFirstInGroup && !msg.deleted_for_everyone && (
             <div className="flex items-center gap-1 mb-1 pb-0.5 border-b border-black/5 dark:border-white/5 select-none">
@@ -249,11 +372,24 @@ export const MessageCard: React.FC<MessageCardProps> = ({
               {/* PHOTO / IMAGE ATTACHMENT */}
               {msg.type === 'image' && displayMediaUrl && (
                 <div 
-                  onClick={() => onOpenMediaPlayer('image', displayMediaUrl!, {
-                    title: msg.file_name || 'Photo Attachment',
-                    quality: (msg.media_quality === 'hd' || isSenderServiceAccount) ? 'HD High' : 'Standard',
-                    senderName,
-                  })}
+                  onClick={(e) => {
+                    if (longPressFiredRef.current) {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      return;
+                    }
+                    if (isInSelectionMode) {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      if (onToggleSelect) onToggleSelect(msg.id, 'toggle');
+                      return;
+                    }
+                    onOpenMediaPlayer('image', displayMediaUrl!, {
+                      title: msg.file_name || 'Photo Attachment',
+                      quality: (msg.media_quality === 'hd' || isSenderServiceAccount) ? 'HD High' : 'Standard',
+                      senderName,
+                    });
+                  }}
                   className={`relative rounded-2xl overflow-hidden ${isSenderServiceAccount ? 'max-w-md' : 'max-w-xs'} mb-1 group/media cursor-pointer border border-neutral-200/50 dark:border-neutral-800/80 shadow-xs hover:shadow-md transition-all`}
                 >
                   <img 
@@ -281,6 +417,13 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                     fileName={msg.file_name || 'Shared Video'}
                     isMe={isMe}
                     onExpand={() => {
+                      if (longPressFiredRef.current) {
+                        return;
+                      }
+                      if (isInSelectionMode) {
+                        if (onToggleSelect) onToggleSelect(msg.id, 'toggle');
+                        return;
+                      }
                       onOpenMediaPlayer('video', displayMediaUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', {
                         title: msg.file_name || 'Shared Video',
                         quality: (msg.media_quality === 'hd' || isSenderServiceAccount) ? 'HD 1080p' : 'Standard',
@@ -318,6 +461,13 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (longPressFiredRef.current) {
+                        return;
+                      }
+                      if (isInSelectionMode) {
+                        if (onToggleSelect) onToggleSelect(msg.id, 'toggle');
+                        return;
+                      }
                       if (!displayMediaUrl) {
                         onToast(`File not found`);
                         return;
@@ -371,9 +521,21 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                       return (
                         <button
                           key={opt.id}
-                          onClick={() => onVotePoll(msg.id, opt.id)}
+                          onClick={(e) => {
+                            if (longPressFiredRef.current) {
+                              e.stopPropagation();
+                              return;
+                            }
+                            if (isInSelectionMode) {
+                              e.stopPropagation();
+                              if (onToggleSelect) onToggleSelect(msg.id, 'toggle');
+                              return;
+                            }
+                            onVotePoll(msg.id, opt.id);
+                          }}
                           className={`w-full p-2.5 rounded-xl relative overflow-hidden border text-left transition-all cursor-pointer ${
                             hasVoted 
+
                               ? 'border-neutral-700 dark:border-neutral-300 dark:border-neutral-400 bg-neutral-800 dark:bg-neutral-200/30 font-bold shadow-xs' 
                               : 'border-black/10 dark:border-white/10 hover:border-neutral-400 bg-black/5 dark:bg-white/5'
                           }`}
@@ -573,8 +735,11 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                 <span>{formatMessageTime(msg.created_at, msg.timestamp)}</span>
                 {msg.edited && <span>• Edited</span>}
                 {isMe && (
-                  <span className="ml-0.5 inline-flex items-center">
+                  <span className="ml-0.5 inline-flex items-center" title={msg.status === 'sending' ? 'Sending...' : isRead ? 'Read' : isDelivered ? 'Delivered' : 'Sent'}>
                     {(() => {
+                      if (msg.status === 'sending') {
+                        return <Clock className="h-3 w-3 text-neutral-400 animate-pulse" />;
+                      }
                       if (!privacyReadReceipts) {
                         return <Check className="h-3.5 w-3.5 stroke-[2] text-neutral-400/90" />;
                       }

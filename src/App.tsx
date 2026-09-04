@@ -11,21 +11,24 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MediaPreviewLightbox } from './components/MediaPreviewLightbox';
 import { ProfileOptionsModal } from './components/ProfileOptionsModal';
 
+import { RunningMarqueeText } from './components/RunningMarqueeText';
+
 import {  
   MessageSquare, Search, LogOut, Pin, VolumeX, Check, CheckCheck, 
   Send, Paperclip, Smile, Image as ImageIcon, Video, FileText, Mic, 
   ChevronLeft, Info, AlertCircle, AlertTriangle, Plus, User, Moon, Sun, 
   CheckCircle2, X, Star, Forward, Trash2, SmileIcon, UserCheck, UserX, Flag, Edit2,
-  Camera, Upload, Menu, Share2,
+  Camera, Upload, Menu, Share2, Reply,
   Grid, Bookmark, Download, Palette, 
+
   Database, Volume2, Laptop, ChevronRight, Copy, Lock, Bell, ShieldCheck, Mail, Phone,
   MapPin, BarChart2, Play, Pause, StopCircle, UserPlus, Users, ExternalLink,
   ZoomIn, ZoomOut, RotateCw, RefreshCw, Maximize2, MoreVertical, MoreHorizontal, BellOff, ShieldAlert, Edit3, Archive, Folder, Clock, Shield, Sparkles, FileDown,
-  PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneCall, PhoneOff, ArrowUpRight, ArrowDownLeft, History, Calendar, VideoOff, Filter
+  PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneCall, PhoneOff, ArrowUpRight, ArrowDownLeft, ArrowLeft, History, Calendar, VideoOff, Filter, Ban
 } from 'lucide-react';
 import {  motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
-import {  UserData, Chat, Message, PollData, CallData, CallHistoryRecord, FollowRequest, AppNotification, SystemBroadcast } from './types';
+import {  UserData, Chat, Message, PollData, CallData, CallHistoryRecord, FollowRequest, AppNotification, SystemBroadcast, SavedDeviceAccount } from './types';
 import {  SEED_USERS, SEED_CHATS, SEED_MESSAGES } from './data';
 import {  isFirebaseConfigured, db, auth } from './firebaseClient';
 import {  MessageCard } from './components/MessageCard';
@@ -40,6 +43,8 @@ import {  ChatThemeModal } from './components/ChatThemeModal';
 import {  UnifiedEmojiPicker } from './components/UnifiedEmojiPicker';
 import {  LandingPage } from './components/LandingPage';
 import {  AuthFlow } from './components/AuthFlow';
+import {  SavedAccountsView } from './components/SavedAccountsView';
+import {  SaveAccountBottomSheet, LogoutModal } from './components/AccountSaveAndLogoutModals';
 import {  AccountSetup } from './components/AccountSetup';
 import { PublicProfileView } from './components/PublicProfileView';
 import { DetailedProfilePage } from './components/DetailedProfilePage';
@@ -64,8 +69,23 @@ import {  CallModal, CallSession, CallEndMetadata } from './components/CallModal
 import {  blobToBase64, getSupportedMimeType, generateSyntheticVoiceNote } from './audioUtils';
 import OneSignal from 'react-onesignal';
 import {  
-  collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, query, where, getDocs, updateDoc, arrayUnion, arrayRemove, increment 
+  collection, onSnapshot, doc, getDoc, setDoc as setDocOriginal, deleteDoc, query, where, getDocs, updateDoc, arrayUnion, arrayRemove, increment 
 } from 'firebase/firestore';
+
+const setDoc = async (ref: any, data: any, options?: any) => {
+  const cleanObj = (obj: any): any => {
+    if (!obj || typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.map(cleanObj);
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (v !== undefined) {
+        out[k] = cleanObj(v);
+      }
+    }
+    return out;
+  };
+  return setDocOriginal(ref, cleanObj(data), options);
+};
 import { sendRelayMessage } from './services/messageService';
 import {  
   signInWithEmailAndPassword, createUserWithEmailAndPassword, 
@@ -311,11 +331,7 @@ export default function App() {
         console.warn("Cloud Storage offload warning:", err);
       }
     }
-    // Firestore 1MB document limit = 1,048,576 bytes.
-    if (url.length > 700000) {
-      console.warn(`Attachment exceeds Firestore 1MB doc size limit (${url.length} chars). Offloaded to cloud storage.`);
-      return `[File Attachment (${fileName}): Stored securely in Cloud Storage]`;
-    }
+    // Firestore 1MB document limit = 1,048,576 bytes. Keep data URL intact so recipient can load it directly.
     return url;
   };
 
@@ -523,7 +539,7 @@ export default function App() {
         const callTypeLabel = callMeta.callType === 'video' ? 'Video' : 'Voice';
         let logText = '';
         if (callMeta.status === 'answered') {
-          logText = `${callTypeLabel} Call \u2022 ${callMeta.durationFormatted}`;
+          logText = `${callTypeLabel} Call • ${callMeta.durationFormatted}`;
         } else {
           logText = activeCallSession.isIncoming ? `Missed ${callTypeLabel} Call` : `Unanswered ${callTypeLabel} Call`;
         }
@@ -651,6 +667,7 @@ export default function App() {
   const [showShareProfileModal, setShowShareProfileModal] = useState<boolean>(false);
   const [profileActiveTab, setProfileActiveTab] = useState<'media' | 'saved' | 'calls'>('media');
   const [callHistoryFilter, setCallHistoryFilter] = useState<'all' | 'missed' | 'incoming' | 'outgoing' | 'video' | 'voice'>('all');
+  const [showCallFilterDropdown, setShowCallFilterDropdown] = useState<boolean>(false);
   const [callHistorySearch, setCallHistorySearch] = useState<string>('');
   const [firestoreCalls, setFirestoreCalls] = useState<CallHistoryRecord[]>([]);
   const [currentMediaFolder, setCurrentMediaFolder] = useState<'photos' | 'videos' | 'audio' | 'documents' | null>(null);
@@ -833,6 +850,20 @@ export default function App() {
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string>('');
   const [showLandingPage, setShowLandingPage] = useState<boolean>(false);
   const [truecallerProfile, setTruecallerProfile] = useState<any>(null);
+
+  // Saved Accounts (Fast 1-Tap Login & Persistent Device State)
+  const [savedAccounts, setSavedAccounts] = useState<SavedDeviceAccount[]>(() => {
+    try {
+      const raw = localStorage.getItem('zenoa_saved_accounts');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showStandardAuthFlow, setShowStandardAuthFlow] = useState<boolean>(false);
+  const [showSaveAccountSheet, setShowSaveAccountSheet] = useState<boolean>(false);
+  const [showLogoutModal, setShowLogoutModal] = useState<boolean>(false);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const payload = params.get("payload");
@@ -944,6 +975,7 @@ export default function App() {
   const [userPhone, setUserPhone] = useState<string>('');
   const [userDisplayName, setUserDisplayName] = useState<string>('');
   const [userUsername, setUserUsername] = useState<string>('');
+  const [userZenoaId, setUserZenoaId] = useState<string>('');
   const [userBio, setUserBio] = useState<string>('');
   const [userAvatarSeed, setUserAvatarSeed] = useState<string>('');
   const [userAvatarUrl, setUserAvatarUrl] = useState<string>('');
@@ -962,6 +994,21 @@ export default function App() {
   useEffect(() => {
     try { localStorage.removeItem('zenoa_known_usernames'); } catch {}
   }, []);
+
+  // Automatically prompt to save account if account isn't already stored on this device
+  useEffect(() => {
+    if (isAuthenticated && userUsername) {
+      const cleanU = userUsername.replace(/^@/, '').toLowerCase();
+      const isSaved = savedAccounts.some(a => a.username.toLowerCase() === cleanU);
+      const isPromptAnswered = sessionStorage.getItem(`zenoa_save_prompt_answered_${cleanU}`);
+      if (!isSaved && !isPromptAnswered) {
+        const timer = setTimeout(() => {
+          setShowSaveAccountSheet(true);
+        }, 900);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isAuthenticated, userUsername, savedAccounts]);
 
   const [kickoutData, setKickoutData] = useState<{ username: string; countdown: number } | null>(null);
   const tabSessionIdRef = useRef('sess_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now());
@@ -1317,7 +1364,28 @@ export default function App() {
 
   // Modals, Context Menus & WhatsApp Chat Controls
   const [selectedMessageForActions, setSelectedMessageForActions] = useState<Message | null>(null);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState<boolean>(false);
+
+  const handleToggleSelectMessage = (msgId: string, mode?: 'select' | 'unselect' | 'toggle') => {
+    setSelectedMessageIds(prev => {
+      const exists = prev.includes(msgId);
+      if (mode === 'select') {
+        return exists ? prev : [...prev, msgId];
+      }
+      if (mode === 'unselect') {
+        return exists ? prev.filter(id => id !== msgId) : prev;
+      }
+      if (exists) {
+        return prev.filter(id => id !== msgId);
+      } else {
+        return [...prev, msgId];
+      }
+    });
+  };
+
   const [selectedChatForOptions, setSelectedChatForOptions] = useState<Chat | null>(null);
+
   const [showChatCustomizationSheet, setShowChatCustomizationSheet] = useState<boolean>(false);
   const [chatCustomizationView, setChatCustomizationView] = useState<'main' | 'disappearing'>('main');
   const [customDisappearingValue, setCustomDisappearingValue] = useState<string>('1');
@@ -1825,11 +1893,11 @@ export default function App() {
             }
 
             // Zero-Trust Isolation Gate for Recycled / Fresh Accounts:
-            // If the chat document was created or updated BEFORE this account was registered,
+            // If the chat document was created or updated BEFORE this account was registered (outside 5min clock-skew margin),
             // it belongs to an old, deleted incarnation of this username. Drop it completely!
             if (userAccountCreatedAt > 0) {
               const chatTimestamp = c.updated_at || c.created_at || 0;
-              if (chatTimestamp > 0 && chatTimestamp < (userAccountCreatedAt - 5000)) {
+              if (chatTimestamp > 0 && chatTimestamp < (userAccountCreatedAt - 300000)) {
                 return; // DROP: Old legacy chat from deleted account
               }
             }
@@ -2092,16 +2160,18 @@ export default function App() {
     }
 
     // Zero-Trust Check: Confirm active chat belongs to current user
-    const currentChat = chats.find(c => c.id === activeChatId);
-    if (!currentChat) {
-      return;
-    }
-    const isParticipant = (currentChat.participants || []).some((p: string) => isSenderMe(p) || p.toLowerCase() === userUsername.toLowerCase() || (userId && p === userId)) ||
-                          (currentChat.participant_ids || []).some((p: string) => (userId && p === userId) || p.toLowerCase() === userUsername.toLowerCase());
-    if (!isParticipant) {
-      console.warn("Unauthorized active chat access attempt blocked:", activeChatId);
-      setActiveChatId('');
-      return;
+    const cleanSelf = userUsername.toLowerCase().trim().replace(/^@/, '');
+    const isDmForMe = activeChatId.startsWith('c_') && (activeChatId.toLowerCase().includes(cleanSelf) || (userId && activeChatId.includes(userId)));
+    const currentChat = chatsRef.current.find(c => c.id === activeChatId) || chats.find(c => c.id === activeChatId);
+
+    if (currentChat) {
+      const isParticipant = (currentChat.participants || []).some((p: string) => isSenderMe(p) || p.toLowerCase() === userUsername.toLowerCase() || p.toLowerCase() === cleanSelf || (userId && p === userId)) ||
+                            (currentChat.participant_ids || []).some((p: string) => (userId && p === userId) || p.toLowerCase() === userUsername.toLowerCase() || p.toLowerCase() === cleanSelf);
+      if (!isParticipant && !isDmForMe) {
+        console.warn("Unauthorized active chat access attempt blocked:", activeChatId);
+        setActiveChatId('');
+        return;
+      }
     }
 
     const messagesQuery = query(
@@ -2117,8 +2187,8 @@ export default function App() {
           const chat_id = m.chat_id;
           if (!chat_id) return null;
 
-          // Zero-Trust Isolation Gate: Drop legacy messages sent prior to current account creation
-          if (userAccountCreatedAt > 0 && m.created_at && m.created_at < (userAccountCreatedAt - 5000)) {
+          // Zero-Trust Isolation Gate: Drop legacy messages sent prior to current account creation (with 5min buffer for clock-skews)
+          if (userAccountCreatedAt > 0 && m.created_at && m.created_at < (userAccountCreatedAt - 300000)) {
             return null;
           }
 
@@ -2192,8 +2262,8 @@ export default function App() {
         const activeMsgs = decryptedDocs
           .filter((msg): msg is Exclude<typeof msg, null> => msg !== null)
           .filter((msg) => {
-            // Zero-Trust Isolation: Never display messages from deleted legacy incarnation of this account
-            if (userAccountCreatedAt > 0 && (msg.created_at || 0) < (userAccountCreatedAt - 5000)) {
+            // Zero-Trust Isolation: Never display messages from deleted legacy incarnation of this account (5min margin for clock-skews)
+            if (userAccountCreatedAt > 0 && (msg.created_at || 0) < (userAccountCreatedAt - 300000)) {
               return false;
             }
             const chat = chatsRef.current.find(c => c.id === activeChatId);
@@ -3897,6 +3967,110 @@ export default function App() {
     }
   };
 
+  const handleSaveCurrentAccountLocally = () => {
+    if (!userUsername) return;
+    const cleanU = userUsername.replace(/^@/, '').toLowerCase();
+    const cleanZenoa = userZenoaId || (cleanU.endsWith('@zenoa') ? cleanU : `${cleanU}@zenoa`);
+    const newAccount: SavedDeviceAccount = {
+      userId: userId || cleanU,
+      username: cleanU,
+      displayName: userDisplayName || cleanU,
+      avatarSeed: userAvatarSeed || cleanU,
+      avatarUrl: userAvatarUrl || '',
+      zenoaId: cleanZenoa,
+      email: userEmail || '',
+      mobile_number: userPhone || '',
+      bio: userBio || '',
+      sessionToken: currentSessionToken || '',
+      savedAt: Date.now()
+    };
+    setSavedAccounts(prev => {
+      const filtered = prev.filter(a => a.username.toLowerCase() !== cleanU);
+      const updated = [newAccount, ...filtered];
+      try {
+        localStorage.setItem('zenoa_saved_accounts', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+    sessionStorage.setItem(`zenoa_save_prompt_answered_${cleanU}`, 'true');
+    setShowSaveAccountSheet(false);
+    showToast('Account saved for fast one-tap login on this device.');
+  };
+
+  const handleDeclineSaveAccountPrompt = () => {
+    if (userUsername) {
+      const cleanU = userUsername.replace(/^@/, '').toLowerCase();
+      sessionStorage.setItem(`zenoa_save_prompt_answered_${cleanU}`, 'true');
+    }
+    setShowSaveAccountSheet(false);
+  };
+
+  const handleRemoveSavedAccount = (targetUsername: string) => {
+    const clean = targetUsername.replace(/^@/, '').toLowerCase();
+    setSavedAccounts(prev => {
+      const updated = prev.filter(a => a.username.toLowerCase() !== clean);
+      try {
+        localStorage.setItem('zenoa_saved_accounts', JSON.stringify(updated));
+      } catch (e) {}
+      if (updated.length === 0) {
+        setShowStandardAuthFlow(true);
+      }
+      return updated;
+    });
+    showToast('Account removed from device.');
+  };
+
+  const handleQuickLoginWithSavedAccount = async (account: SavedDeviceAccount) => {
+    const cleanU = (account.username || '').replace(/^@/, '').toLowerCase();
+    setUserId(account.userId || cleanU);
+    setUserUsername(cleanU);
+    setUserDisplayName(account.displayName || cleanU);
+    setUserAvatarSeed(account.avatarSeed || cleanU);
+    setUserAvatarUrl(account.avatarUrl || '');
+    setUserZenoaId(account.zenoaId || `${cleanU}@zenoa`);
+    setUserEmail(account.email || '');
+    setUserBio(account.bio || '');
+    setUserPhone(account.mobile_number || '');
+    if (account.sessionToken) {
+      setCurrentSessionToken(account.sessionToken);
+      sessionStorage.setItem('zenoa_active_session_token', account.sessionToken);
+    }
+    sessionStorage.setItem('zenoa_account_created_at', String(account.savedAt || Date.now()));
+    
+    setIsAuthenticated(true);
+    setOnboardingStep(0);
+    showToast(`Welcome back, ${account.displayName || cleanU}!`);
+
+    // Synchronize latest profile in background
+    if (isFirebaseConfigured && db) {
+      try {
+        const userDoc = await getDoc(doc(db, 'users', cleanU));
+        if (userDoc.exists()) {
+          const data = userDoc.data() as UserData;
+          if (data.display_name) setUserDisplayName(data.display_name);
+          if (data.avatar_url) setUserAvatarUrl(data.avatar_url);
+          if (data.bio) setUserBio(data.bio);
+          if (data.zenoa_id) setUserZenoaId(data.zenoa_id);
+          if (data.mobile_number) setUserPhone(data.mobile_number);
+          if (data.registered_at) sessionStorage.setItem('zenoa_account_created_at', String(data.registered_at));
+        }
+      } catch (e) {
+        console.warn("Background user sync notice:", e);
+      }
+    }
+  };
+
+  const handleSaveAndLogout = async () => {
+    handleSaveCurrentAccountLocally();
+    setShowLogoutModal(false);
+    await handleLogout();
+  };
+
+  const handleDirectLogout = async () => {
+    setShowLogoutModal(false);
+    await handleLogout();
+  };
+
   const handleLogout = async () => {
     if (isFirebaseConfigured && db && auth) {
       await firebaseSignOut(auth);
@@ -4433,7 +4607,7 @@ export default function App() {
     });
   }, [chatSearchQuery, uniqueUserList, userUsername, userId, users, chats]);
 
-  const getExpiresAt = (chatId: string) => {
+  const getExpiresAt = (chatId: string): number | undefined => {
     const mode = chatDisappearing[chatId] || 'off';
     if (mode === 'off') return undefined;
     if (mode === '24h') return Date.now() + 24 * 60 * 60 * 1000;
@@ -4555,10 +4729,16 @@ export default function App() {
              delete currentActiveChat.isLocalPending;
           }
           const selfName = userUsername || 'me';
-          const normalizedParts = buildNormalizedParticipants(selfName, currentActiveChat.username, userId);
+          const existingParts = Array.isArray(currentActiveChat.participants) ? currentActiveChat.participants : [];
+          const otherParticipant = existingParts.find(p => p && p.toLowerCase() !== selfName.toLowerCase() && p !== userId);
+          const partnerUsername = currentActiveChat.username || otherParticipant || '';
+          const normalizedParts = Array.from(new Set([
+            ...existingParts,
+            ...buildNormalizedParticipants(selfName, partnerUsername, userId)
+          ]));
 
           // Compute unread map for target users
-          const targetUsers = (currentActiveChat.participants || []).filter(p => p && p.toLowerCase() !== selfName.toLowerCase() && p !== userId);
+          const targetUsers = normalizedParts.filter(p => p && p.toLowerCase() !== selfName.toLowerCase() && p !== userId);
           const unreadByMap: Record<string, any> = {};
           targetUsers.forEach(p => {
             if (p) {
@@ -4574,14 +4754,14 @@ export default function App() {
             id: activeChatId,
             type: currentActiveChat.type || 'dm',
             name: currentActiveChat.name,
-            username: currentActiveChat.username,
+            username: partnerUsername || currentActiveChat.username,
             avatar_seed: currentActiveChat.avatar_seed,
             avatar_url: currentActiveChat.avatar_url || '',
             participants: normalizedParts,
             participant_details: {
               [selfName.toLowerCase()]: { username: selfName, display_name: userDisplayName || selfName, avatar_seed: userAvatarSeed || selfName, avatar_url: userAvatarUrl || '' },
-              ...(currentActiveChat.username ? {
-                [currentActiveChat.username.toLowerCase()]: { username: currentActiveChat.username, display_name: currentActiveChat.name, avatar_seed: currentActiveChat.avatar_seed || currentActiveChat.username, avatar_url: currentActiveChat.avatar_url || '' }
+              ...(partnerUsername ? {
+                [partnerUsername.toLowerCase()]: { username: partnerUsername, display_name: currentActiveChat.name, avatar_seed: currentActiveChat.avatar_seed || partnerUsername, avatar_url: currentActiveChat.avatar_url || '' }
               } : {})
             },
             last_message: text,
@@ -4872,9 +5052,22 @@ export default function App() {
           firestoreAudioUrl = await safeFirestoreUrl(audioUrlToUse, 'voice_note.ogg', `voice_notes/${activeChatId}/${newMsgId}.ogg`);
         }
 
-        await sendRelayMessage({
-          ...newMsg,
-          audio_url: firestoreAudioUrl || undefined
+        const finalAudioUrl = firestoreAudioUrl || audioUrlToUse;
+        await setDoc(doc(db, 'messages', newMsgId), {
+          id: newMsgId,
+          chat_id: activeChatId,
+          created_at: Date.now(),
+          expires_at: getExpiresAt(activeChatId),
+          sender: userUsername || 'me',
+          text: '',
+          type: 'voice',
+          audio_url: finalAudioUrl,
+          file_size: durationFormatted || '0:05',
+          timestamp: timeStr,
+          reactions: [],
+          read_by: [],
+          forwarded: false,
+          pinned: false
         });
 
         const activeChat = chats.find(c => c.id === activeChatId);
@@ -4884,14 +5077,23 @@ export default function App() {
              currentActiveChat = { ...currentActiveChat };
              delete currentActiveChat.isLocalPending;
           }
+          const selfName = userUsername || 'me';
+          const existingParts = Array.isArray(currentActiveChat.participants) ? currentActiveChat.participants : [];
+          const otherParticipant = existingParts.find(p => p && p.toLowerCase() !== selfName.toLowerCase() && p !== userId);
+          const partnerUsername = currentActiveChat.username || otherParticipant || '';
+          const normalizedParts = Array.from(new Set([
+            ...existingParts,
+            ...buildNormalizedParticipants(selfName, partnerUsername, userId)
+          ]));
+
           await setDoc(doc(db, 'chats', activeChatId), {
             id: activeChatId,
-            type: currentActiveChat.type,
+            type: currentActiveChat.type || 'dm',
             name: currentActiveChat.name,
-            username: currentActiveChat.username,
+            username: partnerUsername || currentActiveChat.username,
             avatar_seed: currentActiveChat.avatar_seed,
             avatar_url: currentActiveChat.avatar_url || '',
-            participants: currentActiveChat.participants,
+            participants: normalizedParts,
             last_message: 'Voice Note (' + (durationFormatted || '0:05') + ')',
             last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
             unread: 0,
@@ -4956,6 +5158,9 @@ export default function App() {
 
     const finalType = result.isDocument ? 'document' : pendingMediaEditorData.mediaType === 'audio' ? 'voice' : pendingMediaEditorData.mediaType;
 
+    const resolvedMediaUrl = finalType === 'voice' ? undefined : (finalMediaUrl || (finalType === 'video' ? 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' : undefined));
+    const resolvedAudioUrl = finalType === 'voice' ? finalMediaUrl : undefined;
+
     const newMsg: Message = {
       id: newMsgId,
       chat_id: activeChatId,
@@ -4963,14 +5168,16 @@ export default function App() {
       sender: userUsername || 'me',
       text: result.caption || result.fileName,
       type: finalType,
-      media_url: (!result.isDocument && finalType !== 'voice') ? (finalMediaUrl || (finalType === 'video' ? 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' : undefined)) : undefined,
-      audio_url: finalType === 'voice' ? finalMediaUrl : undefined,
+      media_url: resolvedMediaUrl,
+      audio_url: resolvedAudioUrl,
       file_name: result.fileName,
       file_size: finalFileSize,
       media_quality: result.mediaQuality,
       timestamp: timeStr,
       reactions: [],
-      read_by: []
+      read_by: [],
+      forwarded: false,
+      pinned: false
     };
 
     if (newMsg.media_url || newMsg.audio_url) {
@@ -4991,7 +5198,7 @@ export default function App() {
       try {
         let firestoreMediaUrl: string | null = null;
         let firestoreAudioUrl: string | null = null;
-        const sourceUrl = newMsg.media_url || newMsg.audio_url;
+        const sourceUrl = newMsg.media_url || newMsg.audio_url || finalMediaUrl;
 
         if (isDriveConnected && driveAccessToken && sourceUrl) {
           // Encrypt before Drive upload
@@ -5006,9 +5213,9 @@ export default function App() {
         } else if (sourceUrl) {
           const uploadedUrl = await safeFirestoreUrl(sourceUrl, result.fileName, `chat_media/${activeChatId}/${newMsgId}_${result.fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
           if (newMsg.type === 'voice') {
-            firestoreAudioUrl = uploadedUrl;
+            firestoreAudioUrl = uploadedUrl || sourceUrl;
           } else {
-            firestoreMediaUrl = uploadedUrl;
+            firestoreMediaUrl = uploadedUrl || sourceUrl;
           }
         }
 
@@ -5019,8 +5226,8 @@ export default function App() {
           sender: userUsername || 'me',
           text: result.caption || result.fileName,
           type: newMsg.type,
-          media_url: firestoreMediaUrl,
-          audio_url: firestoreAudioUrl,
+          media_url: firestoreMediaUrl || resolvedMediaUrl,
+          audio_url: firestoreAudioUrl || resolvedAudioUrl,
           file_name: result.fileName,
           file_size: result.fileSize,
           media_quality: result.mediaQuality,
@@ -5038,13 +5245,23 @@ export default function App() {
              currentActiveChat = { ...currentActiveChat };
              delete currentActiveChat.isLocalPending;
           }
+          const selfName = userUsername || 'me';
+          const existingParts = Array.isArray(currentActiveChat.participants) ? currentActiveChat.participants : [];
+          const otherParticipant = existingParts.find(p => p && p.toLowerCase() !== selfName.toLowerCase() && p !== userId);
+          const partnerUsername = currentActiveChat.username || otherParticipant || '';
+          const normalizedParts = Array.from(new Set([
+            ...existingParts,
+            ...buildNormalizedParticipants(selfName, partnerUsername, userId)
+          ]));
+
           await setDoc(doc(db, 'chats', activeChatId), {
             id: activeChatId,
-            type: currentActiveChat.type,
+            type: currentActiveChat.type || 'dm',
             name: currentActiveChat.name,
-            username: currentActiveChat.username,
+            username: partnerUsername || currentActiveChat.username,
             avatar_seed: currentActiveChat.avatar_seed,
-            participants: currentActiveChat.participants,
+            avatar_url: currentActiveChat.avatar_url || '',
+            participants: normalizedParts,
             last_message: result.caption ? `[${pendingMediaEditorData.mediaType.toUpperCase()}] ${result.caption}` : `[${pendingMediaEditorData.mediaType.toUpperCase()}]`,
             last_time: 'now',
             updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'sent' as const,
@@ -5107,7 +5324,7 @@ export default function App() {
           setMobileShowChat(false);
         }
         setSelectedChatForOptions(null);
-        showToast('Chat & local history deleted \u{1F5D1}\uFE0F');
+        showToast('Chat & local history deleted');
         closeConfirm();
       }
     });
@@ -5460,12 +5677,13 @@ export default function App() {
   const handleReactToMessage = async (messageId: string, emoji: string) => {
     const selfName = userUsername || 'me';
     let nextReacts: any[] = [];
+    let updatedTargetMessage: Message | null = null;
 
     setMessagesByChat(prev => {
       const chatMsgs = prev[activeChatId] || [];
       const updated = chatMsgs.map(m => {
         if (m.id === messageId) {
-          const reacts = [...m.reactions];
+          const reacts = [...(m.reactions || [])];
           const existingIdx = reacts.findIndex(r => r.emoji === emoji);
 
           if (existingIdx >= 0) {
@@ -5487,12 +5705,17 @@ export default function App() {
             reacts.push({ emoji, users: [selfName] });
           }
           nextReacts = reacts;
-          return { ...m, reactions: reacts };
+          updatedTargetMessage = { ...m, reactions: reacts };
+          return updatedTargetMessage;
         }
         return m;
       });
       return { ...prev, [activeChatId]: updated };
     });
+
+    if (updatedTargetMessage) {
+      storageManager.saveMessages([updatedTargetMessage]).catch(e => console.warn("Failed saving reaction locally:", e));
+    }
 
     if (isFirebaseConfigured && db && auth) {
       try {
@@ -5537,29 +5760,34 @@ export default function App() {
     const msgId = typeof targetMsgId === 'string' ? targetMsgId : deleteMessageId;
     if (!msgId) return;
 
-    // Delete locally from IndexedDB
-    await storageManager.deleteMessage(msgId);
-
-    const targetChatId = selectedMessageForActions?.chat_id || activeChatId;
-
-    setMessagesByChat(prev => {
-      const chatMsgs = prev[targetChatId] || [];
-      const updated = chatMsgs.filter(m => m.id !== msgId);
-      return { ...prev, [targetChatId]: updated };
-    });
-
-    if (isFirebaseConfigured && db && auth) {
-      try {
-        await deleteDoc(doc(db, 'messages', msgId));
-      } catch (err) {
-        console.warn("Firebase delete for me warning:", err);
-      }
-    }
-
+    // Action After Reaction: Close modals immediately
     setShowDeleteModal(false);
-    setDeleteMessageId('');
     setSelectedMessageForActions(null);
-    showToast('Message deleted from your device');
+    setShowBulkDeleteModal(false);
+    setDeleteMessageId('');
+
+    setTimeout(async () => {
+      // Delete locally from IndexedDB
+      await storageManager.deleteMessage(msgId);
+
+      const targetChatId = selectedMessageForActions?.chat_id || activeChatId;
+
+      setMessagesByChat(prev => {
+        const chatMsgs = prev[targetChatId] || [];
+        const updated = chatMsgs.filter(m => m.id !== msgId);
+        return { ...prev, [targetChatId]: updated };
+      });
+
+      if (isFirebaseConfigured && db && auth) {
+        try {
+          await deleteDoc(doc(db, 'messages', msgId));
+        } catch (err) {
+          console.warn("Firebase delete for me warning:", err);
+        }
+      }
+
+      showToast('Message deleted from your device');
+    }, 150);
   };
 
   const canDeleteForEveryone = (msg: Message | null) => {
@@ -5588,35 +5816,66 @@ export default function App() {
     const msgId = typeof targetMsgId === 'string' ? targetMsgId : deleteMessageId;
     if (!msgId) return;
 
-    // Delete locally from IndexedDB
-    await storageManager.deleteMessage(msgId);
-
-    const targetChatId = selectedMessageForActions?.chat_id || activeChatId;
-
-    setMessagesByChat(prev => {
-      const chatMsgs = prev[targetChatId] || [];
-      const updated = chatMsgs.map(m => {
-        if (m.id === msgId) {
-          return { ...m, deleted_for_everyone: true, text: '' };
-        }
-        return m;
-      });
-      return { ...prev, [targetChatId]: updated };
-    });
-
-    if (isFirebaseConfigured && db && auth) {
-      try {
-        await deleteDoc(doc(db, 'messages', msgId));
-      } catch (err) {
-        console.warn("Firebase delete for everyone warning:", err);
-      }
-    }
-
+    // Action After Reaction: Close modals immediately
     setShowDeleteModal(false);
-    setDeleteMessageId('');
     setSelectedMessageForActions(null);
-    showToast('Message deleted for everyone');
+    setShowBulkDeleteModal(false);
+    setDeleteMessageId('');
+
+    setTimeout(async () => {
+      // Delete locally from IndexedDB
+      await storageManager.deleteMessage(msgId);
+
+      const targetChatId = selectedMessageForActions?.chat_id || activeChatId;
+
+      setMessagesByChat(prev => {
+        const chatMsgs = prev[targetChatId] || [];
+        const updated = chatMsgs.map(m => {
+          if (m.id === msgId) {
+            return { ...m, deleted_for_everyone: true, text: '' };
+          }
+          return m;
+        });
+        return { ...prev, [targetChatId]: updated };
+      });
+
+      setChats(prev => prev.map(c => {
+        if (c.id === targetChatId) {
+          return { ...c, last_message: 'This message was deleted' };
+        }
+        return c;
+      }));
+
+      if (isFirebaseConfigured && db && auth) {
+        try {
+          await deleteDoc(doc(db, 'messages', msgId));
+          await setDoc(doc(db, 'chats', targetChatId), { last_message: 'This message was deleted' }, { merge: true });
+        } catch (err) {
+          console.warn("Firebase delete for everyone warning:", err);
+        }
+      }
+
+      showToast('Message deleted for everyone');
+    }, 150);
   };
+
+  const handleExecuteBulkDelete = (forEveryone: boolean) => {
+    setShowBulkDeleteModal(false);
+    const ids = [...selectedMessageIds];
+    setSelectedMessageIds([]);
+
+    setTimeout(async () => {
+      for (const id of ids) {
+        if (forEveryone) {
+          await handleDeleteForEveryone(id);
+        } else {
+          await handleDeleteForMe(id);
+        }
+      }
+      showToast(`${ids.length} ${ids.length === 1 ? 'message' : 'messages'} deleted`);
+    }, 150);
+  };
+
 
   // Helper functions for Chat Customization & Actions
   const handleSetChatWallpaper = (chatId: string, wallpaper: string) => {
@@ -5923,28 +6182,7 @@ export default function App() {
       }));
     }
 
-    // Persist DM chat to Firestore immediately so recipient can discover chat in real-time
-    if (isFirebaseConfigured && db) {
-      try {
-        await setDoc(doc(db, 'chats', targetChatId), {
-          id: targetChatId,
-          type: 'dm',
-          name: user.display_name,
-          username: user.username,
-          avatar_seed: user.avatar_seed || user.username,
-          avatar_url: user.avatar_url || '',
-          participants: normalizedParts,
-          participant_details: {
-            [selfName.toLowerCase()]: { username: selfName, display_name: userDisplayName || selfName, avatar_seed: userAvatarSeed || selfName, avatar_url: userAvatarUrl || '' },
-            [targetUserClean]: { username: user.username, display_name: user.display_name, avatar_seed: user.avatar_seed || user.username, avatar_url: user.avatar_url || '' }
-          },
-          updated_at: Date.now()
-        }, { merge: true });
-      } catch (err) {
-        console.warn("Firestore DM creation notice:", err);
-      }
-    }
-
+    // Do NOT write to Firestore here; chat document is only created upon the first actual message, call, or interaction
     setActiveChatId(targetChatId);
     setActiveView('chats');
     setMobileShowChat(true);
@@ -6171,6 +6409,7 @@ export default function App() {
           await setDoc(myDocRef, { following: arrayUnion(targetUsername) }, { merge: true });
           if (targetUserId) {
             await setDoc(doc(db, 'users', targetUserId), { followers: arrayUnion(userUsername) }, { merge: true });
+            await createNotification(targetUserId, 'new_follower');
           }
         }
       }
@@ -6915,6 +7154,15 @@ export default function App() {
               await storageManager.wipeUserData(username);
             } catch (e) {}
           }
+          if (cleanU) {
+            try {
+              await storageManager.wipeUserData(cleanU);
+            } catch (e) {}
+          }
+          // If the deleted user is currently the active session user, terminate session immediately
+          if (cleanU === (userUsername || '').toLowerCase() || (userId && userId === auth?.currentUser?.uid)) {
+            handleLogout();
+          }
         }}
         onCloseAdmin={() => {
           setShowAdminPanel(false);
@@ -7150,14 +7398,33 @@ export default function App() {
       );
     }
 
+    // Fast One-Tap Sign In with Saved Accounts
+    if (savedAccounts.length > 0 && !showStandardAuthFlow) {
+      return (
+        <SavedAccountsView
+          savedAccounts={savedAccounts}
+          onSelectAccount={handleQuickLoginWithSavedAccount}
+          onRemoveAccount={handleRemoveSavedAccount}
+          onUseAnotherAccount={() => setShowStandardAuthFlow(true)}
+          themeMode={themeMode}
+          onToggleTheme={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
+          renderAvatar={renderAvatar}
+        />
+      );
+    }
+
     return (
       <AuthFlow
         initialMode={authFlowInitialMode}
         onBackToLanding={() => {
-          setShowLandingPage(true);
-          try {
-            window.history.pushState({}, '', '/');
-          } catch(e) {}
+          if (savedAccounts.length > 0) {
+            setShowStandardAuthFlow(false);
+          } else {
+            setShowLandingPage(true);
+            try {
+              window.history.pushState({}, '', '/');
+            } catch(e) {}
+          }
         }}
         onLoginSubmit={handleAuthFlowLogin}
         onRegisterSubmit={handleAuthFlowRegister}
@@ -7281,7 +7548,7 @@ export default function App() {
                   Welcome back, {openingAnimationData.displayName}!
                 </h2>
                 <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                  Signed in securely with {openingAnimationData.provider} \u2022 Connecting to Zenoa...
+                  Signed in securely with {openingAnimationData.provider} • Connecting to Zenoa...
                 </p>
               </div>
 
@@ -7698,42 +7965,102 @@ export default function App() {
                             </span>
                           </div>
                           <div className="flex justify-between items-center mt-1 min-w-0">
-                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate pr-2 flex-1 min-w-0 flex items-center gap-1">
-                              {chat.last_message_sender === userUsername && chat.last_message && chat.last_message !== 'Chat history cleared' && (
-                                <span className="shrink-0 inline-flex items-center">
-                                  {(() => {
-                                    const chatMsgs = messagesByChat[chat.id] || [];
-                                    const lastMsg = chatMsgs.length > 0 ? chatMsgs[chatMsgs.length - 1] : null;
-                                    
-                                    const otherParticipants = (chat.participants || []).filter(p => p !== userUsername);
-                                    const isAnyOtherOnline = otherParticipants.some(p => isUserEffectivelyOnline(users[p]));
-                                    
-                                    const isRead = lastMsg 
-                                      ? (Array.isArray(lastMsg.read_by) && lastMsg.read_by.some(u => u && u !== 'me' && u !== userUsername && u !== lastMsg.sender))
-                                      : (chat.last_message_status === 'read');
-                                      
-                                    const isDelivered = lastMsg
-                                      ? (lastMsg.status === 'delivered' || (isAnyOtherOnline && !isRead))
-                                      : (chat.last_message_status === 'delivered' && isAnyOtherOnline);
+                            <div className="text-xs text-slate-500 dark:text-slate-400 truncate pr-2 flex-1 min-w-0 flex items-center gap-1.5">
+                              {(() => {
+                                const chatMsgs = messagesByChat[chat.id] || [];
+                                const lastMsg = chatMsgs.length > 0 ? chatMsgs[chatMsgs.length - 1] : null;
 
-                                    if (isRead) {
-                                      return <CheckCheck className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400 stroke-[2.5]" />;
-                                    }
-                                    if (isDelivered) {
-                                      return <CheckCheck className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500 stroke-[2]" />;
-                                    }
-                                    return <Check className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500 stroke-[2]" />;
-                                  })()}
-                                </span>
-                              )}
-                              <span className="truncate">
-                                {chat.typing ? (
-                                  <span className="text-indigo-600 dark:text-indigo-400 font-medium animate-pulse">typing...</span>
-                                ) : (
-                                  formatCleanChatPreview(chat.last_message || '', 36)
-                                )}
-                              </span>
-                            </p>
+                                if (chat.typing) {
+                                  return (
+                                    <span className="text-indigo-600 dark:text-indigo-400 font-semibold animate-pulse flex items-center gap-1">
+                                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-600 dark:bg-indigo-400 animate-ping" />
+                                      typing...
+                                    </span>
+                                  );
+                                }
+
+                                const otherParticipants = (chat.participants || []).filter(p => p !== userUsername);
+                                const isAnyOtherOnline = otherParticipants.some(p => isUserEffectivelyOnline(users[p]));
+                                
+                                const isRead = lastMsg 
+                                  ? (Array.isArray(lastMsg.read_by) && lastMsg.read_by.some(u => u && u !== 'me' && u !== userUsername && u !== lastMsg.sender))
+                                  : (chat.last_message_status === 'read');
+                                  
+                                const isDelivered = lastMsg
+                                  ? (lastMsg.status === 'delivered' || (isAnyOtherOnline && !isRead))
+                                  : (chat.last_message_status === 'delivered' && isAnyOtherOnline);
+
+                                const isOutgoing = lastMsg ? lastMsg.sender === userUsername : chat.last_message_sender === userUsername;
+
+                                return (
+                                  <div className="flex items-center gap-1 min-w-0 truncate">
+                                    {isOutgoing && (
+                                      <span className="shrink-0 inline-flex items-center">
+                                        {lastMsg?.status === 'sending' ? (
+                                          <Clock className="h-3 w-3 text-slate-400 animate-pulse" />
+                                        ) : isRead ? (
+                                          <CheckCheck className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400 stroke-[2.5]" />
+                                        ) : isDelivered ? (
+                                          <CheckCheck className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500 stroke-[2]" />
+                                        ) : (
+                                          <Check className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500 stroke-[2]" />
+                                        )}
+                                      </span>
+                                    )}
+
+                                    {/* Action icons based on message content */}
+                                    {lastMsg?.deleted_for_everyone || chat.last_message === 'This message was deleted' || lastMsg?.text === 'This message was deleted' ? (
+                                      <span className="inline-flex items-center gap-1 text-slate-400 dark:text-slate-500 italic text-[11px] font-normal">
+                                        <Ban className="h-3 w-3 shrink-0 text-slate-400 dark:text-slate-500" />
+                                        <span>This message was deleted</span>
+                                      </span>
+                                    ) : lastMsg?.type === 'voice' ? (
+                                      <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 font-medium">
+                                        <Mic className="h-3 w-3 text-indigo-500 shrink-0" />
+                                        <span>Voice message</span>
+                                      </span>
+                                    ) : lastMsg?.type === 'image' ? (
+                                      <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 font-medium">
+                                        <Camera className="h-3 w-3 text-indigo-500 shrink-0" />
+                                        <span>Photo</span>
+                                        {lastMsg.text && <span className="text-slate-400 truncate">· {formatCleanChatPreview(lastMsg.text, 20)}</span>}
+                                      </span>
+                                    ) : lastMsg?.type === 'video' ? (
+                                      <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 font-medium">
+                                        <Video className="h-3 w-3 text-indigo-500 shrink-0" />
+                                        <span>Video</span>
+                                        {lastMsg.text && <span className="text-slate-400 truncate">· {formatCleanChatPreview(lastMsg.text, 20)}</span>}
+                                      </span>
+                                    ) : lastMsg?.type === 'document' ? (
+                                      <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 font-medium truncate">
+                                        <FileText className="h-3 w-3 text-indigo-500 shrink-0" />
+                                        <span className="truncate">{lastMsg.file_name || 'Document'}</span>
+                                      </span>
+                                    ) : lastMsg?.type === 'call' ? (
+                                      <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 font-medium">
+                                        {lastMsg.call_data?.status === 'missed' ? (
+                                          <PhoneMissed className="h-3 w-3 text-rose-500 shrink-0" />
+                                        ) : (
+                                          <Phone className="h-3 w-3 text-emerald-500 shrink-0" />
+                                        )}
+                                        <span>{lastMsg.call_data?.status === 'missed' ? 'Missed Call' : `${lastMsg.call_data?.call_type === 'video' ? 'Video' : 'Voice'} Call`}</span>
+                                      </span>
+                                    ) : (
+                                      <span className="truncate">
+                                        {formatCleanChatPreview(lastMsg?.text || chat.last_message || 'No messages yet', 34)}
+                                      </span>
+                                    )}
+
+                                    {/* Reaction badges preview if present on last message */}
+                                    {lastMsg?.reactions && lastMsg.reactions.length > 0 && (
+                                      <span className="shrink-0 inline-flex items-center ml-0.5 text-[11px]">
+                                        {lastMsg.reactions.slice(0, 2).map(r => r.emoji).join('')}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
                             <div className="flex items-center gap-1">
                               {chat.unread > 0 && (
                                 <span className="bg-indigo-600 text-white text-[10px] font-bold h-4 px-1.5 rounded-full flex items-center justify-center shrink-0 shadow-xs">
@@ -7792,9 +8119,121 @@ export default function App() {
             <div className={`${mobileShowChat ? 'flex' : 'hidden'} md:flex flex-col flex-1 h-full relative`}>
               {activeChat ? (
                 <>
-                  {/* Chat View Header - Adoptive to Selected Theme */}
+                  {/* Chat View Header - Adoptive to Selected Theme / Selection Mode */}
+              {selectedMessageIds.length > 0 ? (
+                <div className="flex items-center justify-between h-16 px-4 bg-indigo-900 dark:bg-slate-900 text-white border-b border-indigo-800 dark:border-slate-800 shrink-0 transition-all duration-300 z-20 shadow-md">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setSelectedMessageIds([])}
+                      className="p-2 rounded-full hover:bg-white/10 active:scale-95 transition-all text-white cursor-pointer"
+                      title="Clear selection"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                    <span className="font-bold text-base tracking-wide">
+                      {selectedMessageIds.length} {selectedMessageIds.length === 1 ? 'selected' : 'selected'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    {selectedMessageIds.length === 1 && (() => {
+                      const singleMsg = activeMessages.find(m => m.id === selectedMessageIds[0]);
+                      if (!singleMsg) return null;
+
+                      return (
+                        <>
+                          {!singleMsg.deleted_for_everyone && (
+                            <button
+                              onClick={() => {
+                                handleStartReply(singleMsg);
+                                setSelectedMessageIds([]);
+                              }}
+                              className="p-2.5 rounded-xl hover:bg-white/10 active:scale-95 transition-all text-white cursor-pointer"
+                              title="Reply"
+                            >
+                              <Reply className="h-4 w-4" />
+                            </button>
+                          )}
+
+                          {!singleMsg.deleted_for_everyone && (
+                            <button
+                              onClick={() => {
+                                handleToggleStarMessage(singleMsg.id);
+                                setSelectedMessageIds([]);
+                              }}
+                              className="p-2.5 rounded-xl hover:bg-white/10 active:scale-95 transition-all text-white cursor-pointer"
+                              title={singleMsg.starred ? "Unstar" : "Star"}
+                            >
+                              <Star className={`h-4 w-4 ${singleMsg.starred ? 'fill-amber-400 text-amber-400' : ''}`} />
+                            </button>
+                          )}
+
+                          {!singleMsg.deleted_for_everyone && (
+                            <button
+                              onClick={() => {
+                                handleTogglePinMessage(singleMsg.id);
+                                setSelectedMessageIds([]);
+                              }}
+                              className="p-2.5 rounded-xl hover:bg-white/10 active:scale-95 transition-all text-white cursor-pointer"
+                              title={singleMsg.pinned ? "Unpin" : "Pin"}
+                            >
+                              <Pin className={`h-4 w-4 ${singleMsg.pinned ? 'rotate-45 text-amber-400' : ''}`} />
+                            </button>
+                          )}
+
+                          {singleMsg.text && !singleMsg.deleted_for_everyone && (
+                            <button
+                              onClick={() => {
+                                handleCopyMessageText(singleMsg.text);
+                                setSelectedMessageIds([]);
+                              }}
+                              className="p-2.5 rounded-xl hover:bg-white/10 active:scale-95 transition-all text-white cursor-pointer"
+                              title="Copy"
+                            >
+                              <Copy className="h-4 w-4" />
+                            </button>
+                          )}
+
+                          {!singleMsg.deleted_for_everyone && (
+                            <button
+                              onClick={() => {
+                                setForwardMessageId(singleMsg.id);
+                                setSelectedMessageIds([]);
+                              }}
+                              className="p-2.5 rounded-xl hover:bg-white/10 active:scale-95 transition-all text-white cursor-pointer"
+                              title="Forward"
+                            >
+                              <Forward className="h-4 w-4" />
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => setShowBulkDeleteModal(true)}
+                            className="p-2.5 rounded-xl hover:bg-rose-500/20 active:scale-95 transition-all text-rose-300 hover:text-rose-200 cursor-pointer"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </>
+                      );
+                    })()}
+
+                    {selectedMessageIds.length > 1 && (
+                      <button
+                        onClick={() => setShowBulkDeleteModal(true)}
+                        className="p-2.5 rounded-xl hover:bg-rose-500/20 active:scale-95 transition-all text-rose-300 hover:text-rose-200 cursor-pointer"
+                        title="Delete Selected Messages"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+
+                  </div>
+                </div>
+              ) : (
               <div className={`flex items-center justify-between h-16 px-4 border-b shrink-0 transition-all duration-300 ${currentChatTheme.headerBg} ${currentChatTheme.headerBorder}`}>
-                <div className="flex items-center gap-3 min-w-0">
+                {/* Left: User / Group Identity */}
+                <div className="flex items-center gap-3 min-w-0 flex-1 max-w-[55%]">
                   <button onClick={() => setMobileShowChat(false)} className="md:hidden p-2 -ml-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-current transition-all"><ChevronLeft className="h-5 w-5" /></button>
                   <div 
                     className="relative shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
@@ -7812,7 +8251,7 @@ export default function App() {
                     {renderAvatar(activeChat.avatar_seed, activeChat.name, activeChat.avatar_url || (activeChat?.username ? users[activeChat?.username]?.avatar_url : undefined), 'h-10 w-10 text-sm')}
                     {activeChat.type !== 'group' && isUserEffectivelyOnline(users[activeChat?.username]) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-950"></span>}
                   </div>
-                  <div className="min-w-0 text-left">
+                  <div className="min-w-0 text-left flex-1">
                     <h3 
                       onClick={() => {
                         if (activeChat.type === 'group') {
@@ -7843,10 +8282,10 @@ export default function App() {
                         </span>
                       )}
                     </h3>
-                    <p className={`text-[10px] truncate transition-all duration-300 ${currentChatTheme.headerSubtext}`}>
+                    <RunningMarqueeText className={`text-[10px] transition-all duration-300 ${currentChatTheme.headerSubtext}`}>
                       {activeChat.type === 'group' ? (
                         <span>
-                          {(activeChat.participants || []).length} members \u2022 {
+                          {(activeChat.participants || []).length} members • {
                             (activeChat.participants || [])
                               .map(p => p === userUsername ? 'You' : (chatNicknames[p] || users[p]?.display_name || p))
                               .slice(0, 3)
@@ -7855,7 +8294,7 @@ export default function App() {
                         </span>
                       ) : activeChat.activity_type === 'recording_voice' ? (
                         <span className="text-rose-600 dark:text-rose-400 font-medium animate-pulse flex items-center gap-1">
-                          <Mic className="h-3 w-3" /> recording voice note...
+                          <Mic className="h-3 w-3 inline" /> recording voice note...
                         </span>
                       ) : activeChat.typing || activeChat.activity_type === 'typing' ? (
                         <span className="text-indigo-600 dark:text-indigo-400 font-medium flex items-center gap-1">
@@ -7868,25 +8307,57 @@ export default function App() {
                         </span>
                       ) : activeChat.activity_type === 'in_call' ? (
                         <span className="text-indigo-600 dark:text-indigo-400 font-medium flex items-center gap-1">
-                          <Phone className="h-3 w-3" /> in audio call...
+                          <Phone className="h-3 w-3 inline" /> in audio call...
                         </span>
                       ) : isServiceAccount(users[activeChat?.username], activeChat?.username) ? (
                         <span className="inline-flex items-center gap-1.5 font-bold text-[10px] tracking-wide text-blue-500 dark:text-blue-400">
-
                           <span>{isServiceAccount(users[activeChat?.username], activeChat?.username) ? (['zenoa', 'sa_zenoa', 'zenoa_official'].includes(activeChat?.username.toLowerCase()) ? 'Official Zenoa Account' : 'Business Account') : 'End-to-End Encrypted'}</span>
                         </span>
                       ) : isUserEffectivelyOnline(users[activeChat?.username]) ? (
                         <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                          Online {users[activeChat?.username]?.custom_status && users[activeChat?.username]?.custom_status?.toLowerCase() !== 'online' ? `\u2022 "${users[activeChat?.username]?.custom_status}"` : ''}
+                          Online {users[activeChat?.username]?.custom_status && users[activeChat?.username]?.custom_status?.toLowerCase() !== 'online' ? `• "${users[activeChat?.username]?.custom_status}"` : ''}
                         </span>
                       ) : (
                         <span>{getOnlineStatusText(users[activeChat?.username])}</span>
                       )}
-                    </p>
+                    </RunningMarqueeText>
                   </div>
                 </div>
+
+                {/* Center: Centered Follow Button with clean breathing room */}
+                <div className="flex items-center justify-center px-2 shrink-0">
+                  <AnimatePresence>
+                    {activeChat.type !== 'group' && 
+                      activeChat?.username && 
+                      !isServiceAccount(users[activeChat?.username], activeChat?.username) && 
+                      activeChat?.username.toLowerCase() !== userUsername.toLowerCase() && 
+                      !users[activeChat?.username.toLowerCase()]?.followers?.includes(userUsername) && (
+                        <motion.button
+                          key="header-follow-btn"
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          transition={{ duration: 0.2 }}
+                          id="chat-header-follow-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (activeChat?.username) {
+                              handleFollow(users[activeChat?.username.toLowerCase()] || { username: activeChat.username, display_name: activeChat.name });
+                            }
+                          }}
+                          className="px-4 py-1.5 rounded-full text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs active:scale-95 transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                          title="Click to Follow"
+                        >
+                          <UserPlus className="h-3.5 w-3.5 shrink-0" />
+                          <span>Follow</span>
+                        </motion.button>
+                    )}
+                  </AnimatePresence>
+                </div>
                 
-                <div className="flex items-center gap-1.5 relative">
+                {/* Right: Actions */}
+                <div className="flex items-center gap-1.5 relative shrink-0">
+
                   {/* Voice & Video Call Buttons for 1-on-1 Chats */}
                   {activeChat.type !== 'group' && !isServiceAccount(users[activeChat?.username], activeChat?.username) && (
                     <>
@@ -7907,8 +8378,8 @@ export default function App() {
                     </>
                   )}
 
-                  {/* Group Info Icon or Follow Text Button */}
-                  {activeChat.type === 'group' ? (
+                  {/* Group Info Icon */}
+                  {activeChat.type === 'group' && (
                     <button
                       onClick={() => setShowGroupDetailsModal(true)}
                       className={`p-2 rounded-xl text-neutral-500 dark:text-neutral-400 transition-all cursor-pointer mr-1 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`}
@@ -7916,28 +8387,7 @@ export default function App() {
                     >
                       <Users className="h-4 w-4" />
                     </button>
-                  ) : activeChat?.username && activeChat?.username !== userUsername && !isServiceAccount(users[activeChat?.username], activeChat?.username) && !users[activeChat?.username]?.followers?.includes(userUsername) && (
-                    <button
-                      onClick={() => activeChat?.username && handleFollow(users[activeChat?.username.toLowerCase()])}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow-md shadow-black/5 transition-all cursor-pointer mr-1 active:scale-95 ${currentChatTheme.accentBg} ${currentChatTheme.accentText}`}
-                      title="Click to Follow"
-                    >
-                      Follow
-                    </button>
                   )}
-
-                  {/* Search inside chat button */}
-                  <button 
-                    onClick={() => setShowMsgSearchInChat(!showMsgSearchInChat)} 
-                    className={`p-2 rounded-xl transition-all cursor-pointer active:scale-95 ${
-                      showMsgSearchInChat 
-                        ? `${currentChatTheme.actionButtonActiveBg}` 
-                        : `text-neutral-500 dark:text-neutral-400 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`
-                    }`}
-                    title="Search Messages"
-                  >
-                    <Search className="h-4 w-4" />
-                  </button>
 
                   {/* 3-Dot Options */}
                   <button 
@@ -7953,6 +8403,8 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              )}
+
 
               {/* Msg Search bar overlay */}
               {showMsgSearchInChat && (
@@ -8051,7 +8503,7 @@ export default function App() {
                     return (
                       <React.Fragment key={`${msg.id || 'msg'}_${idx}`}>
                         {showDateDivider && (
-                          <div className="flex justify-center my-3 select-none sticky top-2 z-10">
+                          <div className="flex justify-center my-3 select-none">
                             <div className="px-3.5 py-1 rounded-full text-[11px] font-semibold tracking-wide bg-neutral-100/90 dark:bg-neutral-800/90 text-neutral-700 dark:text-neutral-300 border border-neutral-200/80 dark:border-neutral-700/80 shadow-2xs backdrop-blur-md">
                               {formatChatDateDivider(currentDateKey)}
                             </div>
@@ -8069,13 +8521,17 @@ export default function App() {
                           isSenderVerified={!!users[senderUsername]?.is_verified}
                           isSenderServiceAccount={isServiceAccount(users[senderUsername], senderUsername)}
                           themeId={chatWallpapers[activeChatId] || DEFAULT_THEME_ID}
-                          onOpenActions={(m) => setSelectedMessageForActions(m)}
+                          isSelected={selectedMessageIds.includes(msg.id)}
+                          isInSelectionMode={selectedMessageIds.length > 0}
+                          onToggleSelect={handleToggleSelectMessage}
+                          onOpenActions={(m) => handleToggleSelectMessage(m.id)}
                           onReact={(msgId, emoji) => handleReactToMessage(msgId, emoji)}
                           onVotePoll={(msgId, optionId) => handleVotePoll(msgId, optionId)}
                           onOpenMediaPlayer={(type, url, meta) => openInMediaPlayer(type, url, meta)}
                           onToast={(text) => showToast(text)}
                           driveAccessToken={driveAccessToken}
                         />
+
                       </React.Fragment>
                     );
                   })
@@ -8183,41 +8639,8 @@ export default function App() {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 10, scale: 0.96 }}
                       transition={{ duration: 0.15, ease: 'easeOut' }}
-                      className={`absolute bottom-16 left-4 z-40 p-3.5 rounded-2xl border shadow-2xl w-80 space-y-3 backdrop-blur-xl ${themeMode === 'dark' ? 'bg-slate-900/95 border-slate-800' : 'bg-white/95 border-slate-200/90'}`}
+                      className={`absolute bottom-16 left-4 z-40 p-3 rounded-2xl border shadow-2xl w-72 backdrop-blur-xl ${themeMode === 'dark' ? 'bg-slate-900/95 border-slate-800' : 'bg-white/95 border-slate-200/90'}`}
                     >
-                      {/* Media & Voice Quality Setting Pill Header */}
-                      <div className="space-y-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 dark:text-slate-400">Upload Quality</span>
-                          <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-[10px] font-semibold">
-                            {(['standard', 'hd', 'data_saver'] as const).map(q => (
-                              <button
-                                key={q}
-                                onClick={() => { setMediaUploadQuality(q); showToast(`Upload quality: ${q.toUpperCase()}`); }}
-                                className={`px-2 py-0.5 rounded-md capitalize transition-colors ${mediaUploadQuality === q ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`}
-                              >
-                                {q === 'hd' ? 'HD High' : q === 'standard' ? 'Auto' : 'Saver'}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between pt-0.5">
-                          <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 dark:text-slate-400">Mic Quality</span>
-                          <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-[10px] font-semibold">
-                            {(['hd', 'standard', 'compressed'] as const).map(q => (
-                              <button
-                                key={q}
-                                onClick={() => { setVoiceRecordingQuality(q); showToast(`Voice quality: ${q.toUpperCase()}`); }}
-                                className={`px-2 py-0.5 rounded-md capitalize transition-colors ${voiceRecordingQuality === q ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`}
-                              >
-                                {q === 'hd' ? 'HD 128k' : q === 'standard' ? 'Std 64k' : 'Compact'}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-
                       <div className="grid grid-cols-4 gap-2">
                         <button onClick={() => handleAttachMock('image')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
                           <div className="p-2.5 rounded-2xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/40 mb-1">
@@ -8715,85 +9138,75 @@ export default function App() {
             </div>
 
             {/* Profile Content Container */}
-            <div className="max-w-3xl mx-auto p-4 md:p-8 space-y-6">
+            <div className="max-w-2xl mx-auto p-4 sm:p-6 space-y-4">
               
-              {/* Profile Header: Avatar, Stats & Bio */}
-              <div className="bg-white dark:bg-neutral-900 rounded-3xl p-6 md:p-8 border border-neutral-200/80 dark:border-neutral-800 shadow-md space-y-6">
-                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 md:gap-8">
+              {/* Profile Header Card */}
+              <div className="bg-white dark:bg-[#12151d] rounded-3xl p-5 sm:p-6 border border-neutral-200/80 dark:border-neutral-800/80 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-5">
                   {/* Professional Avatar with Status Ring */}
                   <div className="relative shrink-0">
-                    <div className="p-1 rounded-full bg-gradient-to-tr from-neutral-200 via-neutral-100 to-neutral-200 dark:from-neutral-800 dark:via-neutral-900 dark:to-neutral-800 shadow-md">
-                      <div className="p-0.5 rounded-full bg-white dark:bg-neutral-900">
-                        {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-24 w-24 md:h-28 md:w-28 text-3xl md:text-4xl shadow-inner')}
+                    <div className="p-0.5 rounded-full bg-neutral-200/60 dark:bg-neutral-800 shadow-xs">
+                      <div className="p-0.5 rounded-full bg-white dark:bg-[#12151d]">
+                        {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-20 w-20 sm:h-22 sm:w-22 text-2xl sm:text-3xl shadow-inner')}
                       </div>
                     </div>
                     <button
                       onClick={handleOpenEditProfile}
-                      className="absolute bottom-1 right-1 p-2 rounded-full bg-neutral-900 dark:bg-white hover:bg-neutral-800 dark:hover:bg-neutral-100 text-white dark:text-neutral-900 shadow-lg border-2 border-white dark:border-neutral-900 transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+                      className="absolute bottom-0 right-0 p-1.5 rounded-full bg-neutral-900 dark:bg-white hover:bg-neutral-800 dark:hover:bg-neutral-100 text-white dark:text-neutral-900 shadow-sm border-2 border-white dark:border-[#12151d] transition-transform hover:scale-105 active:scale-95 cursor-pointer"
                       title="Change profile picture"
                     >
-                      <Camera className="h-4 w-4" />
+                      <Camera className="h-3.5 w-3.5" />
                     </button>
                   </div>
 
                   {/* Profile Details Area */}
-                  <div className="flex-1 text-center sm:text-left space-y-4 min-w-0 w-full">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex-1 text-center sm:text-left space-y-2.5 min-w-0 w-full">
+                    <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
                       <div>
-                        <h2 className="text-xl md:text-2xl font-black text-neutral-900 dark:text-white flex items-center justify-center sm:justify-start gap-2">
+                        <h2 className="text-lg sm:text-xl font-bold text-neutral-900 dark:text-white flex items-center justify-center sm:justify-start gap-1.5">
                           <span>{userDisplayName || 'User'}</span>
                           {!!users[userUsername]?.is_verified && (
-                            <PurpleVerifiedBadge size="sm"  />
+                            <PurpleVerifiedBadge size="sm" />
                           )}
                         </h2>
-                        <p className="text-xs font-mono font-bold text-neutral-400 mt-1">@{userUsername}</p>
                       </div>
-
-
                     </div>
 
-                    {/* Highly Professional Stats Section */}
-                    <div className="flex items-center justify-center sm:justify-start gap-8 py-3 border-y border-neutral-100 dark:border-neutral-800/60 max-w-sm mx-auto sm:mx-0">
+                    {/* Stats Section */}
+                    <div className="flex items-center justify-center sm:justify-start gap-6 py-1.5 border-y border-neutral-100 dark:border-neutral-800/60 max-w-xs mx-auto sm:mx-0">
                       <button 
-                        className="flex items-baseline gap-1.5 hover:opacity-80 transition-opacity"
+                        className="flex items-baseline gap-1 hover:opacity-75 transition-opacity cursor-pointer"
                         onClick={() => setShowFollowListModal({ type: 'followers', username: userUsername })}
                       >
-                        <span className="text-lg font-black text-neutral-900 dark:text-white">
+                        <span className="text-sm font-bold text-neutral-900 dark:text-white">
                           {users[userUsername]?.followers?.length || 0}
                         </span>
-                        <span className="text-xs text-neutral-400 font-semibold uppercase tracking-wider">Followers</span>
+                        <span className="text-[11px] text-neutral-400 font-medium">Followers</span>
                       </button>
 
                       <button 
-                        className="flex items-baseline gap-1.5 hover:opacity-80 transition-opacity"
+                        className="flex items-baseline gap-1 hover:opacity-75 transition-opacity cursor-pointer"
                         onClick={() => setShowFollowListModal({ type: 'following', username: userUsername })}
                       >
-                        <span className="text-lg font-black text-neutral-900 dark:text-white">
+                        <span className="text-sm font-bold text-neutral-900 dark:text-white">
                           {users[userUsername]?.following?.length || 0}
                         </span>
-                        <span className="text-xs text-neutral-400 font-semibold uppercase tracking-wider">Following</span>
+                        <span className="text-[11px] text-neutral-400 font-medium">Following</span>
                       </button>
                     </div>
 
-                    {/* Professional Biography */}
-                    <div className="space-y-2 text-xs md:text-sm text-neutral-700 dark:text-neutral-300">
-                      <p className="font-semibold whitespace-pre-line leading-relaxed italic text-neutral-600 dark:text-neutral-400">
-                        "{userBio || "Hey there! I am using Zenoa for ultra-fast, secure communication."}"
+                    {/* Biography (clean, no quotes) */}
+                    <div className="text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed">
+                      <p className="font-normal">
+                        {userBio || "Hey there! I am using Zenoa for fast, secure communication."}
                       </p>
-                      {/* Strictly NO email shown here. Email is housed securely in the Settings -> Accounts Center */}
-                      {userPhone && (
-                        <div className="flex items-center justify-center sm:justify-start gap-1.5 pt-1 text-[11px] text-neutral-400 font-semibold">
-                          <Phone className="h-3.5 w-3.5" />
-                          <span>{userPhone}</span>
-                        </div>
-                      )}
                     </div>
 
-                    {/* Action Buttons row (Without Settings button to avoid redundancy) */}
-                    <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 pt-3">
+                    {/* Action Buttons */}
+                    <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
                       <button
                         onClick={handleOpenEditProfile}
-                        className="px-5 py-2.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-800 dark:text-neutral-200 font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer"
+                        className="px-4 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                       >
                         <Edit2 className="h-3.5 w-3.5" />
                         <span>Edit Profile</span>
@@ -8801,13 +9214,11 @@ export default function App() {
 
                       <button
                         onClick={() => setShowShareProfileModal(true)}
-                        className="px-5 py-2.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-800 dark:text-neutral-200 border border-neutral-200/50 dark:border-neutral-700/50 font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer"
+                        className="px-4 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 border border-neutral-200/50 dark:border-neutral-700/50 font-semibold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                       >
                         <Share2 className="h-3.5 w-3.5" />
-                        <span>Share Profile</span>
+                        <span>Share</span>
                       </button>
-
-
                     </div>
 
                   </div>
@@ -8856,46 +9267,46 @@ export default function App() {
                 </div>
               )}
 
-              {/* Profile Tabs: Media & Saved */}
+              {/* Profile Tabs: Media, Saved & Calls (Icon-only clean minimalist design) */}
               <div className="bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-200/80 dark:border-neutral-800 shadow-sm overflow-hidden">
                 {/* Tabs Bar */}
                 <div className="flex items-center border-b border-neutral-200/80 dark:border-neutral-800">
                   <button
                     onClick={() => setProfileActiveTab('media')}
-                    className={`flex-1 py-3.5 text-xs font-bold flex items-center justify-center gap-2 border-b-2 transition-all ${
+                    title="Shared Media"
+                    className={`flex-1 py-4 text-xs font-bold flex items-center justify-center gap-2 border-b-2 transition-all cursor-pointer ${
                       profileActiveTab === 'media'
                         ? 'border-neutral-900 dark:border-neutral-100 text-neutral-900 dark:text-neutral-100 bg-neutral-100/30 dark:bg-indigo-950/20'
-                        : 'border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
+                        : 'border-transparent text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200'
                     }`}
                   >
-                    <Grid className="h-4 w-4" />
-                    <span>Shared Media</span>
+                    <Grid className="h-5 w-5" />
                   </button>
 
                   <button
                     onClick={() => setProfileActiveTab('saved')}
-                    className={`flex-1 py-3.5 text-xs font-bold flex items-center justify-center gap-2 border-b-2 transition-all ${
+                    title="Saved Messages"
+                    className={`flex-1 py-4 text-xs font-bold flex items-center justify-center gap-2 border-b-2 transition-all cursor-pointer ${
                       profileActiveTab === 'saved'
                         ? 'border-neutral-900 dark:border-neutral-100 text-neutral-900 dark:text-neutral-100 bg-neutral-100/30 dark:bg-indigo-950/20'
-                        : 'border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
+                        : 'border-transparent text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200'
                     }`}
                   >
-                    <Bookmark className="h-4 w-4" />
-                    <span>Saved Messages</span>
+                    <Bookmark className="h-5 w-5" />
                   </button>
 
                   <button
                     onClick={() => setProfileActiveTab('calls')}
-                    className={`flex-1 py-3.5 text-xs font-bold flex items-center justify-center gap-2 border-b-2 transition-all ${
+                    title="Call History"
+                    className={`flex-1 py-4 text-xs font-bold flex items-center justify-center gap-2 border-b-2 transition-all cursor-pointer relative ${
                       profileActiveTab === 'calls'
                         ? 'border-neutral-900 dark:border-neutral-100 text-neutral-900 dark:text-neutral-100 bg-neutral-100/30 dark:bg-indigo-950/20'
-                        : 'border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
+                        : 'border-transparent text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200'
                     }`}
                   >
-                    <PhoneCall className="h-4 w-4" />
-                    <span>Call History</span>
+                    <PhoneCall className="h-5 w-5" />
                     {allUserCalls.length > 0 && (
-                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-neutral-200 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-bold">
+                      <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 font-bold">
                         {allUserCalls.length}
                       </span>
                     )}
@@ -9037,16 +9448,17 @@ export default function App() {
                           <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-neutral-800">
                             <button
                               onClick={() => setCurrentMediaFolder(null)}
-                              className="px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-900 dark:bg-neutral-100 hover:text-white dark:text-neutral-900 dark:hover:bg-neutral-900 dark:bg-neutral-100 transition-all text-xs font-bold text-neutral-700 dark:text-neutral-300 flex items-center gap-1 cursor-pointer"
+                              className="px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-all text-xs font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5 cursor-pointer"
                             >
-                              \u2190 Back to folders
+                              <ArrowLeft className="h-3.5 w-3.5" />
+                              <span>Back to Folders</span>
                             </button>
                             <span className="text-xs font-bold text-neutral-800 dark:text-neutral-200">{folderTitle} ({activeItems.length})</span>
                           </div>
 
                           {activeItems.length === 0 ? (
                             <div className="py-12 text-center text-neutral-500 dark:text-neutral-400 text-xs">
-                              This folder is currently empty. Shared files of this type will appear here.
+                              No media files found in this category.
                             </div>
                           ) : currentMediaFolder === 'photos' || currentMediaFolder === 'videos' ? (
                             /* Photos & Videos Grid */
@@ -9124,7 +9536,7 @@ export default function App() {
                                         {item.file_name || item.text || (currentMediaFolder === 'audio' ? 'Voice Recording' : 'Document Attachment')}
                                       </p>
                                       <p className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-0.5">
-                                        Shared by @{item.sender} \u2022 {item.timestamp} {item.file_size ? `\u2022 ${item.file_size}` : ''}
+                                        Shared by @{item.sender} • {item.timestamp} {item.file_size ? `• ${item.file_size}` : ''}
                                       </p>
                                     </div>
                                   </div>
@@ -9151,12 +9563,12 @@ export default function App() {
                       if (savedItems.length === 0) {
                         return (
                           <div className="py-16 text-center space-y-3">
-                            <div className="h-14 w-14 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mx-auto text-neutral-500 dark:text-neutral-400">
-                              <Star className="h-7 w-7" />
+                            <div className="h-14 w-14 rounded-2xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mx-auto text-neutral-500 dark:text-neutral-400 shadow-2xs">
+                              <Star className="h-6 w-6 stroke-[1.8]" />
                             </div>
-                            <p className="text-sm font-bold text-neutral-700 dark:text-neutral-300">No saved messages yet</p>
-                            <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-sm mx-auto">
-                              Pin or react to important messages in any chat to save them here for fast reference.
+                            <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">No Saved Messages</p>
+                            <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-xs mx-auto">
+                              Star or bookmark messages to access them quickly here.
                             </p>
                           </div>
                         );
@@ -9200,55 +9612,91 @@ export default function App() {
                 {profileActiveTab === 'calls' && (
                   <div className="p-4 md:p-6 space-y-4">
                     {/* Search & Filter Bar */}
-                    <div className="space-y-3">
-                      <div className="relative">
-                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500 dark:text-neutral-400" />
+                    <div className="flex items-center gap-2 relative">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
                         <input
                           type="text"
                           value={callHistorySearch}
                           onChange={(e) => setCallHistorySearch(e.target.value)}
-                          placeholder="Search calls by contact name or username..."
-                          className="w-full pl-10 pr-4 py-2 text-xs rounded-xl bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/80 text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:border-neutral-900 dark:border-neutral-100 transition-colors"
+                          placeholder="Search calls by contact or @username..."
+                          className="w-full pl-10 pr-9 py-2.5 text-xs rounded-2xl bg-neutral-100/90 dark:bg-neutral-800/90 border border-neutral-200/80 dark:border-neutral-700/80 text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs"
                         />
                         {callHistorySearch && (
                           <button
                             onClick={() => setCallHistorySearch('')}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:text-neutral-200 dark:hover:text-neutral-200"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors"
                           >
                             <X className="h-3.5 w-3.5" />
                           </button>
                         )}
                       </div>
 
-                      {/* Filter Chips */}
-                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
-                        {[
-                          { id: 'all', label: 'All Calls', count: allUserCalls.length },
-                          { id: 'missed', label: 'Missed', count: allUserCalls.filter(c => c.status === 'missed' || c.status === 'declined').length },
-                          { id: 'incoming', label: 'Incoming', count: allUserCalls.filter(c => !c.is_outgoing).length },
-                          { id: 'outgoing', label: 'Outgoing', count: allUserCalls.filter(c => c.is_outgoing).length },
-                          { id: 'video', label: 'Video', count: allUserCalls.filter(c => c.call_type === 'video').length },
-                          { id: 'voice', label: 'Voice', count: allUserCalls.filter(c => c.call_type === 'voice').length }
-                        ].map((chip) => (
-                          <button
-                            key={chip.id}
-                            onClick={() => setCallHistoryFilter(chip.id as any)}
-                            className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-                              callHistoryFilter === chip.id
-                                ? 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 shadow-xs'
-                                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
-                            }`}
-                          >
-                            <span>{chip.label}</span>
-                            <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                              callHistoryFilter === chip.id
-                                ? 'bg-white/20 text-white'
-                                : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'
-                            }`}>
-                              {chip.count}
-                            </span>
-                          </button>
-                        ))}
+                      {/* Professional Filter Dropdown Button */}
+                      <div className="relative shrink-0">
+                        <button
+                          id="call-history-filter-btn"
+                          onClick={() => setShowCallFilterDropdown(prev => !prev)}
+                          className={`px-3.5 py-2.5 rounded-2xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs active:scale-95 ${
+                            callHistoryFilter !== 'all'
+                              ? 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 border-transparent shadow-xs'
+                              : 'bg-neutral-100/90 dark:bg-neutral-800/90 hover:bg-neutral-200/80 dark:hover:bg-neutral-700/80 text-neutral-700 dark:text-neutral-300 border-neutral-200/80 dark:border-neutral-700/80'
+                          }`}
+                        >
+                          <Filter className="h-4 w-4" />
+                          <span className="capitalize">{callHistoryFilter === 'all' ? 'Filter' : callHistoryFilter}</span>
+                          {callHistoryFilter !== 'all' && (
+                            <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 dark:bg-indigo-400" />
+                          )}
+                        </button>
+
+                        {showCallFilterDropdown && (
+                          <>
+                            <div 
+                              className="fixed inset-0 z-20" 
+                              onClick={() => setShowCallFilterDropdown(false)} 
+                            />
+                            <div className="absolute right-0 top-full mt-2 w-48 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-xl p-1.5 z-30 space-y-0.5 animate-fade-in">
+                              {[
+                                { id: 'all', label: 'All Calls', count: allUserCalls.length },
+                                { id: 'missed', label: 'Missed Calls', count: allUserCalls.filter(c => c.status === 'missed' || c.status === 'declined').length },
+                                { id: 'incoming', label: 'Incoming Calls', count: allUserCalls.filter(c => !c.is_outgoing).length },
+                                { id: 'outgoing', label: 'Outgoing Calls', count: allUserCalls.filter(c => c.is_outgoing).length },
+                                { id: 'video', label: 'Video Calls', count: allUserCalls.filter(c => c.call_type === 'video').length },
+                                { id: 'voice', label: 'Voice Calls', count: allUserCalls.filter(c => c.call_type === 'voice').length }
+                              ].map((opt) => (
+                                <button
+                                  key={opt.id}
+                                  onClick={() => {
+                                    setCallHistoryFilter(opt.id as any);
+                                    setShowCallFilterDropdown(false);
+                                  }}
+                                  className={`w-full px-3 py-2 rounded-xl text-xs font-medium flex items-center justify-between transition-colors cursor-pointer ${
+                                    callHistoryFilter === opt.id
+                                      ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white font-bold'
+                                      : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 hover:text-neutral-900 dark:hover:text-white'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span>{opt.label}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                                      opt.id === 'missed' && opt.count > 0
+                                        ? 'bg-rose-500 text-white'
+                                        : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400'
+                                    }`}>
+                                      {opt.count}
+                                    </span>
+                                    {callHistoryFilter === opt.id && (
+                                      <Check className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                                    )}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -9275,16 +9723,16 @@ export default function App() {
                       if (filteredCalls.length === 0) {
                         return (
                           <div className="py-16 text-center space-y-3">
-                            <div className="h-14 w-14 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mx-auto text-neutral-500 dark:text-neutral-400">
-                              <PhoneCall className="h-7 w-7" />
+                            <div className="h-14 w-14 rounded-2xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mx-auto text-neutral-500 dark:text-neutral-400 shadow-2xs">
+                              <PhoneCall className="h-6 w-6 stroke-[1.8]" />
                             </div>
-                            <p className="text-sm font-bold text-neutral-700 dark:text-neutral-300">
-                              {callHistorySearch ? 'No calls matching your search' : 'No call history recorded'}
+                            <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">
+                              {callHistorySearch ? 'No calls matching search' : 'No Recent Calls'}
                             </p>
-                            <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-sm mx-auto">
+                            <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-xs mx-auto">
                               {callHistorySearch
-                                ? 'Try searching for a different name or username, or switch filter tags.'
-                                : 'Make voice or video calls with your contacts to see detailed call logs, durations, and timestamps here.'}
+                                ? 'Try searching for another contact name or username.'
+                                : 'Recent incoming, outgoing, and missed calls will appear here.'}
                             </p>
                           </div>
                         );
@@ -9300,7 +9748,7 @@ export default function App() {
                             return (
                               <div
                                 key={`call_rec_${call.id}`}
-                                className="p-3.5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900/60 hover:border-indigo-300 dark:hover:border-indigo-800/80 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs group"
+                                className="p-3.5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900/70 hover:border-indigo-400/50 dark:hover:border-indigo-500/50 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs group"
                               >
                                 <div className="flex items-center gap-3.5 min-w-0">
                                   {/* Avatar */}
@@ -9309,20 +9757,23 @@ export default function App() {
                                       call.partner_avatar_seed || call.partner_username,
                                       call.partner_name || call.partner_username,
                                       call.partner_avatar_url || partnerUserObj?.avatar_url,
-                                      'h-12 w-12 text-base shadow-xs'
+                                      'h-11 w-11 text-sm shadow-xs'
                                     )}
                                     {isUserEffectivelyOnline(partnerUserObj) && (
-                                      <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-900" />
+                                      <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-500 border-2 border-white dark:border-neutral-900" />
                                     )}
                                   </div>
 
                                   {/* Info */}
-                                  <div className="min-w-0 space-y-0.5">
-                                    <div className="flex items-center gap-2">
+                                  <div className="min-w-0 space-y-1">
+                                    <div className="flex items-center gap-1.5">
                                       <h4 className="text-xs sm:text-sm font-bold text-neutral-900 dark:text-white truncate">
                                         {call.partner_name || call.partner_username}
                                       </h4>
-                                      <span className="text-[10px] text-neutral-500 dark:text-neutral-400 truncate">
+                                      {partnerUserObj && isAccountVerified(partnerUserObj, call.partner_username) && (
+                                        <PurpleVerifiedBadge size="xs" />
+                                      )}
+                                      <span className="text-[11px] text-neutral-400 dark:text-neutral-500 truncate">
                                         @{call.partner_username}
                                       </span>
                                     </div>
@@ -9331,24 +9782,24 @@ export default function App() {
                                     <div className="flex flex-wrap items-center gap-2 text-xs">
                                       <div className={`flex items-center gap-1 font-semibold text-[11px] ${
                                         isMissed 
-                                          ? 'text-neutral-900 dark:text-neutral-100' 
+                                          ? 'text-rose-500 dark:text-rose-400' 
                                           : call.is_outgoing 
-                                            ? 'text-neutral-900 dark:text-neutral-100' 
-                                            : 'text-neutral-900 dark:text-neutral-100'
+                                            ? 'text-blue-600 dark:text-blue-400' 
+                                            : 'text-emerald-600 dark:text-emerald-400'
                                       }`}>
                                         {isVideo ? (
-                                          <Video className="h-3.5 w-3.5" />
+                                          <Video className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
                                         ) : isMissed ? (
-                                          <PhoneMissed className="h-3.5 w-3.5" />
+                                          <PhoneMissed className="h-3.5 w-3.5 text-rose-500 shrink-0" />
                                         ) : call.is_outgoing ? (
-                                          <PhoneOutgoing className="h-3.5 w-3.5" />
+                                          <PhoneOutgoing className="h-3.5 w-3.5 text-blue-500 shrink-0" />
                                         ) : (
-                                          <PhoneIncoming className="h-3.5 w-3.5" />
+                                          <PhoneIncoming className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
                                         )}
-                                        <span>{isVideo ? 'Video Call' : 'Voice Call'}</span>
+                                        <span>{isVideo ? 'Video Call' : isMissed ? 'Missed Call' : call.is_outgoing ? 'Outgoing' : 'Incoming'}</span>
                                       </div>
 
-                                      <span className="text-neutral-300 dark:text-neutral-700">\u2022</span>
+                                      <span className="text-neutral-300 dark:text-neutral-700">•</span>
 
                                       <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
                                         {call.timestamp}
@@ -9356,19 +9807,19 @@ export default function App() {
 
                                       {call.duration_formatted && (
                                         <>
-                                          <span className="text-neutral-300 dark:text-neutral-700">\u2022</span>
+                                          <span className="text-neutral-300 dark:text-neutral-700">•</span>
                                           <span className="text-[11px] font-mono font-medium text-neutral-500 dark:text-neutral-400">
                                             {call.duration_formatted}
                                           </span>
                                         </>
                                       )}
 
-                                      <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold uppercase ${
+                                      <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase ${
                                         call.status === 'answered' || call.status === 'connected'
-                                          ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 dark:bg-emerald-950/40 dark:text-neutral-500 dark:text-neutral-400'
-                                          : call.status === 'missed'
-                                            ? 'bg-neutral-100 text-neutral-900 dark:text-neutral-100 dark:bg-rose-950/40 dark:text-neutral-500 dark:text-neutral-400'
-                                            : 'bg-neutral-100 text-neutral-800 dark:text-neutral-200 dark:bg-neutral-800 dark:text-neutral-500 dark:text-neutral-400'
+                                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                                          : call.status === 'missed' || call.status === 'declined'
+                                            ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
+                                            : 'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300'
                                       }`}>
                                         {call.status}
                                       </span>
@@ -9376,12 +9827,12 @@ export default function App() {
                                   </div>
                                 </div>
 
-                                {/* Action Buttons */}
+                                {/* Apple-style Action Buttons */}
                                 <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
                                   {/* Voice Call */}
                                   <button
                                     onClick={() => handleStartCallWithUser(call.partner_username, 'voice')}
-                                    className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-neutral-900 dark:text-neutral-100 transition-all cursor-pointer"
+                                    className="h-9 w-9 rounded-full bg-neutral-100 hover:bg-emerald-50 hover:text-emerald-600 dark:bg-neutral-800 dark:hover:bg-emerald-950/50 dark:hover:text-emerald-300 text-neutral-700 dark:text-neutral-300 flex items-center justify-center transition-all cursor-pointer shadow-2xs active:scale-95"
                                     title={`Voice Call @${call.partner_username}`}
                                   >
                                     <Phone className="h-4 w-4" />
@@ -9390,7 +9841,7 @@ export default function App() {
                                   {/* Video Call */}
                                   <button
                                     onClick={() => handleStartCallWithUser(call.partner_username, 'video')}
-                                    className="p-2 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-neutral-700 dark:text-neutral-300 dark:text-neutral-700 dark:text-neutral-300 transition-all cursor-pointer"
+                                    className="h-9 w-9 rounded-full bg-neutral-100 hover:bg-indigo-50 hover:text-indigo-600 dark:bg-neutral-800 dark:hover:bg-indigo-950/50 dark:hover:text-indigo-300 text-neutral-700 dark:text-neutral-300 flex items-center justify-center transition-all cursor-pointer shadow-2xs active:scale-95"
                                     title={`Video Call @${call.partner_username}`}
                                   >
                                     <Video className="h-4 w-4" />
@@ -9408,7 +9859,7 @@ export default function App() {
                                         handleStartCallWithUser(call.partner_username, 'voice');
                                       }
                                     }}
-                                    className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 transition-all cursor-pointer"
+                                    className="h-9 w-9 rounded-full bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 flex items-center justify-center transition-all cursor-pointer shadow-2xs active:scale-95"
                                     title={`Message @${call.partner_username}`}
                                   >
                                     <MessageSquare className="h-4 w-4" />
@@ -9479,7 +9930,7 @@ export default function App() {
             handleClearActiveChatHistory={handleClearActiveChatHistory}
             handleResetLocalCache={handleResetLocalCache}
             handleExportChatData={handleExportChatData}
-            handleLogout={handleLogout}
+            handleLogout={() => setShowLogoutModal(true)}
             callDataSaver={callDataSaver}
             setCallDataSaver={setCallDataSaver}
             noiseSuppression={noiseSuppression}
@@ -10122,7 +10573,7 @@ export default function App() {
                   <button
                     onClick={() => setMediaRotation(r => (r + 90) % 360)}
                     className="p-1.5 rounded-lg hover:bg-white/20 transition-colors cursor-pointer"
-                    title="Rotate 90\u00B0"
+                    title="Rotate 90°"
                   >
                     <RotateCw className="h-4 w-4" />
                   </button>
@@ -10400,7 +10851,7 @@ export default function App() {
                 </div>
                 <div className="space-y-1">
                   <h4 className="font-bold text-xl">{mediaPlayer.title}</h4>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400">Size: {mediaPlayer.size || '1.5 MB'} \u2022 Document Attachment</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">Size: {mediaPlayer.size || '1.5 MB'} • Document Attachment</p>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3 w-full pt-2">
@@ -10737,7 +11188,15 @@ export default function App() {
                   </button>
                   )}
 
+                  <button onClick={() => { setShowChatCustomizationSheet(false); setShowMsgSearchInChat(true); }} className="w-full text-left px-4 py-3 rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50 flex items-center gap-4 transition-colors cursor-pointer group">
+                    <div className="p-2 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 group-hover:scale-110 transition-transform">
+                      <Search className="h-4 w-4" />
+                    </div>
+                    <span className="font-semibold text-sm text-neutral-700 dark:text-neutral-200">Search Messages</span>
+                  </button>
+
                   <button onClick={(e) => handleToggleMuteChat(e, activeChat.id)} className="w-full text-left px-4 py-3 rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50 flex items-center justify-between transition-colors cursor-pointer group">
+
                     <div className="flex items-center gap-4">
                       <div className="p-2 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 group-hover:scale-110 transition-transform">
                         <VolumeX className="h-4 w-4" />
@@ -10965,6 +11424,8 @@ export default function App() {
         onMarkAllAsRead={markNotificationsAsRead}
         renderAvatar={renderAvatar}
         themeMode={themeMode}
+        onToggleFollow={(uname) => handleToggleFollowUserInternal(uname)}
+        currentUserFollowing={users[userUsername]?.following || []}
       />
 
       {/* WHATSAPP-STYLE MEDIA EDITOR MODAL (Crop, Customize, Brush, Text, HD Quality, Send to Recipient) */}
@@ -11028,7 +11489,7 @@ export default function App() {
                 type="text"
                 value={tempNicknameValue}
                 onChange={(e) => setTempNicknameValue(e.target.value)}
-                placeholder="e.g. Bestie, Project Lead, \u{1F5A4} Student \u{1F4DA}"
+                placeholder="e.g. Bestie, Project Lead, Student"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-900 dark:text-white outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-white"
                 autoFocus
               />
@@ -11238,6 +11699,87 @@ export default function App() {
           handleLogout();
         }}
         themeMode={themeMode}
+      />
+
+      {/* SAVE ACCOUNT BOTTOM SHEET (One-Tap Fast Login Persistence) */}
+      <SaveAccountBottomSheet
+        isOpen={showSaveAccountSheet}
+        username={userUsername}
+        displayName={userDisplayName || userUsername}
+        avatarSeed={userAvatarSeed || userUsername}
+        avatarUrl={userAvatarUrl || ''}
+        themeMode={themeMode}
+        onSave={handleSaveCurrentAccountLocally}
+        onCancel={handleDeclineSaveAccountPrompt}
+        renderAvatar={renderAvatar}
+      />
+
+      {/* BULK DELETE CONFIRMATION MODAL */}
+      <AnimatePresence>
+        {showBulkDeleteModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-slate-200 dark:border-slate-800 text-center space-y-4"
+            >
+
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto">
+                <Trash2 className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg text-slate-900 dark:text-white">
+                  Delete {selectedMessageIds.length} {selectedMessageIds.length === 1 ? 'Message' : 'Messages'}?
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Choose whether to delete these messages for yourself or for everyone.
+                </p>
+              </div>
+
+              <div className="space-y-2 pt-2">
+                {selectedMessageIds.some(id => {
+                  const m = activeMessages.find(msg => msg.id === id);
+                  return m && canDeleteForEveryone(m);
+                }) && (
+                  <button
+                    onClick={() => handleExecuteBulkDelete(true)}
+                    className="w-full py-3 px-4 rounded-xl font-bold text-xs bg-rose-600 hover:bg-rose-700 text-white transition-all shadow-xs active:scale-95 cursor-pointer"
+                  >
+                    Delete for Everyone
+                  </button>
+                )}
+
+
+                <button
+                  onClick={() => handleExecuteBulkDelete(false)}
+                  className="w-full py-3 px-4 rounded-xl font-bold text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all active:scale-95 cursor-pointer"
+                >
+                  Delete for Me
+                </button>
+
+                <button
+                  onClick={() => setShowBulkDeleteModal(false)}
+                  className="w-full py-2.5 px-4 rounded-xl font-medium text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+
+      {/* APPLE-GRADE LOGOUT MODAL (Conditional Save & Logout / Logout Only Options) */}
+      <LogoutModal
+        isOpen={showLogoutModal}
+        isAccountAlreadySaved={savedAccounts.some(a => a.username.toLowerCase() === (userUsername || '').replace(/^@/, '').toLowerCase())}
+        username={userUsername}
+        themeMode={themeMode}
+        onSaveAndLogout={handleSaveAndLogout}
+        onLogoutOnly={handleDirectLogout}
+        onCancel={() => setShowLogoutModal(false)}
       />
     </div>
   );

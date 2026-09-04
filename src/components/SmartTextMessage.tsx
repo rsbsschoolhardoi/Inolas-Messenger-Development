@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Copy, Check, ExternalLink, Code, ShieldCheck, ChevronDown, ChevronUp } from 'lucide-react';
+import { AppleEmojiText } from './AppleEmojiText';
 
 interface SmartTextMessageProps {
   text: string;
@@ -17,12 +18,10 @@ interface SmartTextMessageProps {
 function isEmojiOnly(str: string): boolean {
   const trimmed = str.trim();
   if (!trimmed) return false;
-  // Emoji regex matching Unicode emojis
   const emojiRegex = /^(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]){1,3}$/u;
   try {
     return emojiRegex.test(trimmed);
   } catch {
-    // Fallback simple length check
     return trimmed.length <= 6 && /[\u{1F300}-\u{1F9FF}]/u.test(trimmed);
   }
 }
@@ -39,13 +38,6 @@ function parseInlineContent(
 ): React.ReactNode[] {
   if (!text) return [];
 
-  // Regex matching inline formatting tokens:
-  // 1. Code: `code`
-  // 2. Bold: **bold** or __bold__
-  // 3. Strikethrough: ~~strike~~ or ~strike~
-  // 4. Italic: *italic* or _italic_
-  // 5. URL: http(s)://... or www....
-  // 6. Mention: @username
   const tokenRegex = /(\*\*[\s\S]+?\*\*|__[\s\S]+?__|~~[\s\S]+?~~|`[^`]+`|\*[^\*\n]+\*|_[^\_\n]+_|~[^~\n]+~|https?:\/\/[^\s<]+|www\.[^\s<]+|@[a-zA-Z0-9_]{3,30})/g;
 
   const parts = text.split(tokenRegex);
@@ -65,7 +57,7 @@ function parseInlineContent(
               : isReceivedDark ? 'bg-white/10 text-amber-300 border-white/15' : 'bg-neutral-100 text-amber-800 border-neutral-300 dark:bg-neutral-800 dark:text-amber-300 dark:border-neutral-700'
           }`}
         >
-          {codeContent}
+          <AppleEmojiText text={codeContent} />
         </code>
       );
     }
@@ -119,7 +111,7 @@ function parseInlineContent(
               : isReceivedDark ? 'text-blue-400 underline' : 'text-blue-600 dark:text-blue-400 underline'
           }`}
         >
-          <span>{part}</span>
+          <span><AppleEmojiText text={part} /></span>
           <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
         </a>
       );
@@ -136,13 +128,13 @@ function parseInlineContent(
               : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300'
           }`}
         >
-          {part}
+          <AppleEmojiText text={part} />
         </span>
       );
     }
 
-    // Plain text
-    return <span key={idx}>{part}</span>;
+    // Plain text with Apple emoji rendering
+    return <AppleEmojiText key={idx} text={part} />;
   });
 }
 
@@ -166,7 +158,6 @@ const CodeBlock: React.FC<{ code: string; language?: string; onToast?: (msg: str
 
   return (
     <div className="my-2 rounded-xl overflow-hidden border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-lg text-left font-mono text-[11px] max-w-full">
-      {/* Code Header */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900 border-b border-zinc-800 text-[10px] text-zinc-400 font-sans select-none">
         <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-zinc-300">
           <Code className="h-3.5 w-3.5 text-indigo-400" />
@@ -191,7 +182,6 @@ const CodeBlock: React.FC<{ code: string; language?: string; onToast?: (msg: str
         </button>
       </div>
 
-      {/* Code Body */}
       <div className="p-3 overflow-x-auto max-h-80 leading-relaxed font-mono whitespace-pre select-all text-emerald-300 bg-zinc-950/90">
         <code>{code}</code>
       </div>
@@ -217,13 +207,12 @@ export const SmartTextMessage: React.FC<SmartTextMessageProps> = ({
   if (isEmojiOnly(text)) {
     return (
       <div className="text-4xl py-1 animate-scale-in select-none">
-        {text}
+        <AppleEmojiText text={text} emojiClassName="inline-block w-[1.2em] h-[1.2em] object-contain select-none pointer-events-none" />
       </div>
     );
   }
 
   // 2. Detect OTP / Verification Code
-  // Pattern matches 4 to 8 digit numbers in text
   const otpMatch = text.match(/\b(\d{4,8})\b/);
   const hasOtpContext = /otp|verification|passcode|security code|verify|login code|authorization code|auth code/i.test(text) || isSenderServiceAccount;
   const detectedOtp = (otpMatch && hasOtpContext) ? otpMatch[1] : null;
@@ -239,11 +228,10 @@ export const SmartTextMessage: React.FC<SmartTextMessageProps> = ({
     setTimeout(() => setCopiedOtp(false), 2500);
   };
 
-  // Truncate logic for long messages
   const shouldTruncate = text.length > maxTextLength;
   const displayText = shouldTruncate && !isExpanded ? `${text.slice(0, maxTextLength)}...` : text;
 
-  // 3. Parse Code Blocks (```lang\ncode\n```)
+  // 3. Parse Code Blocks
   const codeBlockRegex = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g;
   const blocks: { type: 'text' | 'code'; content: string; lang?: string }[] = [];
 
@@ -325,12 +313,10 @@ export const SmartTextMessage: React.FC<SmartTextMessageProps> = ({
           return <CodeBlock key={i} code={block.content} language={block.lang} onToast={onToast} />;
         }
 
-        // Render line-by-line text block
         const lines = block.content.split('\n');
         return (
           <div key={i} className="space-y-0.5">
             {lines.map((line, lineIdx) => {
-              // Check Blockquote (> text)
               if (line.startsWith('> ')) {
                 return (
                   <blockquote
@@ -346,7 +332,6 @@ export const SmartTextMessage: React.FC<SmartTextMessageProps> = ({
                 );
               }
 
-              // Check Bullet Points (- or *)
               if (line.match(/^[\-\*]\s+/)) {
                 return (
                   <div key={lineIdx} className="flex items-start gap-1.5 pl-1">
@@ -366,7 +351,6 @@ export const SmartTextMessage: React.FC<SmartTextMessageProps> = ({
         );
       })}
 
-      {/* Expand / Collapse Toggle for Very Long Messages */}
       {shouldTruncate && (
         <div className="pt-0.5">
           <button

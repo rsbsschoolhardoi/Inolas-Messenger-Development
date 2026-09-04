@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bell, X, UserCheck, UserPlus, Check, CheckCheck, Clock } from 'lucide-react';
+import { Bell, X, UserCheck, UserPlus, Check, CheckCheck, Clock, Ban } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppNotification, FollowRequest } from '../types';
 
@@ -13,6 +13,8 @@ interface NotificationsModalProps {
   onMarkAllAsRead: () => void;
   renderAvatar: (seed?: string, name?: string, url?: string, sizeClasses?: string) => React.ReactNode;
   themeMode?: 'light' | 'dark';
+  onToggleFollow?: (username: string) => void;
+  currentUserFollowing?: string[];
 }
 
 export const NotificationsModal: React.FC<NotificationsModalProps> = ({
@@ -24,7 +26,9 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
   onDeclineFollowRequest,
   onMarkAllAsRead,
   renderAvatar,
-  themeMode = 'light'
+  themeMode = 'light',
+  onToggleFollow,
+  currentUserFollowing = []
 }) => {
   if (!isOpen) return null;
 
@@ -141,35 +145,67 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
                 <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 px-1">
                   Activity
                 </span>
-                <div className="space-y-1">
-                  {notifications.map((n) => (
-                    <div
-                      key={n.id}
-                      className={`flex items-start gap-3 p-3 rounded-2xl transition-colors ${
-                        !n.read 
-                          ? 'bg-neutral-100/70 dark:bg-neutral-800/70' 
-                          : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/40'
-                      }`}
-                    >
-                      {renderAvatar(n.fromAvatar, n.fromName, undefined, 'h-9 w-9 text-xs shrink-0')}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs text-neutral-800 dark:text-neutral-200 leading-snug">
-                          <span className="font-bold text-neutral-900 dark:text-white">{n.fromName}</span>{' '}
-                          {n.type === 'follow_accept' && 'accepted your follow request.'}
-                          {n.type === 'new_follower' && 'started following you.'}
-                          {n.type === 'follow_request' && 'requested to follow your account.'}
-                          {n.type === 'mention' && 'mentioned you in a conversation.'}
-                          {!['follow_accept', 'new_follower', 'follow_request', 'mention'].includes(n.type) && 'sent an update.'}
-                        </p>
-                        <span className="text-[10px] text-neutral-400 mt-1 block font-mono">
-                          {n.timestamp ? new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'}
-                        </span>
+                <div className="space-y-1.5">
+                  {notifications.map((n) => {
+                    const isFollowing = currentUserFollowing.includes(n.fromUsername);
+                    return (
+                      <div
+                        key={n.id}
+                        className={`flex items-center justify-between p-3 rounded-2xl transition-all border ${
+                          !n.read 
+                            ? 'bg-neutral-100/80 dark:bg-neutral-800/80 border-neutral-200/80 dark:border-neutral-700/80' 
+                            : 'bg-neutral-50/50 dark:bg-neutral-900/30 border-neutral-100 dark:border-neutral-800/50 hover:bg-neutral-100/50 dark:hover:bg-neutral-800/40'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
+                          {renderAvatar(n.fromAvatar, n.fromName, undefined, 'h-10 w-10 text-xs shrink-0 shadow-2xs')}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs text-neutral-800 dark:text-neutral-200 leading-snug">
+                              <span className="font-bold text-neutral-900 dark:text-white">{n.fromName}</span>{' '}
+                              {n.type === 'follow_accept' && 'accepted your follow request.'}
+                              {n.type === 'new_follower' && 'started following you.'}
+                              {n.type === 'follow_request' && 'requested to follow your account.'}
+                              {n.type === 'mention' && 'mentioned you in a conversation.'}
+                              {!['follow_accept', 'new_follower', 'follow_request', 'mention'].includes(n.type) && 'sent an update.'}
+                            </p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] text-neutral-400 font-medium">@{n.fromUsername}</span>
+                              <span className="text-neutral-300 dark:text-neutral-700">•</span>
+                              <span className="text-[10px] text-neutral-400 font-mono">
+                                {n.timestamp ? new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Action Buttons for new_follower / follow_accept */}
+                        {(n.type === 'new_follower' || n.type === 'follow_accept') && onToggleFollow ? (
+                          <button
+                            onClick={() => onToggleFollow(n.fromUsername)}
+                            className={`shrink-0 px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 ${
+                              isFollowing
+                                ? 'bg-neutral-200/80 hover:bg-neutral-300 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200'
+                                : 'bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900'
+                            }`}
+                          >
+                            {isFollowing ? (
+                              <>
+                                <UserCheck className="h-3.5 w-3.5" />
+                                <span>Following</span>
+                              </>
+                            ) : (
+                              <>
+                                <UserPlus className="h-3.5 w-3.5" />
+                                <span>Follow Back</span>
+                              </>
+                            )}
+                          </button>
+                        ) : !n.read ? (
+                          <span className="h-2 w-2 rounded-full bg-neutral-900 dark:bg-white shrink-0" />
+                        ) : null}
                       </div>
-                      {!n.read && (
-                        <span className="h-2 w-2 rounded-full bg-neutral-900 dark:bg-white shrink-0 mt-1.5" />
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -204,3 +240,4 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
     </AnimatePresence>
   );
 };
+

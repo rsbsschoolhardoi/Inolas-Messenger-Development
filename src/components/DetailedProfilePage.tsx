@@ -115,30 +115,10 @@ export const DetailedProfilePage: React.FC<DetailedProfilePageProps> = ({
       </div>
 
       {/* Profile Page Content */}
-      <div className="w-full max-w-lg mx-auto px-6 py-10 flex flex-col items-center space-y-8 flex-1">
+      <div className="w-full max-w-lg mx-auto px-6 py-8 flex flex-col items-center space-y-6 flex-1">
         
-        {/* 1. Username section - Spaced and displayed above the PFP with beautiful typography */}
-        <div className="flex flex-col items-center text-center space-y-2 mt-4">
-          <div className="flex items-center justify-center gap-2 flex-wrap">
-            {isPrivate && (
-              <Lock className="h-5 w-5 text-slate-500 dark:text-slate-400 shrink-0" />
-            )}
-            <h1 className="text-2xl font-extrabold tracking-tight font-sans text-slate-900 dark:text-white">
-              {cleanUsernameWithoutAt}
-            </h1>
-            {!!targetUser.is_verified && (
-              <PurpleVerifiedBadge size="sm" />
-            )}
-          </div>
-          {targetUser.display_name && targetUser.display_name !== cleanTargetUsername && (
-            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-              {targetUser.display_name}
-            </p>
-          )}
-        </div>
-
-        {/* 2. Profile Avatar (PFP) Container with a clean, normal border */}
-        <div className="relative shrink-0 flex justify-center">
+        {/* 1. Profile Avatar (PFP) Container */}
+        <div className="relative shrink-0 flex justify-center mt-2">
           <div className="p-1 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0f1422] shadow-xs">
             {renderAvatar(
               targetUser.avatar_seed || cleanTargetUsername,
@@ -152,8 +132,20 @@ export const DetailedProfilePage: React.FC<DetailedProfilePageProps> = ({
           )}
         </div>
 
-        {/* 3. Follower / Following Stats (Flat layout, NO CARD BORDER) */}
-        <div className="w-full flex items-center justify-center gap-12 text-center py-2">
+        {/* 2. Full Name / Display Name (Username is strictly in the header) */}
+        <div className="flex flex-col items-center text-center space-y-1">
+          <div className="flex items-center justify-center gap-1.5">
+            <h1 className="text-xl font-bold tracking-tight font-sans text-slate-900 dark:text-white">
+              {targetUser.display_name || cleanTargetUsername}
+            </h1>
+            {!!targetUser.is_verified && (
+              <PurpleVerifiedBadge size="sm" />
+            )}
+          </div>
+        </div>
+
+        {/* 3. Follower / Following Stats (Flat layout) */}
+        <div className="w-full flex items-center justify-center gap-12 text-center py-1">
           <button
             id="detailed-profile-followers-stat"
             onClick={() => !isLocked && onOpenFollowers(cleanTargetUsername)}
@@ -183,10 +175,10 @@ export const DetailedProfilePage: React.FC<DetailedProfilePageProps> = ({
           </button>
         </div>
 
-        {/* 4. Bio Section (Flat layout, NO CARD BORDER) */}
+        {/* 4. Bio Section (Clean plain text, no quotes) */}
         {targetUser.bio ? (
           <div className="w-full text-center px-4 max-w-sm">
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium break-words">
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-normal break-words">
               {targetUser.bio}
             </p>
           </div>
@@ -222,18 +214,18 @@ export const DetailedProfilePage: React.FC<DetailedProfilePageProps> = ({
             )}
           </div>
         ) : (
-          /* Interactive Action Controls - Styled with Premium minimal look */
-          <div className="w-full max-w-xs pt-2">
+          /* Interactive Action Controls - Centered with proper spacing */
+          <div className="w-full max-w-sm pt-2">
             {!isMe && !isBot ? (
-              <div className="flex flex-col sm:flex-row gap-3 justify-center w-full">
-                {/* Follow Button */}
+              <div className="flex items-center justify-center gap-3 w-full">
+                {/* Follow / Following Button */}
                 <button
-                  id="detailed-profile-follow-btn"
+                  id="detailed-profile-follow-action-btn"
                   onClick={() => handleFollow(targetUser)}
-                  className={`flex-1 py-3 px-6 rounded-full font-extrabold text-xs tracking-wider uppercase flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer ${
+                  className={`flex-1 py-3 px-4 rounded-2xl font-extrabold text-xs tracking-wider uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 ${
                     amIFollowing
-                      ? 'bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700'
-                      : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md hover:shadow-indigo-600/25'
+                      ? 'bg-slate-100 dark:bg-neutral-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-neutral-700 border border-slate-200/80 dark:border-neutral-700'
+                      : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20'
                   }`}
                 >
                   {amIFollowing ? (
@@ -256,7 +248,7 @@ export const DetailedProfilePage: React.FC<DetailedProfilePageProps> = ({
                     onClose();
                     onOpenDM(cleanTargetUsername);
                   }}
-                  className="flex-1 py-3 px-6 rounded-full bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-950 font-extrabold text-xs tracking-wider uppercase flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+                  className="flex-1 py-3 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-950 font-extrabold text-xs tracking-wider uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95"
                 >
                   <MessageSquare className="h-4 w-4 shrink-0" />
                   <span>Message</span>

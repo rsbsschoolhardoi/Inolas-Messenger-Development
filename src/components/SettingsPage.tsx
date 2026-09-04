@@ -1489,133 +1489,78 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
         {/* SECTION: ACCOUNT */}
         {section === 'account' && (
-          <div className="space-y-6 animate-fade-in">
-            {/* Professional Account Card */}
-            <div className="rounded-2xl border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm overflow-hidden">
-              <div className="p-5 border-b border-neutral-150 dark:border-neutral-800/80 flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200/40 dark:border-neutral-700/40">
-                  <User className="h-5 w-5" />
-                </div>
-                <div className="text-left">
-                  <h2 className="text-base font-bold text-neutral-900 dark:text-white">Account Details</h2>
-                  <p className="text-xs text-neutral-400">View and manage your connected credentials</p>
+          <div className="space-y-4 animate-fade-in text-left">
+            {/* Unified Professional Account Card */}
+            <div className="rounded-2xl border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm divide-y divide-neutral-150 dark:divide-neutral-800/80">
+              {/* Account Identity Header */}
+              <div className="p-5 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-12 w-12 text-sm border border-neutral-200 dark:border-neutral-700 shrink-0')}
+                  <div className="min-w-0">
+                    <h3 className="text-base font-semibold text-neutral-900 dark:text-white truncate">{userDisplayName}</h3>
+                    <p className="text-xs text-neutral-400 font-mono mt-0.5">@{userUsername}</p>
+                  </div>
                 </div>
               </div>
 
-              {/* Account details body */}
-              <div className="p-5 space-y-5">
-                {/* Profile Information */}
-                <div className="flex items-center gap-3.5 p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/20 border border-neutral-200/40 dark:border-neutral-800/40">
-                  {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-12 w-12 text-sm border border-neutral-200 dark:border-neutral-700')}
-                  <div className="min-w-0 flex-1 text-left">
-                    <p className="text-[10px] uppercase font-bold tracking-wider text-neutral-400">Connected Identity</p>
-                    <h4 className="text-sm font-bold text-neutral-900 dark:text-white truncate">{userDisplayName}</h4>
-                    <p className="text-xs font-mono text-neutral-400 mt-0.5">@{userUsername}</p>
-                  </div>
-                </div>
-
-                {/* Primary Credentials Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                  {/* Permanent Zenoa ID */}
-                  <div className="p-4 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-800/40 text-left flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <p className="text-[10px] uppercase font-bold tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
-                          <Lock className="h-3 w-3" />
-                          Zenoa ID
-                        </p>
-                        <span className="text-[9px] font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800/40">
-                          IMMUTABLE
-                        </span>
-                      </div>
-                      <p className="text-xs font-mono font-bold text-indigo-950 dark:text-indigo-200 mt-1.5 truncate">
-                        {currentUser?.zenoa_id || (userUsername ? `${userUsername}@zenoa` : 'user@zenoa')}
-                      </p>
-                    </div>
-                    <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-2">
-                      Fixed upon setup. Permanent handle for APIs & OTP routing.
+              {/* Credentials Details List */}
+              <div className="p-5 space-y-4">
+                {/* Zenoa ID Row */}
+                <div className="flex items-center justify-between gap-4 py-2">
+                  <div className="min-w-0">
+                    <p className="text-xs text-neutral-400">Zenoa ID</p>
+                    <p className="text-sm font-medium font-mono text-neutral-900 dark:text-neutral-100 mt-0.5 truncate">
+                      {currentUser?.zenoa_id || (userUsername ? `${userUsername}@zenoa` : 'user@zenoa')}
                     </p>
                   </div>
+                  <Lock className="h-4 w-4 text-neutral-400 shrink-0" />
+                </div>
 
-                  {/* Email address */}
-                  <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/10 border border-neutral-150 dark:border-neutral-800/40 text-left flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <p className="text-[10px] uppercase font-bold tracking-wider text-neutral-400">Email Address</p>
-                        {cleanDisplayEmail ? (
-                          <span className="text-[9px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800/40 font-bold flex items-center gap-1">
-                            <ShieldCheck className="h-2.5 w-2.5" />
-                            Linked
-                          </span>
-                        ) : (
-                          <span className="text-[9px] font-mono text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800/40 font-bold">
-                            Not Linked (Optional)
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 mt-1 truncate">
-                        {cleanDisplayEmail || 'No email attached'}
-                      </p>
-                    </div>
-
-                    <div className="mt-3 pt-2 border-t border-neutral-200/60 dark:border-neutral-800/60 flex items-center justify-between">
-                      <p className="text-[10px] text-neutral-500">
-                        {cleanDisplayEmail ? 'Used for password recovery' : 'Add email anytime in profile'}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEmailEditInput(cleanDisplayEmail);
-                          setEmailEditError('');
-                          setIsEmailModalOpen(true);
-                        }}
-                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 hover:opacity-90 transition-all cursor-pointer flex items-center gap-1"
-                      >
-                        <Mail className="h-3 w-3" />
-                        <span>{cleanDisplayEmail ? 'Change' : 'Link Email'}</span>
-                      </button>
-                    </div>
+                {/* Email Address Row */}
+                <div className="flex items-center justify-between gap-4 py-2 border-t border-neutral-100 dark:border-neutral-800/60">
+                  <div className="min-w-0">
+                    <p className="text-xs text-neutral-400">Email Address</p>
+                    <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 mt-0.5 truncate">
+                      {cleanDisplayEmail || 'Not set'}
+                    </p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmailEditInput(cleanDisplayEmail);
+                      setEmailEditError('');
+                      setIsEmailModalOpen(true);
+                    }}
+                    className="px-3 py-1.5 text-xs font-medium rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer shrink-0"
+                  >
+                    {cleanDisplayEmail ? 'Change' : 'Add Email'}
+                  </button>
+                </div>
 
-                  {/* Phone Number */}
-                  <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/10 border border-neutral-150 dark:border-neutral-800/40 text-left flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <p className="text-[10px] uppercase font-bold tracking-wider text-neutral-400">Phone Number</p>
-                        {localPhone ? (
-                          <span className="text-[9px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800/40 font-bold flex items-center gap-1">
-                            <ShieldCheck className="h-2.5 w-2.5" />
-                            Truecaller Verified
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 mt-1 truncate font-mono">
-                        {localPhone || 'Not Connected'}
-                      </p>
-                    </div>
-
-                    <div className="mt-3 pt-2 border-t border-neutral-200/60 dark:border-neutral-800/60 flex items-center justify-between">
-                      <p className="text-[10px] text-neutral-500">
-                        {localPhone ? 'Linked for direct Zenoa OTPs' : 'Required for direct OTPs'}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPhoneVerifyInput(localPhone || '');
-                          setIsPhoneVerifyModalOpen(true);
-                        }}
-                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 hover:opacity-90 transition-all cursor-pointer flex items-center gap-1"
-                      >
-                        <Phone className="h-3 w-3" />
-                        <span>{localPhone ? 'Change' : 'Verify (Truecaller)'}</span>
-                      </button>
-                    </div>
+                {/* Phone Number Row */}
+                <div className="flex items-center justify-between gap-4 py-2 border-t border-neutral-100 dark:border-neutral-800/60">
+                  <div className="min-w-0">
+                    <p className="text-xs text-neutral-400">Phone Number</p>
+                    <p className="text-sm font-medium font-mono text-neutral-900 dark:text-neutral-100 mt-0.5 truncate">
+                      {localPhone || 'Not set'}
+                    </p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhoneVerifyInput(localPhone || '');
+                      setIsPhoneVerifyModalOpen(true);
+                    }}
+                    className="px-3 py-1.5 text-xs font-medium rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer shrink-0"
+                  >
+                    {localPhone ? 'Change' : 'Add Phone'}
+                  </button>
                 </div>
               </div>
             </div>
           </div>
         )}
+
 
       </div>
 

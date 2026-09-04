@@ -207,8 +207,8 @@ class StorageManager {
           const results = request.result || [];
           // Strict user-isolation filter: Only return messages saved for this owner
           const filtered = results.filter((m: any) => {
-            // Temporal isolation gate: 0% data leakage from past deleted accounts
-            if (minCreatedAt && minCreatedAt > 0 && (m.created_at || 0) < (minCreatedAt - 5000)) {
+            // Temporal isolation gate: 0% data leakage from past deleted accounts (with 5-minute clock-skew buffer)
+            if (minCreatedAt && minCreatedAt > 0 && (m.created_at || 0) < (minCreatedAt - 300000)) {
               return false;
             }
             const mOwner = (m.owner_user || '').toLowerCase().trim();

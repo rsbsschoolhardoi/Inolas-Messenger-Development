@@ -34,6 +34,22 @@ export interface UserData {
   phone_number?: string;
   is_business_verified?: boolean;
   is_truecaller_verified?: boolean;
+  dob?: string;
+  gender?: string;
+}
+
+export interface SavedDeviceAccount {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarSeed: string;
+  avatarUrl?: string;
+  zenoaId?: string;
+  email?: string;
+  mobile_number?: string;
+  bio?: string;
+  sessionToken?: string;
+  savedAt: number;
 }
 
 export interface ReportItem {
@@ -189,7 +205,7 @@ export interface Message {
   forwarded?: boolean;
   pinned?: boolean;
   starred?: boolean;
-  status?: 'sent' | 'delivered' | 'read';
+  status?: 'sending' | 'sent' | 'delivered' | 'read';
   expires_at?: number;
 }
 

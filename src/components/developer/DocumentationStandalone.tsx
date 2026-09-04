@@ -6,7 +6,7 @@ import {
   Key, CreditCard, AlertTriangle, Rocket, ChevronDown, CheckCheck,
   Printer, FileCode, Sliders, Zap, Home, ArrowLeft, Globe, Database,
   Cpu, Users, PhoneCall, MessageSquare, Lock, Radio, Bell, RefreshCw,
-  Eye, Laptop, Share2, HelpCircle
+  Eye, Laptop, Share2, HelpCircle, X
 } from 'lucide-react';
 import { generateDocsData, DocEndpoint, DocCategory } from './docs/docsData';
 import { ApiPlayground } from './docs/ApiPlayground';
@@ -296,9 +296,9 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-0.5"
                 >
-                  \u2715
+                  <X className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
@@ -403,7 +403,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                     onClick={() => setShowPlayground(false)}
                     className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
                   >
-                    \u2715
+                    <X className="h-4 w-4" />
                   </button>
                 </div>
                 <ApiPlayground 
