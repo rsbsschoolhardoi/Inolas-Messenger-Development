@@ -14,6 +14,8 @@ import { getMediaUrlFromDrive } from '../lib/googleDrive';
 import { decryptFile } from '../cryptoUtils';
 import { decodeMessage } from '../chatUtils';
 import { SmartTextMessage } from './SmartTextMessage';
+import { AppleEmoji } from './AppleEmoji';
+import { AppleEmojiText } from './AppleEmojiText';
 import { formatMessageTime } from '../dateUtils';
 
 interface MessageCardProps {
@@ -291,8 +293,8 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                 : 'bg-neutral-200/90 text-neutral-800 border-neutral-300'
           }`}
         >
-          <span className="font-bold">Replying to {msg.reply_sender || 'message'}: </span>
-          <span className="italic opacity-90">{msg.reply_preview || '...'}</span>
+          <span className="font-bold">Replying to <AppleEmojiText text={msg.reply_sender || 'message'} />: </span>
+          <span className="italic opacity-90"><AppleEmojiText text={msg.reply_preview || '...'} /></span>
         </div>
       )}
 
@@ -337,7 +339,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
           {!isMe && isGroup && isFirstInGroup && !msg.deleted_for_everyone && (
             <div className="flex items-center gap-1 mb-1 pb-0.5 border-b border-black/5 dark:border-white/5 select-none">
               <span className={`text-[11px] font-bold ${isReceivedDark ? 'text-indigo-300' : 'text-neutral-900 dark:text-neutral-100'}`}>
-                {senderName}
+                <AppleEmojiText text={senderName} />
               </span>
               {isSenderVerified && (
                 <PurpleVerifiedBadge size="xs"  />
@@ -601,8 +603,8 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                       {(msg.contact_data?.name || "C").charAt(0).toUpperCase()}
                     </div>
                     <div className="text-left min-w-0 flex-1">
-                      <p className="font-bold text-xs truncate">{msg.contact_data.name}</p>
-                      <p className="text-[10px] opacity-75 truncate">{msg.contact_data.phone}</p>
+                      <p className="font-bold text-xs truncate"><AppleEmojiText text={msg.contact_data?.name || 'Contact'} /></p>
+                      <p className="text-[10px] opacity-75 truncate">{msg.contact_data?.phone || ''}</p>
                     </div>
                   </div>
                   <div className="flex gap-1.5 pt-1">
@@ -624,7 +626,13 @@ export const MessageCard: React.FC<MessageCardProps> = ({
 
               {/* STICKER */}
               {msg.type === 'sticker' && (
-                <span className="text-4xl block py-1 select-none">{msg.text}</span>
+                <div className="py-2 px-1 select-none flex items-center justify-center">
+                  <AppleEmojiText 
+                    text={msg.text} 
+                    className="text-lg sm:text-xl font-bold tracking-tight inline-flex items-center gap-2"
+                    emojiClassName="inline-block w-16 h-16 sm:w-20 sm:h-20 object-contain select-none pointer-events-none drop-shadow-md" 
+                  />
+                </div>
               )}
 
               {/* GIF */}
@@ -776,7 +784,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                           : 'bg-white/90 border-neutral-300 text-neutral-800'
                     }`}
                   >
-                    <span>{react.emoji}</span>
+                    <AppleEmoji emoji={react.emoji} size={14} className="w-3.5 h-3.5 object-contain pointer-events-none inline-block" />
                     <span className="font-mono">{react.users.length}</span>
                   </button>
                 );
@@ -803,9 +811,10 @@ export const MessageCard: React.FC<MessageCardProps> = ({
           <button 
             key={emoji}
             onClick={() => onReact(msg.id, emoji)}
-            className="text-[11px] p-0.5 hover:scale-130 transition-transform cursor-pointer"
+            className="p-1 hover:scale-130 transition-transform cursor-pointer flex items-center justify-center"
+            title={emoji}
           >
-            {emoji}
+            <AppleEmoji emoji={emoji} size={18} className="w-4.5 h-4.5 object-contain pointer-events-none" />
           </button>
         ))}
       </div>

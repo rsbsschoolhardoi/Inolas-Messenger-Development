@@ -6,6 +6,7 @@ import {
   Move, Palette, Sliders, Sun
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { AppleEmoji } from './AppleEmoji';
 
 export interface MediaEditorData {
   file: File;
@@ -1087,9 +1088,10 @@ export const MediaEditorModal: React.FC<MediaEditorModalProps> = ({
                 <button
                   key={`stamp-${em}-${idx}`}
                   onClick={() => handleAddEmojiStamp(em)}
-                  className="text-2xl p-1.5 rounded-xl hover:bg-white/15 hover:scale-125 transition-transform cursor-pointer shrink-0"
+                  className="p-1.5 rounded-xl hover:bg-white/15 hover:scale-125 transition-transform cursor-pointer shrink-0 flex items-center justify-center"
+                  title={em}
                 >
-                  {em}
+                  <AppleEmoji emoji={em} size={26} className="w-6.5 h-6.5 object-contain pointer-events-none" />
                 </button>
               ))}
             </div>
@@ -1432,11 +1434,11 @@ export const MediaEditorModal: React.FC<MediaEditorModalProps> = ({
                           startDrag('emoji', em.id, e.touches[0].clientX, e.touches[0].clientY);
                         }
                       }}
-                      className={`absolute z-20 cursor-grab active:cursor-grabbing select-none drop-shadow-md ${
+                      className={`absolute z-20 cursor-grab active:cursor-grabbing select-none drop-shadow-md flex items-center justify-center ${
                         isSelected ? 'ring-2 ring-indigo-400 rounded-full p-1' : ''
                       }`}
                     >
-                      {em.emoji}
+                      <AppleEmoji emoji={em.emoji} className="w-full h-full object-contain pointer-events-none" />
                     </div>
                   );
                 })}

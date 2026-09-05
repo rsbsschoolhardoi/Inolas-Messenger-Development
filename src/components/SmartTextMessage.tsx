@@ -18,12 +18,9 @@ interface SmartTextMessageProps {
 function isEmojiOnly(str: string): boolean {
   const trimmed = str.trim();
   if (!trimmed) return false;
-  const emojiRegex = /^(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]){1,3}$/u;
-  try {
-    return emojiRegex.test(trimmed);
-  } catch {
-    return trimmed.length <= 6 && /[\u{1F300}-\u{1F9FF}]/u.test(trimmed);
-  }
+  const cleaned = trimmed.replace(/\s+/g, '');
+  const emojiRegex = /^(\p{Extended_Pictographic}|\p{Emoji_Presentation}|\u200d|\ufe0f|\u20e3|[\u{1f3fb}-\u{1f3ff}]){1,20}$/u;
+  return emojiRegex.test(cleaned) && !/[a-zA-Z0-9]/.test(cleaned);
 }
 
 /**

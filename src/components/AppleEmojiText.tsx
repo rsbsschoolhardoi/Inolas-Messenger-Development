@@ -1,75 +1,98 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { getAppleEmojiUrl, getAppleEmojiFallbackUrl } from '../utils/appleEmoji';
 
 /**
- * Converts unicode emojis into crisp, high-resolution Apple/WhatsApp-style vector emojis
- * using Twemoji CDN so they look identical and premium on Android, Windows, and iOS.
+ * Converts unicode emojis into authentic Apple iOS emojis using official Apple emoji assets.
  */
 
-function emojiToHex(emoji: string): string {
-  const codePoints: string[] = [];
-  for (const char of emoji) {
-    const code = char.codePointAt(0);
-    if (code !== undefined && code !== 0xfe0f) {
-      codePoints.push(code.toString(16));
-    }
-  }
-  return codePoints.join('-');
-}
-
 interface AppleEmojiTextProps {
-  text: string;
+  text?: string | null;
   className?: string;
   emojiClassName?: string;
 }
 
+const EMOJI_REGEX_SOURCE = '(\\p{Extended_Pictographic}|\\p{Emoji_Presentation}|\\u200d)+';
+
+interface InlineAppleEmojiProps {
+  emoji: string;
+  className?: string;
+}
+
+const InlineAppleEmoji: React.FC<InlineAppleEmojiProps> = ({ emoji, className }) => {
+  const [failed, setFailed] = useState(false);
+  const [fallbackCdn, setFallbackCdn] = useState(false);
+
+  if (failed) {
+    return <span>{emoji}</span>;
+  }
+
+  const src = fallbackCdn ? getAppleEmojiFallbackUrl(emoji) : getAppleEmojiUrl(emoji);
+  if (!src) {
+    return <span>{emoji}</span>;
+  }
+
+  return (
+    <img
+      src={src}
+      alt={emoji}
+      className={className}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => {
+        if (!fallbackCdn) {
+          setFallbackCdn(true);
+        } else {
+          setFailed(true);
+        }
+      }}
+    />
+  );
+};
+
 export const AppleEmojiText: React.FC<AppleEmojiTextProps> = ({
   text,
   className = '',
-  emojiClassName = 'inline-block w-[1.15em] h-[1.15em] mx-0.5 align-[-0.15em] object-contain select-none pointer-events-none'
+  emojiClassName = 'inline-block w-[1.2em] h-[1.2em] mx-0.5 align-[-0.18em] object-contain select-none pointer-events-none'
 }) => {
-  if (!text) return null;
+  if (text === undefined || text === null || text === '') return null;
+  const str = typeof text === 'string' ? text : String(text);
+  if (!str) return null;
 
-  // Regex to match emojis
-  const regex = /(\p{Extended_Pictographic}|\p{Emoji_Presentation}|\u200d)+/gu;
+  try {
+    const regex = new RegExp(EMOJI_REGEX_SOURCE, 'gu');
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
 
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
+    while ((match = regex.exec(str)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(str.substring(lastIndex, match.index));
+      }
 
-  while ((match = regex.exec(text)) !== null) {
-    // Push preceding text
-    if (match.index > lastIndex) {
-      parts.push(text.substring(lastIndex, match.index));
-    }
-
-    const emojiStr = match[0];
-    const hex = emojiToHex(emojiStr);
-
-    if (hex) {
-      const imgUrl = `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${hex}.png`;
+      const emojiStr = match[0];
       parts.push(
-        <img
-          key={`${match.index}-${hex}`}
-          src={imgUrl}
-          alt={emojiStr}
+        <InlineAppleEmoji
+          key={`${match.index}-${emojiStr}`}
+          emoji={emojiStr}
           className={emojiClassName}
-          loading="lazy"
-          onError={(e) => {
-            // Fallback to native text emoji if image fails
-            (e.target as HTMLElement).replaceWith(document.createTextNode(emojiStr));
-          }}
         />
       );
-    } else {
-      parts.push(emojiStr);
+
+      lastIndex = regex.lastIndex;
+      if (match.index === regex.lastIndex) {
+        regex.lastIndex++;
+      }
     }
 
-    lastIndex = regex.lastIndex;
-  }
+    if (lastIndex < str.length) {
+      parts.push(str.substring(lastIndex));
+    }
 
-  if (lastIndex < text.length) {
-    parts.push(text.substring(lastIndex));
-  }
+    if (parts.length === 0) return null;
 
-  return <span className={className}>{parts}</span>;
+    return className ? <span className={className}>{parts}</span> : <>{parts}</>;
+  } catch (_err) {
+    return className ? <span className={className}>{str}</span> : <>{str}</>;
+  }
 };

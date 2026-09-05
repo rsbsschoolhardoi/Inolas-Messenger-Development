@@ -41,6 +41,8 @@ import {  ImageCropperModal } from './components/ImageCropperModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import {  ChatThemeModal } from './components/ChatThemeModal';
 import {  UnifiedEmojiPicker } from './components/UnifiedEmojiPicker';
+import { AppleEmoji } from './components/AppleEmoji';
+import { AppleEmojiText } from './components/AppleEmojiText';
 import {  LandingPage } from './components/LandingPage';
 import {  AuthFlow } from './components/AuthFlow';
 import {  SavedAccountsView } from './components/SavedAccountsView';
@@ -7949,10 +7951,10 @@ export default function App() {
                           <div className="flex justify-between items-baseline">
                             <div className="flex items-center gap-1.5 min-w-0">
                               <p className={`text-sm truncate ${chat.id === activeChatId ? 'font-bold text-indigo-950 dark:text-white' : 'font-semibold text-slate-800 dark:text-slate-200'}`}>
-                        {chat.type !== 'group' && chat.username && chatNicknames[chat.username] 
-                          ? chatNicknames[chat.username] 
-                          : chat.name}
-                      </p>
+                                <AppleEmojiText text={chat.type !== 'group' && chat.username && chatNicknames[chat.username] 
+                                  ? chatNicknames[chat.username] 
+                                  : chat.name} />
+                              </p>
                               {chat.type !== 'group' && chat.username && isAccountVerified(users[chat.username], chat.username) && (
                                 <PurpleVerifiedBadge size="xs"  />
                               )}
@@ -8047,14 +8049,19 @@ export default function App() {
                                       </span>
                                     ) : (
                                       <span className="truncate">
-                                        {formatCleanChatPreview(lastMsg?.text || chat.last_message || 'No messages yet', 34)}
+                                        <AppleEmojiText text={formatCleanChatPreview(lastMsg?.text || chat.last_message || 'No messages yet', 34)} />
                                       </span>
                                     )}
 
                                     {/* Reaction badges preview if present on last message */}
-                                    {lastMsg?.reactions && lastMsg.reactions.length > 0 && (
-                                      <span className="shrink-0 inline-flex items-center ml-0.5 text-[11px]">
-                                        {lastMsg.reactions.slice(0, 2).map(r => r.emoji).join('')}
+                                    {lastMsg?.reactions && Array.isArray(lastMsg.reactions) && lastMsg.reactions.length > 0 && (
+                                      <span className="shrink-0 inline-flex items-center ml-0.5 gap-0.5">
+                                        {lastMsg.reactions.slice(0, 2).map((r: any, i: number) => {
+                                          const emojiVal = typeof r === 'string' ? r : r?.emoji;
+                                          return emojiVal ? (
+                                            <AppleEmoji key={i} emoji={emojiVal} size={12} className="w-3 h-3 object-contain inline-block" />
+                                          ) : null;
+                                        })}
                                       </span>
                                     )}
                                   </div>
@@ -8267,11 +8274,11 @@ export default function App() {
                     >
                       {activeChat.type !== 'group' && activeChat?.username && chatNicknames[activeChat?.username] ? (
                         <>
-                          <span>{chatNicknames[activeChat?.username]}</span>
-                          <span className="text-xs opacity-70 font-normal">({activeChat.name})</span>
+                          <span><AppleEmojiText text={chatNicknames[activeChat?.username]} /></span>
+                          <span className="text-xs opacity-70 font-normal">(<AppleEmojiText text={activeChat.name} />)</span>
                         </>
                       ) : (
-                        <span>{activeChat.name}</span>
+                        <span><AppleEmojiText text={activeChat.name} /></span>
                       )}
                       {activeChat.type !== 'group' && activeChat?.username && !!users[activeChat?.username]?.is_verified && (
                         <PurpleVerifiedBadge size="xs"  />
@@ -8314,8 +8321,14 @@ export default function App() {
                           <span>{isServiceAccount(users[activeChat?.username], activeChat?.username) ? (['zenoa', 'sa_zenoa', 'zenoa_official'].includes(activeChat?.username.toLowerCase()) ? 'Official Zenoa Account' : 'Business Account') : 'End-to-End Encrypted'}</span>
                         </span>
                       ) : isUserEffectivelyOnline(users[activeChat?.username]) ? (
-                        <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                          Online {users[activeChat?.username]?.custom_status && users[activeChat?.username]?.custom_status?.toLowerCase() !== 'online' ? `• "${users[activeChat?.username]?.custom_status}"` : ''}
+                        <span className="text-emerald-600 dark:text-emerald-400 font-medium inline-flex items-center gap-1">
+                          <span>Online</span>
+                          {users[activeChat?.username]?.custom_status && users[activeChat?.username]?.custom_status?.toLowerCase() !== 'online' && (
+                            <span className="inline-flex items-center gap-1">
+                              <span>•</span>
+                              <AppleEmojiText text={`"${users[activeChat?.username]?.custom_status}"`} />
+                            </span>
+                          )}
                         </span>
                       ) : (
                         <span>{getOnlineStatusText(users[activeChat?.username])}</span>
@@ -8601,8 +8614,8 @@ export default function App() {
                 {replyToId && (
                   <div className="bg-neutral-50 dark:bg-neutral-800/80 p-2 rounded-xl flex items-center justify-between border-l-4 border-neutral-900 dark:border-neutral-100">
                     <div className="text-left">
-                      <p className="text-[10px] font-bold text-neutral-700 dark:text-neutral-300">Replying to {replyToSender}</p>
-                      <p className="text-xs text-neutral-700 dark:text-neutral-300 truncate">{replyToPreview}</p>
+                      <p className="text-[10px] font-bold text-neutral-700 dark:text-neutral-300">Replying to <AppleEmojiText text={replyToSender} /></p>
+                      <p className="text-xs text-neutral-700 dark:text-neutral-300 truncate"><AppleEmojiText text={replyToPreview} /></p>
                     </div>
                     <button onClick={() => { setReplyToId(''); setReplyToPreview(''); setReplyToSender(''); }} className="p-1 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-700"><X className="h-4 w-4" /></button>
                   </div>
@@ -10904,9 +10917,10 @@ export default function App() {
                     handleReactToMessage(selectedMessageForActions.id, emoji);
                     setSelectedMessageForActions(null);
                   }}
-                  className="text-2xl p-2 rounded-2xl hover:bg-neutral-200 dark:hover:bg-neutral-800 active:scale-125 transition-transform cursor-pointer"
+                  className="p-2 rounded-2xl hover:bg-neutral-200 dark:hover:bg-neutral-800 active:scale-125 transition-transform cursor-pointer flex items-center justify-center"
+                  title={emoji}
                 >
-                  {emoji}
+                  <AppleEmoji emoji={emoji} size={28} className="w-7 h-7 object-contain pointer-events-none" />
                 </button>
               ))}
             </div>
