@@ -39,19 +39,77 @@ export function getAppleEmojiFilename(emoji: string): string {
 }
 
 /**
- * Returns the CDN URL for official Apple iOS high-resolution emoji
+ * Returns candidate URLs for official Apple iOS high-resolution emoji images
+ * with resilient multi-tier fallback (Local API proxy -> unpkg Cloudflare -> GitHub CDN -> cdnjs -> jsdelivr).
  */
-export function getAppleEmojiUrl(emoji: string): string {
+export function getAppleEmojiCandidateUrls(emoji: string): string[] {
   const filename = getAppleEmojiFilename(emoji);
-  if (!filename) return '';
-  return `https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.1.2/img/apple/64/${filename}`;
+  if (!filename) return [];
+
+  return [
+    `/api/apple-emoji/${filename}`,
+    `https://unpkg.com/emoji-datasource-apple@15.1.2/img/apple/64/${filename}`,
+    `https://raw.githubusercontent.com/iamcal/emoji-data/master/img-apple-64/${filename}`,
+    `https://cdnjs.cloudflare.com/ajax/libs/emoji-datasource-apple/15.0.1/img/apple/64/${filename}`,
+    `https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.1.2/img/apple/64/${filename}`
+  ];
 }
 
 /**
- * Fallback CDN URL using Cloudflare cdnjs
+ * Returns the primary URL for official Apple iOS emoji
+ */
+export function getAppleEmojiUrl(emoji: string): string {
+  const candidates = getAppleEmojiCandidateUrls(emoji);
+  return candidates[0] || '';
+}
+
+/**
+ * Fallback CDN URL using Cloudflare unpkg / cdnjs
  */
 export function getAppleEmojiFallbackUrl(emoji: string): string {
-  const filename = getAppleEmojiFilename(emoji);
-  if (!filename) return '';
-  return `https://cdnjs.cloudflare.com/ajax/libs/emoji-datasource-apple/15.0.1/img/apple/64/${filename}`;
+  const candidates = getAppleEmojiCandidateUrls(emoji);
+  return candidates[1] || candidates[2] || candidates[0] || '';
 }
+
+export interface SkinToneOption {
+  id: string;
+  name: string;
+  tone: string;
+}
+
+export const SKIN_TONES: SkinToneOption[] = [
+  { id: 'default', name: 'Default', tone: '' },
+  { id: 'light', name: 'Light', tone: '\u{1f3fb}' },
+  { id: 'medium-light', name: 'Medium-Light', tone: '\u{1f3fc}' },
+  { id: 'medium', name: 'Medium', tone: '\u{1f3fd}' },
+  { id: 'medium-dark', name: 'Medium-Dark', tone: '\u{1f3fe}' },
+  { id: 'dark', name: 'Dark', tone: '\u{1f3ff}' },
+];
+
+/**
+ * Returns emoji with skin tone variant applied
+ */
+export function getEmojiWithTone(baseEmoji: string, toneModifier: string): string {
+  if (!toneModifier) return baseEmoji;
+  if (baseEmoji.includes('\u200d')) {
+    const parts = baseEmoji.split('\u200d');
+    const firstClean = parts[0].replace(/\ufe0f/g, '');
+    return [firstClean + toneModifier, ...parts.slice(1)].join('\u200d');
+  }
+  const clean = baseEmoji.replace(/\ufe0f/g, '');
+  return clean + toneModifier;
+}
+
+/**
+ * Checks if a given base emoji supports skin tone variations
+ */
+export function supportsSkinTone(baseEmoji: string): boolean {
+  if (!baseEmoji) return false;
+  // Create sample with light skin tone (\u{1f3fb})
+  const sample = getEmojiWithTone(baseEmoji, '\u{1f3fb}');
+  if (sample === baseEmoji) return false;
+  const cleanSample = sample.replace(/\ufe0f/g, '');
+  // Must actually exist in the Apple emoji dictionary!
+  return Boolean(emojiMap[sample] || emojiMap[cleanSample]);
+}
+

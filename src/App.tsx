@@ -24,7 +24,8 @@ import {
   Database, Volume2, Laptop, ChevronRight, Copy, Lock, Bell, ShieldCheck, Mail, Phone,
   MapPin, BarChart2, Play, Pause, StopCircle, UserPlus, Users, ExternalLink,
   ZoomIn, ZoomOut, RotateCw, RefreshCw, Maximize2, MoreVertical, MoreHorizontal, BellOff, ShieldAlert, Edit3, Archive, Folder, Clock, Shield, Sparkles, FileDown,
-  PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneCall, PhoneOff, ArrowUpRight, ArrowDownLeft, ArrowLeft, History, Calendar, VideoOff, Filter, Ban
+  PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneCall, PhoneOff, ArrowUpRight, ArrowDownLeft, ArrowLeft, History, Calendar, VideoOff, Filter, Ban,
+  Keyboard
 } from 'lucide-react';
 import {  motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
@@ -41,8 +42,10 @@ import {  ImageCropperModal } from './components/ImageCropperModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import {  ChatThemeModal } from './components/ChatThemeModal';
 import {  UnifiedEmojiPicker } from './components/UnifiedEmojiPicker';
+import { AppleComposerInput, AppleComposerInputHandle } from './components/AppleComposerInput';
 import { AppleEmoji } from './components/AppleEmoji';
 import { AppleEmojiText } from './components/AppleEmojiText';
+import { preloadCommonEmojis } from './utils/appleEmojiCache';
 import {  LandingPage } from './components/LandingPage';
 import {  AuthFlow } from './components/AuthFlow';
 import {  SavedAccountsView } from './components/SavedAccountsView';
@@ -194,8 +197,9 @@ export const checkUsernameIsTakenInFirestore = async (
 export default function App() {
   const branding = useBranding();
 
-  // Initialize Real-time App Branding Sync
+  // Initialize Real-time App Branding Sync & Warm Apple Emoji Cache
   useEffect(() => {
+    preloadCommonEmojis();
     const unsub = initBrandingSync();
     return () => unsub();
   }, []);
@@ -726,6 +730,7 @@ export default function App() {
   const voicePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // File Upload Input Refs
+  const composerInputRef = useRef<AppleComposerInputHandle>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
   const videoFileInputRef = useRef<HTMLInputElement>(null);
   const docFileInputRef = useRef<HTMLInputElement>(null);
@@ -8016,6 +8021,13 @@ export default function App() {
                                         <Ban className="h-3 w-3 shrink-0 text-slate-400 dark:text-slate-500" />
                                         <span>This message was deleted</span>
                                       </span>
+                                    ) : lastMsg?.type === 'sticker' ? (
+                                      <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 font-medium">
+                                        <span className="shrink-0 inline-flex items-center">
+                                          <AppleEmojiText text={lastMsg.text || '❤️'} emojiClassName="inline-block w-4 h-4 object-contain align-middle" />
+                                        </span>
+                                        <span className="text-slate-400">Sticker</span>
+                                      </span>
                                     ) : lastMsg?.type === 'voice' ? (
                                       <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 font-medium">
                                         <Mic className="h-3 w-3 text-indigo-500 shrink-0" />
@@ -8025,13 +8037,13 @@ export default function App() {
                                       <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 font-medium">
                                         <Camera className="h-3 w-3 text-indigo-500 shrink-0" />
                                         <span>Photo</span>
-                                        {lastMsg.text && <span className="text-slate-400 truncate">· {formatCleanChatPreview(lastMsg.text, 20)}</span>}
+                                        {lastMsg.text && <span className="text-slate-400 truncate">· <AppleEmojiText text={formatCleanChatPreview(lastMsg.text, 20)} /></span>}
                                       </span>
                                     ) : lastMsg?.type === 'video' ? (
                                       <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 font-medium">
                                         <Video className="h-3 w-3 text-indigo-500 shrink-0" />
                                         <span>Video</span>
-                                        {lastMsg.text && <span className="text-slate-400 truncate">· {formatCleanChatPreview(lastMsg.text, 20)}</span>}
+                                        {lastMsg.text && <span className="text-slate-400 truncate">· <AppleEmojiText text={formatCleanChatPreview(lastMsg.text, 20)} /></span>}
                                       </span>
                                     ) : lastMsg?.type === 'document' ? (
                                       <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 font-medium truncate">
@@ -8632,13 +8644,12 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Global Backdrop for Composer Popups */}
-                {(showAttachMenu || showUnifiedPicker) && (
+                {/* Global Backdrop for Attach Menu */}
+                {showAttachMenu && (
                   <div 
                     className="fixed inset-0 z-30" 
                     onClick={() => {
                       setShowAttachMenu(false);
-                      setShowUnifiedPicker(false);
                     }}
                   />
                 )}
@@ -8705,141 +8716,6 @@ export default function App() {
                         </button>
                       </div>
                     </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {/* Unified Zenoa Emoji, GIF & Sticker Picker */}
-                <AnimatePresence>
-                  {showUnifiedPicker && (
-                    <UnifiedEmojiPicker
-                      onSelectEmoji={(emoji) => setComposerText(prev => prev + emoji)}
-                      onSelectGif={async (gifUrl) => {
-                        const newMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
-                        const newMsg: Message = {
-                          id: newMsgId,
-                          chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
-                          sender: userUsername || 'me',
-                          text: 'Shared a GIF',
-                          type: 'gif',
-                          media_url: gifUrl,
-                          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                          reactions: [],
-                          read_by: []
-                        };
-
-                        if (isFirebaseConfigured && db && auth) {
-                          try {
-                            await setDoc(doc(db, 'messages', newMsgId), {
-                              id: newMsgId,
-                              chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
-                              sender: userUsername || 'me',
-                              text: 'Shared a GIF',
-                              type: 'gif',
-                              media_url: gifUrl,
-                              timestamp: newMsg.timestamp,
-                              reactions: [],
-                              read_by: [],
-                              forwarded: false,
-                              pinned: false
-                            });
-
-                            const activeChat = chats.find(c => c.id === activeChatId);
-                            if (activeChat) {
-                              let currentActiveChat = activeChat;
-                            if (currentActiveChat.isLocalPending) {
-                               currentActiveChat = { ...currentActiveChat };
-                               delete currentActiveChat.isLocalPending;
-                            }
-                            await setDoc(doc(db, 'chats', activeChatId), {
-                              id: activeChatId,
-                              type: currentActiveChat.type,
-                              name: currentActiveChat.name,
-                              username: currentActiveChat.username,
-                              avatar_seed: currentActiveChat.avatar_seed,
-                              participants: currentActiveChat.participants,
-                              last_message: '[GIF]',
-                              last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
-                              unread: 0,
-                              pinned: false,
-                              muted: false,
-                              typing: false,
-                              online: false,
-                              last_seen: ''
-                            }, { merge: true });
-                            }
-                          } catch (err) {
-                            console.error("Error inserting GIF in Firebase:", err);
-                          }
-                        }
-
-                        setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-                        setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [GIF]`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'sent' as const } : c));
-                        setShowUnifiedPicker(false);
-                      }}
-                      onSelectSticker={async (st) => {
-                        const newMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
-                        const newMsg: Message = {
-                          id: newMsgId,
-                          chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
-                          sender: userUsername || 'me',
-                          text: st,
-                          type: 'sticker',
-                          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                          reactions: [],
-                          read_by: []
-                        };
-
-                        if (isFirebaseConfigured && db && auth) {
-                          try {
-                            await setDoc(doc(db, 'messages', newMsgId), {
-                              id: newMsgId,
-                              chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
-                              sender: userUsername || 'me',
-                              text: st,
-                              type: 'sticker',
-                              timestamp: newMsg.timestamp,
-                              reactions: [],
-                              read_by: [],
-                              forwarded: false,
-                              pinned: false
-                            });
-
-                            const activeChat = chats.find(c => c.id === activeChatId);
-                            if (activeChat) {
-                            let currentActiveChat = activeChat;
-                            if (currentActiveChat.isLocalPending) {
-                               currentActiveChat = { ...currentActiveChat };
-                               delete currentActiveChat.isLocalPending;
-                            }
-                            await setDoc(doc(db, 'chats', activeChatId), {
-                              id: activeChatId,
-                              type: currentActiveChat.type,
-                              name: currentActiveChat.name,
-                              username: currentActiveChat.username,
-                              avatar_seed: currentActiveChat.avatar_seed,
-                              participants: currentActiveChat.participants,
-                              last_message: '[Sticker]',
-                              last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
-                              unread: 0,
-                              pinned: false,
-                              muted: false,
-                              typing: false,
-                              online: false,
-                              last_seen: ''
-                            }, { merge: true });
-                            }
-                          } catch (err) {
-                            console.error("Error inserting sticker in Firebase:", err);
-                          }
-                        }
-
-                        setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
-                        setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [Sticker]`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'sent' as const } : c));
-                        setShowUnifiedPicker(false);
-                      }}
-                      onClose={() => setShowUnifiedPicker(false)}
-                      themeMode={themeMode}
-                    />
                   )}
                 </AnimatePresence>
 
@@ -8912,17 +8788,25 @@ export default function App() {
                   </div>
                 ) : (
                   <div className={`flex items-center gap-2 p-1.5 pl-2.5 rounded-3xl shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all duration-300 ${currentChatTheme.innerInputBg} ${currentChatTheme.innerInputBorder}`}>
-                    {/* Single Emoji, GIF & Sticker Button at the START (Left) of Input Box */}
+                    {/* Single Emoji / Keyboard Switch Button at the START (Left) of Input Box */}
                     <button 
-                      onClick={() => { setShowUnifiedPicker(prev => !prev); setShowAttachMenu(false); }} 
+                      onClick={() => { 
+                        if (showUnifiedPicker) {
+                          setShowUnifiedPicker(false);
+                          composerInputRef.current?.focus();
+                        } else {
+                          setShowUnifiedPicker(true);
+                          setShowAttachMenu(false);
+                        }
+                      }} 
                       className={`p-2 rounded-full transition-all duration-300 cursor-pointer ${
                         showUnifiedPicker 
                           ? `${currentChatTheme.actionButtonActiveBg}` 
                           : `text-current opacity-60 hover:opacity-100 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`
                       }`} 
-                      title="Emojis, GIFs & Stickers"
+                      title={showUnifiedPicker ? "Switch to Keyboard" : "Emojis, GIFs & Stickers"}
                     >
-                      <Smile className="h-5 w-5" />
+                      {showUnifiedPicker ? <Keyboard className="h-5 w-5" /> : <Smile className="h-5 w-5" />}
                     </button>
 
                     {/* Attachment Button */}
@@ -8938,14 +8822,21 @@ export default function App() {
                       <Paperclip className="h-5 w-5" />
                     </button>
 
-                    {/* Input text field */}
-                    <input 
-                      type="text" 
+                    {/* Real-Time Apple Emoji Rich Composer Input */}
+                    <AppleComposerInput 
+                      ref={composerInputRef}
                       value={composerText}
-                      onChange={e => handleComposerChange(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
+                      onChange={val => handleComposerChange(val)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          handleSendMessage();
+                        }
+                      }}
+                      onFocus={() => {
+                        if (showUnifiedPicker) setShowUnifiedPicker(false);
+                      }}
                       placeholder="Type a message..."
-                      className={`flex-1 px-2 py-1.5 text-sm bg-transparent border-0 outline-none placeholder-current/40 min-w-0 transition-all duration-300 ${currentChatTheme.innerInputText}`}
+                      className={`px-2 py-1.5 text-sm bg-transparent border-0 outline-none min-w-0 transition-all duration-300 ${currentChatTheme.innerInputText}`}
                     />
 
                     {/* Action button: Send or Voice Recording */}
@@ -8968,6 +8859,149 @@ export default function App() {
                     )}
                   </div>
                 )}
+
+                {/* WhatsApp-Style Docked Emoji / GIF / Sticker Keyboard - Pre-rendered for 0ms Instant Toggle */}
+                <div className={showUnifiedPicker ? "w-full mt-2 block" : "hidden"}>
+                  <UnifiedEmojiPicker
+                    onSelectEmoji={(emoji) => {
+                      if (composerInputRef.current) {
+                        composerInputRef.current.insertEmoji(emoji);
+                      } else {
+                        setComposerText(prev => prev + emoji);
+                      }
+                    }}
+                    onSelectGif={async (gifUrl) => {
+                        const newMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+                        const newMsg: Message = {
+                          id: newMsgId,
+                          chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
+                          sender: userUsername || 'me',
+                          text: 'Shared a GIF',
+                          type: 'gif',
+                          media_url: gifUrl,
+                          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                          reactions: [],
+                          read_by: []
+                        };
+
+                        if (isFirebaseConfigured && db && auth) {
+                          try {
+                            await setDoc(doc(db, 'messages', newMsgId), {
+                              id: newMsgId,
+                              chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
+                              sender: userUsername || 'me',
+                              text: 'Shared a GIF',
+                              type: 'gif',
+                              media_url: gifUrl,
+                              timestamp: newMsg.timestamp,
+                              reactions: [],
+                              read_by: [],
+                              forwarded: false,
+                              pinned: false
+                            });
+
+                            const activeChat = chats.find(c => c.id === activeChatId);
+                            if (activeChat) {
+                              let currentActiveChat = activeChat;
+                              if (currentActiveChat.isLocalPending) {
+                                currentActiveChat = { ...currentActiveChat };
+                                delete currentActiveChat.isLocalPending;
+                              }
+                              await setDoc(doc(db, 'chats', activeChatId), {
+                                id: activeChatId,
+                                type: currentActiveChat.type,
+                                name: currentActiveChat.name,
+                                username: currentActiveChat.username,
+                                avatar_seed: currentActiveChat.avatar_seed,
+                                participants: currentActiveChat.participants,
+                                last_message: '[GIF]',
+                                last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
+                                unread: 0,
+                                pinned: false,
+                                muted: false,
+                                typing: false,
+                                online: false,
+                                last_seen: ''
+                              }, { merge: true });
+                            }
+                          } catch (err) {
+                            console.error("Error inserting GIF in Firebase:", err);
+                          }
+                        }
+
+                        setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
+                        setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [GIF]`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'sent' as const } : c));
+                        setShowUnifiedPicker(false);
+                      }}
+                      onSelectSticker={async (st) => {
+                        const newMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+                        const newMsg: Message = {
+                          id: newMsgId,
+                          chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
+                          sender: userUsername || 'me',
+                          text: st,
+                          type: 'sticker',
+                          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                          reactions: [],
+                          read_by: []
+                        };
+
+                        if (isFirebaseConfigured && db && auth) {
+                          try {
+                            await setDoc(doc(db, 'messages', newMsgId), {
+                              id: newMsgId,
+                              chat_id: activeChatId, created_at: Date.now(), expires_at: getExpiresAt(activeChatId),
+                              sender: userUsername || 'me',
+                              text: st,
+                              type: 'sticker',
+                              timestamp: newMsg.timestamp,
+                              reactions: [],
+                              read_by: [],
+                              forwarded: false,
+                              pinned: false
+                            });
+
+                            const activeChat = chats.find(c => c.id === activeChatId);
+                            if (activeChat) {
+                              let currentActiveChat = activeChat;
+                              if (currentActiveChat.isLocalPending) {
+                                currentActiveChat = { ...currentActiveChat };
+                                delete currentActiveChat.isLocalPending;
+                              }
+                              await setDoc(doc(db, 'chats', activeChatId), {
+                                id: activeChatId,
+                                type: currentActiveChat.type,
+                                name: currentActiveChat.name,
+                                username: currentActiveChat.username,
+                                avatar_seed: currentActiveChat.avatar_seed,
+                                participants: currentActiveChat.participants,
+                                last_message: '[Sticker]',
+                                last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'delivered' as const,
+                                unread: 0,
+                                pinned: false,
+                                muted: false,
+                                typing: false,
+                                online: false,
+                                last_seen: ''
+                              }, { merge: true });
+                            }
+                          } catch (err) {
+                            console.error("Error inserting sticker in Firebase:", err);
+                          }
+                        }
+
+                        setMessagesByChat(prev => ({ ...prev, [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg]) }));
+                        setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, last_message: `You: [Sticker]`, last_time: 'now', updated_at: Date.now(), last_message_sender: userUsername || 'me', last_message_status: 'sent' as const } : c));
+                        setShowUnifiedPicker(false);
+                      }}
+                      onClose={() => {
+                        setShowUnifiedPicker(false);
+                        composerInputRef.current?.focus();
+                      }}
+                      themeMode={themeMode}
+                      isDocked={true}
+                    />
+                  </div>
               </>
             )}
           </div>

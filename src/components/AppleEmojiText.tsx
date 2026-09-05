@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
-import { getAppleEmojiUrl, getAppleEmojiFallbackUrl } from '../utils/appleEmoji';
+import React, { useState, useEffect } from 'react';
+import { getAppleEmojiCandidateUrls } from '../utils/appleEmoji';
+import { getCachedEmojiBlobUrl, getSyncCachedEmojiUrl } from '../utils/appleEmojiCache';
 
 /**
  * Converts unicode emojis into authentic Apple iOS emojis using official Apple emoji assets.
+ * Uses Intl.Segmenter to isolate individual emojis accurately (even when typed without spaces).
+ * Backed by persistent browser CacheStorage & IndexedDB.
  */
 
 interface AppleEmojiTextProps {
@@ -11,7 +14,8 @@ interface AppleEmojiTextProps {
   emojiClassName?: string;
 }
 
-const EMOJI_REGEX_SOURCE = '(\\p{Extended_Pictographic}|\\p{Emoji_Presentation}|\\u200d)+';
+const EMOJI_CHECK_REGEX = /[\p{Extended_Pictographic}\p{Emoji_Presentation}\u{1f1e6}-\u{1f1ff}]/u;
+const NON_EMOJI_ONLY_REGEX = /^[a-zA-Z0-9\s.,!?:;'"_+\-=~`@#$%^&*()[\]{}|\\/<>]+$/;
 
 interface InlineAppleEmojiProps {
   emoji: string;
@@ -19,31 +23,52 @@ interface InlineAppleEmojiProps {
 }
 
 const InlineAppleEmoji: React.FC<InlineAppleEmojiProps> = ({ emoji, className }) => {
-  const [failed, setFailed] = useState(false);
-  const [fallbackCdn, setFallbackCdn] = useState(false);
+  const [candidateIndex, setCandidateIndex] = useState(0);
+  const [hasError, setHasError] = useState(false);
+  const [blobSrc, setBlobSrc] = useState<string | null>(() => getSyncCachedEmojiUrl(emoji));
 
-  if (failed) {
+  useEffect(() => {
+    let isMounted = true;
+    const sync = getSyncCachedEmojiUrl(emoji);
+    if (sync) {
+      setBlobSrc(sync);
+      return;
+    }
+
+    getCachedEmojiBlobUrl(emoji).then(url => {
+      if (isMounted && url) {
+        setBlobSrc(url);
+      }
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [emoji]);
+
+  const candidateUrls = getAppleEmojiCandidateUrls(emoji);
+
+  if (hasError || (candidateUrls.length === 0 && !blobSrc) || (!blobSrc && candidateIndex >= candidateUrls.length)) {
     return <span>{emoji}</span>;
   }
 
-  const src = fallbackCdn ? getAppleEmojiFallbackUrl(emoji) : getAppleEmojiUrl(emoji);
-  if (!src) {
-    return <span>{emoji}</span>;
-  }
+  const src = blobSrc || candidateUrls[candidateIndex];
 
   return (
     <img
       src={src}
       alt={emoji}
       className={className}
-      loading="lazy"
+      loading="eager"
       decoding="async"
       referrerPolicy="no-referrer"
       onError={() => {
-        if (!fallbackCdn) {
-          setFallbackCdn(true);
+        if (blobSrc) {
+          setBlobSrc(null);
+        } else if (candidateIndex < candidateUrls.length - 1) {
+          setCandidateIndex(prev => prev + 1);
         } else {
-          setFailed(true);
+          setHasError(true);
         }
       }}
     />
@@ -60,33 +85,60 @@ export const AppleEmojiText: React.FC<AppleEmojiTextProps> = ({
   if (!str) return null;
 
   try {
-    const regex = new RegExp(EMOJI_REGEX_SOURCE, 'gu');
     const parts: React.ReactNode[] = [];
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
+    let currentTextBuffer = '';
 
-    while ((match = regex.exec(str)) !== null) {
-      if (match.index > lastIndex) {
-        parts.push(str.substring(lastIndex, match.index));
+    // Prefer Intl.Segmenter for exact Unicode grapheme cluster splitting
+    if (typeof Intl !== 'undefined' && (Intl as any).Segmenter) {
+      const segmenter = new (Intl as any).Segmenter(undefined, { granularity: 'grapheme' });
+      let segIdx = 0;
+
+      for (const { segment } of segmenter.segment(str)) {
+        segIdx++;
+        const isEmoji = EMOJI_CHECK_REGEX.test(segment) && !NON_EMOJI_ONLY_REGEX.test(segment);
+
+        if (isEmoji) {
+          if (currentTextBuffer) {
+            parts.push(currentTextBuffer);
+            currentTextBuffer = '';
+          }
+          parts.push(
+            <InlineAppleEmoji
+              key={`em-${segIdx}-${segment}`}
+              emoji={segment}
+              className={emojiClassName}
+            />
+          );
+        } else {
+          currentTextBuffer += segment;
+        }
       }
 
-      const emojiStr = match[0];
-      parts.push(
-        <InlineAppleEmoji
-          key={`${match.index}-${emojiStr}`}
-          emoji={emojiStr}
-          className={emojiClassName}
-        />
-      );
-
-      lastIndex = regex.lastIndex;
-      if (match.index === regex.lastIndex) {
-        regex.lastIndex++;
+      if (currentTextBuffer) {
+        parts.push(currentTextBuffer);
       }
-    }
+    } else {
+      // Fallback regex if Intl.Segmenter is unavailable
+      const singleEmojiRegex = /(\p{Extended_Pictographic}|\p{Emoji_Presentation}|[\u{1f1e6}-\u{1f1ff}])(\ufe0f)?([\u{1f3fb}-\u{1f3ff}])?(\u200d(\p{Extended_Pictographic}|\p{Emoji_Presentation}|[\u{1f1e6}-\u{1f1ff}])(\ufe0f)?([\u{1f3fb}-\u{1f3ff}])?)*(\ufe0f)?/gu;
+      let lastIndex = 0;
+      let match: RegExpExecArray | null;
 
-    if (lastIndex < str.length) {
-      parts.push(str.substring(lastIndex));
+      while ((match = singleEmojiRegex.exec(str)) !== null) {
+        if (match.index > lastIndex) {
+          parts.push(str.substring(lastIndex, match.index));
+        }
+        parts.push(
+          <InlineAppleEmoji
+            key={`reg-${match.index}-${match[0]}`}
+            emoji={match[0]}
+            className={emojiClassName}
+          />
+        );
+        lastIndex = singleEmojiRegex.lastIndex;
+      }
+      if (lastIndex < str.length) {
+        parts.push(str.substring(lastIndex));
+      }
     }
 
     if (parts.length === 0) return null;
@@ -96,3 +148,4 @@ export const AppleEmojiText: React.FC<AppleEmojiTextProps> = ({
     return className ? <span className={className}>{str}</span> : <>{str}</>;
   }
 };
+

@@ -58,6 +58,56 @@ app.get(['/api/health', '/health'], (req, res) => {
   res.json({ status: 'ok', service: 'zenoa-developer-api', timestamp: new Date().toISOString() });
 });
 
+// Apple Emoji In-Memory Resilient Proxy with Upstream Fallbacks
+const appleEmojiMemoryCache = new Map<string, { buffer: Buffer; contentType: string }>();
+
+app.get('/api/apple-emoji/:filename', async (req, res) => {
+  const filename = req.params.filename;
+  if (!filename || !/^[a-z0-9\-_.]+\.png$/i.test(filename)) {
+    return res.status(400).send('Invalid emoji filename');
+  }
+
+  // Check in-memory cache
+  if (appleEmojiMemoryCache.has(filename)) {
+    const cached = appleEmojiMemoryCache.get(filename)!;
+    res.setHeader('Content-Type', cached.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    return res.send(cached.buffer);
+  }
+
+  const upstreams = [
+    `https://unpkg.com/emoji-datasource-apple@15.1.2/img/apple/64/${filename}`,
+    `https://raw.githubusercontent.com/iamcal/emoji-data/master/img-apple-64/${filename}`,
+    `https://cdnjs.cloudflare.com/ajax/libs/emoji-datasource-apple/15.0.1/img/apple/64/${filename}`,
+    `https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.1.2/img/apple/64/${filename}`
+  ];
+
+  for (const url of upstreams) {
+    try {
+      const response = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: 5000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ZenoaMessenger/1.0)' }
+      });
+
+      if (response.status === 200 && response.data) {
+        const buffer = Buffer.from(response.data);
+        const contentType = response.headers['content-type'] || 'image/png';
+        if (appleEmojiMemoryCache.size < 2500) {
+          appleEmojiMemoryCache.set(filename, { buffer, contentType });
+        }
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        return res.send(buffer);
+      }
+    } catch (_upstreamErr) {
+      // Continue to next upstream candidate
+    }
+  }
+
+  return res.status(404).send('Emoji not found');
+});
+
 // In-Memory Resilient Cache for SSO Apps, Codes, Tokens, OTPs, Bot Rules, Activity Logs, and Webhooks
 const inMemorySsoApps = new Map<string, any>();
 const inMemoryOAuthCodes = new Map<string, any>();

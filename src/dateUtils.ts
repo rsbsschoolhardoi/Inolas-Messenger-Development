@@ -203,8 +203,9 @@ export function formatCleanChatPreview(rawText?: string, maxLen = 42): string {
     .replace(/\n+/g, ' ')
     .trim();
 
-  if (clean.length > maxLen) {
-    return clean.slice(0, maxLen).trim() + '...';
+  const chars = Array.from(clean);
+  if (chars.length > maxLen) {
+    return chars.slice(0, maxLen).join('').trim() + '...';
   }
   return clean;
 }

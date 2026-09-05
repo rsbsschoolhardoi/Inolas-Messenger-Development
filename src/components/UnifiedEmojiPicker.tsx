@@ -1,8 +1,7 @@
-import React, { useState, useMemo } from 'react';
-import { motion } from 'motion/react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { 
   Smile, User, Dog, Pizza, Trophy, Plane, Lightbulb, Heart, Flag,
-  Image as ImageIcon, Sticker, Search, X
+  Search, X
 } from 'lucide-react';
 import { AppleEmoji } from './AppleEmoji';
 import { AppleEmojiText } from './AppleEmojiText';
@@ -22,29 +21,18 @@ interface EmojiCategory {
 
 const CATEGORIES_DATA = rawCategories as EmojiCategory[];
 
-const CATEGORY_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  smileys: Smile,
-  people: User,
-  animals: Dog,
-  food: Pizza,
-  activities: Trophy,
-  travel: Plane,
-  objects: Lightbulb,
-  symbols: Heart,
-  flags: Flag,
-};
-
-const CATEGORY_SHORT_NAMES: Record<string, string> = {
-  smileys: 'Smileys',
-  people: 'People',
-  animals: 'Animals',
-  food: 'Food',
-  activities: 'Activity',
-  travel: 'Travel',
-  objects: 'Objects',
-  symbols: 'Symbols',
-  flags: 'Flags',
-};
+// Category icons for the sleek bottom navigation bar
+const CATEGORY_ITEMS: { id: string; name: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: 'smileys', name: 'Smileys', icon: Smile },
+  { id: 'people', name: 'People', icon: User },
+  { id: 'animals', name: 'Animals', icon: Dog },
+  { id: 'food', name: 'Food', icon: Pizza },
+  { id: 'activities', name: 'Activities', icon: Trophy },
+  { id: 'travel', name: 'Travel', icon: Plane },
+  { id: 'objects', name: 'Objects', icon: Lightbulb },
+  { id: 'symbols', name: 'Symbols', icon: Heart },
+  { id: 'flags', name: 'Flags', icon: Flag },
+];
 
 const DEFAULT_GIFS = [
   'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3Zyd2szdzdzYjlpd2VqdmlzZnRpdHdrZnpsaDZndndkNTNidXFlbiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/cPfGsK82yZUMCE7Aps/giphy.gif',
@@ -91,8 +79,9 @@ interface UnifiedEmojiPickerProps {
   onSelectEmoji: (emoji: string) => void;
   onSelectGif: (gifUrl: string) => void;
   onSelectSticker: (stickerText: string) => void;
-  onClose: () => void;
+  onClose?: () => void;
   themeMode?: 'light' | 'dark';
+  isDocked?: boolean;
 }
 
 export const UnifiedEmojiPicker: React.FC<UnifiedEmojiPickerProps> = ({
@@ -100,21 +89,34 @@ export const UnifiedEmojiPicker: React.FC<UnifiedEmojiPickerProps> = ({
   onSelectGif,
   onSelectSticker,
   onClose,
-  themeMode = 'dark'
+  themeMode = 'dark',
+  isDocked = true
 }) => {
   const [activeTab, setActiveTab] = useState<'emoji' | 'gif' | 'sticker'>('emoji');
   const [activeCategory, setActiveCategory] = useState<string>('smileys');
+  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  const currentCategoryObj = useMemo(() => {
-    return CATEGORIES_DATA.find(c => c.id === activeCategory) || CATEGORIES_DATA[0] || { id: 'smileys', name: 'Smileys', icon: 'Smile', emojis: [] };
-  }, [activeCategory]);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const isUserScrollingRef = useRef<boolean>(false);
+  const manualScrollTimerRef = useRef<any>(null);
 
-  const filteredEmojis = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) {
-      return currentCategoryObj?.emojis || [];
+  // Focus search input when search is opened
+  useEffect(() => {
+    if (isSearchOpen) {
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
+    } else {
+      setSearchQuery('');
     }
+  }, [isSearchOpen]);
+
+  // Search filtered results
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return null;
 
     const results: EmojiItem[] = [];
     const seen = new Set<string>();
@@ -125,14 +127,14 @@ export const UnifiedEmojiPicker: React.FC<UnifiedEmojiPickerProps> = ({
           if (item.n.toLowerCase().includes(q) || item.e.includes(q)) {
             seen.add(item.e);
             results.push(item);
-            if (results.length >= 150) break;
+            if (results.length >= 100) break;
           }
         }
       }
-      if (results.length >= 150) break;
+      if (results.length >= 100) break;
     }
     return results;
-  }, [searchQuery, currentCategoryObj]);
+  }, [searchQuery]);
 
   const filteredStickers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -142,126 +144,233 @@ export const UnifiedEmojiPicker: React.FC<UnifiedEmojiPickerProps> = ({
     );
   }, [searchQuery]);
 
+  // Real-time scroll listener for continuous category switching
+  const handleScroll = useCallback(() => {
+    if (isUserScrollingRef.current || !scrollContainerRef.current || searchQuery) return;
+
+    const container = scrollContainerRef.current;
+    const scrollTop = container.scrollTop;
+
+    let currentActive = CATEGORIES_DATA[0].id;
+    for (const cat of CATEGORIES_DATA) {
+      const el = document.getElementById(`cat-section-${cat.id}`);
+      if (el) {
+        if (el.offsetTop - container.offsetTop <= scrollTop + 60) {
+          currentActive = cat.id;
+        }
+      }
+    }
+    setActiveCategory(prev => (prev !== currentActive ? currentActive : prev));
+  }, [searchQuery]);
+
+  // Scroll to category smoothly
+  const scrollToCategory = (catId: string) => {
+    setActiveCategory(catId);
+    if (!scrollContainerRef.current) return;
+
+    isUserScrollingRef.current = true;
+    if (manualScrollTimerRef.current) clearTimeout(manualScrollTimerRef.current);
+
+    const el = document.getElementById(`cat-section-${catId}`);
+    if (el && scrollContainerRef.current) {
+      const topPos = el.offsetTop - scrollContainerRef.current.offsetTop;
+      scrollContainerRef.current.scrollTo({
+        top: topPos,
+        behavior: 'smooth'
+      });
+    }
+
+    manualScrollTimerRef.current = setTimeout(() => {
+      isUserScrollingRef.current = false;
+    }, 450);
+  };
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 12, scale: 0.98 }}
-      transition={{ duration: 0.18, ease: 'easeOut' }}
-      className={`absolute bottom-16 left-2 sm:left-4 z-50 w-[350px] sm:w-[410px] max-w-[94vw] rounded-3xl border shadow-2xl flex flex-col overflow-hidden backdrop-blur-xl ${
-        themeMode === 'dark'
-          ? 'bg-neutral-900/95 border-neutral-800 text-neutral-100'
-          : 'bg-white/95 border-neutral-200 text-neutral-900'
+    <div
+      className={`w-full flex flex-col overflow-hidden transition-all select-none ${
+        isDocked 
+          ? 'h-[300px] sm:h-[320px] border-t border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-lg' 
+          : 'absolute bottom-16 left-2 sm:left-4 z-50 w-[350px] sm:w-[410px] max-w-[94vw] h-[330px] rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl bg-white dark:bg-neutral-900'
+      } ${
+        themeMode === 'dark' ? 'text-neutral-100' : 'text-neutral-900'
       }`}
+      onClick={(e) => e.stopPropagation()}
     >
-      {/* Search Header */}
-      <div className="p-3 pb-2 border-b border-neutral-200/60 dark:border-neutral-800 flex items-center gap-2">
-        <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800/80 border border-transparent focus-within:border-indigo-500/50 transition-colors">
-          <Search className="h-4 w-4 text-neutral-400 shrink-0" />
-          <input
-            type="text"
-            placeholder={
-              activeTab === 'emoji' 
-                ? 'Search 1,890+ Apple emojis...' 
-                : activeTab === 'gif' 
-                  ? 'Search animated GIFs...' 
-                  : 'Search stickers...'
-            }
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-transparent text-xs outline-none placeholder:text-neutral-400"
-          />
-          {searchQuery && (
-            <button 
-              onClick={() => setSearchQuery('')} 
-              className="text-neutral-400 hover:text-neutral-200 p-0.5"
+      {/* Sleek, Compact Top Navigation Bar */}
+      <div className="px-2.5 py-1.5 border-b border-neutral-100 dark:border-neutral-800/80 bg-neutral-50/60 dark:bg-neutral-950/40 flex items-center justify-between shrink-0 min-h-[40px]">
+        {isSearchOpen ? (
+          /* Expandable sleek search input */
+          <div className="flex-1 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-200/70 dark:bg-neutral-800/70 text-xs transition-all">
+            <Search className="h-3.5 w-3.5 text-neutral-400 shrink-0" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder={
+                activeTab === 'emoji' 
+                  ? 'Search emojis...' 
+                  : activeTab === 'gif' 
+                    ? 'Search GIFs...' 
+                    : 'Search stickers...'
+              }
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-transparent outline-none placeholder:text-neutral-400 text-xs py-0.5"
+            />
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery('')} 
+                className="text-neutral-400 hover:text-neutral-200 p-0.5 cursor-pointer"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setIsSearchOpen(false);
+                setSearchQuery('');
+              }}
+              className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 p-0.5 text-[11px] font-medium ml-1 cursor-pointer"
             >
-              <X className="h-3.5 w-3.5" />
+              Cancel
             </button>
-          )}
-        </div>
-        <button
-          onClick={onClose}
-          className="p-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors shrink-0"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
+          </div>
+        ) : (
+          /* Sleek compact parts: Search icon followed by Emojis, GIFs, Stickers */
+          <div className="flex items-center gap-1.5 flex-1">
+            {/* Search Trigger Button at the very front */}
+            <button
+              onClick={() => setIsSearchOpen(true)}
+              className="p-1.5 rounded-full text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100 hover:bg-neutral-200/60 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+              title="Search"
+            >
+              <Search className="h-4 w-4" />
+            </button>
 
-      {/* Main Content Area */}
-      <div className="h-72 overflow-y-auto p-3">
-        {/* EMOJIS TAB */}
-        {activeTab === 'emoji' && (
-          <div className="space-y-2.5">
-            {/* Category Icons Bar (Visible when not actively searching) */}
-            {!searchQuery.trim() && (
-              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1.5 border-b border-neutral-100 dark:border-neutral-800/70">
-                {CATEGORIES_DATA.map(cat => {
-                  const Icon = CATEGORY_ICONS[cat.id] || Smile;
-                  const isActive = activeCategory === cat.id;
-                  const shortName = CATEGORY_SHORT_NAMES[cat.id] || cat.name;
+            {/* Compact Emojis Tab */}
+            <button
+              onClick={() => setActiveTab('emoji')}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer ${
+                activeTab === 'emoji'
+                  ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 shadow-xs'
+                  : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200/50 dark:hover:bg-neutral-800'
+              }`}
+            >
+              Emojis
+            </button>
 
-                  return (
-                    <button
-                      key={cat.id}
-                      onClick={() => setActiveCategory(cat.id)}
-                      className={`p-1.5 sm:px-2 sm:py-1.5 rounded-xl text-xs flex items-center gap-1 shrink-0 transition-all cursor-pointer ${
-                        isActive
-                          ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 font-bold shadow-xs'
-                          : 'text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/70'
-                      }`}
-                      title={`${cat.name} (${cat.emojis.length})`}
-                    >
-                      <Icon className="h-3.5 w-3.5 shrink-0" />
-                      <span className="text-[11px] hidden sm:inline">{shortName}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            {/* Compact GIFs Tab */}
+            <button
+              onClick={() => setActiveTab('gif')}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer ${
+                activeTab === 'gif'
+                  ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 shadow-xs'
+                  : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200/50 dark:hover:bg-neutral-800'
+              }`}
+            >
+              GIFs
+            </button>
 
-            {/* Category Header Label / Search Results Label */}
-            <div className="flex items-center justify-between text-[11px] font-semibold text-neutral-400 px-1">
-              <span>
-                {searchQuery.trim() 
-                  ? `Search: "${searchQuery}" (${filteredEmojis.length} results)` 
-                  : `${currentCategoryObj?.name || 'Emojis'} (${filteredEmojis.length})`}
-              </span>
-              <span className="text-[10px] text-neutral-500 font-normal">Official Apple iOS</span>
-            </div>
-
-            {/* Emoji Grid */}
-            {filteredEmojis.length === 0 ? (
-              <div className="py-10 text-center text-xs text-neutral-400">
-                No Apple emojis found for "{searchQuery}".
-              </div>
-            ) : (
-              <div className="grid grid-cols-7 sm:grid-cols-8 gap-1">
-                {filteredEmojis.map((item, idx) => (
-                  <button
-                    key={`${item.e}-${idx}`}
-                    onClick={() => onSelectEmoji(item.e)}
-                    className="p-1.5 sm:p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 active:scale-125 transition-transform flex items-center justify-center cursor-pointer select-none group/emojibtn"
-                    title={`${item.n} (${item.e})`}
-                  >
-                    <AppleEmoji emoji={item.e} size={28} className="w-7 h-7 object-contain pointer-events-none group-hover/emojibtn:scale-110 transition-transform" />
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* Compact Stickers Tab */}
+            <button
+              onClick={() => setActiveTab('sticker')}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer ${
+                activeTab === 'sticker'
+                  ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 shadow-xs'
+                  : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200/50 dark:hover:bg-neutral-800'
+              }`}
+            >
+              Stickers
+            </button>
           </div>
         )}
 
-        {/* GIFS TAB */}
+        {/* Optional Close Button */}
+        {onClose && !isSearchOpen && (
+          <button
+            onClick={onClose}
+            className="p-1 rounded-full hover:bg-neutral-200/60 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors shrink-0 ml-1 cursor-pointer"
+            title="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Main Content Area */}
+      <div 
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-2 py-1.5 overscroll-contain relative scroll-smooth"
+      >
+        {/* EMOJIS VIEW */}
+        {activeTab === 'emoji' && (
+          <>
+            {searchResults !== null ? (
+              /* Search Results Grid */
+              searchResults.length > 0 ? (
+                <div className="grid grid-cols-7 sm:grid-cols-9 md:grid-cols-10 gap-1 pt-1">
+                  {searchResults.map((item, idx) => (
+                    <button
+                      key={`s-${item.e}-${idx}`}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => onSelectEmoji(item.e)}
+                      className="p-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 active:scale-110 transition-transform flex items-center justify-center cursor-pointer select-none"
+                      title={item.n}
+                    >
+                      <AppleEmoji emoji={item.e} size={28} className="w-7 h-7 object-contain pointer-events-none" />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-12 text-center text-xs text-neutral-400">
+                  No emojis found.
+                </div>
+              )
+            ) : (
+              /* Continuous Scroll: All Categories in One Seamless Flow */
+              <div className="space-y-3 pb-2">
+                {CATEGORIES_DATA.map((cat) => (
+                  <div key={cat.id} id={`cat-section-${cat.id}`} className="scroll-mt-1">
+                    {/* Minimalist, clean category section divider */}
+                    <div className="pt-1 pb-1 px-1 flex items-center gap-2">
+                      <span className="text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">
+                        {cat.name}
+                      </span>
+                      <div className="flex-1 h-px bg-neutral-200/50 dark:bg-neutral-800/50" />
+                    </div>
+
+                    {/* Category Emojis Grid - Clean, pure default emojis with NO dots */}
+                    <div className="grid grid-cols-7 sm:grid-cols-9 md:grid-cols-10 gap-1">
+                      {cat.emojis.map((item, idx) => (
+                        <button
+                          key={`${cat.id}-${item.e}-${idx}`}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => onSelectEmoji(item.e)}
+                          className="p-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 active:scale-110 transition-transform flex items-center justify-center cursor-pointer select-none"
+                          title={item.n}
+                        >
+                          <AppleEmoji emoji={item.e} size={28} className="w-7 h-7 object-contain pointer-events-none" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* GIFS VIEW */}
         {activeTab === 'gif' && (
-          <div className="space-y-2">
-            <p className="text-[10px] uppercase font-bold tracking-wider text-neutral-400 mb-2">Trending Animated GIFs</p>
+          <div className="p-1">
             <div className="grid grid-cols-2 gap-2">
               {DEFAULT_GIFS.map((gif, idx) => (
                 <div
                   key={idx}
                   onClick={() => onSelectGif(gif)}
-                  className="relative rounded-2xl overflow-hidden h-24 bg-neutral-100 dark:bg-neutral-800 cursor-pointer group/gif border border-neutral-200/50 dark:border-neutral-700/50 shadow-xs hover:shadow-md transition-all"
+                  className="relative rounded-xl overflow-hidden h-24 bg-neutral-100 dark:bg-neutral-800 cursor-pointer group/gif border border-neutral-200/50 dark:border-neutral-700/50 shadow-xs hover:shadow-md transition-all"
                 >
                   <img
                     src={gif}
@@ -269,10 +378,8 @@ export const UnifiedEmojiPicker: React.FC<UnifiedEmojiPickerProps> = ({
                     className="w-full h-full object-cover group-hover/gif:scale-105 transition-transform duration-300"
                     referrerPolicy="no-referrer"
                   />
-                  <div className="absolute inset-0 bg-black/0 group-hover/gif:bg-black/20 transition-colors flex items-center justify-center">
-                    <span className="text-[10px] font-bold text-white bg-black/60 px-2 py-0.5 rounded-full opacity-0 group-hover/gif:opacity-100 transition-opacity">
-                      Send GIF
-                    </span>
+                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/gif:opacity-100 transition-opacity flex items-center justify-center">
+                    <span className="text-[11px] font-bold text-white bg-black/60 px-2 py-0.5 rounded-full">Send</span>
                   </div>
                 </div>
               ))}
@@ -280,93 +387,68 @@ export const UnifiedEmojiPicker: React.FC<UnifiedEmojiPickerProps> = ({
           </div>
         )}
 
-        {/* STICKERS TAB */}
+        {/* STICKERS VIEW */}
         {activeTab === 'sticker' && (
-          <div className="space-y-4">
-            {/* Apple Mega Emoji Stickers */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between px-1">
-                <span className="text-[11px] font-bold text-neutral-500 dark:text-neutral-400">
-                  🔥 Apple Mega Stickers
-                </span>
-                <span className="text-[10px] text-neutral-400">Tap to Send</span>
-              </div>
-              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                {MEGA_APPLE_STICKERS.map((st, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => onSelectSticker(st)}
-                    className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800/80 hover:bg-neutral-200 dark:hover:bg-neutral-700 flex items-center justify-center transition-transform active:scale-95 cursor-pointer border border-neutral-200/50 dark:border-neutral-700/50 hover:shadow-sm"
-                    title={`Send ${st} Sticker`}
-                  >
-                    <AppleEmoji emoji={st} size={40} className="w-10 h-10 object-contain pointer-events-none drop-shadow-sm" />
-                  </button>
-                ))}
-              </div>
+          <div className="space-y-3 p-1">
+            {/* Mega Apple Stickers */}
+            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+              {MEGA_APPLE_STICKERS.map((st, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => onSelectEmoji(st)}
+                  className="p-2.5 rounded-xl bg-neutral-100 dark:bg-neutral-800/70 hover:bg-neutral-200 dark:hover:bg-neutral-700 active:scale-110 transition-transform flex items-center justify-center cursor-pointer border border-neutral-200/50 dark:border-neutral-700/50"
+                >
+                  <AppleEmoji emoji={st} size={36} className="w-9 h-9 object-contain pointer-events-none drop-shadow-sm" />
+                </button>
+              ))}
             </div>
 
-            {/* Expressive Apple Reaction Badges */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between px-1">
-                <span className="text-[11px] font-bold text-neutral-500 dark:text-neutral-400">
-                  ✨ Expressive Reaction Badges
-                </span>
-                <span className="text-[10px] text-neutral-400">Full Text + Apple Emoji</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {filteredStickers.map((s, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => onSelectSticker(s.text)}
-                    className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800/80 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-xs font-semibold text-neutral-800 dark:text-neutral-100 transition-all active:scale-95 text-center cursor-pointer border border-neutral-200/50 dark:border-neutral-700/50 flex items-center justify-center gap-1.5 shadow-2xs"
-                  >
-                    <AppleEmojiText text={s.text} />
-                  </button>
-                ))}
-              </div>
+            {/* Expressive Reaction Badges */}
+            <div className="grid grid-cols-2 gap-2">
+              {filteredStickers.map((s, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => onSelectSticker(s.text)}
+                  className="p-2 rounded-xl bg-neutral-100 dark:bg-neutral-800/80 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-xs font-medium text-neutral-800 dark:text-neutral-100 transition-all active:scale-95 text-center cursor-pointer border border-neutral-200/50 dark:border-neutral-700/50 flex items-center justify-center gap-1.5 shadow-2xs"
+                >
+                  <AppleEmojiText text={s.text} />
+                </button>
+              ))}
             </div>
           </div>
         )}
       </div>
 
-      {/* Bottom Main Tab Navigation Bar */}
-      <div className="p-2 border-t border-neutral-200/80 dark:border-neutral-800/80 bg-neutral-50/80 dark:bg-neutral-950/80 flex items-center justify-around">
-        <button
-          onClick={() => setActiveTab('emoji')}
-          className={`flex-1 py-1.5 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'emoji'
-              ? 'bg-neutral-200 dark:bg-neutral-800 text-neutral-900 dark:text-white shadow-xs'
-              : 'text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
-          }`}
-        >
-          <Smile className="h-4 w-4 text-amber-500" />
-          <span>Emojis</span>
-        </button>
+      {/* Sleek, Compact Category Navigation Bar AT THE BOTTOM */}
+      {activeTab === 'emoji' && !searchQuery.trim() && (
+        <div className="flex items-center justify-between px-2 py-1 border-t border-neutral-100 dark:border-neutral-800/80 bg-neutral-50/80 dark:bg-neutral-950/60 shrink-0 min-h-[36px]">
+          {CATEGORY_ITEMS.map(cat => {
+            const Icon = cat.icon;
+            const isActive = activeCategory === cat.id;
 
-        <button
-          onClick={() => setActiveTab('gif')}
-          className={`flex-1 py-1.5 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'gif'
-              ? 'bg-neutral-200 dark:bg-neutral-800 text-neutral-900 dark:text-white shadow-xs'
-              : 'text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
-          }`}
-        >
-          <ImageIcon className="h-4 w-4 text-sky-500" />
-          <span>GIFs</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('sticker')}
-          className={`flex-1 py-1.5 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'sticker'
-              ? 'bg-neutral-200 dark:bg-neutral-800 text-neutral-900 dark:text-white shadow-xs'
-              : 'text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
-          }`}
-        >
-          <Sticker className="h-4 w-4 text-emerald-500" />
-          <span>Stickers</span>
-        </button>
-      </div>
-    </motion.div>
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => scrollToCategory(cat.id)}
+                className={`p-1.5 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+                  isActive
+                    ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 shadow-xs scale-105'
+                    : 'text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/60'
+                }`}
+                title={cat.name}
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 };

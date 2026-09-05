@@ -12,16 +12,36 @@ interface SmartTextMessageProps {
   maxTextLength?: number;
 }
 
+const EMOJI_CHECK_REGEX = /[\p{Extended_Pictographic}\p{Emoji_Presentation}\u{1f1e6}-\u{1f1ff}]/u;
+const NON_EMOJI_REGEX = /^[a-zA-Z0-9.,!?:;'"_+\-=~`@#$%^&*()[\]{}|\\/<>]+$/;
+
 /**
- * Checks if string contains only 1-3 emojis
+ * Checks if string contains only emojis (1-30 emojis), with or without spaces.
  */
-function isEmojiOnly(str: string): boolean {
+export function isEmojiOnly(str: string): boolean {
+  if (!str) return false;
   const trimmed = str.trim();
   if (!trimmed) return false;
+
+  if (typeof Intl !== 'undefined' && (Intl as any).Segmenter) {
+    const segmenter = new (Intl as any).Segmenter(undefined, { granularity: 'grapheme' });
+    let count = 0;
+    for (const { segment } of segmenter.segment(trimmed)) {
+      if (/^\s+$/.test(segment)) continue;
+      if (EMOJI_CHECK_REGEX.test(segment) && !NON_EMOJI_REGEX.test(segment)) {
+        count++;
+      } else {
+        return false;
+      }
+    }
+    return count >= 1 && count <= 30;
+  }
+
   const cleaned = trimmed.replace(/\s+/g, '');
-  const emojiRegex = /^(\p{Extended_Pictographic}|\p{Emoji_Presentation}|\u200d|\ufe0f|\u20e3|[\u{1f3fb}-\u{1f3ff}]){1,20}$/u;
+  const emojiRegex = /^(\p{Extended_Pictographic}|\p{Emoji_Presentation}|\u200d|\ufe0f|\u20e3|[\u{1f3fb}-\u{1f3ff}]|[\u{1f1e6}-\u{1f1ff}]){1,30}$/u;
   return emojiRegex.test(cleaned) && !/[a-zA-Z0-9]/.test(cleaned);
 }
+
 
 /**
  * Smart Inline Formatter for Markdown, URLs, Mentions, and Formatting
@@ -202,9 +222,17 @@ export const SmartTextMessage: React.FC<SmartTextMessageProps> = ({
 
   // 1. Emoji-only rendering
   if (isEmojiOnly(text)) {
+    const rawMatches = text.match(new RegExp('(\\p{Extended_Pictographic}|\\p{Emoji_Presentation}|[\\u{1f1e6}-\\u{1f1ff}]|[\\u{1f3fb}-\\u{1f3ff}]|[\\u200d\\ufe0f\\u20e3])+(\\ufe0f)?', 'gu')) || [];
+    const emojiCount = rawMatches.length;
+    const emojiSizeClass = emojiCount <= 1 
+      ? 'w-14 h-14 sm:w-16 sm:h-16' 
+      : emojiCount <= 4 
+        ? 'w-10 h-10 sm:w-12 sm:h-12' 
+        : 'w-8 h-8 sm:w-9 sm:h-9';
+
     return (
-      <div className="text-4xl py-1 animate-scale-in select-none">
-        <AppleEmojiText text={text} emojiClassName="inline-block w-[1.2em] h-[1.2em] object-contain select-none pointer-events-none" />
+      <div className="py-1 animate-scale-in select-none flex items-center gap-2 flex-wrap">
+        <AppleEmojiText text={text} emojiClassName={`inline-block ${emojiSizeClass} object-contain select-none pointer-events-none drop-shadow-xs`} />
       </div>
     );
   }

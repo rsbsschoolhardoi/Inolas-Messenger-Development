@@ -13,7 +13,7 @@ import { getThemeById } from '../chatThemes';
 import { getMediaUrlFromDrive } from '../lib/googleDrive';
 import { decryptFile } from '../cryptoUtils';
 import { decodeMessage } from '../chatUtils';
-import { SmartTextMessage } from './SmartTextMessage';
+import { SmartTextMessage, isEmojiOnly } from './SmartTextMessage';
 import { AppleEmoji } from './AppleEmoji';
 import { AppleEmojiText } from './AppleEmojiText';
 import { formatMessageTime } from '../dateUtils';
@@ -197,6 +197,8 @@ export const MessageCard: React.FC<MessageCardProps> = ({
   }
 
   const isMediaOnly = (msg.type === 'image' || msg.type === 'video') && !displayMsgText;
+  const isEmojiOnlyMsg = msg.type === 'text' && isEmojiOnly(displayMsgText);
+  const isCleanTransparent = isMediaOnly || isEmojiOnlyMsg;
 
   if (isSenderServiceAccount) {
     if (displayMsgText.startsWith('📢 **[Direct Message]**\n\n')) {
@@ -320,16 +322,16 @@ export const MessageCard: React.FC<MessageCardProps> = ({
 
         {/* Message Bubble Card */}
         <div
-          className={`text-left min-w-[110px] break-words [overflow-wrap:anywhere] transition-all relative ${
-            isMediaOnly ? 'p-1 bg-transparent border-0' : 'p-3 shadow-xs'
+          className={`text-left min-w-[80px] break-words [overflow-wrap:anywhere] transition-all relative ${
+            isCleanTransparent ? 'p-1 bg-transparent border-0 shadow-none' : 'p-3 shadow-xs'
           } ${
             msg.reply_to ? 'rounded-b-2xl' : 'rounded-2xl'
           } ${
             isMe
-              ? isMediaOnly 
+              ? isCleanTransparent 
                 ? 'rounded-tr-xs' 
                 : `${activeTheme.bubble.sentBg} ${activeTheme.bubble.sentText} ${activeTheme.bubble.borderStyle || ''} rounded-tr-xs`
-              : isMediaOnly
+              : isCleanTransparent
                 ? 'rounded-tl-xs'
                 : `${activeTheme.bubble.receivedBg || 'bg-white dark:bg-neutral-900'} ${activeTheme.bubble.receivedText || 'text-neutral-900 dark:text-neutral-100'} rounded-tl-xs ${activeTheme.bubble.borderStyle || 'border border-neutral-200/70 dark:border-neutral-800'} shadow-neutral-900/5`
           }`}
@@ -735,9 +737,11 @@ export const MessageCard: React.FC<MessageCardProps> = ({
 
               {/* MESSAGE FOOTER: TIMESTAMP, EDITED & TICKS */}
               <div className={`flex items-center justify-end gap-1 mt-1 text-[9px] select-none font-medium ${
-                isMe
-                  ? activeTheme.bubble.subtextSent || (isSentDark ? 'text-white/70' : 'text-slate-600')
-                  : activeTheme.bubble.subtextReceived || (isReceivedDark ? 'text-neutral-400' : 'text-slate-500')
+                isEmojiOnlyMsg
+                  ? 'text-neutral-500 dark:text-neutral-400 font-semibold'
+                  : isMe
+                    ? activeTheme.bubble.subtextSent || (isSentDark ? 'text-white/70' : 'text-slate-600')
+                    : activeTheme.bubble.subtextReceived || (isReceivedDark ? 'text-neutral-400' : 'text-slate-500')
               }`}>
                 {msg.starred && <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400 mr-0.5" />}
                 <span>{formatMessageTime(msg.created_at, msg.timestamp)}</span>
