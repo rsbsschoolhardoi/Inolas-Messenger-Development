@@ -3,7 +3,7 @@ import {
   Server, Lock, History, FileText, Sliders, LogOut, ShieldCheck, Zap, Key, 
   Copy, Check, RefreshCw, AlertTriangle, Download, Plus, ChevronRight, Menu, X,
   Webhook, Terminal, ArrowLeft, FileCode, CreditCard, Users, Shield, Radio,
-  LayoutDashboard, Eye, EyeOff, Package
+  LayoutDashboard, Eye, EyeOff
 } from 'lucide-react';
 import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../../firebaseClient';
@@ -23,7 +23,6 @@ import { SecuritySettingsView } from '../tabs/SecuritySettingsView';
 import { MessageTemplatesView } from '../tabs/MessageTemplatesView';
 import { BillingQuotaView } from '../tabs/BillingQuotaView';
 import { TeamMembersView } from '../tabs/TeamMembersView';
-import { NpmPackageCliView } from '../tabs/NpmPackageCliView';
 
 interface PortalDashboardProps {
   currentUser: UserData;
@@ -34,7 +33,6 @@ interface PortalDashboardProps {
 export type TabType = 
   | 'overview'
   | 'apps' 
-  | 'npm'
   | 'templates'
   | 'billing'
   | 'team'
@@ -103,41 +101,19 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
         }
       }
 
-      // Auto-initialize real service account in database if none exists yet
-      if (fetchedApps.length === 0 && currentUser?.username) {
-        const cleanUser = currentUser.username.toLowerCase();
+      // Fallback local memory app if none exists
+      if (fetchedApps.length === 0) {
         const fallbackApp = {
-          id: `sa_${cleanUser}`,
+          id: `sa_${currentUser.username.toLowerCase()}`,
           owner: currentUser.username,
-          owner_id: currentUser.id || '',
-          app_name: `${currentUser.display_name || currentUser.username}'s App`,
-          bot_username: `sa_${cleanUser}`,
-          client_id: `zen_client_${cleanUser}`,
+          app_name: `${currentUser.display_name || currentUser.username}'s Application`,
+          bot_username: `sa_${currentUser.username.toLowerCase()}`,
+          client_id: `zen_client_${currentUser.username.toLowerCase()}`,
           client_secret: `zen_sec_${Math.random().toString(36).substring(2, 18)}`,
-          test_client_id: `zen_test_${cleanUser}`,
+          test_client_id: `zen_test_${currentUser.username.toLowerCase()}`,
           test_client_secret: `zen_test_sec_${Math.random().toString(36).substring(2, 18)}`,
-          api_key: `zen_client_${cleanUser}`,
-          is_locked: true,
           created_at: Date.now()
         };
-
-        if (db) {
-          try {
-            await setDoc(doc(db, 'developer_apps', `sa_${cleanUser}`), fallbackApp, { merge: true });
-            await setDoc(doc(db, 'users', `sa_${cleanUser}`), {
-              username: `sa_${cleanUser}`,
-              display_name: `${currentUser.display_name || currentUser.username}'s App Bot`,
-              is_service_account: true,
-              is_business_account: true,
-              is_verified: false,
-              owner_username: currentUser.username,
-              created_at: Date.now()
-            }, { merge: true });
-          } catch (persistErr) {
-            console.warn('Auto-provisioning app in Firestore:', persistErr);
-          }
-        }
-
         fetchedApps.push(fallbackApp);
       }
 
@@ -333,7 +309,6 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               {[
                 { id: 'overview', icon: LayoutDashboard, label: 'Overview' },
                 { id: 'apps', icon: Key, label: 'API Credentials', badge: 'Active' },
-                { id: 'npm', icon: Package, label: 'NPM SDK & CLI', badge: 'v1.0' },
                 { id: 'docs', icon: FileText, label: 'API Docs & Reference', badge: 'v2.4' },
               ].map(tab => (
                 <button
@@ -488,7 +463,6 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                 {[
                   { id: 'overview', label: 'Overview' },
                   { id: 'apps', label: 'API Credentials' },
-                  { id: 'npm', label: 'NPM SDK & CLI' },
                   { id: 'docs', label: 'API Reference' },
                   { id: 'otp', label: 'OTP Simulator' },
                   { id: 'webhooks', label: 'Webhooks' },
@@ -853,14 +827,6 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               app={selectedApp} 
               currentUser={currentUser} 
               showToast={showToast} 
-            />
-          )}
-
-          {/* NPM SDK & CLI TAB */}
-          {activeTab === 'npm' && selectedApp && (
-            <NpmPackageCliView
-              app={selectedApp}
-              showToast={showToast}
             />
           )}
 
