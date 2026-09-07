@@ -8,11 +8,12 @@ import {
   Sliders, Database, Fingerprint, HelpCircle, Flame, ShieldAlert,
   Server, Link2, CheckCircle, AlertTriangle, LayoutDashboard, Sun,
   Moon, ChevronRight, Monitor, BookOpen, ShieldOff, ArrowLeft, Menu,
-  LogOut, Hash, Sparkle, Laptop, CheckCheck
+  LogOut, Hash, Sparkle, Laptop, CheckCheck, Package
 } from 'lucide-react';
 import { UserData } from '../types';
 import { useBranding } from '../brandingUtils';
 import { BrandLogo } from './common/BrandLogo';
+import { NpmPackageCliView } from './developer/tabs/NpmPackageCliView';
 import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebaseClient';
 
@@ -43,7 +44,7 @@ interface SSOPortalProps {
   onOpenConsentPreview?: (clientId: string, redirectUri: string) => void;
 }
 
-export type SSOTabType = 'overview' | 'apps' | 'create' | 'playground' | 'button' | 'docs' | 'activity';
+export type SSOTabType = 'overview' | 'apps' | 'create' | 'playground' | 'button' | 'npm' | 'docs' | 'activity';
 
 export const SSOPortal: React.FC<SSOPortalProps> = ({
   themeMode: initialTheme = 'light',
@@ -635,6 +636,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
               Integration & Security
             </div>
             <div className="space-y-1">
+              {renderNavItem('npm', 'NPM SDK & CLI', Package, 'v1.0')}
               {renderNavItem('docs', 'SDKs & Reference', Code2, 'v1.0')}
               {renderNavItem('activity', 'Security & Audit', Activity)}
             </div>
@@ -724,6 +726,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                   {renderNavItem('create', editingAppId ? 'Edit Configuration' : 'Register New Client', Sliders)}
                   {renderNavItem('playground', 'OAuth 2.0 Sandbox', Play)}
                   {renderNavItem('button', 'SSO Button Kit', Sparkles)}
+                  {renderNavItem('npm', 'NPM SDK & CLI', Package)}
                   {renderNavItem('docs', 'SDKs & Reference', Code2)}
                   {renderNavItem('activity', 'Security & Audit', Activity)}
                 </div>
@@ -1936,6 +1939,23 @@ curl -X GET ${window.location.origin}/api/oauth/userinfo \\
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: NPM SDK & CLI HUB                                                    */}
+            {/* ========================================================================= */}
+            {activeTab === 'npm' && (
+              <NpmPackageCliView
+                app={{
+                  owner: currentUser?.username || 'developer',
+                  app_name: activeSnippetApp.app_name,
+                  client_id: activeSnippetApp.client_id,
+                  client_secret: activeSnippetApp.client_secret,
+                  bot_username: `sa_${currentUser?.username || 'bot'}`
+                }}
+                showToast={(msg) => showNotification('success', msg)}
+                isDark={isDark}
+              />
             )}
 
             {/* ========================================================================= */}

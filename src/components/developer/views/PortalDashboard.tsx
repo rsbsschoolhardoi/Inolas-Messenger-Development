@@ -3,7 +3,7 @@ import {
   Server, Lock, History, FileText, Sliders, LogOut, ShieldCheck, Zap, Key, 
   Copy, Check, RefreshCw, AlertTriangle, Download, Plus, ChevronRight, Menu, X,
   Webhook, Terminal, ArrowLeft, FileCode, CreditCard, Users, Shield, Radio,
-  LayoutDashboard, Eye, EyeOff
+  LayoutDashboard, Eye, EyeOff, Package
 } from 'lucide-react';
 import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../../firebaseClient';
@@ -23,6 +23,7 @@ import { SecuritySettingsView } from '../tabs/SecuritySettingsView';
 import { MessageTemplatesView } from '../tabs/MessageTemplatesView';
 import { BillingQuotaView } from '../tabs/BillingQuotaView';
 import { TeamMembersView } from '../tabs/TeamMembersView';
+import { NpmPackageCliView } from '../tabs/NpmPackageCliView';
 
 interface PortalDashboardProps {
   currentUser: UserData;
@@ -33,6 +34,7 @@ interface PortalDashboardProps {
 export type TabType = 
   | 'overview'
   | 'apps' 
+  | 'npm'
   | 'templates'
   | 'billing'
   | 'team'
@@ -309,6 +311,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               {[
                 { id: 'overview', icon: LayoutDashboard, label: 'Overview' },
                 { id: 'apps', icon: Key, label: 'API Credentials', badge: 'Active' },
+                { id: 'npm', icon: Package, label: 'NPM SDK & CLI', badge: 'v1.0' },
                 { id: 'docs', icon: FileText, label: 'API Docs & Reference', badge: 'v2.4' },
               ].map(tab => (
                 <button
@@ -463,6 +466,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                 {[
                   { id: 'overview', label: 'Overview' },
                   { id: 'apps', label: 'API Credentials' },
+                  { id: 'npm', label: 'NPM SDK & CLI' },
                   { id: 'docs', label: 'API Reference' },
                   { id: 'otp', label: 'OTP Simulator' },
                   { id: 'webhooks', label: 'Webhooks' },
@@ -827,6 +831,14 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               app={selectedApp} 
               currentUser={currentUser} 
               showToast={showToast} 
+            />
+          )}
+
+          {/* NPM SDK & CLI TAB */}
+          {activeTab === 'npm' && selectedApp && (
+            <NpmPackageCliView
+              app={selectedApp}
+              showToast={showToast}
             />
           )}
 
