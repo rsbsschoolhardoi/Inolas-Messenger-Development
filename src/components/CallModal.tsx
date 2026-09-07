@@ -38,6 +38,8 @@ interface CallModalProps {
   isFirebaseConfigured: boolean;
   onEndCall: (meta: CallEndMetadata) => void;
   onAnswerCall: () => void;
+  isMinimized?: boolean;
+  onToggleMinimize?: (minimized: boolean) => void;
 }
 
 const ICE_SERVERS: RTCConfiguration = {
@@ -62,6 +64,8 @@ export const CallModal: React.FC<CallModalProps> = ({
   isFirebaseConfigured,
   onEndCall,
   onAnswerCall,
+  isMinimized: isMinimizedProp,
+  onToggleMinimize,
 }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(session.type === 'voice');
@@ -75,7 +79,13 @@ export const CallModal: React.FC<CallModalProps> = ({
   const [isRemoteConnected, setIsRemoteConnected] = useState(session.status === 'connected');
   const [iceState, setIceState] = useState<string>('new');
   const [isSwapped, setIsSwapped] = useState(false); // WhatsApp-style tap to swap main/pip feeds
-  const [isMinimized, setIsMinimized] = useState(false); // PiP floating mini-window mode
+  const [internalMinimized, setInternalMinimized] = useState(false); // PiP floating mini-window mode
+  const isMinimized = isMinimizedProp !== undefined ? isMinimizedProp : internalMinimized;
+
+  const setIsMinimized = (val: boolean) => {
+    setInternalMinimized(val);
+    onToggleMinimize?.(val);
+  };
   const [ringCountdown, setRingCountdown] = useState<number>(() => {
     const elapsed = Math.floor((Date.now() - (session.startedAt || Date.now())) / 1000);
     return Math.max(0, 45 - elapsed);
@@ -337,10 +347,8 @@ export const CallModal: React.FC<CallModalProps> = ({
         ? null
         : (isSwapped ? (remoteStream && remoteStream.getVideoTracks().length > 0 ? remoteStream : null) : localStream);
 
-      // Dominant stream for floating mini-window (PiP)
-      const miniStream = isConnectedNow
-        ? (isSwapped ? localStream : (remoteStream && remoteStream.getVideoTracks().length > 0 ? remoteStream : localStream))
-        : localStream;
+      // Dominant stream for floating mini-window (PiP): Strictly REMOTE feed only
+      const miniStream = (remoteStream && remoteStream.getVideoTracks().length > 0) ? remoteStream : null;
 
       if (mainVideoElementRef.current) {
         if (mainStream && mainVideoElementRef.current.srcObject !== mainStream) {
@@ -999,6 +1007,10 @@ export const CallModal: React.FC<CallModalProps> = ({
     wasConnectedRef.current = true;
     setIsRemoteConnected(true);
 
+    if (!isPeerConnectionInitializedRef.current) {
+      initWebRTC();
+    }
+
     if (isFirebaseConfigured && db && session.id) {
       try {
         await updateDoc(doc(db, 'calls', session.id), {
@@ -1164,42 +1176,63 @@ export const CallModal: React.FC<CallModalProps> = ({
       />
 
       {isMinimized ? (
-        /* Floating Picture-in-Picture Mini Window */
-        <div id="call_mini_window_wrapper" className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-[9999] select-none">
+        /* Floating Picture-in-Picture Mini Window (Freely Draggable Anywhere) */
+        <div id="call_mini_window_wrapper" className="fixed inset-0 pointer-events-none z-[9999] select-none">
           {session.type === 'video' ? (
             <motion.div 
               key="call-mini-window-video"
-              initial={{ scale: 0.8, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.8, opacity: 0, y: 20 }}
-              className="w-48 h-68 sm:w-56 sm:h-76 rounded-3xl overflow-hidden shadow-2xl border-2 border-white/25 bg-neutral-950 flex flex-col justify-between p-2.5 relative"
+              drag
+              dragMomentum={false}
+              dragElastic={0.08}
+              whileDrag={{ scale: 1.04, cursor: 'grabbing' }}
+              initial={{ scale: 0.8, opacity: 0, x: 20, y: 20 }}
+              animate={{ scale: 1, opacity: 1, x: 0, y: 0 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              className="pointer-events-auto absolute bottom-5 right-5 sm:bottom-8 sm:right-8 w-36 h-52 sm:w-40 sm:h-56 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/25 bg-neutral-950 flex flex-col justify-between p-2 relative touch-none cursor-grab active:cursor-grabbing group"
             >
-              {/* Live Video Feed */}
-              <video
-                ref={miniVideoElementRef}
-                autoPlay
-                playsInline
-                muted={!isConnected || isSwapped}
-                className="absolute inset-0 w-full h-full object-cover cursor-pointer"
-                style={{ transform: (!isConnected || (isSwapped && facingMode === 'user')) ? 'scaleX(-1)' : 'none' }}
-                onClick={() => setIsMinimized(false)}
-              />
-              {/* Vignette Overlay */}
-              <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-transparent to-black/85 pointer-events-none" />
+              {/* Remote Video Feed or Avatar if remote video off */}
+              {isRemoteConnected && remoteStreamRef.current && remoteStreamRef.current.getVideoTracks().length > 0 ? (
+                <video
+                  ref={miniVideoElementRef}
+                  autoPlay
+                  playsInline
+                  muted={false}
+                  className="absolute inset-0 w-full h-full object-cover cursor-pointer"
+                  onClick={() => setIsMinimized(false)}
+                />
+              ) : (
+                <div 
+                  className="absolute inset-0 bg-gradient-to-b from-neutral-900 to-neutral-950 flex flex-col items-center justify-center p-3 cursor-pointer"
+                  onClick={() => setIsMinimized(false)}
+                >
+                  <div className="relative">
+                    {renderCallAvatar(session.partnerAvatarSeed, (session.partnerName?.[0] || "C"), session.partnerAvatarUrl, 'h-14 w-14 text-lg')}
+                    {remoteAudioVolume > 0.05 && (
+                      <span className="absolute -inset-2 rounded-full border-2 border-emerald-400 animate-ping opacity-60 pointer-events-none" />
+                    )}
+                  </div>
+                  <p className="mt-2 text-xs font-bold text-white text-center truncate max-w-full">
+                    {session.partnerName}
+                  </p>
+                </div>
+              )}
 
-              {/* Top Row */}
+              {/* Vignette Overlay */}
+              <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-transparent to-black/80 pointer-events-none" />
+
+              {/* Top Row: Live Timer & Maximize */}
               <div className="relative z-10 flex items-center justify-between w-full">
-                <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-black/65 backdrop-blur-md border border-white/15 text-[10px] text-white font-mono shadow-xs">
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/70 backdrop-blur-md border border-white/15 text-[9px] text-white font-mono shadow-xs">
                   <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
                   <span>{isConnected ? formatTime(callDuration) : 'Calling...'}</span>
                 </div>
                 <button
-                  onClick={() => setIsMinimized(false)}
-                  className="p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md border border-white/15 transition-transform active:scale-90 cursor-pointer shadow-md"
+                  onClick={(e) => { e.stopPropagation(); setIsMinimized(false); }}
+                  className="p-1 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md border border-white/15 transition-transform active:scale-90 cursor-pointer shadow-md"
                   title="Maximize call"
                   aria-label="Maximize call"
                 >
-                  <Maximize2 className="h-3.5 w-3.5" />
+                  <Maximize2 className="h-3 w-3" />
                 </button>
               </div>
 
@@ -1208,51 +1241,58 @@ export const CallModal: React.FC<CallModalProps> = ({
                 className="relative z-10 flex-1 flex flex-col items-center justify-center cursor-pointer"
                 onClick={() => setIsMinimized(false)}
               >
-                <p className="text-xs font-bold text-white drop-shadow-md text-center px-2 truncate max-w-full">
-                  {session.partnerName}
-                </p>
+                {/* Visual expansion helper on hover */}
               </div>
 
               {/* Bottom Controls */}
-              <div className="relative z-10 flex items-center justify-center gap-2 pt-1">
+              <div className="relative z-10 flex items-center justify-center gap-1.5 pt-1">
                 <button
                   onClick={(e) => { e.stopPropagation(); handleToggleMute(); }}
-                  className={`p-2 rounded-full backdrop-blur-md text-white border transition-all cursor-pointer ${
+                  className={`p-1.5 rounded-full backdrop-blur-md text-white border transition-all cursor-pointer ${
                     isMuted ? 'bg-rose-500/80 border-rose-400/50' : 'bg-white/20 border-white/20 hover:bg-white/30'
                   }`}
                   title={isMuted ? "Unmute" : "Mute"}
                 >
-                  {isMuted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                  {isMuted ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleSwitchCamera(); }}
-                  className="p-2 rounded-full bg-white/20 hover:bg-white/30 border border-white/20 backdrop-blur-md text-white transition-all cursor-pointer"
+                  className="p-1.5 rounded-full bg-white/20 hover:bg-white/30 border border-white/20 backdrop-blur-md text-white transition-all cursor-pointer"
                   title="Switch Camera"
                 >
-                  <SwitchCamera className="h-3.5 w-3.5" />
+                  <SwitchCamera className="h-3 w-3" />
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleHangUp(); }}
-                  className="p-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-lg transition-transform active:scale-90 cursor-pointer"
+                  className="p-1.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-lg transition-transform active:scale-90 cursor-pointer"
                   title="End Call"
                 >
-                  <PhoneOff className="h-3.5 w-3.5" />
+                  <PhoneOff className="h-3 w-3" />
                 </button>
               </div>
             </motion.div>
           ) : (
             <motion.div 
               key="call-mini-window-voice"
-              initial={{ scale: 0.8, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.8, opacity: 0, y: 20 }}
-              className="w-72 p-3 rounded-2xl bg-neutral-900/95 border border-white/15 backdrop-blur-xl shadow-2xl flex items-center justify-between gap-3 text-white"
+              drag
+              dragMomentum={false}
+              dragElastic={0.08}
+              whileDrag={{ scale: 1.04, cursor: 'grabbing' }}
+              initial={{ scale: 0.8, opacity: 0, x: 20, y: 20 }}
+              animate={{ scale: 1, opacity: 1, x: 0, y: 0 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              className="pointer-events-auto absolute bottom-5 right-5 sm:bottom-8 sm:right-8 w-64 p-2.5 rounded-2xl bg-neutral-900/95 border border-white/15 backdrop-blur-xl shadow-2xl flex items-center justify-between gap-2.5 text-white touch-none cursor-grab active:cursor-grabbing"
             >
               <div 
-                className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
+                className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer"
                 onClick={() => setIsMinimized(false)}
               >
-                {renderCallAvatar(session.partnerAvatarSeed, (session.partnerName?.[0] || "C"), session.partnerAvatarUrl, 'h-10 w-10 text-sm')}
+                <div className="relative shrink-0">
+                  {renderCallAvatar(session.partnerAvatarSeed, (session.partnerName?.[0] || "C"), session.partnerAvatarUrl, 'h-9 w-9 text-xs')}
+                  {remoteAudioVolume > 0.05 && (
+                    <span className="absolute -inset-1 rounded-full border-2 border-emerald-400 animate-ping opacity-60 pointer-events-none" />
+                  )}
+                </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-bold text-white truncate">{session.partnerName}</p>
                   <div className="flex items-center gap-1 text-[10px] font-mono text-neutral-300">
@@ -1262,30 +1302,30 @@ export const CallModal: React.FC<CallModalProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-1 shrink-0">
                 <button
-                  onClick={handleToggleMute}
-                  className={`p-2 rounded-full text-white transition-all cursor-pointer ${
+                  onClick={(e) => { e.stopPropagation(); handleToggleMute(); }}
+                  className={`p-1.5 rounded-full text-white transition-all cursor-pointer ${
                     isMuted ? 'bg-rose-500/80' : 'bg-white/15 hover:bg-white/25'
                   }`}
                   title={isMuted ? "Unmute" : "Mute"}
                 >
-                  {isMuted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                  {isMuted ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
                 </button>
                 <button
-                  onClick={handleHangUp}
-                  className="p-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-md transition-transform active:scale-90 cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); handleHangUp(); }}
+                  className="p-1.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-md transition-transform active:scale-90 cursor-pointer"
                   title="End call"
                 >
-                  <PhoneOff className="h-3.5 w-3.5" />
+                  <PhoneOff className="h-3 w-3" />
                 </button>
                 <button
-                  onClick={() => setIsMinimized(false)}
-                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-transform active:scale-90 cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); setIsMinimized(false); }}
+                  className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-transform active:scale-90 cursor-pointer"
                   title="Maximize call"
                   aria-label="Maximize call"
                 >
-                  <Maximize2 className="h-3.5 w-3.5" />
+                  <Maximize2 className="h-3 w-3" />
                 </button>
               </div>
             </motion.div>

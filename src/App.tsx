@@ -391,6 +391,7 @@ export default function App() {
 
   // Secure Voice & Video Calling States
   const [activeCallSession, setActiveCallSession] = useState<CallSession | null>(null);
+  const [isCallMinimized, setIsCallMinimized] = useState<boolean>(false);
 
   // Cloud Vault States
   const [isDriveConnected, setIsDriveConnected] = useState<boolean>(() => {
@@ -2412,6 +2413,37 @@ export default function App() {
     };
   }, [isFirebaseConfigured, db, userUsername, userAccountCreatedAt]);
 
+  // PWA & Mobile Virtual Keyboard Viewport Dynamic Resizing Handler
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleResize = () => {
+      const vv = window.visualViewport;
+      if (vv) {
+        const keyboardOffset = Math.max(0, window.innerHeight - vv.height);
+        document.documentElement.style.setProperty('--keyboard-offset', `${keyboardOffset}px`);
+        document.documentElement.style.setProperty('--app-height', `${vv.height}px`);
+      } else {
+        document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
+      }
+    };
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleResize);
+      window.visualViewport.addEventListener('scroll', handleResize);
+    }
+    window.addEventListener('resize', handleResize);
+    handleResize();
+
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleResize);
+        window.visualViewport.removeEventListener('scroll', handleResize);
+      }
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
   // Synchronize messages for the active chat only
   useEffect(() => {
     if (!isFirebaseConfigured || !db || !activeChatId || !userUsername) {
@@ -2828,10 +2860,8 @@ export default function App() {
       const handleCallSnap = (snapshot: any) => {
         snapshot.docChanges().forEach((change: any) => {
           if (change.type === 'removed') {
-            const callData = change.doc.data();
-            if (activeCallSession?.id === callData.id) {
-              setActiveCallSession(null);
-            }
+            // Document was removed from 'dialing' query (e.g. status transitioned to 'connected').
+            // Do NOT cut the call here. The dedicated active call document listener handles terminal states.
             return;
           }
 
@@ -8316,6 +8346,49 @@ export default function App() {
                   </div>
                 ) : (
                   <>
+                    {/* PINNED ACTIVE CALL ITEM AT TOP OF CHATS LIST */}
+                    {activeCallSession && (
+                      <div
+                        id="pinned_active_call_chat_item"
+                        onClick={() => {
+                          setIsCallMinimized(false);
+                          const matchingChat = chats.find(c => c.username === activeCallSession.partnerUsername);
+                          if (matchingChat) {
+                            setActiveChatId(matchingChat.id);
+                            setMobileShowChat(true);
+                          }
+                        }}
+                        className="w-full flex items-center gap-3 p-3 mb-2.5 rounded-2xl cursor-pointer bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-emerald-500/15 dark:from-emerald-500/25 dark:via-teal-500/15 dark:to-emerald-500/25 border-2 border-emerald-500/40 hover:border-emerald-500 transition-all shadow-xs group select-none"
+                      >
+                        <div className="relative shrink-0">
+                          {renderAvatar(activeCallSession.partnerAvatarSeed, activeCallSession.partnerName, activeCallSession.partnerAvatarUrl, 'h-11 w-11 text-sm')}
+                          <span className="absolute -inset-0.5 rounded-full border-2 border-emerald-500 animate-ping opacity-75 pointer-events-none" />
+                          <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-950 flex items-center justify-center shadow-xs">
+                            {activeCallSession.type === 'video' ? <Video className="h-2 w-2 text-white" /> : <Phone className="h-2 w-2 text-white" />}
+                          </span>
+                        </div>
+
+                        <div className="flex-1 min-w-0 text-left">
+                          <div className="flex justify-between items-baseline">
+                            <p className="text-sm font-bold text-emerald-950 dark:text-emerald-100 truncate">
+                              {activeCallSession.partnerName}
+                            </p>
+                            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 shrink-0 ml-1">
+                              {activeCallSession.status === 'connected' ? 'Active Call' : 'Ringing...'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 truncate">
+                              {activeCallSession.status === 'ringing' && activeCallSession.isIncoming
+                                ? `Incoming ${activeCallSession.type === 'video' ? 'Video' : 'Voice'} Call • Tap to view`
+                                : `Ongoing ${activeCallSession.type === 'video' ? 'HD Video' : 'HD Voice'} Call • Tap to return`}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {filteredChats.map(chat => (
                       <div 
                         key={chat.id} 
@@ -8823,6 +8896,85 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              )}
+
+              {/* ACTIVE CALL SUB-HEADER BANNER */}
+              {activeCallSession && (
+                <div 
+                  id="active_call_chat_banner"
+                  onClick={() => setIsCallMinimized(false)}
+                  className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white px-3 sm:px-4 py-2 flex items-center justify-between shadow-md cursor-pointer transition-all hover:brightness-105 select-none z-20 shrink-0"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div className="relative shrink-0 flex items-center justify-center">
+                      <span className="absolute -inset-1 rounded-full bg-white/30 animate-ping pointer-events-none" />
+                      <div className="h-7 w-7 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/40 shadow-xs">
+                        {activeCallSession.type === 'video' ? (
+                          <Video className="h-3.5 w-3.5 text-white animate-pulse" />
+                        ) : (
+                          <Phone className="h-3.5 w-3.5 text-white animate-pulse" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="min-w-0 flex-1 text-left">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-white truncate">
+                          {activeCallSession.status === 'ringing' && activeCallSession.isIncoming
+                            ? `Incoming ${activeCallSession.type === 'video' ? 'HD Video' : 'HD Voice'} Call`
+                            : activeCallSession.status === 'dialing'
+                            ? `Calling ${activeCallSession.partnerName}...`
+                            : `Call with ${activeCallSession.partnerName}`}
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white/25 text-white font-medium shrink-0">
+                          {activeCallSession.status === 'connected' ? 'In Progress' : 'Ringing'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-white/85 font-medium truncate">
+                        {activeCallSession.status === 'ringing' && activeCallSession.isIncoming
+                          ? `${activeCallSession.partnerName} is calling you • Tap to answer`
+                          : 'Tap to return to full call screen'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0 ml-2" onClick={e => e.stopPropagation()}>
+                    {activeCallSession.status === 'ringing' && activeCallSession.isIncoming ? (
+                      <>
+                        <button
+                          onClick={handleAnswerCall}
+                          className="px-2.5 py-1 rounded-lg bg-white text-emerald-700 font-bold text-xs shadow-xs hover:bg-emerald-50 active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          <Phone className="h-3 w-3" />
+                          <span>Answer</span>
+                        </button>
+                        <button
+                          onClick={() => handleEndCall(0, 'declined')}
+                          className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          <PhoneOff className="h-3 w-3" />
+                          <span>Decline</span>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => setIsCallMinimized(false)}
+                          className="px-2.5 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-white font-bold text-xs shadow-xs active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          <Maximize2 className="h-3 w-3" />
+                          <span>Return</span>
+                        </button>
+                        <button
+                          onClick={() => handleEndCall(0, 'ended')}
+                          className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          <PhoneOff className="h-3 w-3" />
+                          <span>End</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
               )}
 
 
@@ -12132,6 +12284,8 @@ export default function App() {
           userDisplayName={userDisplayName}
           db={db}
           isFirebaseConfigured={isFirebaseConfigured}
+          isMinimized={isCallMinimized}
+          onToggleMinimize={setIsCallMinimized}
           onEndCall={handleEndCall}
           onAnswerCall={handleAnswerCall}
         />

@@ -107,6 +107,8 @@ function renderValueToElement(el: HTMLElement, val: string) {
           textBuf = '';
         }
         fragment.appendChild(createEmojiElement(segment));
+        // Append an empty text node immediately following each emoji element so the caret can comfortably sit after it
+        fragment.appendChild(document.createTextNode(''));
       } else {
         textBuf += segment;
       }
@@ -198,11 +200,13 @@ function setCaretPosition(root: HTMLElement, targetOffset: number) {
   if (selectedNode) {
     try {
       if (targetNodeOffset === -1) {
-        if (selectedNode.nextSibling && selectedNode.nextSibling.nodeType === Node.TEXT_NODE) {
-          range.setStart(selectedNode.nextSibling, 0);
-        } else {
-          range.setStartAfter(selectedNode);
+        let nextNode = selectedNode.nextSibling;
+        if (!nextNode || nextNode.nodeType !== Node.TEXT_NODE) {
+          const emptyTextNode = document.createTextNode('');
+          selectedNode.parentNode?.insertBefore(emptyTextNode, nextNode || null);
+          nextNode = emptyTextNode;
         }
+        range.setStart(nextNode, 0);
       } else {
         range.setStart(selectedNode, Math.min(targetNodeOffset, (selectedNode.textContent || '').length));
       }

@@ -783,6 +783,7 @@ app.post(['/api/v1/otp/send', '/v1/otp/send'], authenticateApiKey, async (req: a
     
     // Ignore any custom sender passed in payload to enforce cryptographic sender isolation
     const senderDisplayName = app_name || 'Service Account';
+    const expiryMins = req.body?.expiry_mins ?? req.body?.expiryMinutes ?? req.body?.expiry ?? req.query?.expiry_mins;
     const expiryMinutes = Math.max(1, Math.min(1440, Number(expiryMins) || 10));
     
     const customCode = req.body?.custom_code ?? req.body?.code ?? req.body?.otp ?? req.body?.otp_code ?? req.body?.pin ?? req.query?.custom_code ?? req.query?.code;
@@ -2596,7 +2597,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    app.get('*all', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
