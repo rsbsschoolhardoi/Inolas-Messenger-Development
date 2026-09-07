@@ -4,10 +4,11 @@ import { doc, getDoc } from 'firebase/firestore';
 import { SSOPortal } from './SSOPortal';
 import { ZenoaAuthGatewayModal } from './ZenoaAuthGatewayModal';
 import { UserData } from '../types';
+import { useBranding } from '../brandingUtils';
 import { 
   Shield, ArrowRight, Lock, Key, Sparkles, RefreshCw, 
   User, Mail, Terminal, ArrowLeft, LogOut, Globe, CheckCircle2,
-  Code2, Layers
+  Code2, Layers, ShieldCheck, Fingerprint, ExternalLink
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -16,9 +17,10 @@ interface SSOConsoleStandaloneProps {
 }
 
 export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ currentUser: propUser }) => {
+  const branding = useBranding();
   const [user, setUser] = useState<UserData | null>(propUser || null);
   const [loading, setLoading] = useState(true);
-  const [themeMode, setThemeMode] = useState<'light' | 'dark'>('dark');
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>('light');
   const [showZenoaAuthModal, setShowZenoaAuthModal] = useState(false);
 
   useEffect(() => {
@@ -34,7 +36,7 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
 
     // Check saved theme
     try {
-      const savedTheme = localStorage.getItem('zenoa_theme_mode');
+      const savedTheme = localStorage.getItem('zenoa_oauth_theme') || localStorage.getItem('zenoa_theme_mode');
       if (savedTheme === 'light' || savedTheme === 'dark') {
         setThemeMode(savedTheme);
       }
@@ -84,48 +86,55 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center p-6 text-white font-sans">
-        <div className="w-12 h-12 rounded-2xl bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center justify-center mb-4">
-          <RefreshCw className="w-6 h-6 animate-spin" />
+      <div className="min-h-screen bg-[#0b0f19] flex flex-col items-center justify-center p-6 text-white font-sans">
+        <div className="w-10 h-10 rounded-2xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center mb-4">
+          <RefreshCw className="w-5 h-5 animate-spin" />
         </div>
-        <h2 className="text-base font-bold">Initializing Zenoa SSO Console...</h2>
-        <p className="text-xs text-neutral-400 mt-1">Connecting to OAuth 2.0 Registry</p>
+        <h2 className="text-sm font-bold tracking-tight">Initializing Identity Console...</h2>
+        <p className="text-[11px] text-slate-400 mt-1">Connecting to OAuth 2.0 & OIDC Provider</p>
       </div>
     );
   }
 
-  // 1. MANDATORY ACCESS GATE (When not authenticated to SSO Console)
+  // 1. MANDATORY ACCESS GATE (When not authenticated)
   if (!user) {
+    const isDark = themeMode === 'dark';
     return (
-      <div className="min-h-screen bg-neutral-950 text-white flex flex-col font-sans selection:bg-sky-600 selection:text-white">
+      <div className={`min-h-screen flex flex-col font-sans transition-colors ${
+        isDark ? 'bg-[#0b0f19] text-white selection:bg-indigo-600 selection:text-white' : 'bg-[#f8fafc] text-slate-900 selection:bg-indigo-500/20 selection:text-indigo-600'
+      }`}>
         {/* Top Navigation */}
-        <header className="border-b border-neutral-800 bg-neutral-950/90 backdrop-blur-md sticky top-0 z-50">
+        <header className={`border-b sticky top-0 z-50 backdrop-blur-md ${
+          isDark ? 'border-slate-800/80 bg-[#0b0f19]/90' : 'border-slate-200/80 bg-white/90'
+        }`}>
           <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-xl bg-sky-500/20 border border-sky-500/30 flex items-center justify-center text-sky-400">
-                <Shield className="h-4 w-4" />
+              <div className="h-8 w-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold text-xs shadow-xs">
+                {(branding.app_name || 'Z').charAt(0).toUpperCase()}
               </div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-base tracking-tight text-white">Zenoa</span>
-                <span className="text-[10px] font-mono uppercase bg-neutral-900 text-sky-400 px-2.5 py-0.5 rounded-md border border-neutral-800 font-semibold">SSO Platform</span>
+                <span className="font-bold text-sm sm:text-base tracking-tight">{branding.app_name || 'Zenoa'}</span>
+                <span className="text-[10px] font-mono uppercase bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800/60 font-bold">
+                  OAuth 2.0 & OIDC
+                </span>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
               <a
                 href="/"
-                className="text-xs font-semibold text-neutral-400 hover:text-white flex items-center gap-1.5 transition-colors"
+                className="text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5 transition-colors"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
-                <span>Zenoa Messenger</span>
+                <span>Messenger</span>
               </a>
 
               <button
                 onClick={() => setShowZenoaAuthModal(true)}
-                className="px-4 py-2 text-xs font-bold rounded-xl bg-sky-600 hover:bg-sky-500 text-white shadow-md shadow-sky-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
+                className="px-3.5 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
               >
                 <Lock className="h-3.5 w-3.5" />
-                <span>Continue with Zenoa</span>
+                <span>Sign In to Console</span>
               </button>
             </div>
           </div>
@@ -133,63 +142,69 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
 
         {/* Hero & Access Gate */}
         <main className="flex-1 flex flex-col justify-center max-w-5xl mx-auto px-6 py-16 text-center w-full">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-300 text-xs font-medium mb-6 mx-auto">
-            <Shield className="h-3.5 w-3.5 text-sky-400" />
-            <span>OAuth 2.0 & Identity Management &bull; Mandatory Zenoa Identity</span>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 text-xs font-semibold mb-6 mx-auto">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            <span>Single Sign-On (SSO) &bull; Developer Identity Infrastructure</span>
           </div>
 
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-[1.15]">
-            Single Sign-On & OAuth 2.0 Console
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight leading-tight">
+            OAuth 2.0 & OpenID Connect Console
           </h1>
 
-          <p className="text-neutral-400 text-base sm:text-lg max-w-2xl mx-auto mt-6 leading-relaxed">
-            Create client applications, generate Client IDs and Secrets, configure authorized redirect URIs, and enable "Log in with Zenoa" for third-party web apps.
+          <p className="text-slate-500 dark:text-slate-400 text-sm sm:text-base max-w-2xl mx-auto mt-4 leading-relaxed">
+            Register third-party client applications, issue Client IDs & Secrets, whitelist authorized callback URIs, and integrate "Continue with {branding.app_name || 'Zenoa'}" authentication into your services.
           </p>
 
-          <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
             <button
               onClick={() => setShowZenoaAuthModal(true)}
-              className="px-8 py-4 rounded-2xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-bold text-sm shadow-xl shadow-sky-600/25 transition-all flex items-center gap-2 cursor-pointer active:scale-98"
+              className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-95"
             >
               <Lock className="h-4 w-4" />
-              <span>Continue with Zenoa</span>
-              <ArrowRight className="h-4 w-4 ml-1" />
+              <span>Authenticate with {branding.app_name || 'Zenoa'}</span>
+              <ArrowRight className="h-4 w-4 ml-0.5" />
             </button>
           </div>
 
-          <p className="text-xs text-neutral-500 mt-4">
-            *You must authenticate with your Zenoa Messenger account to manage SSO applications.
+          <p className="text-[11px] text-slate-400 mt-3">
+            Authenticate with your active {branding.app_name || 'Zenoa'} developer identity to access the management portal.
           </p>
 
           {/* Architecture Feature Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16 text-left">
-            <div className="p-6 rounded-2xl border border-neutral-800 bg-neutral-900/60 space-y-3">
-              <div className="h-10 w-10 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-center text-sky-400">
-                <Key className="h-5 w-5" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-12 text-left">
+            <div className={`p-5 rounded-2xl border transition-all ${
+              isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+            }`}>
+              <div className="h-9 w-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-3">
+                <Key className="h-4 w-4" />
               </div>
-              <h3 className="text-base font-bold text-white">OAuth 2.0 Authorization Codes</h3>
-              <p className="text-xs text-neutral-400 leading-relaxed">
-                Standard RFC 6749 authorization code flow with secure short-lived auth codes and server-to-server token exchange.
+              <h3 className="text-sm font-bold">RFC 6749 Auth Codes</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                Standard authorization code flow with secure short-lived auth codes and server-to-server token exchange.
               </p>
             </div>
 
-            <div className="p-6 rounded-2xl border border-neutral-800 bg-neutral-900/60 space-y-3">
-              <div className="h-10 w-10 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-center text-sky-400">
-                <Globe className="h-5 w-5" />
+            <div className={`p-5 rounded-2xl border transition-all ${
+              isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+            }`}>
+              <div className="h-9 w-9 rounded-xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 flex items-center justify-center mb-3">
+                <Globe className="h-4 w-4" />
               </div>
-              <h3 className="text-base font-bold text-white">Strict Redirect Whitelisting</h3>
-              <p className="text-xs text-neutral-400 leading-relaxed">
-                Prevent token interception with exact origin matching and granular callback validation for web and mobile apps.
+              <h3 className="text-sm font-bold">Strict Redirect Whitelisting</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                Prevent token interception with exact protocol, domain, port, and path matching for web & mobile apps.
               </p>
             </div>
 
-            <div className="p-6 rounded-2xl border border-neutral-800 bg-neutral-900/60 space-y-3">
-              <div className="h-10 w-10 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-center text-sky-400">
-                <Code2 className="h-5 w-5" />
+            <div className={`p-5 rounded-2xl border transition-all ${
+              isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+            }`}>
+              <div className="h-9 w-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-3">
+                <Code2 className="h-4 w-4" />
               </div>
-              <h3 className="text-base font-bold text-white">Interactive SDK & Previews</h3>
-              <p className="text-xs text-neutral-400 leading-relaxed">
-                Test OAuth consent screens in real-time, generate ready-to-use HTML login buttons, and inspect JWT payload claims.
+              <h3 className="text-sm font-bold">Interactive Sandbox & SDKs</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                Step-by-step simulator, embeddable button generator, and multi-language handlers for React, Node, and Python.
               </p>
             </div>
           </div>
@@ -199,69 +214,29 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
         <ZenoaAuthGatewayModal
           isOpen={showZenoaAuthModal}
           onClose={() => setShowZenoaAuthModal(false)}
-          serviceTitle="Zenoa SSO & Identity Console"
-          serviceDescription="Register client applications, manage OAuth credentials, and configure permissions."
+          serviceTitle={`${branding.app_name || 'Zenoa'} OAuth & Identity Console`}
+          serviceDescription="Manage OAuth 2.0 client applications, credentials, and allowed callback URIs."
           onAuthenticated={handleAuthenticatedWithZenoa}
-          themeMode="dark"
+          themeMode="light"
         />
       </div>
     );
   }
 
-  // 2. ACTIVE SSO PORTAL VIEW (When authenticated to SSO Console)
+  // 2. ACTIVE SSO PORTAL VIEW (When authenticated)
   return (
-    <div className="min-h-screen bg-neutral-950 text-white flex flex-col font-sans">
-      {/* Portal Header with Independent Session Badge & Logout */}
-      <div className="bg-neutral-900 border-b border-neutral-800 px-6 py-3 flex items-center justify-between sticky top-0 z-50">
-        <div className="flex items-center gap-3">
-          <a
-            href="/"
-            className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors flex items-center gap-1 text-xs"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            <span>Zenoa Messenger</span>
-          </a>
-          <div className="h-4 w-[1px] bg-neutral-700" />
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-white">SSO Management</span>
-            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950/60 text-sky-300 border border-sky-800/50">
-              OAuth 2.0 Live
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-neutral-950 px-3 py-1.5 rounded-xl border border-neutral-800">
-            <div className="h-6 w-6 rounded-lg bg-sky-500/30 text-sky-400 flex items-center justify-center text-xs font-bold">
-              {(user?.username || user?.display_name || 'SSO').slice(0, 2).toUpperCase()}
-            </div>
-            <div className="text-left">
-              <span className="text-[11px] font-bold text-neutral-200 block leading-tight">{user?.display_name || user?.username || 'SSO User'}</span>
-              <span className="text-[9px] font-mono text-neutral-400">@{user?.username || 'user'}</span>
-            </div>
-          </div>
-
-          <button
-            onClick={handleLogoutSSOConsole}
-            className="p-2 rounded-xl bg-neutral-800 hover:bg-rose-950/40 hover:text-rose-400 hover:border-rose-800/40 border border-neutral-700 text-neutral-300 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
-            title="Log out of SSO Console"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Sign Out</span>
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1">
-        <SSOPortal
-          themeMode={themeMode}
-          currentUser={user}
-          onBack={handleLogoutSSOConsole}
-          onOpenConsentPreview={(clientId, redirectUri) => {
-            window.open(`/auth/sso?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}`, '_blank');
-          }}
-        />
-      </div>
+    <div className="min-h-screen flex flex-col font-sans">
+      <SSOPortal
+        themeMode={themeMode}
+        currentUser={user}
+        onBack={() => {
+          handleLogoutSSOConsole();
+          window.location.href = '/';
+        }}
+        onOpenConsentPreview={(clientId, redirectUri) => {
+          window.open(`/auth/sso?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}`, '_blank');
+        }}
+      />
     </div>
   );
 };
