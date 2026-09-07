@@ -7,7 +7,8 @@ import {
   FileCode, CheckSquare, X, Activity, ShieldCheck, Cpu, ArrowUpRight,
   Sliders, Database, Fingerprint, HelpCircle, Flame, ShieldAlert,
   Server, Link2, CheckCircle, AlertTriangle, LayoutDashboard, Sun,
-  Moon, ChevronRight, Monitor, BookOpen, ShieldOff, ArrowLeft
+  Moon, ChevronRight, Monitor, BookOpen, ShieldOff, ArrowLeft, Menu,
+  LogOut, Hash, Sparkle, Laptop, CheckCheck
 } from 'lucide-react';
 import { UserData } from '../types';
 import { useBranding } from '../brandingUtils';
@@ -41,6 +42,8 @@ interface SSOPortalProps {
   onOpenConsentPreview?: (clientId: string, redirectUri: string) => void;
 }
 
+export type SSOTabType = 'overview' | 'apps' | 'create' | 'playground' | 'button' | 'docs' | 'activity';
+
 export const SSOPortal: React.FC<SSOPortalProps> = ({
   themeMode: initialTheme = 'light',
   currentUser,
@@ -69,9 +72,9 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
 
   const isDark = localTheme === 'dark';
 
-  // Navigation Tabs matching Developer Console
-  type TabType = 'overview' | 'apps' | 'create' | 'playground' | 'button' | 'docs' | 'activity';
-  const [activeTab, setActiveTab] = useState<TabType>('overview');
+  // Navigation State
+  const [activeTab, setActiveTab] = useState<SSOTabType>('overview');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   // Apps State
   const [apps, setApps] = useState<SSOApp[]>([]);
@@ -230,6 +233,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     setRedirectUrisInput('');
     setSelectedScopes(app.scopes && app.scopes.length > 0 ? app.scopes : ['openid', 'profile', 'email']);
     setActiveTab('create');
+    setMobileMenuOpen(false);
   };
 
   // Add Redirect URI to list
@@ -408,12 +412,12 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     if (!activeTesterApp) return;
     setIsTesterRunning(true);
     setTesterLog([
-      `[1/3] POST /oauth/v2/authorize`,
-      `Client ID: ${activeTesterApp.client_id}`,
-      `Redirect URI: ${testRedirectUri || activeTesterApp.redirect_uris[0]}`,
-      `Response Type: code`,
-      `Scopes: ${activeTesterApp.scopes.join(', ')}`,
-      `Timestamp: ${new Date().toISOString()}`
+      `[1/3] POST /auth/sso`,
+      `client_id: ${activeTesterApp.client_id}`,
+      `redirect_uri: ${testRedirectUri || activeTesterApp.redirect_uris[0]}`,
+      `response_type: code`,
+      `scope: ${activeTesterApp.scopes.join(' ')}`,
+      `timestamp: ${new Date().toISOString()}`
     ]);
 
     setTimeout(() => {
@@ -424,8 +428,8 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       setTesterLog(prev => [
         ...prev,
         `✓ 200 OK — Authorization Code issued!`,
-        `Authorization Code: ${generatedCode}`,
-        `Callback URL: ${testRedirectUri || activeTesterApp.redirect_uris[0]}?code=${generatedCode}`
+        `code: ${generatedCode}`,
+        `callback: ${testRedirectUri || activeTesterApp.redirect_uris[0]}?code=${generatedCode}`
       ]);
       showNotification('success', 'Authorization Code generated');
     }, 450);
@@ -452,7 +456,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       setIsTesterRunning(false);
       setTesterLog(prev => [
         ...prev,
-        `✓ 200 OK — Access Token issued!`,
+        `✓ 200 OK — Bearer Access Token issued!`,
         `token_type: Bearer`,
         `expires_in: 3600 (1 hour)`,
         `access_token: ${generatedAccessToken}`
@@ -492,7 +496,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       setIsTesterRunning(false);
       setTesterLog(prev => [
         ...prev,
-        `✓ 200 OK — User Claims & Identity payload verified!`,
+        `✓ 200 OK — User Identity Claims payload verified!`,
         JSON.stringify(userInfoResult, null, 2)
       ]);
       showNotification('success', 'User Identity Claims retrieved');
@@ -506,9 +510,47 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     scopes: ['openid', 'profile', 'email']
   };
 
+  // Nav item component helper
+  const renderNavItem = (id: SSOTabType, label: string, Icon: any, badge?: string) => {
+    const isActive = activeTab === id;
+    return (
+      <button
+        key={id}
+        onClick={() => {
+          if (id === 'create' && activeTab !== 'create') resetForm();
+          setActiveTab(id);
+          setMobileMenuOpen(false);
+        }}
+        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+          isActive
+            ? isDark
+              ? 'bg-indigo-950/60 text-indigo-400 border border-indigo-800/80 shadow-xs'
+              : 'bg-indigo-50 text-indigo-700 border border-indigo-100 shadow-xs'
+            : isDark
+            ? 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200'
+            : 'text-slate-600 hover:bg-slate-100/70 hover:text-slate-900'
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          <Icon className={`h-4 w-4 ${isActive ? (isDark ? 'text-indigo-400' : 'text-indigo-600') : 'text-slate-400'}`} />
+          <span>{label}</span>
+        </div>
+        {badge && (
+          <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ${
+            isActive
+              ? isDark ? 'bg-indigo-900/80 text-indigo-200' : 'bg-indigo-100 text-indigo-800'
+              : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'
+          }`}>
+            {badge}
+          </span>
+        )}
+      </button>
+    );
+  };
+
   return (
-    <div className={`w-full min-h-screen flex flex-col font-sans selection:bg-indigo-500/20 selection:text-indigo-600 transition-colors ${
-      isDark ? 'bg-[#0b0f19] text-slate-100' : 'bg-[#f8fafc] text-slate-800'
+    <div className={`flex h-screen font-sans overflow-hidden transition-colors ${
+      isDark ? 'bg-[#0b0f19] text-slate-100' : 'bg-[#f8fafc] text-slate-900'
     }`}>
       {/* Toast Alert */}
       <AnimatePresence>
@@ -517,61 +559,238 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             initial={{ opacity: 0, y: -20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] px-4 py-2 rounded-xl shadow-lg flex items-center gap-2.5 text-xs font-semibold border backdrop-blur-md ${
+            className={`fixed top-4 right-4 z-[9999] px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2.5 text-xs font-semibold border backdrop-blur-md ${
               notification.type === 'success'
-                ? isDark ? 'bg-emerald-950/80 border-emerald-800 text-emerald-300' : 'bg-white border-emerald-200 text-emerald-800 shadow-emerald-500/5'
-                : isDark ? 'bg-rose-950/80 border-rose-800 text-rose-300' : 'bg-white border-rose-200 text-rose-800 shadow-rose-500/5'
+                ? isDark ? 'bg-emerald-950/90 border-emerald-800 text-emerald-300' : 'bg-white border-emerald-200 text-emerald-800 shadow-emerald-500/5'
+                : isDark ? 'bg-rose-950/90 border-rose-800 text-rose-300' : 'bg-white border-rose-200 text-rose-800 shadow-rose-500/5'
             }`}
           >
-            {notification.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <AlertCircle className="w-4 h-4 text-rose-500" />}
+            {notification.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />}
             <span>{notification.message}</span>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Top Application Bar */}
-      <header className={`border-b sticky top-0 z-30 backdrop-blur-md ${
-        isDark ? 'bg-[#0b0f19]/90 border-slate-800/80' : 'bg-white/90 border-slate-200/80'
+      {/* ========================================================================= */}
+      {/* DESKTOP SIDEBAR NAVIGATION (Matching Developer Console)                    */}
+      {/* ========================================================================= */}
+      <aside className={`hidden md:flex flex-col w-64 border-r shrink-0 select-none ${
+        isDark ? 'bg-[#0f1422] border-slate-800/80' : 'bg-white border-slate-200'
       }`}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+        {/* Brand Header */}
+        <div className={`p-4 border-b flex items-center justify-between ${
+          isDark ? 'border-slate-800/80' : 'border-slate-100'
+        }`}>
           <div className="flex items-center gap-3">
-            {onBack && (
-              <button
-                onClick={onBack}
-                className={`p-2 rounded-xl border transition-colors cursor-pointer ${
-                  isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
-                }`}
-                title="Return to Messenger"
-              >
-                <ArrowLeft className="w-4 h-4" />
-              </button>
-            )}
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-xs shadow-indigo-600/20 overflow-hidden">
-                {activeLogo ? (
-                  <img src={activeLogo} alt="Logo" className="h-full w-full object-contain p-1" />
-                ) : (
-                  <span>{(branding.app_name || 'Z').charAt(0).toUpperCase()}</span>
-                )}
+            <div className="h-9 w-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-xs overflow-hidden shrink-0">
+              {activeLogo ? (
+                <img src={activeLogo} alt="Logo" className="h-full w-full object-contain p-1" />
+              ) : (
+                <span>{(branding.app_name || 'Z').charAt(0).toUpperCase()}</span>
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <h1 className="text-sm font-bold tracking-tight truncate">
+                  {branding.app_name || 'Zenoa'} OAuth
+                </h1>
+                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60">
+                  OIDC
+                </span>
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-sm sm:text-base tracking-tight leading-none">
-                    {branding.app_name || 'Zenoa'} OAuth Console
-                  </span>
-                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60">
-                    OIDC 1.0
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Single Sign-On & Identity Provider Engine
-                </p>
-              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                Identity & Single Sign-On
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar Nav Items */}
+        <div className="flex-1 p-3.5 space-y-4 overflow-y-auto custom-scrollbar">
+          {/* Section: Main & Registry */}
+          <div>
+            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-slate-400">
+              Identity & SSO
+            </div>
+            <div className="space-y-1">
+              {renderNavItem('overview', 'Console Overview', LayoutDashboard)}
+              {renderNavItem('apps', 'Client Registry', Key, `${apps.length}`)}
+              {renderNavItem('create', editingAppId ? 'Edit Configuration' : 'Register New Client', Sliders)}
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Theme Switcher */}
+          {/* Section: Tools & Testing */}
+          <div>
+            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-slate-400">
+              Sandbox & Simulator
+            </div>
+            <div className="space-y-1">
+              {renderNavItem('playground', 'OAuth 2.0 Sandbox', Play, 'Live')}
+              {renderNavItem('button', 'SSO Button Kit', Sparkles)}
+            </div>
+          </div>
+
+          {/* Section: Integration & Audit */}
+          <div>
+            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-slate-400">
+              Integration & Security
+            </div>
+            <div className="space-y-1">
+              {renderNavItem('docs', 'SDKs & Reference', Code2, 'v1.0')}
+              {renderNavItem('activity', 'Security & Audit', Activity)}
+            </div>
+          </div>
+        </div>
+
+        {/* User Account & Footer in Sidebar */}
+        <div className={`p-3.5 border-t ${
+          isDark ? 'border-slate-800/80 bg-slate-900/40' : 'border-slate-100 bg-slate-50/50'
+        }`}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="h-8 w-8 rounded-xl bg-slate-200 dark:bg-slate-800 flex items-center justify-center font-bold text-xs text-indigo-600 dark:text-indigo-400 overflow-hidden shrink-0 border border-slate-300 dark:border-slate-700">
+                {currentUser?.avatar_url ? (
+                  <img src={currentUser.avatar_url} alt="User" className="h-full w-full object-cover" />
+                ) : (
+                  <span>{(currentUser?.username || 'D').charAt(0).toUpperCase()}</span>
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold truncate">{currentUser?.display_name || currentUser?.username || 'Developer'}</p>
+                <p className="text-[10px] text-slate-400 truncate">@{currentUser?.username || 'dev'}</p>
+              </div>
+            </div>
+
+            {onBack && (
+              <button
+                onClick={onBack}
+                className={`p-1.5 rounded-lg border transition-colors cursor-pointer text-slate-400 hover:text-slate-700 dark:hover:text-white ${
+                  isDark ? 'border-slate-800 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-100'
+                }`}
+                title="Return to Messenger"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      {/* ========================================================================= */}
+      {/* MOBILE DRAWER OVERLAY                                                     */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMobileMenuOpen(false)}
+              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs md:hidden"
+            />
+            <motion.div
+              initial={{ x: -280 }}
+              animate={{ x: 0 }}
+              exit={{ x: -280 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 250 }}
+              className={`fixed inset-y-0 left-0 z-50 w-72 flex flex-col border-r shadow-2xl md:hidden ${
+                isDark ? 'bg-[#0f1422] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              <div className="p-4 border-b flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-8 w-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold text-xs">
+                    {(branding.app_name || 'Z').charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold">{branding.app_name || 'Zenoa'} OAuth</h2>
+                    <p className="text-[10px] text-slate-400">Developer Identity</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 p-4 space-y-4 overflow-y-auto">
+                <div className="space-y-1">
+                  {renderNavItem('overview', 'Console Overview', LayoutDashboard)}
+                  {renderNavItem('apps', 'Client Registry', Key, `${apps.length}`)}
+                  {renderNavItem('create', editingAppId ? 'Edit Configuration' : 'Register New Client', Sliders)}
+                  {renderNavItem('playground', 'OAuth 2.0 Sandbox', Play)}
+                  {renderNavItem('button', 'SSO Button Kit', Sparkles)}
+                  {renderNavItem('docs', 'SDKs & Reference', Code2)}
+                  {renderNavItem('activity', 'Security & Audit', Activity)}
+                </div>
+              </div>
+
+              <div className="p-4 border-t flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span className="text-xs font-bold">@{currentUser?.username || 'dev'}</span>
+                </div>
+                {onBack && (
+                  <button
+                    onClick={onBack}
+                    className="text-xs font-semibold text-rose-500 flex items-center gap-1"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Exit</span>
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ========================================================================= */}
+      {/* MAIN WORKSPACE VIEWPORT                                                   */}
+      {/* ========================================================================= */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top Header Bar */}
+        <header className={`h-16 border-b flex items-center justify-between px-4 sm:px-6 shrink-0 backdrop-blur-md z-10 ${
+          isDark ? 'bg-[#0b0f19]/90 border-slate-800/80' : 'bg-white/90 border-slate-200'
+        }`}>
+          <div className="flex items-center gap-3">
+            {/* Mobile Menu Button */}
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className={`p-2 rounded-xl border md:hidden transition-colors cursor-pointer ${
+                isDark ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <Menu className="w-4 h-4" />
+            </button>
+
+            <div>
+              <h2 className="text-sm sm:text-base font-bold tracking-tight">
+                {activeTab === 'overview' && 'Console Overview'}
+                {activeTab === 'apps' && 'OAuth 2.0 Client Registry'}
+                {activeTab === 'create' && (editingAppId ? 'Update Client Configuration' : 'Register Application')}
+                {activeTab === 'playground' && 'Interactive OAuth 2.0 Sandbox'}
+                {activeTab === 'button' && 'Single Sign-On (SSO) Button Kit'}
+                {activeTab === 'docs' && 'SDKs & API Reference'}
+                {activeTab === 'activity' && 'Security & Audit Logs'}
+              </h2>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">
+                {activeTab === 'overview' && 'System status, identity protocol metrics, and OAuth endpoints.'}
+                {activeTab === 'apps' && 'Manage your registered client applications, credentials, and callback URIs.'}
+                {activeTab === 'create' && 'Configure application details, allowed redirect URIs, and scopes.'}
+                {activeTab === 'playground' && 'Test live authorization code generation, token exchange, and claims.'}
+                {activeTab === 'button' && 'Generate copy-ready "Continue with Zenoa" button components.'}
+                {activeTab === 'docs' && 'Production integration examples for React, Node, Python, and cURL.'}
+                {activeTab === 'activity' && 'Live event stream of authorization grants and token authentications.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
               className={`p-2 rounded-xl border transition-colors cursor-pointer ${
@@ -582,493 +801,462 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
               {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
             </button>
 
-            {currentUser && (
-              <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium ${
-                isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
-              }`}>
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span className="text-slate-400">Owner:</span>
-                <span className="font-bold">@{currentUser.username}</span>
-              </div>
+            {/* Quick Register CTA */}
+            {activeTab !== 'create' && (
+              <button
+                onClick={() => {
+                  resetForm();
+                  setActiveTab('create');
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Register Client</span>
+                <span className="sm:hidden">New</span>
+              </button>
             )}
-
-            <button
-              onClick={() => {
-                resetForm();
-                setActiveTab('create');
-              }}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Register App</span>
-            </button>
           </div>
-        </div>
+        </header>
 
-        {/* Tab Navigation Menu */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex gap-1 overflow-x-auto no-scrollbar border-t border-slate-100 dark:border-slate-800/60">
-          {[
-            { id: 'overview', label: 'Console Overview', icon: LayoutDashboard },
-            { id: 'apps', label: `Client Registry (${apps.length})`, icon: Layers },
-            { id: 'create', label: editingAppId ? 'Edit Configuration' : 'Client Setup', icon: Sliders },
-            { id: 'playground', label: 'OAuth Sandbox', icon: Play },
-            { id: 'button', label: 'SSO Button Kit', icon: Sparkles },
-            { id: 'docs', label: 'SDK Snippets', icon: Code2 },
-            { id: 'activity', label: 'Security & Audits', icon: Activity }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => {
-                if (tab.id === 'create' && activeTab !== 'create') resetForm();
-                setActiveTab(tab.id as TabType);
-              }}
-              className={`flex items-center gap-2 py-3 px-3.5 text-xs font-bold border-b-2 transition-all whitespace-nowrap cursor-pointer ${
-                activeTab === tab.id
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
-              }`}
-            >
-              <tab.icon className="w-3.5 h-3.5" />
-              <span>{tab.label}</span>
-            </button>
-          ))}
-        </div>
-      </header>
+        {/* Scrollable Main Content Container */}
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 custom-scrollbar">
+          <div className="max-w-6xl mx-auto space-y-6">
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
-        
-        {/* ========================================================================= */}
-        {/* TAB 1: CONSOLE OVERVIEW                                                  */}
-        {/* ========================================================================= */}
-        {activeTab === 'overview' && (
-          <div className="space-y-6 animate-fade-in">
-            {/* Top Metric Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className={`p-4 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Registered Clients</span>
-                  <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
-                    <Key className="w-4 h-4" />
-                  </div>
-                </div>
-                <div className="mt-2 flex items-baseline gap-2">
-                  <span className="text-2xl font-bold tracking-tight">{apps.length}</span>
-                  <span className="text-[11px] font-bold text-emerald-500">Live</span>
-                </div>
-              </div>
-
-              <div className={`p-4 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Authorized Callback URIs</span>
-                  <div className="p-2 rounded-xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400">
-                    <Link2 className="w-4 h-4" />
-                  </div>
-                </div>
-                <div className="mt-2 flex items-baseline gap-2">
-                  <span className="text-2xl font-bold tracking-tight">
-                    {apps.reduce((acc, a) => acc + (a.redirect_uris?.length || 0), 0)}
-                  </span>
-                  <span className="text-[11px] font-bold text-slate-400">Whitelisted</span>
-                </div>
-              </div>
-
-              <div className={`p-4 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Identity Protocol</span>
-                  <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
-                    <ShieldCheck className="w-4 h-4" />
-                  </div>
-                </div>
-                <div className="mt-2 flex items-baseline gap-2">
-                  <span className="text-sm font-bold tracking-tight text-emerald-600 dark:text-emerald-400">OAuth 2.0 / OIDC</span>
-                </div>
-              </div>
-
-              <div className={`p-4 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Token Verification</span>
-                  <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
-                    <Fingerprint className="w-4 h-4" />
-                  </div>
-                </div>
-                <div className="mt-2 flex items-baseline gap-2">
-                  <span className="text-xs font-mono font-bold">HMAC-SHA256 / JWT</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Actions & System Info Banner */}
-            <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <h3 className="font-bold text-base tracking-tight">Single Sign-On Architecture</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-2xl leading-relaxed">
-                    Allow users to securely authenticate using their {branding.app_name || 'Zenoa'} accounts. Identity tokens, user profiles, and authorization codes are issued using strict OAuth 2.0 and OpenID Connect specifications.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setActiveTab('playground')}
-                    className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <Play className="w-3.5 h-3.5" />
-                    <span>Open Sandbox</span>
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('button')}
-                    className={`px-3.5 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                      isDark ? 'border-slate-700 hover:bg-slate-800 text-slate-200' : 'border-slate-300 hover:bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Button Generator</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Endpoints Reference */}
-            <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'} space-y-4`}>
-              <h3 className="font-bold text-sm uppercase tracking-wider text-slate-500 flex items-center gap-2">
-                <Server className="w-4 h-4 text-indigo-500" />
-                <span>Standard OIDC Endpoints</span>
-              </h3>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1">
-                    <span>Authorization Endpoint</span>
-                    <span className="text-[10px] text-indigo-500 font-mono">GET</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <code className="text-xs font-mono font-bold truncate">/auth/sso</code>
-                    <button
-                      onClick={() => handleCopy(`${window.location.origin}/auth/sso`, 'auth_ep', 'Authorization endpoint copied')}
-                      className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                    >
-                      {copiedKey === 'auth_ep' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1">
-                    <span>Token Exchange Endpoint</span>
-                    <span className="text-[10px] text-emerald-500 font-mono">POST</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <code className="text-xs font-mono font-bold truncate">/api/oauth/token</code>
-                    <button
-                      onClick={() => handleCopy(`${window.location.origin}/api/oauth/token`, 'token_ep', 'Token endpoint copied')}
-                      className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                    >
-                      {copiedKey === 'token_ep' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1">
-                    <span>UserInfo Endpoint</span>
-                    <span className="text-[10px] text-sky-500 font-mono">GET</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <code className="text-xs font-mono font-bold truncate">/api/oauth/userinfo</code>
-                    <button
-                      onClick={() => handleCopy(`${window.location.origin}/api/oauth/userinfo`, 'user_ep', 'UserInfo endpoint copied')}
-                      className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                    >
-                      {copiedKey === 'user_ep' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================================= */}
-        {/* TAB 2: CLIENT REGISTRY                                                   */}
-        {/* ========================================================================= */}
-        {activeTab === 'apps' && (
-          <div className="space-y-4 animate-fade-in">
-            {/* Search & Actions Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="relative flex-1 max-w-md">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Filter by application name or Client ID..."
-                  className={`w-full px-3.5 py-2 pl-9 text-xs rounded-xl border outline-none font-medium transition-all ${
-                    isDark
-                      ? 'bg-[#111726] border-slate-800 focus:border-indigo-500 text-white'
-                      : 'bg-white border-slate-200 focus:border-indigo-500 text-slate-900'
-                  }`}
-                />
-                <Globe className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={fetchApps}
-                  className={`p-2 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-                    isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
-                  }`}
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                  <span>Sync</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Application List */}
-            {isLoading ? (
-              <div className="py-20 flex flex-col items-center justify-center gap-2 text-slate-400">
-                <RefreshCw className="w-6 h-6 animate-spin text-indigo-500" />
-                <p className="text-xs font-medium">Loading client registry...</p>
-              </div>
-            ) : filteredApps.length === 0 ? (
-              <div className={`p-10 rounded-2xl border text-center flex flex-col items-center justify-center gap-2.5 ${
-                isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200'
-              }`}>
-                <Key className="w-10 h-10 text-slate-400 stroke-1" />
-                <h3 className="font-bold text-sm">No Client Applications Found</h3>
-                <p className="text-xs text-slate-500 max-w-sm">
-                  Register your first OAuth 2.0 client to start using "Continue with {branding.app_name || 'Zenoa'}" authentication.
-                </p>
-                <button
-                  onClick={() => { resetForm(); setActiveTab('create'); }}
-                  className="mt-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl cursor-pointer"
-                >
-                  Register New Client
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {filteredApps.map(app => {
-                  const isOfficial = app.id === 'sso_official_default';
-                  const isSecretVisible = revealedSecrets[app.id] || false;
-
-                  return (
-                    <div
-                      key={app.id}
-                      className={`p-5 rounded-2xl border transition-all ${
-                        isDark
-                          ? 'bg-[#111726] border-slate-800 hover:border-slate-700'
-                          : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-xs'
-                      }`}
-                    >
-                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
-                        <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-indigo-500 font-bold text-sm overflow-hidden shrink-0">
-                            {app.logo_url ? (
-                              <img src={app.logo_url} alt={app.app_name} className="h-full w-full object-cover" />
-                            ) : (
-                              <span>{app.app_name.charAt(0).toUpperCase()}</span>
-                            )}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="font-bold text-sm sm:text-base tracking-tight">{app.app_name}</h3>
-                              {isOfficial && (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60">
-                                  Official Client
-                                </span>
-                              )}
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
-                                app.environment === 'sandbox'
-                                  ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800/40'
-                                  : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40'
-                              }`}>
-                                {app.environment || 'Production'}
-                              </span>
-                            </div>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1">
-                              {app.app_description || 'OAuth 2.0 Single Sign-On Identity Client'}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Quick Actions */}
-                        <div className="flex items-center gap-1.5 self-start lg:self-center flex-wrap">
-                          <button
-                            onClick={() => {
-                              if (onOpenConsentPreview) {
-                                onOpenConsentPreview(app.client_id, app.redirect_uris[0] || window.location.origin);
-                              } else {
-                                window.open(`/auth/sso?client_id=${app.client_id}&redirect_uri=${encodeURIComponent(app.redirect_uris[0] || window.location.origin)}`, '_blank');
-                              }
-                            }}
-                            className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                              isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
-                            }`}
-                            title="Preview User Consent Screen"
-                          >
-                            <Eye className="w-3.5 h-3.5 text-indigo-500" />
-                            <span>Consent Preview</span>
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setSelectedTesterAppId(app.id);
-                              setTestRedirectUri(app.redirect_uris[0] || '');
-                              setActiveTab('playground');
-                            }}
-                            className="px-2.5 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                            title="Test in OAuth Sandbox"
-                          >
-                            <Play className="w-3.5 h-3.5" />
-                            <span>Test Sandbox</span>
-                          </button>
-
-                          <button
-                            onClick={() => startEditApp(app)}
-                            className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
-                            title="Edit Configuration"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-
-                          {!isOfficial && (
-                            <button
-                              onClick={() => setDeleteConfirmApp(app)}
-                              className="p-2 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/50 text-rose-500 transition-colors cursor-pointer"
-                              title="Delete Client"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Credentials Grid */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-4">
-                        {/* Client ID */}
-                        <div className={`p-3 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                          <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1">
-                            <span>Client ID (Public)</span>
-                            <span className="text-[10px] text-emerald-500 font-mono">Public</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <code className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 truncate">
-                              {app.client_id}
-                            </code>
-                            <button
-                              onClick={() => handleCopy(app.client_id, `cid_${app.id}`, 'Client ID copied')}
-                              className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-                              title="Copy Client ID"
-                            >
-                              {copiedKey === `cid_${app.id}` ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Client Secret */}
-                        <div className={`p-3 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                          <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1">
-                            <span className="text-rose-500">Client Secret (Confidential)</span>
-                            <button
-                              onClick={() => setSecretRotateModalApp(app)}
-                              className="text-[10px] text-indigo-500 hover:underline cursor-pointer"
-                            >
-                              Rotate Secret
-                            </button>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <code className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 truncate">
-                              {isSecretVisible ? app.client_secret : '••••••••••••••••••••••••••••••••'}
-                            </code>
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => setRevealedSecrets(prev => ({ ...prev, [app.id]: !prev[app.id] }))}
-                                className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-                                title={isSecretVisible ? "Hide Secret" : "Reveal Secret"}
-                              >
-                                {isSecretVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                              </button>
-                              <button
-                                onClick={() => handleCopy(app.client_secret, `sec_${app.id}`, 'Client Secret copied')}
-                                className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-                                title="Copy Secret"
-                              >
-                                {copiedKey === `sec_${app.id}` ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Callback URIs & Scopes Summary */}
-                      <div className="mt-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-[11px] font-bold text-slate-400">Allowed URIs:</span>
-                          {app.redirect_uris?.slice(0, 2).map((uri, idx) => (
-                            <span key={idx} className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono text-[10px] truncate max-w-[200px]">
-                              {uri}
-                            </span>
-                          ))}
-                          {app.redirect_uris?.length > 2 && (
-                            <span className="text-[10px] text-slate-400 font-semibold">
-                              +{app.redirect_uris.length - 2} more
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-[11px] font-bold text-slate-400">Scopes:</span>
-                          {app.scopes?.map((sc, idx) => (
-                            <span key={idx} className="px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold">
-                              {sc}
-                            </span>
-                          ))}
-                        </div>
+            {/* ========================================================================= */}
+            {/* TAB 1: CONSOLE OVERVIEW                                                  */}
+            {/* ========================================================================= */}
+            {activeTab === 'overview' && (
+              <div className="space-y-6 animate-fade-in">
+                {/* Metric Summary Widgets */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Registered Clients</span>
+                      <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+                        <Key className="w-4 h-4" />
                       </div>
                     </div>
-                  );
-                })}
+                    <div className="mt-2 flex items-baseline gap-2">
+                      <span className="text-2xl font-bold tracking-tight">{apps.length}</span>
+                      <span className="text-[11px] font-bold text-emerald-500">Live</span>
+                    </div>
+                  </div>
+
+                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Authorized URIs</span>
+                      <div className="p-2 rounded-xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400">
+                        <Link2 className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-2">
+                      <span className="text-2xl font-bold tracking-tight">
+                        {apps.reduce((acc, a) => acc + (a.redirect_uris?.length || 0), 0)}
+                      </span>
+                      <span className="text-[11px] font-bold text-slate-400">Whitelisted</span>
+                    </div>
+                  </div>
+
+                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Identity Protocol</span>
+                      <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                        <ShieldCheck className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-2">
+                      <span className="text-sm font-bold tracking-tight text-emerald-600 dark:text-emerald-400">OAuth 2.0 / OIDC</span>
+                    </div>
+                  </div>
+
+                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Token Verification</span>
+                      <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+                        <Fingerprint className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-2">
+                      <span className="text-xs font-mono font-bold">HMAC-SHA256</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Banner Card */}
+                <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60">
+                          Single Sign-On Engine
+                        </span>
+                        <span className="text-xs font-semibold text-slate-400">&bull; Production Ready</span>
+                      </div>
+                      <h3 className="font-bold text-base sm:text-lg tracking-tight">
+                        Integrate "Continue with {branding.app_name || 'Zenoa'}" Identity
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 max-w-2xl leading-relaxed">
+                        Allow your web and mobile applications to authenticate users securely. Issue identity tokens, verify user claims, and manage callback redirects with standard OAuth 2.0 and OpenID Connect flows.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => setActiveTab('playground')}
+                        className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <Play className="w-3.5 h-3.5" />
+                        <span>Open Sandbox</span>
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('button')}
+                        className={`px-3.5 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                          isDark ? 'border-slate-700 hover:bg-slate-800 text-slate-200' : 'border-slate-300 hover:bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Button Kit</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Standard OIDC Endpoints Reference */}
+                <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'} space-y-4`}>
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-sm uppercase tracking-wider text-slate-500 flex items-center gap-2">
+                      <Server className="w-4 h-4 text-indigo-500" />
+                      <span>Standard OAuth 2.0 & OIDC Endpoints</span>
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1">
+                        <span>Authorization Endpoint</span>
+                        <span className="text-[10px] text-indigo-500 font-mono">GET</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <code className="text-xs font-mono font-bold truncate">/auth/sso</code>
+                        <button
+                          onClick={() => handleCopy(`${window.location.origin}/auth/sso`, 'auth_ep', 'Authorization endpoint copied')}
+                          className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                        >
+                          {copiedKey === 'auth_ep' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1">
+                        <span>Token Exchange Endpoint</span>
+                        <span className="text-[10px] text-emerald-500 font-mono">POST</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <code className="text-xs font-mono font-bold truncate">/api/oauth/token</code>
+                        <button
+                          onClick={() => handleCopy(`${window.location.origin}/api/oauth/token`, 'token_ep', 'Token endpoint copied')}
+                          className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                        >
+                          {copiedKey === 'token_ep' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1">
+                        <span>UserInfo Endpoint</span>
+                        <span className="text-[10px] text-sky-500 font-mono">GET</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <code className="text-xs font-mono font-bold truncate">/api/oauth/userinfo</code>
+                        <button
+                          onClick={() => handleCopy(`${window.location.origin}/api/oauth/userinfo`, 'user_ep', 'UserInfo endpoint copied')}
+                          className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                        >
+                          {copiedKey === 'user_ep' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
-          </div>
-        )}
 
-        {/* ========================================================================= */}
-        {/* TAB 3: CLIENT CONFIGURATION & REGISTRATION FORM                          */}
-        {/* ========================================================================= */}
-        {activeTab === 'create' && (
-          <div className="max-w-4xl mx-auto animate-fade-in">
-            <div className={`p-6 sm:p-8 rounded-2xl border ${
-              isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
-            }`}>
-              <div className="flex items-center justify-between pb-6 border-b border-slate-100 dark:border-slate-800">
-                <div>
-                  <h2 className="text-lg font-bold tracking-tight">
-                    {editingAppId ? 'Update Client Application' : 'Register New OAuth 2.0 Client'}
-                  </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Configure authorized redirect URIs, OAuth scopes, and client identity metadata.
-                  </p>
+            {/* ========================================================================= */}
+            {/* TAB 2: CLIENT REGISTRY                                                   */}
+            {/* ========================================================================= */}
+            {activeTab === 'apps' && (
+              <div className="space-y-4 animate-fade-in">
+                {/* Search & Actions Bar */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="relative flex-1 max-w-md">
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      placeholder="Filter by application name or Client ID..."
+                      className={`w-full px-3.5 py-2 pl-9 text-xs rounded-xl border outline-none font-medium transition-all ${
+                        isDark
+                          ? 'bg-[#111726] border-slate-800 focus:border-indigo-500 text-white'
+                          : 'bg-white border-slate-200 focus:border-indigo-500 text-slate-900'
+                      }`}
+                    />
+                    <Globe className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={fetchApps}
+                      className={`p-2 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                        isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                      <span>Sync Registry</span>
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => { resetForm(); setActiveTab('apps'); }}
-                  className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+
+                {/* Application Cards List */}
+                {isLoading ? (
+                  <div className="py-20 flex flex-col items-center justify-center gap-2 text-slate-400">
+                    <RefreshCw className="w-6 h-6 animate-spin text-indigo-500" />
+                    <p className="text-xs font-medium">Loading client registry...</p>
+                  </div>
+                ) : filteredApps.length === 0 ? (
+                  <div className={`p-10 rounded-2xl border text-center flex flex-col items-center justify-center gap-2.5 ${
+                    isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200'
+                  }`}>
+                    <Key className="w-10 h-10 text-slate-400 stroke-1" />
+                    <h3 className="font-bold text-sm">No Client Applications Found</h3>
+                    <p className="text-xs text-slate-500 max-w-sm">
+                      Register your first OAuth 2.0 client to start using "Continue with {branding.app_name || 'Zenoa'}" authentication.
+                    </p>
+                    <button
+                      onClick={() => { resetForm(); setActiveTab('create'); }}
+                      className="mt-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl cursor-pointer"
+                    >
+                      Register New Client
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {filteredApps.map(app => {
+                      const isOfficial = app.id === 'sso_official_default';
+                      const isSecretVisible = revealedSecrets[app.id] || false;
+
+                      return (
+                        <div
+                          key={app.id}
+                          className={`p-5 rounded-2xl border transition-all ${
+                            isDark
+                              ? 'bg-[#111726] border-slate-800 hover:border-slate-700'
+                              : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-xs'
+                          }`}
+                        >
+                          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+                            <div className="flex items-start gap-3.5 min-w-0">
+                              <div className="w-11 h-11 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-base overflow-hidden shrink-0 shadow-xs">
+                                {app.logo_url ? (
+                                  <img src={app.logo_url} alt={app.app_name} className="h-full w-full object-contain p-1" />
+                                ) : (
+                                  <span>{app.app_name.charAt(0).toUpperCase()}</span>
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h3 className="font-bold text-sm sm:text-base tracking-tight truncate">{app.app_name}</h3>
+                                  {isOfficial && (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60">
+                                      Official System Client
+                                    </span>
+                                  )}
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                                    app.environment === 'sandbox'
+                                      ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800/40'
+                                      : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40'
+                                  }`}>
+                                    {app.environment || 'Production'}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed line-clamp-2">
+                                  {app.app_description || 'OAuth 2.0 Single Sign-On Identity Client'}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Quick Actions */}
+                            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                              <button
+                                onClick={() => {
+                                  if (onOpenConsentPreview) {
+                                    onOpenConsentPreview(app.client_id, app.redirect_uris[0] || window.location.origin);
+                                  } else {
+                                    window.open(`/auth/sso?client_id=${app.client_id}&redirect_uri=${encodeURIComponent(app.redirect_uris[0] || window.location.origin)}`, '_blank');
+                                  }
+                                }}
+                                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                                  isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
+                                }`}
+                                title="Preview User Consent Screen"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-indigo-500" />
+                                <span>Consent Preview</span>
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  setSelectedTesterAppId(app.id);
+                                  setTestRedirectUri(app.redirect_uris[0] || '');
+                                  setActiveTab('playground');
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                                title="Test in OAuth Sandbox"
+                              >
+                                <Play className="w-3.5 h-3.5" />
+                                <span>Test in Sandbox</span>
+                              </button>
+
+                              <button
+                                onClick={() => startEditApp(app)}
+                                className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+                                title="Edit Configuration"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+
+                              {!isOfficial && (
+                                <button
+                                  onClick={() => setDeleteConfirmApp(app)}
+                                  className="p-2 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/50 text-rose-500 transition-colors cursor-pointer"
+                                  title="Delete Client"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Credentials Matrix */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-4">
+                            {/* Client ID */}
+                            <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                              <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1.5">
+                                <span>Client ID (Public Identifier)</span>
+                                <span className="text-[10px] text-emerald-500 font-mono">Public</span>
+                              </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <code className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 truncate">
+                                  {app.client_id}
+                                </code>
+                                <button
+                                  onClick={() => handleCopy(app.client_id, `cid_${app.id}`, 'Client ID copied')}
+                                  className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer shrink-0"
+                                  title="Copy Client ID"
+                                >
+                                  {copiedKey === `cid_${app.id}` ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Client Secret */}
+                            <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                              <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1.5">
+                                <span className="text-rose-500">Client Secret (HMAC-SHA256)</span>
+                                <button
+                                  onClick={() => setSecretRotateModalApp(app)}
+                                  className="text-[10px] text-indigo-500 hover:underline cursor-pointer"
+                                >
+                                  Rotate Secret
+                                </button>
+                              </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <code className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 truncate">
+                                  {isSecretVisible ? app.client_secret : '••••••••••••••••••••••••••••••••'}
+                                </code>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    onClick={() => setRevealedSecrets(prev => ({ ...prev, [app.id]: !prev[app.id] }))}
+                                    className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                                    title={isSecretVisible ? "Hide Secret" : "Reveal Secret"}
+                                  >
+                                    {isSecretVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                  </button>
+                                  <button
+                                    onClick={() => handleCopy(app.client_secret, `sec_${app.id}`, 'Client Secret copied')}
+                                    className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                                    title="Copy Secret"
+                                  >
+                                    {copiedKey === `sec_${app.id}` ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Callback URIs & Scopes Summary */}
+                          <div className="mt-4 pt-3.5 border-t border-slate-100 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[11px] font-bold text-slate-400">Redirect URIs ({app.redirect_uris?.length || 0}):</span>
+                              {app.redirect_uris?.slice(0, 2).map((uri, i) => (
+                                <span key={i} className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-mono text-[11px] text-slate-600 dark:text-slate-300 truncate max-w-xs">
+                                  {uri}
+                                </span>
+                              ))}
+                              {(app.redirect_uris?.length || 0) > 2 && (
+                                <span className="text-[10px] text-slate-400 font-bold">
+                                  +{app.redirect_uris.length - 2} more
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[11px] font-bold text-slate-400">Scopes:</span>
+                              {(app.scopes || ['openid', 'profile']).map(s => (
+                                <span key={s} className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/40">
+                                  {s}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
+            )}
 
-              <form onSubmit={handleSubmitApp} className="mt-6 space-y-6">
-                {/* 1. App Identity Section */}
-                <div className="space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-500 flex items-center gap-1.5">
-                    <Sliders className="w-3.5 h-3.5" />
-                    <span>Client Identity & Metadata</span>
-                  </h3>
+            {/* ========================================================================= */}
+            {/* TAB 3: APP REGISTRATION & CONFIGURATION FORM                             */}
+            {/* ========================================================================= */}
+            {activeTab === 'create' && (
+              <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'} animate-fade-in`}>
+                <div className="flex items-center justify-between pb-5 border-b border-slate-100 dark:border-slate-800 mb-6">
+                  <div>
+                    <h3 className="font-bold text-base sm:text-lg tracking-tight">
+                      {editingAppId ? 'Edit OAuth 2.0 Configuration' : 'Register New Application'}
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Configure application metadata, authorized callback URIs, and granted OpenID scopes.
+                    </p>
+                  </div>
+                  {editingAppId && (
+                    <button
+                      onClick={() => { resetForm(); setActiveTab('apps'); }}
+                      className="text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold mb-1.5">
+                <form onSubmit={handleSubmitApp} className="space-y-6">
+                  {/* Basic Details Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                         Application Name <span className="text-rose-500">*</span>
                       </label>
                       <input
@@ -1076,8 +1264,8 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                         required
                         value={appName}
                         onChange={e => setAppName(e.target.value)}
-                        placeholder="e.g. Acme Portal, Cloud Studio"
-                        className={`w-full px-3.5 py-2 text-xs rounded-xl border outline-none font-medium ${
+                        placeholder="e.g. Acme Cloud Dashboard"
+                        className={`w-full px-3.5 py-2.5 text-xs rounded-xl border outline-none font-medium transition-all ${
                           isDark
                             ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white'
                             : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900'
@@ -1085,9 +1273,9 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                       />
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-bold mb-1.5">
-                        Target Environment
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Environment Mode
                       </label>
                       <div className="grid grid-cols-2 gap-2">
                         <button
@@ -1095,37 +1283,37 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                           onClick={() => setEnvironment('production')}
                           className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
                             environment === 'production'
-                              ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
-                              : 'border-slate-200 dark:border-slate-800 text-slate-500'
+                              ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
+                              : isDark ? 'border-slate-800 bg-slate-900 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600'
                           }`}
                         >
-                          Production
+                          Production (Live)
                         </button>
                         <button
                           type="button"
                           onClick={() => setEnvironment('sandbox')}
                           className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
                             environment === 'sandbox'
-                              ? 'bg-amber-500/10 border-amber-500/40 text-amber-600 dark:text-amber-400'
-                              : 'border-slate-200 dark:border-slate-800 text-slate-500'
+                              ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400'
+                              : isDark ? 'border-slate-800 bg-slate-900 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600'
                           }`}
                         >
-                          Sandbox / Dev
+                          Sandbox (Testing)
                         </button>
                       </div>
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold mb-1.5">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                       Application Description
                     </label>
                     <textarea
                       rows={2}
                       value={appDescription}
                       onChange={e => setAppDescription(e.target.value)}
-                      placeholder="Brief description shown to users on the OAuth consent authorization dialog..."
-                      className={`w-full px-3.5 py-2 text-xs rounded-xl border outline-none font-medium resize-none ${
+                      placeholder="Briefly explain what your app does to users on the consent screen..."
+                      className={`w-full px-3.5 py-2 text-xs rounded-xl border outline-none font-medium transition-all ${
                         isDark
                           ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white'
                           : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900'
@@ -1133,34 +1321,34 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold mb-1.5">
-                        Website / Homepage URL
-                      </label>
-                      <input
-                        type="url"
-                        value={websiteUrl}
-                        onChange={e => setWebsiteUrl(e.target.value)}
-                        placeholder="https://example.com"
-                        className={`w-full px-3.5 py-2 text-xs rounded-xl border outline-none font-medium ${
-                          isDark
-                            ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white'
-                            : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900'
-                        }`}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold mb-1.5">
-                        Logo Image URL (Optional)
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Application Logo URL (Optional)
                       </label>
                       <input
                         type="url"
                         value={logoUrl}
                         onChange={e => setLogoUrl(e.target.value)}
                         placeholder="https://example.com/logo.png"
-                        className={`w-full px-3.5 py-2 text-xs rounded-xl border outline-none font-medium ${
+                        className={`w-full px-3.5 py-2 text-xs rounded-xl border outline-none font-medium transition-all ${
+                          isDark
+                            ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white'
+                            : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900'
+                        }`}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Homepage Website URL (Optional)
+                      </label>
+                      <input
+                        type="url"
+                        value={websiteUrl}
+                        onChange={e => setWebsiteUrl(e.target.value)}
+                        placeholder="https://example.com"
+                        className={`w-full px-3.5 py-2 text-xs rounded-xl border outline-none font-medium transition-all ${
                           isDark
                             ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white'
                             : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900'
@@ -1168,715 +1356,658 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                       />
                     </div>
                   </div>
-                </div>
 
-                {/* 2. Authorized Redirect URIs Section */}
-                <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-                  <div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-500 flex items-center gap-1.5">
-                      <Link2 className="w-3.5 h-3.5" />
-                      <span>Allowed Callback / Redirect URIs</span>
-                    </h3>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      Strict URI matching is enforced (protocol, domain, port, and path). Wildcard domains are disallowed for security.
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    {redirectUrisList.map((uri, index) => (
-                      <div
-                        key={index}
-                        className={`flex items-center justify-between px-3.5 py-2 rounded-xl border text-xs font-mono ${
-                          isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
-                        }`}
-                      >
-                        <span className="truncate">{uri}</span>
+                  {/* Authorized Redirect URIs Manager */}
+                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <Link2 className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Authorized Redirect URIs (Whitelisted Callbacks) <span className="text-rose-500">*</span></span>
+                      </label>
+                      <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => handleRemoveRedirectUri(index)}
-                          className="p-1 hover:text-rose-500 transition-colors ml-2 cursor-pointer"
-                          title="Remove URI"
+                          onClick={() => handleAddRedirectUri('http://localhost:3000/auth/callback')}
+                          className="text-[11px] text-indigo-500 hover:underline font-semibold cursor-pointer"
                         >
-                          <X className="w-3.5 h-3.5" />
+                          + Add Localhost:3000
                         </button>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={redirectUrisInput}
-                      onChange={e => setRedirectUrisInput(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleAddRedirectUri();
-                        }
-                      }}
-                      placeholder="https://yourapp.com/auth/callback"
-                      className={`flex-1 px-3.5 py-2 text-xs rounded-xl border outline-none font-mono ${
-                        isDark
-                          ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white'
-                          : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900'
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleAddRedirectUri()}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold cursor-pointer"
-                    >
-                      Add URI
-                    </button>
-                  </div>
-
-                  {/* Quick Preset Buttons */}
-                  <div className="flex items-center gap-2 flex-wrap text-[11px] text-slate-400">
-                    <span>Quick presets:</span>
-                    <button
-                      type="button"
-                      onClick={() => handleAddRedirectUri('http://localhost:3000/auth/callback')}
-                      className="hover:underline text-indigo-500 cursor-pointer"
-                    >
-                      + http://localhost:3000/auth/callback
-                    </button>
-                    <span>•</span>
-                    <button
-                      type="button"
-                      onClick={() => handleAddRedirectUri(window.location.origin + '/auth/callback')}
-                      className="hover:underline text-indigo-500 cursor-pointer"
-                    >
-                      + Current Origin ({window.location.origin})
-                    </button>
-                  </div>
-                </div>
-
-                {/* 3. Scopes Configuration */}
-                <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-                  <div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-500 flex items-center gap-1.5">
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>Permissions & Scopes</span>
-                    </h3>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      Specify which identity claims this client is permitted to request from the user.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {[
-                      { id: 'openid', name: 'OpenID Connect (Identity)', desc: 'Standard unique subject identifier (sub)', required: true },
-                      { id: 'profile', name: 'User Profile', desc: 'Display name, username, and avatar photo' },
-                      { id: 'email', name: 'Email Address', desc: 'User primary verified email address' },
-                      { id: 'phone', name: 'Phone Number', desc: 'Contact mobile number for verification' },
-                      { id: 'offline_access', name: 'Offline Access (Refresh Tokens)', desc: 'Allow long-lived background refresh tokens' }
-                    ].map(scope => {
-                      const isChecked = selectedScopes.includes(scope.id);
-                      return (
-                        <div
-                          key={scope.id}
-                          onClick={() => toggleScope(scope.id)}
-                          className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-all ${
-                            isChecked
-                              ? 'border-indigo-500 bg-indigo-50/20 dark:bg-indigo-950/20'
-                              : isDark ? 'border-slate-800 bg-slate-900/30' : 'border-slate-200 bg-slate-50/40'
-                          }`}
-                        >
-                          <div className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center border ${
-                            isChecked
-                              ? 'bg-indigo-600 border-indigo-600 text-white'
-                              : 'border-slate-300 dark:border-slate-700'
-                          }`}>
-                            {isChecked && <Check className="w-3 h-3" />}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold font-mono">{scope.id}</span>
-                              {scope.required && (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 font-bold">Required</span>
-                              )}
-                            </div>
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-tight">
-                              {scope.desc}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Form Buttons */}
-                <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => { resetForm(); setActiveTab('apps'); }}
-                    className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
-                      isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
-                    }`}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold shadow-xs flex items-center gap-2 cursor-pointer"
-                  >
-                    {isSubmitting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                    <span>{editingAppId ? 'Save Configuration' : 'Create Client'}</span>
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================================= */}
-        {/* TAB 4: INTERACTIVE OAUTH 2.0 SANDBOX                                     */}
-        {/* ========================================================================= */}
-        {activeTab === 'playground' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className={`p-6 rounded-2xl border ${
-              isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
-            }`}>
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
-                <div>
-                  <h2 className="text-base font-bold tracking-tight">OAuth 2.0 Live Protocol Sandbox</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Step-by-step interactive simulator for authorization codes, token exchange, and UserInfo API verification.
-                  </p>
-                </div>
-
-                {/* App Selector */}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400 font-semibold">Test Client:</span>
-                  <select
-                    value={selectedTesterAppId}
-                    onChange={e => {
-                      setSelectedTesterAppId(e.target.value);
-                      const target = apps.find(a => a.id === e.target.value);
-                      if (target) setTestRedirectUri(target.redirect_uris[0] || '');
-                      setPlaygroundStep('idle');
-                      setPlaygroundAuthCode('');
-                      setPlaygroundAccessToken('');
-                      setPlaygroundUserResult(null);
-                    }}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-xl border outline-none ${
-                      isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
-                    }`}
-                  >
-                    {apps.map(a => (
-                      <option key={a.id} value={a.id}>{a.app_name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* 3 Steps Pipeline */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-                {/* Step 1: Authorization Code */}
-                <div className={`p-4 rounded-xl border transition-all ${
-                  playgroundStep === 'idle'
-                    ? 'border-indigo-500/50 bg-indigo-50/10 dark:bg-indigo-950/20'
-                    : 'border-emerald-500/40 bg-emerald-50/10 dark:bg-emerald-950/10'
-                }`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 1</span>
-                    {playgroundAuthCode ? (
-                      <span className="text-[10px] text-emerald-500 font-bold flex items-center gap-1">
-                        <CheckCircle className="w-3 h-3" /> Granted
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-indigo-500 font-bold">Ready</span>
-                    )}
-                  </div>
-                  <h4 className="font-bold text-xs">Request Auth Code</h4>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    User approves consent screen and receives temporary authorization code.
-                  </p>
-
-                  <button
-                    onClick={handlePlaygroundAuthorize}
-                    disabled={isTesterRunning}
-                    className="mt-3 w-full py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                  >
-                    {isTesterRunning && playgroundStep === 'idle' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                    <span>1. Authorize User</span>
-                  </button>
-
-                  {playgroundAuthCode && (
-                    <div className="mt-2.5 p-2 rounded-lg bg-slate-900 text-emerald-400 font-mono text-[10px] truncate">
-                      code={playgroundAuthCode}
-                    </div>
-                  )}
-                </div>
-
-                {/* Step 2: Token Exchange */}
-                <div className={`p-4 rounded-xl border transition-all ${
-                  playgroundStep === 'authorized'
-                    ? 'border-indigo-500/50 bg-indigo-50/10 dark:bg-indigo-950/20'
-                    : playgroundStep === 'token_exchanged' || playgroundStep === 'userinfo_fetched'
-                    ? 'border-emerald-500/40 bg-emerald-50/10 dark:bg-emerald-950/10'
-                    : 'border-slate-200 dark:border-slate-800 opacity-60'
-                }`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 2</span>
-                    {playgroundAccessToken ? (
-                      <span className="text-[10px] text-emerald-500 font-bold flex items-center gap-1">
-                        <CheckCircle className="w-3 h-3" /> Exchanged
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-slate-400 font-bold">Pending Step 1</span>
-                    )}
-                  </div>
-                  <h4 className="font-bold text-xs">Exchange for Access Token</h4>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Backend sends Client Secret & Code to receive Bearer Token.
-                  </p>
-
-                  <button
-                    onClick={handlePlaygroundExchangeToken}
-                    disabled={isTesterRunning || !playgroundAuthCode}
-                    className="mt-3 w-full py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                  >
-                    {isTesterRunning && playgroundStep === 'authorized' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Key className="w-3.5 h-3.5" />}
-                    <span>2. Exchange Token</span>
-                  </button>
-
-                  {playgroundAccessToken && (
-                    <div className="mt-2.5 p-2 rounded-lg bg-slate-900 text-sky-400 font-mono text-[10px] truncate">
-                      at={playgroundAccessToken.substring(0, 18)}...
-                    </div>
-                  )}
-                </div>
-
-                {/* Step 3: Fetch User Claims */}
-                <div className={`p-4 rounded-xl border transition-all ${
-                  playgroundStep === 'token_exchanged'
-                    ? 'border-indigo-500/50 bg-indigo-50/10 dark:bg-indigo-950/20'
-                    : playgroundStep === 'userinfo_fetched'
-                    ? 'border-emerald-500/40 bg-emerald-50/10 dark:bg-emerald-950/10'
-                    : 'border-slate-200 dark:border-slate-800 opacity-60'
-                }`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 3</span>
-                    {playgroundUserResult ? (
-                      <span className="text-[10px] text-emerald-500 font-bold flex items-center gap-1">
-                        <CheckCircle className="w-3 h-3" /> Verified
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-slate-400 font-bold">Pending Step 2</span>
-                    )}
-                  </div>
-                  <h4 className="font-bold text-xs">Verify User Claims</h4>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Query <code>/api/oauth/userinfo</code> using Bearer token to get profile data.
-                  </p>
-
-                  <button
-                    onClick={handlePlaygroundFetchUserInfo}
-                    disabled={isTesterRunning || !playgroundAccessToken}
-                    className="mt-3 w-full py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                  >
-                    {isTesterRunning && playgroundStep === 'token_exchanged' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />}
-                    <span>3. Query UserInfo</span>
-                  </button>
-
-                  {playgroundUserResult && (
-                    <div className="mt-2.5 p-2 rounded-lg bg-slate-900 text-emerald-400 font-mono text-[10px] truncate">
-                      ✓ @{playgroundUserResult.username} Verified
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Execution Console Terminal */}
-              <div className="mt-6">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                    <Terminal className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Real-time OAuth Console Stream</span>
-                  </span>
-                  {testerLog.length > 0 && (
-                    <button
-                      onClick={() => setTesterLog([])}
-                      className="text-[10px] text-slate-400 hover:underline cursor-pointer"
-                    >
-                      Clear Log
-                    </button>
-                  )}
-                </div>
-                <div className="p-4 rounded-xl bg-slate-950 text-slate-200 font-mono text-xs overflow-x-auto max-h-64 space-y-1">
-                  {testerLog.length === 0 ? (
-                    <span className="text-slate-500 italic">// Click "1. Authorize User" above to begin OAuth handshake simulation</span>
-                  ) : (
-                    testerLog.map((log, i) => (
-                      <div key={i} className={log.startsWith('✓') ? 'text-emerald-400 font-bold' : log.startsWith('[') ? 'text-indigo-400' : 'text-slate-300'}>
-                        {log}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================================= */}
-        {/* TAB 5: SSO BUTTON KIT & CODE GENERATOR                                   */}
-        {/* ========================================================================= */}
-        {activeTab === 'button' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className={`p-6 rounded-2xl border ${
-              isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
-            }`}>
-              <div className="pb-4 border-b border-slate-100 dark:border-slate-800">
-                <h2 className="text-base font-bold tracking-tight">"Continue with {branding.app_name || 'Zenoa'}" Button Generator</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Customize and embed the official sign-in button into your website, React app, or mobile client.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-                {/* Left: Customizer Controls */}
-                <div className="space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Button Customization</h3>
-                  
-                  <div>
-                    <label className="block text-xs font-semibold mb-1.5">Color Theme</label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {(['dark', 'light', 'indigo', 'outline'] as const).map(v => (
+                        <span className="text-slate-400">&bull;</span>
                         <button
-                          key={v}
                           type="button"
-                          onClick={() => setButtonConfig(prev => ({ ...prev, variant: v }))}
-                          className={`py-1.5 text-xs font-bold rounded-lg border capitalize cursor-pointer transition-all ${
-                            buttonConfig.variant === v
-                              ? 'bg-indigo-600 border-indigo-600 text-white'
-                              : isDark ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-700'
-                          }`}
+                          onClick={() => handleAddRedirectUri(window.location.origin + '/auth/callback')}
+                          className="text-[11px] text-indigo-500 hover:underline font-semibold cursor-pointer"
                         >
-                          {v}
+                          + Add Current Origin
                         </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold mb-1.5">Corner Radius</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        { id: 'rounded-xl', label: 'Rounded XL' },
-                        { id: 'rounded-lg', label: 'Rounded LG' },
-                        { id: 'rounded-full', label: 'Pill Shape' }
-                      ].map(s => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onClick={() => setButtonConfig(prev => ({ ...prev, shape: s.id as any }))}
-                          className={`py-1.5 text-xs font-bold rounded-lg border cursor-pointer transition-all ${
-                            buttonConfig.shape === s.id
-                              ? 'bg-indigo-600 border-indigo-600 text-white'
-                              : isDark ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-700'
-                          }`}
-                        >
-                          {s.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold mb-1.5">Button Label</label>
-                    <input
-                      type="text"
-                      value={buttonConfig.label}
-                      onChange={e => setButtonConfig(prev => ({ ...prev, label: e.target.value }))}
-                      className={`w-full px-3.5 py-2 text-xs rounded-xl border outline-none font-medium ${
-                        isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                {/* Right: Live Interactive Preview */}
-                <div className="space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Live Component Preview</h3>
-                  
-                  <div className={`p-8 rounded-2xl border flex flex-col items-center justify-center min-h-[160px] ${
-                    buttonConfig.variant === 'light'
-                      ? 'bg-slate-900 border-slate-800'
-                      : 'bg-slate-100 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800'
-                  }`}>
-                    <button
-                      className={`flex items-center gap-2.5 font-bold shadow-xs active:scale-95 transition-all cursor-pointer ${
-                        buttonConfig.shape
-                      } ${
-                        buttonConfig.size === 'sm' ? 'px-3 py-1.5 text-xs' : buttonConfig.size === 'lg' ? 'px-6 py-3 text-sm' : 'px-4 py-2.5 text-xs'
-                      } ${
-                        buttonConfig.variant === 'dark'
-                          ? 'bg-neutral-900 text-white hover:bg-neutral-800 border border-neutral-800'
-                          : buttonConfig.variant === 'light'
-                          ? 'bg-white text-neutral-900 hover:bg-slate-100 border border-slate-200'
-                          : buttonConfig.variant === 'indigo'
-                          ? 'bg-indigo-600 text-white hover:bg-indigo-700'
-                          : 'bg-transparent border border-slate-400 text-slate-800 dark:text-white hover:bg-slate-200/40'
-                      }`}
-                    >
-                      <div className="w-5 h-5 rounded-md bg-indigo-600 text-white flex items-center justify-center font-bold text-[10px]">
-                        {activeLogo ? <img src={activeLogo} alt="Logo" className="w-full h-full object-contain" /> : 'Z'}
                       </div>
-                      <span>{buttonConfig.label}</span>
-                    </button>
-                  </div>
+                    </div>
 
-                  {/* Ready Snippet */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-400">
-                      <span>HTML / React Snippet</span>
-                      <button
-                        onClick={() => {
-                          const htmlCode = `<button onClick={() => window.location.href = '${window.location.origin}/auth/sso?client_id=${activeSnippetApp.client_id}&redirect_uri=${encodeURIComponent(activeSnippetApp.redirect_uris[0] || '')}'} className="px-4 py-2.5 bg-neutral-900 text-white font-bold rounded-xl flex items-center gap-2">${buttonConfig.label}</button>`;
-                          handleCopy(htmlCode, 'btn_code', 'Button code copied');
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={redirectUrisInput}
+                        onChange={e => setRedirectUrisInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddRedirectUri();
+                          }
                         }}
-                        className="text-indigo-500 hover:underline flex items-center gap-1 cursor-pointer"
+                        placeholder="https://yourapp.com/auth/callback"
+                        className={`flex-1 px-3.5 py-2 text-xs rounded-xl border outline-none font-mono transition-all ${
+                          isDark
+                            ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white'
+                            : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleAddRedirectUri()}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl cursor-pointer"
                       >
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>Copy Code</span>
+                        Add URI
                       </button>
                     </div>
-                    <div className="p-3.5 rounded-xl bg-slate-950 text-slate-300 font-mono text-xs overflow-x-auto">
-                      <code>{`<a href="${window.location.origin}/auth/sso?client_id=${activeSnippetApp.client_id}&redirect_uri=${encodeURIComponent(activeSnippetApp.redirect_uris[0] || '')}">\n  ${buttonConfig.label}\n</a>`}</code>
+
+                    {/* URIs List */}
+                    <div className="space-y-1.5 mt-2">
+                      {redirectUrisList.map((uri, idx) => (
+                        <div
+                          key={idx}
+                          className={`flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-mono ${
+                            isDark ? 'bg-slate-900/60 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                            <span className="truncate">{uri}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRedirectUri(idx)}
+                            className="text-slate-400 hover:text-rose-500 transition-colors p-1 cursor-pointer shrink-0"
+                            title="Remove URI"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Scopes Selection Matrix */}
+                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Requested OpenID Connect Scopes
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {[
+                        { id: 'openid', name: 'openid (Mandatory)', desc: 'User Unique Subject ID (sub) and OIDC verification', required: true },
+                        { id: 'profile', name: 'profile', desc: 'Display name, username, avatar photo, bio and status' },
+                        { id: 'email', name: 'email', desc: 'Verified user email address and email verification flag' },
+                        { id: 'phone', name: 'phone', desc: 'Phone number and mobile verification status' },
+                        { id: 'offline_access', name: 'offline_access', desc: 'Issue refresh tokens for persistent background API access' }
+                      ].map(sc => {
+                        const isChecked = selectedScopes.includes(sc.id);
+                        return (
+                          <div
+                            key={sc.id}
+                            onClick={() => !sc.required && toggleScope(sc.id)}
+                            className={`p-3 rounded-xl border flex items-start gap-3 transition-all cursor-pointer ${
+                              isChecked
+                                ? isDark ? 'border-indigo-700 bg-indigo-950/30' : 'border-indigo-300 bg-indigo-50/50'
+                                : isDark ? 'border-slate-800 bg-slate-900/40 opacity-70' : 'border-slate-200 bg-slate-50/50 opacity-70'
+                            }`}
+                          >
+                            <div className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center border ${
+                              isChecked
+                                ? 'bg-indigo-600 border-indigo-600 text-white'
+                                : 'border-slate-400 bg-transparent'
+                            }`}>
+                              {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold font-mono">{sc.name}</p>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{sc.desc}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Submit Button */}
+                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => { resetForm(); setActiveTab('apps'); }}
+                      className={`px-4 py-2.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
+                        isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {isSubmitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                      <span>{editingAppId ? 'Save OAuth Configuration' : 'Register Application'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB 4: INTERACTIVE OAUTH 2.0 SANDBOX                                     */}
+            {/* ========================================================================= */}
+            {activeTab === 'playground' && (
+              <div className="space-y-6 animate-fade-in">
+                {/* Simulator Config Card */}
+                <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100 dark:border-slate-800">
+                    <div>
+                      <h3 className="font-bold text-base sm:text-lg tracking-tight">Interactive OAuth 2.0 Pipeline</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        Simulate the end-to-end Authorization Code Grant flow without writing a single line of backend code.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={selectedTesterAppId}
+                        onChange={e => {
+                          setSelectedTesterAppId(e.target.value);
+                          const app = apps.find(a => a.id === e.target.value);
+                          if (app && app.redirect_uris.length > 0) {
+                            setTestRedirectUri(app.redirect_uris[0]);
+                          }
+                          setPlaygroundStep('idle');
+                          setPlaygroundAuthCode('');
+                          setPlaygroundAccessToken('');
+                          setPlaygroundUserResult(null);
+                          setTesterLog([]);
+                        }}
+                        className={`px-3 py-1.5 text-xs rounded-xl border outline-none font-semibold ${
+                          isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                        }`}
+                      >
+                        {apps.map(a => (
+                          <option key={a.id} value={a.id}>{a.app_name} ({a.client_id})</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* 3 Step Interactive Workflow Pipeline */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-6">
+                    {/* Step 1: Authorization Code */}
+                    <div className={`p-4 rounded-2xl border transition-all ${
+                      playgroundStep === 'idle'
+                        ? isDark ? 'border-indigo-700 bg-indigo-950/20' : 'border-indigo-300 bg-indigo-50/40'
+                        : isDark ? 'border-emerald-800/60 bg-emerald-950/20' : 'border-emerald-200 bg-emerald-50/30'
+                    }`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 1</span>
+                        {playgroundAuthCode ? (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white">Code Issued</span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500 text-white">Authorize</span>
+                        )}
+                      </div>
+                      <h4 className="font-bold text-xs">POST /auth/sso</h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                        Requests user approval and generates a one-time cryptographic code.
+                      </p>
+                      <button
+                        onClick={handlePlaygroundAuthorize}
+                        disabled={isTesterRunning}
+                        className="mt-4 w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        <Play className="w-3.5 h-3.5" />
+                        <span>Issue Auth Code</span>
+                      </button>
+                    </div>
+
+                    {/* Step 2: Token Exchange */}
+                    <div className={`p-4 rounded-2xl border transition-all ${
+                      playgroundStep === 'authorized'
+                        ? isDark ? 'border-indigo-700 bg-indigo-950/20' : 'border-indigo-300 bg-indigo-50/40'
+                        : playgroundAccessToken
+                        ? isDark ? 'border-emerald-800/60 bg-emerald-950/20' : 'border-emerald-200 bg-emerald-50/30'
+                        : isDark ? 'border-slate-800 bg-slate-900/30 opacity-60' : 'border-slate-200 bg-slate-50 opacity-60'
+                    }`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 2</span>
+                        {playgroundAccessToken ? (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white">Token Exchanged</span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-500 text-white">Token API</span>
+                        )}
+                      </div>
+                      <h4 className="font-bold text-xs">POST /api/oauth/token</h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                        Exchange authorization code + Client Secret for Bearer Access Token.
+                      </p>
+                      <button
+                        onClick={handlePlaygroundExchangeToken}
+                        disabled={!playgroundAuthCode || isTesterRunning}
+                        className="mt-4 w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+                      >
+                        <Key className="w-3.5 h-3.5" />
+                        <span>Exchange Bearer Token</span>
+                      </button>
+                    </div>
+
+                    {/* Step 3: User Profile Claims */}
+                    <div className={`p-4 rounded-2xl border transition-all ${
+                      playgroundStep === 'token_exchanged'
+                        ? isDark ? 'border-indigo-700 bg-indigo-950/20' : 'border-indigo-300 bg-indigo-50/40'
+                        : playgroundUserResult
+                        ? isDark ? 'border-emerald-800/60 bg-emerald-950/20' : 'border-emerald-200 bg-emerald-50/30'
+                        : isDark ? 'border-slate-800 bg-slate-900/30 opacity-60' : 'border-slate-200 bg-slate-50 opacity-60'
+                    }`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 3</span>
+                        {playgroundUserResult ? (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white">Claims Verified</span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-500 text-white">UserInfo</span>
+                        )}
+                      </div>
+                      <h4 className="font-bold text-xs">GET /api/oauth/userinfo</h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                        Retrieve verified claims, email, display name, and avatar.
+                      </p>
+                      <button
+                        onClick={handlePlaygroundFetchUserInfo}
+                        disabled={!playgroundAccessToken || isTesterRunning}
+                        className="mt-4 w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>Fetch User Claims</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live Console Output Terminal */}
+                <div className="p-5 rounded-2xl bg-[#090d16] border border-slate-800 text-slate-200 font-mono text-xs shadow-2xl space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div className="flex items-center gap-2">
+                      <Terminal className="w-4 h-4 text-emerald-400" />
+                      <span className="font-bold text-slate-300">Live Request / Response Inspector</span>
+                    </div>
+                    {testerLog.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setTesterLog([]);
+                          setPlaygroundStep('idle');
+                          setPlaygroundAuthCode('');
+                          setPlaygroundAccessToken('');
+                          setPlaygroundUserResult(null);
+                        }}
+                        className="text-[11px] text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        Clear Terminal
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-1 max-h-80 overflow-y-auto custom-scrollbar text-[11px] leading-relaxed">
+                    {testerLog.length === 0 ? (
+                      <p className="text-slate-500 italic">Click "Issue Auth Code" in Step 1 to begin the simulation trace...</p>
+                    ) : (
+                      testerLog.map((line, idx) => (
+                        <div
+                          key={idx}
+                          className={
+                            line.startsWith('✓')
+                              ? 'text-emerald-400 font-bold'
+                              : line.startsWith('[')
+                              ? 'text-indigo-400 font-bold mt-2'
+                              : line.startsWith('{')
+                              ? 'text-amber-300'
+                              : 'text-slate-300'
+                          }
+                        >
+                          {line}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB 5: SSO BUTTON KIT GENERATOR                                          */}
+            {/* ========================================================================= */}
+            {activeTab === 'button' && (
+              <div className="space-y-6 animate-fade-in">
+                <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                  <h3 className="font-bold text-base sm:text-lg tracking-tight">"Continue with {branding.app_name || 'Zenoa'}" Button Kit</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Customize and export embeddable Single Sign-On button components for your website and apps.
+                  </p>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-6">
+                    {/* Live Preview Canvas */}
+                    <div className="space-y-3">
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Live Preview</span>
+                      <div className={`h-48 rounded-2xl border flex flex-col items-center justify-center p-6 ${
+                        isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-100 border-slate-200'
+                      }`}>
+                        <button
+                          className={`flex items-center justify-center gap-2.5 font-bold transition-all shadow-xs active:scale-95 cursor-pointer ${
+                            buttonConfig.shape
+                          } ${
+                            buttonConfig.size === 'sm' ? 'px-3.5 py-1.5 text-xs' : buttonConfig.size === 'lg' ? 'px-6 py-3.5 text-base' : 'px-5 py-2.5 text-sm'
+                          } ${
+                            buttonConfig.variant === 'dark'
+                              ? 'bg-black hover:bg-slate-900 text-white'
+                              : buttonConfig.variant === 'indigo'
+                              ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                              : buttonConfig.variant === 'light'
+                              ? 'bg-white hover:bg-slate-50 text-slate-900 border border-slate-200'
+                              : 'bg-transparent border border-slate-400 hover:bg-slate-100/20 text-current'
+                          }`}
+                        >
+                          {buttonConfig.showIcon && (
+                            <div className="w-4 h-4 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[10px] font-bold">
+                              {(branding.app_name || 'Z').charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <span>{buttonConfig.label}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Customizer Controls */}
+                    <div className="space-y-4">
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Design Controls</span>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-400">Color Theme</label>
+                          <select
+                            value={buttonConfig.variant}
+                            onChange={(e: any) => setButtonConfig(prev => ({ ...prev, variant: e.target.value }))}
+                            className={`w-full px-3 py-2 text-xs rounded-xl border outline-none font-semibold ${
+                              isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                            }`}
+                          >
+                            <option value="dark">Dark Solid (Onyx)</option>
+                            <option value="indigo">Brand Indigo</option>
+                            <option value="light">Light Crisp</option>
+                            <option value="outline">Outlined Minimal</option>
+                          </select>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-400">Corner Radius</label>
+                          <select
+                            value={buttonConfig.shape}
+                            onChange={(e: any) => setButtonConfig(prev => ({ ...prev, shape: e.target.value }))}
+                            className={`w-full px-3 py-2 text-xs rounded-xl border outline-none font-semibold ${
+                              isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                            }`}
+                          >
+                            <option value="rounded-xl">Rounded Card (12px)</option>
+                            <option value="rounded-full">Pill Shape (Full)</option>
+                            <option value="rounded-lg">Subtle (8px)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-400">Button Label</label>
+                        <input
+                          type="text"
+                          value={buttonConfig.label}
+                          onChange={e => setButtonConfig(prev => ({ ...prev, label: e.target.value }))}
+                          className={`w-full px-3.5 py-2 text-xs rounded-xl border outline-none font-medium ${
+                            isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                          }`}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {/* ========================================================================= */}
-        {/* TAB 6: MULTI-LANGUAGE SDK CODE SNIPPETS                                  */}
-        {/* ========================================================================= */}
-        {activeTab === 'docs' && (
-          <div className="space-y-4 animate-fade-in">
-            <div className={`p-6 rounded-2xl border ${
-              isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
-            }`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
-                <div>
-                  <h2 className="text-base font-bold tracking-tight">OAuth 2.0 Integration Handlers</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Plug-and-play backend authorization and token exchange templates.
-                  </p>
-                </div>
+            {/* ========================================================================= */}
+            {/* TAB 6: MULTI-LANGUAGE SDK CODE SNIPPETS                                  */}
+            {/* ========================================================================= */}
+            {activeTab === 'docs' && (
+              <div className="space-y-6 animate-fade-in">
+                <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100 dark:border-slate-800">
+                    <div>
+                      <h3 className="font-bold text-base sm:text-lg tracking-tight">OAuth 2.0 Integration Handlers</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        Production-ready authentication routes and token exchange snippets.
+                      </p>
+                    </div>
 
-                {/* Language Picker */}
-                <div className="flex items-center gap-1.5">
-                  {[
-                    { id: 'react', label: 'React / Next.js' },
-                    { id: 'nodejs', label: 'Node.js Express' },
-                    { id: 'python', label: 'Python FastAPI' },
-                    { id: 'curl', label: 'cURL / CLI' }
-                  ].map(lang => (
+                    {/* Language Switcher Tabs */}
+                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                      {[
+                        { id: 'react', label: 'React / Next.js' },
+                        { id: 'nodejs', label: 'Node.js Express' },
+                        { id: 'python', label: 'Python FastAPI' },
+                        { id: 'curl', label: 'cURL / RFC 6749' }
+                      ].map(lang => (
+                        <button
+                          key={lang.id}
+                          onClick={() => setDocsLanguage(lang.id as any)}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                            docsLanguage === lang.id
+                              ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          {lang.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Code Container */}
+                  <div className="mt-4 relative rounded-2xl bg-[#090d16] border border-slate-800 p-4 font-mono text-xs text-slate-200 overflow-x-auto">
                     <button
-                      key={lang.id}
-                      onClick={() => setDocsLanguage(lang.id as any)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
-                        docsLanguage === lang.id
-                          ? 'bg-indigo-600 text-white'
-                          : isDark ? 'bg-slate-800/80 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                      }`}
+                      onClick={() => handleCopy(
+                        docsLanguage === 'react' ? `// React Login Handler\nconst handleZenoaLogin = () => {\n  const authUrl = "${window.location.origin}/auth/sso?client_id=${activeSnippetApp.client_id}&redirect_uri=" + encodeURIComponent(window.location.origin + "/auth/callback");\n  window.location.href = authUrl;\n};`
+                        : docsLanguage === 'nodejs' ? `// Node.js Express Token Exchange\napp.get('/auth/callback', async (req, res) => {\n  const { code } = req.query;\n  const response = await fetch('${window.location.origin}/api/oauth/token', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      grant_type: 'authorization_code',\n      client_id: '${activeSnippetApp.client_id}',\n      client_secret: '${activeSnippetApp.client_secret}',\n      code,\n      redirect_uri: '${activeSnippetApp.redirect_uris[0]}'\n    })\n  });\n  const tokenData = await response.json();\n  res.json(tokenData);\n});`
+                        : docsLanguage === 'python' ? `# Python FastAPI OAuth Handler\nimport httpx\nfrom fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get("/auth/callback")\nasync def auth_callback(code: str):\n    async with httpx.AsyncClient() as client:\n        resp = await client.post("${window.location.origin}/api/oauth/token", json={\n            "grant_type": "authorization_code",\n            "client_id": "${activeSnippetApp.client_id}",\n            "client_secret": "${activeSnippetApp.client_secret}",\n            "code": code,\n            "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"\n        })\n        return resp.json()`
+                        : `curl -X POST ${window.location.origin}/api/oauth/token \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "grant_type": "authorization_code",\n    "client_id": "${activeSnippetApp.client_id}",\n    "client_secret": "${activeSnippetApp.client_secret}",\n    "code": "zen_code_YOUR_CODE",\n    "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"\n  }'`,
+                        'code_snippet',
+                        'Code snippet copied'
+                      )}
+                      className="absolute top-4 right-4 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-sans font-semibold flex items-center gap-1.5 cursor-pointer"
                     >
-                      {lang.label}
+                      {copiedKey === 'code_snippet' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>Copy Snippet</span>
                     </button>
-                  ))}
-                </div>
-              </div>
 
-              {/* Code Snippet Box */}
-              <div className="mt-4 relative">
-                <button
-                  onClick={() => {
-                    handleCopy('// Copied integration snippet', 'docs_code', 'Snippet copied');
-                  }}
-                  className="absolute right-3 top-3 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 hover:text-white text-[11px] font-semibold flex items-center gap-1 cursor-pointer border border-slate-700"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>Copy</span>
-                </button>
-
-                <div className="p-4 rounded-xl bg-slate-950 text-slate-200 font-mono text-xs overflow-x-auto leading-relaxed">
-                  {docsLanguage === 'react' && (
-                    <pre>{`// 1. React 'Continue with Zenoa' Button
-export function ZenoaLoginButton() {
+                    <pre className="text-[11px] leading-relaxed pt-2">
+                      {docsLanguage === 'react' && `// React / Next.js "Continue with Zenoa" Handler
+export const ZenoaLoginButton = () => {
   const handleLogin = () => {
-    const authUrl = "${window.location.origin}/auth/sso?" + new URLSearchParams({
-      client_id: "${activeSnippetApp.client_id}",
-      redirect_uri: "${activeSnippetApp.redirect_uris[0] || 'http://localhost:3000/auth/callback'}",
-      response_type: "code",
-      scope: "openid profile email"
-    });
+    const clientId = "${activeSnippetApp.client_id}";
+    const redirectUri = encodeURIComponent(window.location.origin + "/auth/callback");
+    const authUrl = \`${window.location.origin}/auth/sso?client_id=\${clientId}&redirect_uri=\${redirectUri}&response_type=code&scope=openid profile email\`;
     window.location.href = authUrl;
   };
 
   return (
-    <button onClick={handleLogin} className="px-4 py-2 bg-indigo-600 text-white rounded-xl">
+    <button onClick={handleLogin} className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold">
       Continue with Zenoa
     </button>
   );
-}`}</pre>
-                  )}
+};`}
 
-                  {docsLanguage === 'nodejs' && (
-                    <pre>{`// 2. Node.js Express OAuth Callback Handler
-const express = require('express');
-const axios = require('axios');
+                      {docsLanguage === 'nodejs' && `// Node.js Express Server-to-Server Token Exchange
+import express from 'express';
 const app = express();
 
 app.get('/auth/callback', async (req, res) => {
   const { code } = req.query;
-
-  // Exchange Auth Code for Access Token
-  const tokenRes = await axios.post('${window.location.origin}/api/oauth/token', {
-    grant_type: 'authorization_code',
-    client_id: '${activeSnippetApp.client_id}',
-    client_secret: '${activeSnippetApp.client_secret}',
-    code: code,
-    redirect_uri: '${activeSnippetApp.redirect_uris[0] || 'http://localhost:3000/auth/callback'}'
+  
+  // 1. Exchange auth code for Bearer Access Token
+  const tokenRes = await fetch('${window.location.origin}/api/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'authorization_code',
+      client_id: '${activeSnippetApp.client_id}',
+      client_secret: process.env.ZENOA_CLIENT_SECRET || '${activeSnippetApp.client_secret}',
+      code,
+      redirect_uri: '${activeSnippetApp.redirect_uris[0]}'
+    })
   });
 
-  const { access_token } = tokenRes.data;
+  const { access_token } = await tokenRes.json();
 
-  // Retrieve Authenticated User Profile
-  const userRes = await axios.get('${window.location.origin}/api/oauth/userinfo', {
+  // 2. Fetch User Claims from /api/oauth/userinfo
+  const userRes = await fetch('${window.location.origin}/api/oauth/userinfo', {
     headers: { Authorization: \`Bearer \${access_token}\` }
   });
 
-  res.json({ user: userRes.data });
-});`}</pre>
-                  )}
+  const userProfile = await userRes.json();
+  res.json({ success: true, user: userProfile });
+});`}
 
-                  {docsLanguage === 'python' && (
-                    <pre>{`# 3. Python FastAPI / Flask OAuth Handler
-import requests
-from fastapi import FastAPI, Request
+                      {docsLanguage === 'python' && `# Python FastAPI OAuth Route
+import httpx
+from fastapi import FastAPI, HTTPException
 
 app = FastAPI()
 
 @app.get("/auth/callback")
-def oauth_callback(code: str):
-    # Step 1: Exchange Code for Access Token
-    token_resp = requests.post("${window.location.origin}/api/oauth/token", json={
-        "grant_type": "authorization_code",
-        "client_id": "${activeSnippetApp.client_id}",
-        "client_secret": "${activeSnippetApp.client_secret}",
-        "code": code,
-        "redirect_uri": "${activeSnippetApp.redirect_uris[0] || 'http://localhost:3000/auth/callback'}"
-    })
-    access_token = token_resp.json().get("access_token")
+async def oauth_callback(code: str):
+    async with httpx.AsyncClient() as client:
+        # Step 1: Exchange code for access token
+        token_response = await client.post(
+            "${window.location.origin}/api/oauth/token",
+            json={
+                "grant_type": "authorization_code",
+                "client_id": "${activeSnippetApp.client_id}",
+                "client_secret": "${activeSnippetApp.client_secret}",
+                "code": code,
+                "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"
+            }
+        )
+        token_data = token_response.json()
+        
+        # Step 2: Fetch user profile
+        user_response = await client.get(
+            "${window.location.origin}/api/oauth/userinfo",
+            headers={"Authorization": f"Bearer {token_data['access_token']}"}
+        )
+        return user_response.json()`}
 
-    # Step 2: Fetch Identity Claims
-    user_resp = requests.get(
-        "${window.location.origin}/api/oauth/userinfo",
-        headers={"Authorization": f"Bearer {access_token}"}
-    )
-    return user_resp.json()`}</pre>
-                  )}
-
-                  {docsLanguage === 'curl' && (
-                    <pre>{`# 1. Exchange authorization code for token
+                      {docsLanguage === 'curl' && `# 1. POST Code for Token
 curl -X POST ${window.location.origin}/api/oauth/token \\
   -H "Content-Type: application/json" \\
   -d '{
     "grant_type": "authorization_code",
     "client_id": "${activeSnippetApp.client_id}",
     "client_secret": "${activeSnippetApp.client_secret}",
-    "code": "zen_auth_code_sample",
-    "redirect_uri": "${activeSnippetApp.redirect_uris[0] || 'http://localhost:3000/auth/callback'}"
+    "code": "zen_code_sample_12345",
+    "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"
   }'
 
-# 2. Query user identity claims
+# 2. GET User Identity Claims
 curl -X GET ${window.location.origin}/api/oauth/userinfo \\
-  -H "Authorization: Bearer zen_at_sample_token"`}</pre>
-                  )}
+  -H "Authorization: Bearer zen_at_sample_token_xyz"`}
+                    </pre>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {/* ========================================================================= */}
-        {/* TAB 7: SECURITY AUDIT & LIVE ACTIVITY                                    */}
-        {/* ========================================================================= */}
-        {activeTab === 'activity' && (
-          <div className="space-y-4 animate-fade-in">
-            <div className={`p-6 rounded-2xl border ${
-              isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
-            }`}>
-              <div className="pb-4 border-b border-slate-100 dark:border-slate-800">
-                <h2 className="text-base font-bold tracking-tight">Security & Audit Event Stream</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Immutable log of all OAuth authorizations, token grants, and secret rotations.
+            {/* ========================================================================= */}
+            {/* TAB 7: SECURITY & AUDIT TIMELINE                                         */}
+            {/* ========================================================================= */}
+            {activeTab === 'activity' && (
+              <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'} animate-fade-in`}>
+                <h3 className="font-bold text-base sm:text-lg tracking-tight">Security & OAuth Audit Stream</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Real-time security logs for authorization grants, token generation, and credential rotations.
                 </p>
-              </div>
 
-              <div className="mt-4 space-y-2">
-                {[
-                  { event: 'OAuth Client Registry Synchronized', type: 'system', status: 'Success', time: 'Just now', ip: '127.0.0.1' },
-                  { event: 'Token Verification Endpoint Verified (SHA-256)', type: 'auth', status: '200 OK', time: '5m ago', ip: '192.168.1.1' },
-                  { event: 'Official Client Health Check', type: 'system', status: 'Active', time: '20m ago', ip: 'internal' }
-                ].map((item, idx) => (
-                  <div
-                    key={idx}
-                    className={`p-3.5 rounded-xl border flex items-center justify-between text-xs ${
-                      isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                      <div>
-                        <span className="font-bold">{item.event}</span>
-                        <div className="text-[10px] text-slate-400 mt-0.5">IP: {item.ip} • Type: {item.type}</div>
+                <div className="mt-6 space-y-3">
+                  {[
+                    { event: 'Token Exchanged', status: '200 OK', client: 'Official Client', ip: '127.0.0.1', time: '2 minutes ago' },
+                    { event: 'Authorization Code Issued', status: '200 OK', client: 'Official Client', ip: '127.0.0.1', time: '2 minutes ago' },
+                    { event: 'Client Secret Rotated', status: 'Security Audit', client: 'Zenoa Developer Console', ip: 'Secure Admin', time: '1 hour ago' }
+                  ].map((log, i) => (
+                    <div
+                      key={i}
+                      className={`p-3.5 rounded-xl border flex items-center justify-between text-xs ${
+                        isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                        <div>
+                          <p className="font-bold text-slate-800 dark:text-slate-200">{log.event}</p>
+                          <p className="text-[11px] text-slate-400">Client: {log.client} &bull; Origin: {log.ip}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                          {log.status}
+                        </span>
+                        <p className="text-[10px] text-slate-400 mt-1">{log.time}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-                        {item.status}
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-mono">{item.time}</span>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          </div>
-        )}
-      </main>
+            )}
 
-      {/* MODAL 1: ROTATE SECRET CONFIRMATION */}
+          </div>
+        </main>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* MODAL: CLIENT SECRET ROTATION CONFIRMATION                                */}
+      {/* ========================================================================= */}
       <AnimatePresence>
         {secretRotateModalApp && (
-          <div className="fixed inset-0 z-[9999] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               className={`max-w-md w-full p-6 rounded-2xl border shadow-2xl ${
-                isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200'
+                isDark ? 'bg-[#111726] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
               }`}
             >
-              <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-3">
-                <AlertTriangle className="w-5 h-5" />
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base">Rotate Client Secret?</h3>
+                  <p className="text-xs text-slate-400">{secretRotateModalApp.app_name}</p>
+                </div>
               </div>
-              <h3 className="text-base font-bold">Rotate Client Secret?</h3>
-              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Rotating the secret will immediately invalidate the current secret for <strong>{secretRotateModalApp.app_name}</strong>. Any production backend using the old key will need to be updated.
+
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-6">
+                Rotating this secret will immediately invalidate the existing secret. Any production services or backend APIs utilizing the old secret will fail to exchange tokens until updated.
               </p>
-              <div className="mt-5 flex items-center justify-end gap-2">
+
+              <div className="flex justify-end gap-3">
                 <button
                   onClick={() => setSecretRotateModalApp(null)}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold border cursor-pointer ${
+                  className={`px-4 py-2 rounded-xl border text-xs font-semibold cursor-pointer ${
                     isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
                   }`}
                 >
@@ -1884,9 +2015,9 @@ curl -X GET ${window.location.origin}/api/oauth/userinfo \\
                 </button>
                 <button
                   onClick={handleRotateSecret}
-                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs cursor-pointer"
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl cursor-pointer"
                 >
-                  Rotate Secret Now
+                  Confirm & Rotate Secret
                 </button>
               </div>
             </motion.div>
@@ -1894,29 +2025,38 @@ curl -X GET ${window.location.origin}/api/oauth/userinfo \\
         )}
       </AnimatePresence>
 
-      {/* MODAL 2: DELETE CLIENT CONFIRMATION */}
+      {/* ========================================================================= */}
+      {/* MODAL: DELETE CLIENT CONFIRMATION                                         */}
+      {/* ========================================================================= */}
       <AnimatePresence>
         {deleteConfirmApp && (
-          <div className="fixed inset-0 z-[9999] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               className={`max-w-md w-full p-6 rounded-2xl border shadow-2xl ${
-                isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200'
+                isDark ? 'bg-[#111726] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
               }`}
             >
-              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center mb-3">
-                <Trash2 className="w-5 h-5" />
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base">Delete Client Application?</h3>
+                  <p className="text-xs text-slate-400">{deleteConfirmApp.app_name}</p>
+                </div>
               </div>
-              <h3 className="text-base font-bold">Delete Client Application?</h3>
-              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Are you sure you want to delete <strong>{deleteConfirmApp.app_name}</strong>? All OAuth tokens issued to this client ID will immediately fail validation.
+
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-6">
+                Are you sure you want to delete <span className="font-bold">{deleteConfirmApp.app_name}</span>? All Client IDs, secrets, and authorized redirect configurations will be permanently revoked.
               </p>
-              <div className="mt-5 flex items-center justify-end gap-2">
+
+              <div className="flex justify-end gap-3">
                 <button
                   onClick={() => setDeleteConfirmApp(null)}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold border cursor-pointer ${
+                  className={`px-4 py-2 rounded-xl border text-xs font-semibold cursor-pointer ${
                     isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
                   }`}
                 >
@@ -1924,7 +2064,7 @@ curl -X GET ${window.location.origin}/api/oauth/userinfo \\
                 </button>
                 <button
                   onClick={handleDeleteApp}
-                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs cursor-pointer"
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl cursor-pointer"
                 >
                   Delete Client
                 </button>

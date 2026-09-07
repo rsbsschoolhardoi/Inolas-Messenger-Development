@@ -1,9 +1,10 @@
 import React from 'react';
 import { 
   Activity, Key, Zap, FileText, Webhook, ShieldCheck, ArrowRight, 
-  Layers, CheckCircle2, Lock, Radio, Server, ExternalLink, Users
+  Layers, CheckCircle2, Lock, Radio, Server, ExternalLink, Users, Sparkles
 } from 'lucide-react';
 import { TabType } from '../views/PortalDashboard';
+import { useBranding } from '../../../brandingUtils';
 
 interface OverviewViewProps {
   app: any;
@@ -18,6 +19,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   onNavigate,
   showToast
 }) => {
+  const branding = useBranding();
+  const activeLogo = branding.dev_console_logo || branding.public_logo;
   const isSandbox = environment === 'test';
 
   return (
@@ -26,8 +29,12 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
           <div className="flex items-center gap-4">
-            <div className="h-14 w-14 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-xs shrink-0">
-              <Server className="h-7 w-7" />
+            <div className="h-14 w-14 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-xs shrink-0 overflow-hidden">
+              {activeLogo ? (
+                <img src={activeLogo} alt="Logo" className="h-full w-full object-contain p-1.5" />
+              ) : (
+                <Server className="h-7 w-7" />
+              )}
             </div>
             <div>
               <div className="flex items-center gap-2.5">
@@ -53,7 +60,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           <div className="flex items-center gap-2.5">
             <button
               onClick={() => onNavigate('apps')}
-              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center gap-2"
+              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer"
             >
               <Key className="h-4 w-4" /> View API Credentials
             </button>
