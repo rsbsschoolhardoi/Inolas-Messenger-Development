@@ -223,6 +223,11 @@ export const CallModal: React.FC<CallModalProps> = ({
     } catch (e) {}
   }, []);
 
+  const isMinimizedRef = useRef(isMinimized);
+  useEffect(() => {
+    isMinimizedRef.current = isMinimized;
+  }, [isMinimized]);
+
   // Voice level analyzer for local & remote audio
   const setupVoiceAnalyzer = (localStream: MediaStream, remoteStream?: MediaStream) => {
     try {
@@ -253,21 +258,26 @@ export const CallModal: React.FC<CallModalProps> = ({
 
       if (!audioIntervalRef.current) {
         audioIntervalRef.current = setInterval(() => {
+          // If minimized, do not trigger component re-renders to ensure 120fps buttery smooth UI & dragging
+          if (isMinimizedRef.current) return;
+
           if (localAnalyserRef.current) {
             const data = new Uint8Array(localAnalyserRef.current.frequencyBinCount);
             localAnalyserRef.current.getByteFrequencyData(data);
             const sum = data.reduce((acc, val) => acc + val, 0);
             const avg = sum / data.length;
-            setMicVolume(Math.min(100, Math.floor((avg / 255) * 100)));
+            const newVol = Math.min(100, Math.floor((avg / 255) * 100));
+            setMicVolume(prev => (Math.abs(prev - newVol) > 4 ? newVol : prev));
           }
           if (remoteAnalyserRef.current) {
             const data = new Uint8Array(remoteAnalyserRef.current.frequencyBinCount);
             remoteAnalyserRef.current.getByteFrequencyData(data);
             const sum = data.reduce((acc, val) => acc + val, 0);
             const avg = sum / data.length;
-            setRemoteAudioVolume(Math.min(100, Math.floor((avg / 255) * 100)));
+            const newVol = Math.min(100, Math.floor((avg / 255) * 100));
+            setRemoteAudioVolume(prev => (Math.abs(prev - newVol) > 4 ? newVol : prev));
           }
-        }, 100);
+        }, 150);
       }
     } catch (e) {
       console.warn("Audio analyser hook notice:", e);
@@ -1183,12 +1193,13 @@ export const CallModal: React.FC<CallModalProps> = ({
               key="call-mini-window-video"
               drag
               dragMomentum={false}
-              dragElastic={0.08}
-              whileDrag={{ scale: 1.04, cursor: 'grabbing' }}
-              initial={{ scale: 0.8, opacity: 0, x: 20, y: 20 }}
-              animate={{ scale: 1, opacity: 1, x: 0, y: 0 }}
-              exit={{ scale: 0.8, opacity: 0 }}
-              className="pointer-events-auto absolute bottom-5 right-5 sm:bottom-8 sm:right-8 w-36 h-52 sm:w-40 sm:h-56 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/25 bg-neutral-950 flex flex-col justify-between p-2 relative touch-none cursor-grab active:cursor-grabbing group"
+              dragElastic={0.04}
+              layout={false}
+              style={{ willChange: 'transform' }}
+              initial={{ scale: 0.85, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.85, opacity: 0 }}
+              className="pointer-events-auto absolute bottom-5 right-5 sm:bottom-8 sm:right-8 w-36 h-52 sm:w-40 sm:h-56 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/30 bg-neutral-950 flex flex-col justify-between p-2 relative touch-none cursor-grab active:cursor-grabbing group"
             >
               {/* Remote Video Feed or Avatar if remote video off */}
               {isRemoteConnected && remoteStreamRef.current && remoteStreamRef.current.getVideoTracks().length > 0 ? (
@@ -1202,14 +1213,11 @@ export const CallModal: React.FC<CallModalProps> = ({
                 />
               ) : (
                 <div 
-                  className="absolute inset-0 bg-gradient-to-b from-neutral-900 to-neutral-950 flex flex-col items-center justify-center p-3 cursor-pointer"
+                  className="absolute inset-0 bg-neutral-900 flex flex-col items-center justify-center p-3 cursor-pointer"
                   onClick={() => setIsMinimized(false)}
                 >
                   <div className="relative">
                     {renderCallAvatar(session.partnerAvatarSeed, (session.partnerName?.[0] || "C"), session.partnerAvatarUrl, 'h-14 w-14 text-lg')}
-                    {remoteAudioVolume > 0.05 && (
-                      <span className="absolute -inset-2 rounded-full border-2 border-emerald-400 animate-ping opacity-60 pointer-events-none" />
-                    )}
                   </div>
                   <p className="mt-2 text-xs font-bold text-white text-center truncate max-w-full">
                     {session.partnerName}
@@ -1240,9 +1248,7 @@ export const CallModal: React.FC<CallModalProps> = ({
               <div 
                 className="relative z-10 flex-1 flex flex-col items-center justify-center cursor-pointer"
                 onClick={() => setIsMinimized(false)}
-              >
-                {/* Visual expansion helper on hover */}
-              </div>
+              />
 
               {/* Bottom Controls */}
               <div className="relative z-10 flex items-center justify-center gap-1.5 pt-1">
@@ -1276,12 +1282,13 @@ export const CallModal: React.FC<CallModalProps> = ({
               key="call-mini-window-voice"
               drag
               dragMomentum={false}
-              dragElastic={0.08}
-              whileDrag={{ scale: 1.04, cursor: 'grabbing' }}
-              initial={{ scale: 0.8, opacity: 0, x: 20, y: 20 }}
-              animate={{ scale: 1, opacity: 1, x: 0, y: 0 }}
-              exit={{ scale: 0.8, opacity: 0 }}
-              className="pointer-events-auto absolute bottom-5 right-5 sm:bottom-8 sm:right-8 w-64 p-2.5 rounded-2xl bg-neutral-900/95 border border-white/15 backdrop-blur-xl shadow-2xl flex items-center justify-between gap-2.5 text-white touch-none cursor-grab active:cursor-grabbing"
+              dragElastic={0.04}
+              layout={false}
+              style={{ willChange: 'transform' }}
+              initial={{ scale: 0.85, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.85, opacity: 0 }}
+              className="pointer-events-auto absolute bottom-5 right-5 sm:bottom-8 sm:right-8 w-64 p-2.5 rounded-2xl bg-neutral-900/95 border border-white/20 backdrop-blur-xl shadow-2xl flex items-center justify-between gap-2.5 text-white touch-none cursor-grab active:cursor-grabbing"
             >
               <div 
                 className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer"
@@ -1289,9 +1296,6 @@ export const CallModal: React.FC<CallModalProps> = ({
               >
                 <div className="relative shrink-0">
                   {renderCallAvatar(session.partnerAvatarSeed, (session.partnerName?.[0] || "C"), session.partnerAvatarUrl, 'h-9 w-9 text-xs')}
-                  {remoteAudioVolume > 0.05 && (
-                    <span className="absolute -inset-1 rounded-full border-2 border-emerald-400 animate-ping opacity-60 pointer-events-none" />
-                  )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-bold text-white truncate">{session.partnerName}</p>

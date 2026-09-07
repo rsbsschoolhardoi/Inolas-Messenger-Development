@@ -2417,30 +2417,33 @@ export default function App() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const handleResize = () => {
-      const vv = window.visualViewport;
-      if (vv) {
-        const keyboardOffset = Math.max(0, window.innerHeight - vv.height);
-        document.documentElement.style.setProperty('--keyboard-offset', `${keyboardOffset}px`);
-        document.documentElement.style.setProperty('--app-height', `${vv.height}px`);
-      } else {
-        document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
-      }
+    let rAFId = 0;
+    const updateViewport = () => {
+      cancelAnimationFrame(rAFId);
+      rAFId = requestAnimationFrame(() => {
+        const vv = window.visualViewport;
+        if (vv) {
+          const keyboardOffset = Math.max(0, window.innerHeight - vv.height);
+          document.documentElement.style.setProperty('--keyboard-offset', `${keyboardOffset}px`);
+          document.documentElement.style.setProperty('--app-height', `${vv.height}px`);
+        } else {
+          document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
+        }
+      });
     };
 
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', handleResize);
-      window.visualViewport.addEventListener('scroll', handleResize);
+      window.visualViewport.addEventListener('resize', updateViewport);
     }
-    window.addEventListener('resize', handleResize);
-    handleResize();
+    window.addEventListener('resize', updateViewport);
+    updateViewport();
 
     return () => {
+      cancelAnimationFrame(rAFId);
       if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', handleResize);
-        window.visualViewport.removeEventListener('scroll', handleResize);
+        window.visualViewport.removeEventListener('resize', updateViewport);
       }
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('resize', updateViewport);
     };
   }, []);
 
@@ -7870,7 +7873,10 @@ export default function App() {
   // MAIN RUNTIME APPLICATION (Zenoa Messenger)
   return (
 
-    <div className={`w-full h-[100dvh] flex flex-col md:flex-row overflow-hidden select-none touch-manipulation font-sans transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-white' : 'bg-white text-neutral-800'}`}>
+    <div 
+      className={`w-full flex flex-col md:flex-row overflow-hidden select-none touch-manipulation font-sans transition-colors ${themeMode === 'dark' ? 'dark bg-neutral-950 text-white' : 'bg-white text-neutral-800'}`}
+      style={{ height: 'var(--app-height, 100dvh)', maxHeight: 'var(--app-height, 100dvh)' }}
+    >
       {/* Central Kickout Modal (Account Logged In On Another Page with 5-Second Timer) */}
       <AnimatePresence>
         {kickoutData && (
@@ -8233,7 +8239,10 @@ export default function App() {
       </aside>
 
       {/* CENTER: Main working viewport */}
-      <main className="flex flex-1 h-full max-h-[100dvh] relative overflow-hidden bg-slate-50/50 dark:bg-[#0b0f19]">
+      <main 
+        className="flex flex-1 h-full relative overflow-hidden bg-slate-50/50 dark:bg-[#0b0f19]"
+        style={{ height: 'var(--app-height, 100dvh)', maxHeight: 'var(--app-height, 100dvh)' }}
+      >
         
         {/* VIEW 1: Chats History panel list & message chain */}
         {activeView === 'chats' && (
@@ -9381,6 +9390,9 @@ export default function App() {
                       }}
                       onFocus={() => {
                         if (showUnifiedPicker) setShowUnifiedPicker(false);
+                        setTimeout(() => {
+                          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                        }, 120);
                       }}
                       placeholder="Type a message..."
                       className={`px-2 py-1.5 text-sm bg-transparent border-0 outline-none min-w-0 transition-all duration-300 ${currentChatTheme.innerInputText}`}
