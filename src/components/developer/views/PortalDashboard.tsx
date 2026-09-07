@@ -103,19 +103,41 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
         }
       }
 
-      // Fallback local memory app if none exists
-      if (fetchedApps.length === 0) {
+      // Auto-initialize real service account in database if none exists yet
+      if (fetchedApps.length === 0 && currentUser?.username) {
+        const cleanUser = currentUser.username.toLowerCase();
         const fallbackApp = {
-          id: `sa_${currentUser.username.toLowerCase()}`,
+          id: `sa_${cleanUser}`,
           owner: currentUser.username,
-          app_name: `${currentUser.display_name || currentUser.username}'s Application`,
-          bot_username: `sa_${currentUser.username.toLowerCase()}`,
-          client_id: `zen_client_${currentUser.username.toLowerCase()}`,
+          owner_id: currentUser.id || '',
+          app_name: `${currentUser.display_name || currentUser.username}'s App`,
+          bot_username: `sa_${cleanUser}`,
+          client_id: `zen_client_${cleanUser}`,
           client_secret: `zen_sec_${Math.random().toString(36).substring(2, 18)}`,
-          test_client_id: `zen_test_${currentUser.username.toLowerCase()}`,
+          test_client_id: `zen_test_${cleanUser}`,
           test_client_secret: `zen_test_sec_${Math.random().toString(36).substring(2, 18)}`,
+          api_key: `zen_client_${cleanUser}`,
+          is_locked: true,
           created_at: Date.now()
         };
+
+        if (db) {
+          try {
+            await setDoc(doc(db, 'developer_apps', `sa_${cleanUser}`), fallbackApp, { merge: true });
+            await setDoc(doc(db, 'users', `sa_${cleanUser}`), {
+              username: `sa_${cleanUser}`,
+              display_name: `${currentUser.display_name || currentUser.username}'s App Bot`,
+              is_service_account: true,
+              is_business_account: true,
+              is_verified: false,
+              owner_username: currentUser.username,
+              created_at: Date.now()
+            }, { merge: true });
+          } catch (persistErr) {
+            console.warn('Auto-provisioning app in Firestore:', persistErr);
+          }
+        }
+
         fetchedApps.push(fallbackApp);
       }
 

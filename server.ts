@@ -1256,8 +1256,8 @@ app.post('/api/v1/bot/broadcast', authenticateApiKey, async (req: any, res: any)
   }
 });
 
-// 8. Send Message Endpoint (Direct Bot to User) - Supports both /api/v1/messages/send and /api/v1/bot/send
-app.post(['/api/v1/messages/send', '/api/v1/bot/send', '/v1/messages/send', '/v1/bot/send'], authenticateApiKey, async (req: any, res: any) => {
+// 8. Send Message Endpoint (Direct Bot to User) - Supports both /api/v1/messages/send, /api/v1/bot/send, and /api/developer/dispatch
+app.post(['/api/v1/messages/send', '/api/v1/bot/send', '/v1/messages/send', '/v1/bot/send', '/api/developer/dispatch', '/api/v1/bot/dispatch'], authenticateApiKey, async (req: any, res: any) => {
   try {
     const recipientInput = req.body?.recipient ?? req.body?.to ?? req.body?.phone ?? req.body?.mobile ?? req.body?.phoneNumber ?? req.body?.mobileNumber ?? req.body?.phone_number ?? req.body?.mobile_number ?? req.body?.username ?? req.body?.user ?? req.body?.target ?? req.body?.email ?? req.query?.recipient ?? req.query?.to ?? req.query?.username;
     const messageInput = req.body?.message ?? req.body?.text ?? req.body?.content ?? req.body?.body ?? req.query?.message ?? req.query?.text;

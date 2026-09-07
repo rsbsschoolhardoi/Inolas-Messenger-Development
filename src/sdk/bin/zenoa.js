@@ -5,11 +5,31 @@
  * Target: https://zenoa-inolas.vercel.app
  */
 
-const { ZenoaCliRunner } = require('../dist/cli.js') || require('../index.js');
+let ZenoaCliRunner;
+try {
+  ZenoaCliRunner = require('../dist/cli.js').ZenoaCliRunner;
+} catch (e1) {
+  try {
+    ZenoaCliRunner = require('../index.js').ZenoaCliRunner;
+  } catch (e2) {
+    try {
+      ZenoaCliRunner = require('../cli.js').ZenoaCliRunner;
+    } catch (e3) {
+      // fallback
+    }
+  }
+}
 
 async function main() {
   const args = process.argv.slice(2);
-  const runner = new ZenoaCliRunner('https://zenoa-inolas.vercel.app');
+  const targetHost = process.env.ZENOA_API_HOST || 'https://zenoa-inolas.vercel.app';
+  
+  if (!ZenoaCliRunner) {
+    console.error('Error: Failed to load Zenoa CLI Runner module.');
+    process.exit(1);
+  }
+
+  const runner = new ZenoaCliRunner(targetHost);
   
   try {
     const result = await runner.execute(args);
@@ -24,3 +44,4 @@ async function main() {
 }
 
 main();
+
