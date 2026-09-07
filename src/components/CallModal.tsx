@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Phone, PhoneOff, Video, VideoOff, Mic, MicOff, 
   Volume2, Volume1, VolumeX, Shield, User, SwitchCamera, Sparkles,
-  AlertCircle, Radio, Check, Activity
+  AlertCircle, Radio, Check, Activity, ChevronDown, Minimize2, Maximize2
 } from 'lucide-react';
 import { doc, setDoc, onSnapshot, updateDoc, collection, addDoc, getDoc } from 'firebase/firestore';
 
@@ -75,6 +75,11 @@ export const CallModal: React.FC<CallModalProps> = ({
   const [isRemoteConnected, setIsRemoteConnected] = useState(session.status === 'connected');
   const [iceState, setIceState] = useState<string>('new');
   const [isSwapped, setIsSwapped] = useState(false); // WhatsApp-style tap to swap main/pip feeds
+  const [isMinimized, setIsMinimized] = useState(false); // PiP floating mini-window mode
+  const [ringCountdown, setRingCountdown] = useState<number>(() => {
+    const elapsed = Math.floor((Date.now() - (session.startedAt || Date.now())) / 1000);
+    return Math.max(0, 45 - elapsed);
+  });
 
   // Track timestamps & refs
   const startTimeStrRef = useRef<string>(
@@ -87,6 +92,7 @@ export const CallModal: React.FC<CallModalProps> = ({
   // Stable Media Streams & Peer Connection Refs (Never swap DOM refs directly in JSX!)
   const mainVideoElementRef = useRef<HTMLVideoElement | null>(null);
   const pipVideoElementRef = useRef<HTMLVideoElement | null>(null);
+  const miniVideoElementRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
@@ -317,11 +323,24 @@ export const CallModal: React.FC<CallModalProps> = ({
     const isVideo = session.type === 'video';
     const localStream = localStreamRef.current;
     const remoteStream = remoteStreamRef.current;
+    const isConnectedNow = session.status === 'connected' || isRemoteConnected;
 
     if (isVideo) {
-      // Main video element stream & PiP video element stream
-      const mainStream = isSwapped ? localStream : (remoteStream && remoteStream.getVideoTracks().length > 0 ? remoteStream : null);
-      const pipStream = isSwapped ? (remoteStream && remoteStream.getVideoTracks().length > 0 ? remoteStream : null) : localStream;
+      // While dialing/connecting: User's local camera stream is immediately active fullscreen in background
+      // Once connected: Remote stream takes the main stage (or local if swapped)
+      const mainStream = !isConnectedNow
+        ? localStream
+        : (isSwapped ? localStream : (remoteStream && remoteStream.getVideoTracks().length > 0 ? remoteStream : null));
+
+      // Small second frame (PiP) is ONLY shown once connection is established
+      const pipStream = !isConnectedNow
+        ? null
+        : (isSwapped ? (remoteStream && remoteStream.getVideoTracks().length > 0 ? remoteStream : null) : localStream);
+
+      // Dominant stream for floating mini-window (PiP)
+      const miniStream = isConnectedNow
+        ? (isSwapped ? localStream : (remoteStream && remoteStream.getVideoTracks().length > 0 ? remoteStream : localStream))
+        : localStream;
 
       if (mainVideoElementRef.current) {
         if (mainStream && mainVideoElementRef.current.srcObject !== mainStream) {
@@ -341,6 +360,15 @@ export const CallModal: React.FC<CallModalProps> = ({
         }
       }
 
+      if (miniVideoElementRef.current) {
+        if (miniStream && miniVideoElementRef.current.srcObject !== miniStream) {
+          miniVideoElementRef.current.srcObject = miniStream;
+          miniVideoElementRef.current.play().catch(() => {});
+        } else if (!miniStream && miniVideoElementRef.current.srcObject !== null) {
+          miniVideoElementRef.current.srcObject = null;
+        }
+      }
+
       // Ensure remote audio track plays if present
       if (remoteAudioRef.current && remoteStream && remoteStream.getAudioTracks().length > 0) {
         if (remoteAudioRef.current.srcObject !== remoteStream) {
@@ -357,12 +385,16 @@ export const CallModal: React.FC<CallModalProps> = ({
         }
       }
     }
-  }, [isSwapped, session.type]);
+  }, [isSwapped, isRemoteConnected, session.status, session.type]);
 
-  // Re-attach streams whenever swap state or connection changes
+  // Re-attach streams whenever swap state, connection, or minimized state changes
   useEffect(() => {
     attachStreamsToElements();
-  }, [isSwapped, isRemoteConnected, session.status, attachStreamsToElements]);
+    const t = setTimeout(() => {
+      attachStreamsToElements();
+    }, 40);
+    return () => clearTimeout(t);
+  }, [isSwapped, isRemoteConnected, session.status, isMinimized, attachStreamsToElements]);
 
   // Add queued ICE candidates once remote description is set
   const processPendingCandidates = async (pc: RTCPeerConnection) => {
@@ -694,7 +726,7 @@ export const CallModal: React.FC<CallModalProps> = ({
                 console.warn("BC Answer handle notice:", err);
               }
             }
-          } else if (msg.type === 'hangup' || msg.type === 'ended' || msg.type === 'decline') {
+          } else if (msg.type === 'hangup' || msg.type === 'ended' || msg.type === 'decline' || msg.type === 'cancel') {
             handleCallEndedRemotely(msg.type === 'decline' ? 'declined' : 'ended');
           } else if (msg.type === 'ice-candidate') {
             const expectedRole = session.isIncoming ? 'caller' : 'callee';
@@ -718,9 +750,10 @@ export const CallModal: React.FC<CallModalProps> = ({
           const data = snap.data();
           const pc = peerConnectionRef.current;
 
-          // Remote hang up or decline
-          if (data.status === 'declined' || data.status === 'ended') {
-            handleCallEndedRemotely(data.status);
+          // Remote hang up, decline, timeout, or cancellation
+          const terminalStatuses = ['ended', 'declined', 'cancelled', 'unanswered', 'missed', 'rejected', 'timeout'];
+          if (terminalStatuses.includes(data.status) || (data.end_reason && terminalStatuses.includes(data.end_reason))) {
+            handleCallEndedRemotely(data.status || data.end_reason || 'ended');
             return;
           }
 
@@ -817,7 +850,7 @@ export const CallModal: React.FC<CallModalProps> = ({
   };
 
   // Helper when remote ends call
-  const handleCallEndedRemotely = (status: 'ended' | 'declined') => {
+  const handleCallEndedRemotely = (remoteStatus: string) => {
     const endTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const finalDuration = callDurationRef.current;
     const wasConnected = wasConnectedRef.current || isRemoteConnected || session.status === 'connected';
@@ -826,7 +859,7 @@ export const CallModal: React.FC<CallModalProps> = ({
     if (wasConnected) {
       finalStatus = 'answered';
     } else {
-      finalStatus = session.isIncoming ? 'missed' : (status === 'declined' ? 'declined' : 'unanswered');
+      finalStatus = session.isIncoming ? 'missed' : (remoteStatus === 'declined' ? 'declined' : 'unanswered');
     }
 
     cleanupCall();
@@ -840,6 +873,76 @@ export const CallModal: React.FC<CallModalProps> = ({
       durationFormatted: formatTime(finalDuration)
     });
   };
+
+  // Ring timeout (45 seconds limit) - Automatically cut call on both sides if unanswered
+  const handleTimeoutCut = useCallback(async () => {
+    const endTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const wasConnected = wasConnectedRef.current || isRemoteConnected || session.status === 'connected';
+    if (wasConnected) return;
+
+    if (broadcastChannelRef.current) {
+      broadcastChannelRef.current.postMessage({ type: 'hangup', reason: 'timeout' });
+      broadcastChannelRef.current.postMessage({ type: 'ended', reason: 'timeout' });
+    }
+
+    cleanupCall();
+
+    const finalStatus: 'missed' | 'unanswered' = session.isIncoming ? 'missed' : 'unanswered';
+
+    if (isFirebaseConfigured && db && session.id) {
+      try {
+        await updateDoc(doc(db, 'calls', session.id), {
+          status: 'ended',
+          end_reason: 'timeout',
+          call_status: finalStatus,
+          ended_at: Date.now(),
+          duration: 0,
+          duration_seconds: 0,
+          duration_formatted: '00:00',
+          end_time_str: endTimeStr
+        });
+      } catch (e) {
+        console.warn("Firestore timeout call termination notice:", e);
+      }
+    }
+
+    onEndCall({
+      callId: session.id,
+      callType: session.type,
+      status: finalStatus,
+      startTime: startTimeStrRef.current,
+      endTime: endTimeStr,
+      durationSeconds: 0,
+      durationFormatted: '00:00'
+    });
+  }, [cleanupCall, db, isFirebaseConfigured, isRemoteConnected, onEndCall, session.id, session.isIncoming, session.status, session.type]);
+
+  // 45-Second Ring Limit Auto-Cut Timer: Automatically ends call on both sides if unanswered within 45s
+  useEffect(() => {
+    if (isRemoteConnected || session.status === 'connected') return;
+
+    const RING_TIMEOUT_MS = 45000;
+    const now = Date.now();
+    const startTime = session.startedAt || now;
+    const elapsed = Math.max(0, now - startTime);
+    const remaining = Math.max(500, RING_TIMEOUT_MS - elapsed);
+
+    const timer = setTimeout(() => {
+      handleTimeoutCut();
+    }, remaining);
+
+    const interval = setInterval(() => {
+      const nowTick = Date.now();
+      const elapsedTick = Math.max(0, nowTick - startTime);
+      const remainingSecs = Math.max(0, Math.ceil((RING_TIMEOUT_MS - elapsedTick) / 1000));
+      setRingCountdown(remainingSecs);
+    }, 1000);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, [isRemoteConnected, session.status, session.startedAt, handleTimeoutCut]);
 
   // User manually clicks Hang Up
   const handleHangUp = async () => {
@@ -855,8 +958,8 @@ export const CallModal: React.FC<CallModalProps> = ({
     }
 
     if (broadcastChannelRef.current) {
-      broadcastChannelRef.current.postMessage({ type: 'hangup' });
-      broadcastChannelRef.current.postMessage({ type: 'ended' });
+      broadcastChannelRef.current.postMessage({ type: 'hangup', reason: wasConnected ? 'ended' : 'cancelled' });
+      broadcastChannelRef.current.postMessage({ type: 'ended', reason: wasConnected ? 'ended' : 'cancelled' });
     }
 
     cleanupCall();
@@ -865,7 +968,9 @@ export const CallModal: React.FC<CallModalProps> = ({
       try {
         await updateDoc(doc(db, 'calls', session.id), {
           status: 'ended',
-          end_reason: wasConnected ? 'answered' : (session.isIncoming ? 'declined' : 'unanswered'),
+          end_reason: wasConnected ? 'answered' : (session.isIncoming ? 'declined' : 'cancelled'),
+          cancelled_by_caller: !session.isIncoming && !wasConnected,
+          call_status: finalStatus,
           ended_at: Date.now(),
           duration: finalDuration,
           duration_seconds: finalDuration,
@@ -1048,11 +1153,8 @@ export const CallModal: React.FC<CallModalProps> = ({
   const isConnected = session.status === 'connected' || isRemoteConnected;
 
   return (
-    <div 
-      id="call_modal_root"
-      className="fixed inset-0 z-[9999] bg-neutral-950 text-white flex flex-col justify-between overflow-hidden select-none font-sans"
-    >
-      {/* Remote Audio output (handles high fidelity sound for both Voice & Video calls) */}
+    <>
+      {/* Remote Audio output (handles high fidelity sound for both Voice & Video calls, ALWAYS mounted) */}
       <audio 
         ref={remoteAudioRef} 
         autoPlay 
@@ -1061,16 +1163,160 @@ export const CallModal: React.FC<CallModalProps> = ({
         className="opacity-0 pointer-events-none absolute w-px h-px" 
       />
 
-      {/* Prominent Zenoa Top Header Bar */}
-      <div className="p-4 sm:p-6 flex items-center justify-between bg-gradient-to-b from-black/90 via-black/50 to-transparent z-50">
-        <div className="flex items-center gap-2">
-          <span className="text-xl sm:text-2xl font-black tracking-widest text-white uppercase font-sans drop-shadow-md">
-            Zenoa
-          </span>
-          <span className="text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded-full bg-white/10 text-neutral-300 backdrop-blur-sm border border-white/10">
-            {session.type === 'video' ? 'HD Video' : 'HD Voice'}
-          </span>
+      {isMinimized ? (
+        /* Floating Picture-in-Picture Mini Window */
+        <div id="call_mini_window_wrapper" className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-[9999] select-none">
+          {session.type === 'video' ? (
+            <motion.div 
+              key="call-mini-window-video"
+              initial={{ scale: 0.8, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.8, opacity: 0, y: 20 }}
+              className="w-48 h-68 sm:w-56 sm:h-76 rounded-3xl overflow-hidden shadow-2xl border-2 border-white/25 bg-neutral-950 flex flex-col justify-between p-2.5 relative"
+            >
+              {/* Live Video Feed */}
+              <video
+                ref={miniVideoElementRef}
+                autoPlay
+                playsInline
+                muted={!isConnected || isSwapped}
+                className="absolute inset-0 w-full h-full object-cover cursor-pointer"
+                style={{ transform: (!isConnected || (isSwapped && facingMode === 'user')) ? 'scaleX(-1)' : 'none' }}
+                onClick={() => setIsMinimized(false)}
+              />
+              {/* Vignette Overlay */}
+              <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-transparent to-black/85 pointer-events-none" />
+
+              {/* Top Row */}
+              <div className="relative z-10 flex items-center justify-between w-full">
+                <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-black/65 backdrop-blur-md border border-white/15 text-[10px] text-white font-mono shadow-xs">
+                  <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                  <span>{isConnected ? formatTime(callDuration) : 'Calling...'}</span>
+                </div>
+                <button
+                  onClick={() => setIsMinimized(false)}
+                  className="p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md border border-white/15 transition-transform active:scale-90 cursor-pointer shadow-md"
+                  title="Maximize call"
+                  aria-label="Maximize call"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {/* Center Tap Area to expand */}
+              <div 
+                className="relative z-10 flex-1 flex flex-col items-center justify-center cursor-pointer"
+                onClick={() => setIsMinimized(false)}
+              >
+                <p className="text-xs font-bold text-white drop-shadow-md text-center px-2 truncate max-w-full">
+                  {session.partnerName}
+                </p>
+              </div>
+
+              {/* Bottom Controls */}
+              <div className="relative z-10 flex items-center justify-center gap-2 pt-1">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleToggleMute(); }}
+                  className={`p-2 rounded-full backdrop-blur-md text-white border transition-all cursor-pointer ${
+                    isMuted ? 'bg-rose-500/80 border-rose-400/50' : 'bg-white/20 border-white/20 hover:bg-white/30'
+                  }`}
+                  title={isMuted ? "Unmute" : "Mute"}
+                >
+                  {isMuted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleSwitchCamera(); }}
+                  className="p-2 rounded-full bg-white/20 hover:bg-white/30 border border-white/20 backdrop-blur-md text-white transition-all cursor-pointer"
+                  title="Switch Camera"
+                >
+                  <SwitchCamera className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleHangUp(); }}
+                  className="p-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-lg transition-transform active:scale-90 cursor-pointer"
+                  title="End Call"
+                >
+                  <PhoneOff className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="call-mini-window-voice"
+              initial={{ scale: 0.8, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.8, opacity: 0, y: 20 }}
+              className="w-72 p-3 rounded-2xl bg-neutral-900/95 border border-white/15 backdrop-blur-xl shadow-2xl flex items-center justify-between gap-3 text-white"
+            >
+              <div 
+                className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
+                onClick={() => setIsMinimized(false)}
+              >
+                {renderCallAvatar(session.partnerAvatarSeed, (session.partnerName?.[0] || "C"), session.partnerAvatarUrl, 'h-10 w-10 text-sm')}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-white truncate">{session.partnerName}</p>
+                  <div className="flex items-center gap-1 text-[10px] font-mono text-neutral-300">
+                    <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                    <span>{isConnected ? formatTime(callDuration) : 'Calling...'}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={handleToggleMute}
+                  className={`p-2 rounded-full text-white transition-all cursor-pointer ${
+                    isMuted ? 'bg-rose-500/80' : 'bg-white/15 hover:bg-white/25'
+                  }`}
+                  title={isMuted ? "Unmute" : "Mute"}
+                >
+                  {isMuted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  onClick={handleHangUp}
+                  className="p-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-md transition-transform active:scale-90 cursor-pointer"
+                  title="End call"
+                >
+                  <PhoneOff className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => setIsMinimized(false)}
+                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-transform active:scale-90 cursor-pointer"
+                  title="Maximize call"
+                  aria-label="Maximize call"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </motion.div>
+          )}
         </div>
+      ) : (
+        /* Full Screen Call UI */
+        <div 
+          id="call_modal_root"
+          className="fixed inset-0 z-[9999] bg-neutral-950 text-white flex flex-col justify-between overflow-hidden select-none font-sans"
+        >
+          {/* Prominent Zenoa Top Header Bar */}
+          <div className="p-4 sm:p-6 flex items-center justify-between bg-gradient-to-b from-black/90 via-black/50 to-transparent z-50">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsMinimized(true)}
+                className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-md border border-white/10 transition-all active:scale-95 cursor-pointer shadow-md"
+                title="Minimize call"
+                aria-label="Minimize"
+              >
+                <ChevronDown className="h-5 w-5" />
+              </button>
+              <div className="flex items-center gap-2">
+                <span className="text-xl sm:text-2xl font-black tracking-widest text-white uppercase font-sans drop-shadow-md">
+                  Zenoa
+                </span>
+                <span className="text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded-full bg-white/10 text-neutral-300 backdrop-blur-sm border border-white/10">
+                  {session.type === 'video' ? 'HD Video' : 'HD Voice'}
+                </span>
+              </div>
+            </div>
         
         <AnimatePresence mode="wait">
           {isConnected ? (
@@ -1113,80 +1359,65 @@ export const CallModal: React.FC<CallModalProps> = ({
         {session.type === 'video' ? (
           <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-neutral-950">
             
-            {/* 1. Main View (Full Screen Video Feed) */}
+            {/* 1. Main View (Full Screen Video Feed: User's camera active immediately in background before connection) */}
             <div className="absolute inset-0 w-full h-full bg-neutral-900 flex items-center justify-center">
               <video 
                 ref={mainVideoElementRef} 
                 autoPlay 
                 playsInline 
-                muted={isSwapped} // mute if showing local camera in main view to avoid feedback loop
+                muted={!isConnected || isSwapped} 
                 className="w-full h-full object-cover"
-                style={{ transform: isSwapped && facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
+                style={{ transform: (!isConnected || (isSwapped && facingMode === 'user')) ? 'scaleX(-1)' : 'none' }}
               />
 
-              {/* Placeholder when remote stream is dialing / connecting */}
+              {/* Frosted Calling Overlay (Live camera feed remains active & visible behind this) */}
               <AnimatePresence>
-                {!isConnected && !isSwapped && (
+                {!isConnected && (
                   <motion.div 
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    exit={{ opacity: 0, scale: 1.05, transition: { duration: 0.4 } }}
-                    className="absolute inset-0 bg-neutral-950/90 backdrop-blur-md flex flex-col items-center justify-center space-y-6 p-6 z-20"
+                    exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.3 } }}
+                    className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/20 to-black/75 flex flex-col items-center justify-center p-6 z-20 pointer-events-none"
                   >
-                    {/* Connecting Multi-Layer Ripples */}
-                    <div className="relative flex items-center justify-center">
-                      <div className="absolute w-48 h-48 rounded-full bg-gradient-to-r from-indigo-600/20 via-purple-600/20 to-pink-600/20 blur-2xl animate-pulse" />
-                      
-                      <motion.div
-                        animate={{ scale: [1, 1.8, 2.3], opacity: [0.7, 0.35, 0] }}
-                        transition={{ duration: 2.4, repeat: Infinity, ease: "easeOut", delay: 0 }}
-                        className="absolute inset-0 rounded-full border border-indigo-500/40 bg-indigo-500/10 shadow-[0_0_20px_rgba(99,102,241,0.2)]"
-                      />
-                      <motion.div
-                        animate={{ scale: [1, 1.8, 2.3], opacity: [0.7, 0.35, 0] }}
-                        transition={{ duration: 2.4, repeat: Infinity, ease: "easeOut", delay: 0.8 }}
-                        className="absolute inset-0 rounded-full border border-violet-500/35 bg-violet-500/10 shadow-[0_0_25px_rgba(139,92,246,0.15)]"
-                      />
-                      <motion.div
-                        animate={{ scale: [1, 1.8, 2.3], opacity: [0.7, 0.35, 0] }}
-                        transition={{ duration: 2.4, repeat: Infinity, ease: "easeOut", delay: 1.6 }}
-                        className="absolute inset-0 rounded-full border border-pink-500/30 bg-pink-500/5 shadow-[0_0_30px_rgba(236,72,153,0.1)]"
-                      />
-                      <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 6, repeat: Infinity, ease: "linear" }}
-                        className="absolute -inset-3 rounded-full border border-dashed border-indigo-400/30"
-                      />
-
-                      <div className="relative z-10">
-                        {renderCallAvatar(session.partnerAvatarSeed, (session.partnerName?.[0] || "C"), session.partnerAvatarUrl, 'h-28 w-28 text-3xl')}
+                    <motion.div 
+                      initial={{ scale: 0.9, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className="flex flex-col items-center space-y-4 p-6 rounded-3xl bg-black/40 backdrop-blur-md border border-white/15 shadow-2xl text-center max-w-xs"
+                    >
+                      <div className="relative flex items-center justify-center">
+                        <motion.div
+                          animate={{ scale: [1, 1.25, 1], opacity: [0.6, 0.2, 0.6] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                          className="absolute -inset-2 rounded-full border-2 border-emerald-400/50 shadow-[0_0_20px_rgba(52,211,153,0.3)]"
+                        />
+                        {renderCallAvatar(session.partnerAvatarSeed, (session.partnerName?.[0] || "C"), session.partnerAvatarUrl, 'h-24 w-24 text-3xl')}
                       </div>
-                    </div>
 
-                    <div className="text-center space-y-1">
-                      <h3 className="text-xl font-bold tracking-tight">{session.partnerName}</h3>
-                      <p className="text-xs text-neutral-400 font-mono">@{session.partnerUsername}</p>
-                      <div className="pt-2">
-                        <span className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-xs font-semibold text-indigo-300 animate-pulse backdrop-blur-md">
-                          <Radio className="h-3.5 w-3.5 animate-spin" />
-                          <span>{session.isIncoming ? 'Incoming Video Call...' : 'Establishing encrypted video stream...'}</span>
-                        </span>
+                      <div className="space-y-1">
+                        <h3 className="text-xl font-bold tracking-tight text-white drop-shadow-md">{session.partnerName}</h3>
+                        <div className="pt-1">
+                          <span className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-white/15 border border-white/20 text-xs font-semibold text-white/90 backdrop-blur-md shadow-xs animate-pulse">
+                            <Radio className="h-3.5 w-3.5 animate-spin" />
+                            <span>{session.isIncoming ? 'Incoming Video Call...' : 'Calling...'}</span>
+                          </span>
+                        </div>
                       </div>
-                    </div>
+                    </motion.div>
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
 
-            {/* 2. Floating Picture-in-Picture Frame (Tap to Swap View) */}
+            {/* 2. Floating Picture-in-Picture Frame: ONLY appears once connected with smooth spring animation */}
             <AnimatePresence>
-              {(!isVideoOff || isSwapped) && (
+              {isConnected && (!isVideoOff || isSwapped) && (
                 <motion.div 
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.8 }}
+                  initial={{ opacity: 0, scale: 0.5, y: 20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.5, y: 20 }}
+                  transition={{ type: "spring", damping: 24, stiffness: 300 }}
                   onClick={() => setIsSwapped(!isSwapped)}
-                  className="absolute top-4 right-4 w-28 h-40 sm:w-36 sm:h-52 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl bg-neutral-900 z-40 cursor-pointer hover:border-white/40 transition-all active:scale-95"
+                  className="absolute top-4 right-4 w-28 h-40 sm:w-36 sm:h-52 rounded-2xl overflow-hidden border-2 border-white/25 shadow-2xl bg-neutral-900 z-40 cursor-pointer hover:border-white/50 transition-all active:scale-95"
                   title="Tap to swap main and mini camera view"
                 >
                   <video 
@@ -1281,10 +1512,9 @@ export const CallModal: React.FC<CallModalProps> = ({
               </motion.div>
             </div>
 
-            {/* Details */}
+            {/* Details (Partner Name ONLY, no username) */}
             <div className="space-y-2">
               <h2 className="text-2xl font-black tracking-wide">{session.partnerName}</h2>
-              <p className="text-xs text-neutral-400 font-mono">@{session.partnerUsername}</p>
               
               <div className="pt-2">
                 <AnimatePresence mode="wait">
@@ -1299,13 +1529,13 @@ export const CallModal: React.FC<CallModalProps> = ({
                       {session.status === 'dialing' && (
                         <span className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-xs font-bold text-indigo-300 animate-pulse shadow-[0_0_15px_rgba(99,102,241,0.2)]">
                           <Radio className="h-3.5 w-3.5 animate-spin" />
-                          <span>Calling...</span>
+                          <span>Calling... {ringCountdown > 0 ? `${ringCountdown}s` : ''}</span>
                         </span>
                       )}
                       {session.status === 'ringing' && (
                         <span className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-xs font-bold text-emerald-300 animate-pulse shadow-[0_0_15px_rgba(16,185,129,0.2)]">
                           <Radio className="h-3.5 w-3.5 animate-spin" />
-                          <span>Ringing...</span>
+                          <span>Ringing... {ringCountdown > 0 ? `${ringCountdown}s` : ''}</span>
                         </span>
                       )}
                       {session.status !== 'dialing' && session.status !== 'ringing' && (
@@ -1444,5 +1674,7 @@ export const CallModal: React.FC<CallModalProps> = ({
         )}
       </div>
     </div>
+    )}
+  </>
   );
 };

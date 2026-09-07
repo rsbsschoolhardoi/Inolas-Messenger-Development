@@ -15,6 +15,7 @@ interface NotificationsModalProps {
   themeMode?: 'light' | 'dark';
   onToggleFollow?: (username: string) => void;
   currentUserFollowing?: string[];
+  onViewProfile?: (username: string) => void;
 }
 
 export const NotificationsModal: React.FC<NotificationsModalProps> = ({
@@ -28,7 +29,8 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
   renderAvatar,
   themeMode = 'light',
   onToggleFollow,
-  currentUserFollowing = []
+  currentUserFollowing = [],
+  onViewProfile
 }) => {
   if (!isOpen) return null;
 
@@ -107,10 +109,16 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
                       key={req.id}
                       className="flex items-center justify-between p-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-100 dark:border-neutral-700/60 gap-3"
                     >
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        {renderAvatar(req.fromAvatar, req.fromName, undefined, 'h-10 w-10 text-xs shrink-0')}
+                      <div 
+                        onClick={() => onViewProfile && onViewProfile(req.fromUsername)}
+                        className={`flex items-center gap-3 min-w-0 flex-1 ${onViewProfile ? 'cursor-pointer group' : ''}`}
+                        title={onViewProfile ? `View @${req.fromUsername}'s profile` : undefined}
+                      >
+                        <div className="shrink-0 transition-transform group-hover:scale-105">
+                          {renderAvatar(req.fromAvatar, req.fromName, undefined, 'h-10 w-10 text-xs')}
+                        </div>
                         <div className="min-w-0 flex-1">
-                          <p className="font-bold text-xs text-neutral-900 dark:text-white truncate">
+                          <p className="font-bold text-xs text-neutral-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
                             {req.fromName}
                           </p>
                           <p className="text-[11px] text-neutral-400 truncate">
@@ -157,11 +165,19 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
                             : 'bg-neutral-50/50 dark:bg-neutral-900/30 border-neutral-100 dark:border-neutral-800/50 hover:bg-neutral-100/50 dark:hover:bg-neutral-800/40'
                         }`}
                       >
-                        <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
-                          {renderAvatar(n.fromAvatar, n.fromName, undefined, 'h-10 w-10 text-xs shrink-0 shadow-2xs')}
+                        <div 
+                          onClick={() => onViewProfile && onViewProfile(n.fromUsername)}
+                          className={`flex items-center gap-3 min-w-0 flex-1 pr-2 ${onViewProfile ? 'cursor-pointer group' : ''}`}
+                          title={onViewProfile ? `View @${n.fromUsername}'s profile` : undefined}
+                        >
+                          <div className="shrink-0 transition-transform group-hover:scale-105">
+                            {renderAvatar(n.fromAvatar, n.fromName, undefined, 'h-10 w-10 text-xs shadow-2xs')}
+                          </div>
                           <div className="min-w-0 flex-1">
                             <p className="text-xs text-neutral-800 dark:text-neutral-200 leading-snug">
-                              <span className="font-bold text-neutral-900 dark:text-white">{n.fromName}</span>{' '}
+                              <span className="font-bold text-neutral-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                                {n.fromName}
+                              </span>{' '}
                               {n.type === 'follow_accept' && 'accepted your follow request.'}
                               {n.type === 'new_follower' && 'started following you.'}
                               {n.type === 'follow_request' && 'requested to follow your account.'}

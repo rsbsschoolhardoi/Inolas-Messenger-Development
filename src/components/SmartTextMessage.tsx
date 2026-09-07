@@ -84,7 +84,7 @@ function parseInlineContent(
         (part.startsWith('__') && part.endsWith('__') && part.length >= 4)) {
       const boldContent = part.slice(2, -2);
       return (
-        <strong key={idx} className="font-extrabold tracking-tight">
+        <strong key={idx} className="font-semibold tracking-tight">
           {parseInlineContent(boldContent, isMe, isSentDark, isReceivedDark, onToast)}
         </strong>
       );
@@ -276,7 +276,7 @@ export const SmartTextMessage: React.FC<SmartTextMessageProps> = ({
   }
 
   return (
-    <div className="text-xs leading-relaxed break-words min-w-0 [overflow-wrap:anywhere] max-w-full space-y-1">
+    <div className="font-chat text-[13.5px] sm:text-sm font-[460] leading-[1.54] tracking-[-0.012em] break-words min-w-0 [overflow-wrap:anywhere] max-w-full space-y-1 select-text">
       {/* Smart Security Alert Banner */}
       {isSecurityAlert && (
         <div className={`my-1 p-2 rounded-xl border flex items-center gap-2 ${

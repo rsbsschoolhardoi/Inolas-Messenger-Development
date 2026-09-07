@@ -194,6 +194,47 @@ export const checkUsernameIsTakenInFirestore = async (
   return { isTaken: false };
 };
 
+export const checkZenoaIdIsTakenInFirestore = async (
+  dbRef: any,
+  zenoaId: string,
+  currentUserId?: string,
+  localUsers: Record<string, UserData> = {}
+): Promise<{ isTaken: boolean; reason?: string }> => {
+  let clean = (zenoaId || '').trim().toLowerCase().replace(/^@+/, '');
+  if (!clean) return { isTaken: false };
+  if (!clean.endsWith('@zenoa')) {
+    clean = `${clean}@zenoa`;
+  }
+
+  // 1. Check local users state
+  const localMatch = Object.values(localUsers).find(
+    u => u && u.zenoa_id && u.zenoa_id.trim().toLowerCase().replace(/^@+/, '') === clean && u.id !== currentUserId
+  );
+  if (localMatch) {
+    return { isTaken: true, reason: `Zenoa ID @${clean} is already assigned to an existing account.` };
+  }
+
+  // 2. Check remote Firestore collection
+  if (dbRef) {
+    try {
+      const usersRef = collection(dbRef, 'users');
+      const q = query(usersRef, where('zenoa_id', '==', clean));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        for (const docSnap of snap.docs) {
+          if (docSnap.id !== currentUserId) {
+            return { isTaken: true, reason: `Zenoa ID @${clean} is already assigned to an existing account.` };
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn("Firestore Zenoa ID availability check notice:", err.message);
+    }
+  }
+
+  return { isTaken: false };
+};
+
 export default function App() {
   const branding = useBranding();
 
@@ -618,7 +659,9 @@ export default function App() {
             const callDocId = callMeta.callId || activeCallSession.id;
             if (callDocId) {
               await updateDoc(doc(db, 'calls', callDocId), {
-                status: callMeta.status,
+                status: 'ended',
+                call_status: callMeta.status,
+                end_reason: callMeta.status,
                 ended_at: Date.now(),
                 duration: callMeta.durationSeconds,
                 duration_seconds: callMeta.durationSeconds,
@@ -1204,59 +1247,66 @@ export default function App() {
   // Messenger Database State
   const [users, setUsers] = useState<Record<string, UserData>>({});
 
-  // Memoized unique user list (Deduplicated strictly by permanent UID / Email Identity so username changes never duplicate accounts)
+  // Memoized unique user list (Strictly deduplicated by canonical Zenoa ID, permanent Auth UID, and Email so username changes NEVER create duplicate accounts)
   const uniqueUserList = useMemo<UserData[]>(() => {
     const map = new Map<string, UserData>();
-    // First pass: Index all users by canonical identity
-    Object.values(users).forEach((u: UserData) => {
-      if (u) {
-        // Group strictly by primary identity:
-        // 1. u.id (Firebase Auth UID)
-        // 2. u.email (Email address used during registration)
-        // 3. u.username (Clean username fallback)
-        const primaryKey = (u.id && u.id.trim())
-          ? `uid:${u.id.trim().toLowerCase()}`
-          : (u.email && u.email.trim())
-            ? `email:${u.email.trim().toLowerCase()}`
-            : (u.username && u.username.trim())
-              ? `username:${u.username.trim().toLowerCase()}`
-              : '';
 
-        if (primaryKey) {
-          if (!map.has(primaryKey)) {
-            map.set(primaryKey, u);
-          } else {
-            const existing = map.get(primaryKey)!;
-            // Always preserve and merge the richest, most up-to-date profile data
-            map.set(primaryKey, {
-              ...existing,
-              ...u,
-              display_name: u.display_name || existing.display_name,
-              username: u.username || existing.username,
-              bio: u.bio || existing.bio,
-              avatar_seed: u.avatar_seed || existing.avatar_seed,
-              avatar_url: u.avatar_url || existing.avatar_url,
-              online: u.online !== undefined ? u.online : existing.online,
-              last_seen: u.last_seen || existing.last_seen,
-              previous_usernames: Array.from(new Set([...(existing.previous_usernames || []), ...(u.previous_usernames || [])].filter(Boolean)))
-            });
-          }
+    Object.values(users).forEach((u: UserData) => {
+      if (!u) return;
+
+      const rawUid = (u.id || '').trim().toLowerCase();
+      const rawZenoa = (u.zenoa_id || '').trim().toLowerCase().replace(/^@+/, '');
+      const rawEmail = (u.email || '').trim().toLowerCase();
+      const rawUsername = (u.username || '').trim().toLowerCase();
+
+      // Find if this user already exists under ANY canonical identifier
+      let matchedKey: string | null = null;
+      for (const [key, existing] of map.entries()) {
+        const exUid = (existing.id || '').trim().toLowerCase();
+        const exZenoa = (existing.zenoa_id || '').trim().toLowerCase().replace(/^@+/, '');
+        const exEmail = (existing.email || '').trim().toLowerCase();
+        const exUsername = (existing.username || '').trim().toLowerCase();
+        const exPrev = (existing.previous_usernames || []).map(p => (p || '').trim().toLowerCase());
+
+        const isSameUid = rawUid && exUid && rawUid === exUid;
+        const isSameZenoa = rawZenoa && exZenoa && rawZenoa === exZenoa;
+        const isSameEmail = rawEmail && exEmail && !rawEmail.includes('zenoa.auth') && rawEmail === exEmail;
+        const isSameUsername = rawUsername && exUsername && rawUsername === exUsername;
+        const isPrevMatch = (rawUsername && exPrev.includes(rawUsername)) || (exUsername && (u.previous_usernames || []).map(p => (p || '').trim().toLowerCase()).includes(exUsername));
+
+        if (isSameZenoa || isSameUid || isSameEmail || isSameUsername || isPrevMatch) {
+          matchedKey = key;
+          break;
         }
       }
-    });
 
-    // Secondary pass: Deduplicate any residual entries that share the exact same username or email or previous_usernames
-    const finalMap = new Map<string, UserData>();
-    map.forEach(user => {
-      const canonicalUsername = (user.username || '').trim().toLowerCase();
-      const canonicalId = (user.id || '').trim().toLowerCase();
-      const dedupeKey = canonicalId ? `id_${canonicalId}` : `un_${canonicalUsername}`;
-      if (dedupeKey && !finalMap.has(dedupeKey)) {
-        finalMap.set(dedupeKey, user);
+      if (matchedKey) {
+        const existing = map.get(matchedKey)!;
+        // Merge with preference for the richer/more updated profile info
+        map.set(matchedKey, {
+          ...existing,
+          ...u,
+          id: existing.id || u.id,
+          zenoa_id: existing.zenoa_id || u.zenoa_id || `${u.username}@zenoa`,
+          display_name: u.display_name || existing.display_name,
+          username: u.username || existing.username,
+          bio: u.bio || existing.bio,
+          avatar_seed: u.avatar_seed || existing.avatar_seed,
+          avatar_url: u.avatar_url || existing.avatar_url,
+          online: u.online !== undefined ? u.online : existing.online,
+          last_seen: u.last_seen || existing.last_seen,
+          previous_usernames: Array.from(new Set([...(existing.previous_usernames || []), ...(u.previous_usernames || [])].filter(Boolean)))
+        });
+      } else {
+        const canonicalKey = rawZenoa ? `zenoa:${rawZenoa}` : (rawUid ? `uid:${rawUid}` : (rawUsername ? `un:${rawUsername}` : `key_${Math.random()}`));
+        map.set(canonicalKey, {
+          ...u,
+          zenoa_id: u.zenoa_id || `${u.username || 'user'}@zenoa`
+        });
       }
     });
 
-    return Array.from(finalMap.values());
+    return Array.from(map.values());
   }, [users]);
   // Clean up legacy un-scoped cache keys to prevent data leakage across accounts
   useEffect(() => {
@@ -1436,6 +1486,43 @@ export default function App() {
           }, { merge: true });
         } catch (e) { console.error(e); }
       }
+
+      // Minimal, tasteful system log inside the chat
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const cleanThemeName = themeId.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      const logMsgText = `You changed the chat theme to ${cleanThemeName}`;
+      const logMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+      const logSysMsg: Message = {
+        id: logMsgId,
+        chat_id: activeChatId,
+        created_at: Date.now(),
+        sender: userUsername || 'me',
+        text: logMsgText,
+        type: 'system',
+        timestamp: timeStr,
+        reactions: [],
+        read_by: []
+      };
+      setMessagesByChat(prev => ({
+        ...prev,
+        [activeChatId]: [...(prev[activeChatId] || []), logSysMsg]
+      }));
+      if (isFirebaseConfigured && db && auth) {
+        try {
+          setDoc(doc(db, 'messages', logMsgId), {
+            id: logMsgId,
+            chat_id: activeChatId,
+            created_at: Date.now(),
+            sender: userUsername || 'me',
+            text: logMsgText,
+            type: 'system',
+            timestamp: timeStr,
+            reactions: [],
+            read_by: []
+          }).catch(() => {});
+        } catch (e) {}
+      }
+
       showToast('Wallpaper & theme updated');
     }
   };
@@ -1508,6 +1595,47 @@ export default function App() {
   const [chatColorTheme, setChatColorTheme] = useState<string>('indigo');
   const [activeFontSize, setActiveFontSize] = useState<'sm' | 'md' | 'lg'>('md');
   const [chatBubbleStyle, setChatBubbleStyle] = useState<'modern' | 'minimal' | 'playful'>('modern');
+
+  const handleSetChatBubbleStyle = (style: 'modern' | 'minimal' | 'playful') => {
+    setChatBubbleStyle(style);
+    try { localStorage.setItem('zenoa_chat_bubble_style', style); } catch (e) {}
+    if (activeChatId) {
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const styleCapitalized = style.charAt(0).toUpperCase() + style.slice(1);
+      const logMsgText = `You changed the message bubble style to ${styleCapitalized}`;
+      const logMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+      const logSysMsg: Message = {
+        id: logMsgId,
+        chat_id: activeChatId,
+        created_at: Date.now(),
+        sender: userUsername || 'me',
+        text: logMsgText,
+        type: 'system',
+        timestamp: timeStr,
+        reactions: [],
+        read_by: []
+      };
+      setMessagesByChat(prev => ({
+        ...prev,
+        [activeChatId]: [...(prev[activeChatId] || []), logSysMsg]
+      }));
+      if (isFirebaseConfigured && db && auth) {
+        try {
+          setDoc(doc(db, 'messages', logMsgId), {
+            id: logMsgId,
+            chat_id: activeChatId,
+            created_at: Date.now(),
+            sender: userUsername || 'me',
+            text: logMsgText,
+            type: 'system',
+            timestamp: timeStr,
+            reactions: [],
+            read_by: []
+          }).catch(() => {});
+        } catch (e) {}
+      }
+    }
+  };
   const [notificationsSound, setNotificationsSound] = useState<boolean>(true);
   const [previewTextInNotif, setPreviewTextInNotif] = useState<boolean>(true);
   const [privacyUsernameVisible, setPrivacyUsernameVisible] = useState<boolean>(true);
@@ -2160,6 +2288,130 @@ export default function App() {
     };
   }, [activeChatId]);
 
+  // Immediate local cache loader when switching active chat
+  useEffect(() => {
+    if (!activeChatId || !userUsername) return;
+    let isCurrent = true;
+    storageManager.getMessagesForChat(activeChatId, userUsername, userAccountCreatedAt).then(localMsgs => {
+      if (isCurrent && localMsgs && localMsgs.length > 0) {
+        setMessagesByChat(prev => ({
+          ...prev,
+          [activeChatId]: dedupeMessages(localMsgs)
+        }));
+      }
+    }).catch(() => {});
+    return () => {
+      isCurrent = false;
+    };
+  }, [activeChatId, userUsername, userAccountCreatedAt]);
+
+  // Global Zero-Cloud Ephemeral Relay Inbox Listener (Processes and purges messages across all chats)
+  useEffect(() => {
+    if (!isFirebaseConfigured || !db || !userUsername) return;
+    const cleanSelf = userUsername.toLowerCase().trim().replace(/^@/, '');
+
+    const messagesCollection = collection(db, 'messages');
+    const unsubscribeInbox = onSnapshot(messagesCollection, async (snapshot) => {
+      if (snapshot.empty) return;
+      const incomingToSave: Message[] = [];
+      const docsToDelete: string[] = [];
+
+      for (const docSnap of snapshot.docs) {
+        const m = docSnap.data();
+        if (!m || !m.chat_id) continue;
+
+        // Drop legacy messages from prior incarnation of deleted account
+        if (userAccountCreatedAt > 0 && m.created_at && m.created_at < (userAccountCreatedAt - 300000)) {
+          continue;
+        }
+
+        const mSender = (m.sender || '').toLowerCase().trim().replace(/^@/, '');
+        const isFromMe = mSender === userUsername.toLowerCase() || mSender === cleanSelf;
+
+        // If message is from partner/other user destined for this user
+        if (!isFromMe) {
+          const chatId = m.chat_id;
+          
+          let clearText = m.text || '';
+          if (clearText) {
+            try {
+              clearText = await decryptMessageText(clearText, chatId);
+            } catch {
+              // keep as is
+            }
+          }
+
+          let parsedReactions: any[] = [];
+          if (m.reactions) {
+            try { parsedReactions = typeof m.reactions === 'string' ? JSON.parse(m.reactions) : m.reactions; } catch {}
+          }
+          let parsedReadBy: string[] = [];
+          if (m.read_by) {
+            try { parsedReadBy = typeof m.read_by === 'string' ? JSON.parse(m.read_by) : m.read_by; } catch {}
+          }
+
+          const parsedMsg: Message = {
+            id: m.id || docSnap.id,
+            chat_id: chatId,
+            created_at: m.created_at || Date.now(),
+            expires_at: m.expires_at,
+            sender: m.sender || 'unknown',
+            text: clearText,
+            type: (m.type || 'text') as any,
+            call_data: m.call_data || undefined,
+            location_data: m.location_data || undefined,
+            contact_data: m.contact_data || undefined,
+            poll_data: m.poll_data || undefined,
+            media_url: m.media_url,
+            audio_url: m.audio_url,
+            file_name: m.file_name,
+            file_size: m.file_size,
+            timestamp: m.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            reply_to: m.reply_to,
+            reply_sender: m.reply_sender,
+            reply_preview: m.reply_preview,
+            edited: m.edited || false,
+            deleted_for_everyone: m.deleted_for_everyone || false,
+            deleted_for_me: m.deleted_for_me || false,
+            reactions: parsedReactions,
+            read_by: parsedReadBy,
+            forwarded: m.forwarded || false,
+            pinned: m.pinned || false
+          };
+
+          incomingToSave.push(parsedMsg);
+          docsToDelete.push(docSnap.id);
+        }
+      }
+
+      if (incomingToSave.length > 0) {
+        // 1. Securely persist to local device IndexedDB / SQLite store
+        await storageManager.saveMessages(incomingToSave, userUsername).catch(err => console.warn("Local storage write error:", err));
+
+        // 2. Strict Ephemeral Rule: Zero Cloud Storage. Immediately purge document from Firestore cloud once written to IndexedDB!
+        for (const docId of docsToDelete) {
+          deleteDoc(doc(db, 'messages', docId)).catch(() => {});
+        }
+
+        // 3. Update local state
+        setMessagesByChat(prev => {
+          const next = { ...prev };
+          for (const msg of incomingToSave) {
+            const currentList = next[msg.chat_id] || [];
+            next[msg.chat_id] = dedupeMessages([...currentList, msg]);
+          }
+          return next;
+        });
+      }
+    }, (err) => {
+      console.warn("Global ephemeral inbox sync notice:", err.message);
+    });
+
+    return () => {
+      unsubscribeInbox();
+    };
+  }, [isFirebaseConfigured, db, userUsername, userAccountCreatedAt]);
+
   // Synchronize messages for the active chat only
   useEffect(() => {
     if (!isFirebaseConfigured || !db || !activeChatId || !userUsername) {
@@ -2282,23 +2534,19 @@ export default function App() {
 
         if (activeMsgs.length > 0) {
           // 1. Save all incoming messages to local device IndexedDB (awaited to guarantee write sequencing)
-          await storageManager.saveMessages(activeMsgs).catch(() => {});
+          await storageManager.saveMessages(activeMsgs, userUsername).catch(() => {});
 
-          // 2. Mark incoming unread messages as read in real-time
-          let hasUnreadIncoming = false;
+          // 2. Strict Ephemeral Deletion: If incoming message belongs to recipient, delete from Firestore cloud immediately!
           const cleanSelf = userUsername.toLowerCase().trim().replace(/^@/, '');
           snapshot.docs.forEach(docSnap => {
             const m = docSnap.data();
-            const mSender = (m.sender || '').toLowerCase();
-            if (mSender !== userUsername.toLowerCase() && mSender !== cleanSelf && (!m.read_by || !Array.isArray(m.read_by) || (!m.read_by.includes(userUsername) && !m.read_by.includes(cleanSelf)))) {
-              hasUnreadIncoming = true;
-              updateDoc(doc(db, 'messages', docSnap.id), {
-                read_by: arrayUnion(userUsername, cleanSelf)
-              }).catch(() => {});
+            const mSender = (m.sender || '').toLowerCase().trim().replace(/^@/, '');
+            if (mSender !== userUsername.toLowerCase() && mSender !== cleanSelf) {
+              deleteDoc(doc(db, 'messages', docSnap.id)).catch(() => {});
             }
           });
 
-          // Reset unread counts on active chat document
+          // Reset unread counts and update last message status on active chat document
           setDoc(doc(db, 'chats', activeChatId), {
             last_message_status: 'read',
             [`unread_by_user.${cleanSelf}`]: 0,
@@ -2339,7 +2587,7 @@ export default function App() {
     return () => {
       unsubscribeMessages();
     };
-  }, [isFirebaseConfigured, db, activeChatId, userUsername]);
+  }, [isFirebaseConfigured, db, activeChatId, userUsername, userAccountCreatedAt]);
 
   // Real Presence & User Status Sync Heartbeat with Instant Offline Cleanup
   useEffect(() => {
@@ -2525,7 +2773,7 @@ export default function App() {
     };
   }, [isFirebaseConfigured, db, userUsername, userId, currentSessionToken, currentSessionCreatedAt]);
 
-  // Monitor active call document status changes to close Call Modal on both sides if ended or declined
+  // Monitor active call document status changes to close Call Modal on both sides if ended, cancelled, timed out, or declined
   useEffect(() => {
     if (!isFirebaseConfigured || !db || !activeCallSession?.id) return;
 
@@ -2533,8 +2781,9 @@ export default function App() {
     const unsubscribeActiveCall = onSnapshot(callDocRef, (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
-      if (data.status === 'ended' || data.status === 'declined') {
-        console.log("Active call ended remotely in Firestore:", data.status);
+      const terminalStatuses = ['ended', 'declined', 'cancelled', 'unanswered', 'missed', 'rejected', 'timeout'];
+      if (terminalStatuses.includes(data.status) || (data.end_reason && terminalStatuses.includes(data.end_reason)) || data.cancelled_by_caller) {
+        console.log("Active call ended remotely in Firestore:", data.status, data.end_reason);
         setActiveCallSession(null);
       }
     }, (err) => {
@@ -2556,26 +2805,84 @@ export default function App() {
     if (isFirebaseConfigured && db && userUsername) {
       const cleanSelf = userUsername.toLowerCase().trim().replace(/^@/, '');
 
+      // Proactive cleanup: Mark any expired dialing calls (>45s) as ended so login or re-opening app never sees ghost calls
+      getDocs(query(
+        collection(db, 'calls'),
+        where('receiver_clean', '==', cleanSelf),
+        where('status', '==', 'dialing')
+      )).then((staleSnap) => {
+        const now = Date.now();
+        staleSnap.docs.forEach((docSnap) => {
+          const cData = docSnap.data();
+          if (now - (cData.created_at || 0) > 45000) {
+            updateDoc(docSnap.ref, {
+              status: 'ended',
+              end_reason: 'timeout',
+              call_status: 'missed',
+              ended_at: now
+            }).catch(() => {});
+          }
+        });
+      }).catch(() => {});
+
       const handleCallSnap = (snapshot: any) => {
         snapshot.docChanges().forEach((change: any) => {
+          if (change.type === 'removed') {
+            const callData = change.doc.data();
+            if (activeCallSession?.id === callData.id) {
+              setActiveCallSession(null);
+            }
+            return;
+          }
+
           if (change.type === 'added' || change.type === 'modified') {
             const callData = change.doc.data();
             const recClean = callData.receiver_clean || callData.receiver?.toLowerCase();
-            if (callData.status === 'dialing' && (recClean === cleanSelf || callData.receiver === userUsername || callData.receiver_uid === userId)) {
-              const callerUserObj = users[callData.caller] || users[callData.caller_clean] || Object.values(users).find(u => u.username?.toLowerCase() === callData.caller_clean || u.username === callData.caller);
-              setActiveCallSession({
-                id: callData.id,
-                type: callData.type as 'voice' | 'video',
-                status: 'ringing', // Mark as ringing for recipient
-                isIncoming: true,
-                partnerUsername: callData.caller,
-                partnerName: callData.caller_name || callerUserObj?.display_name || callData.caller,
-                partnerAvatarSeed: callData.caller_avatar_seed || callerUserObj?.avatar_seed || callData.caller,
-                partnerAvatarUrl: callData.caller_avatar_url || callerUserObj?.avatar_url,
-                startedAt: callData.created_at || Date.now(),
-                startTimeStr: callData.start_time_str || new Date(callData.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              });
+            const isForMe = (recClean === cleanSelf || callData.receiver === userUsername || callData.receiver_uid === userId);
+            if (!isForMe) return;
+
+            // Check if call is in terminal state or cancelled by caller
+            const terminalStatuses = ['ended', 'declined', 'cancelled', 'unanswered', 'missed', 'rejected', 'timeout'];
+            if (terminalStatuses.includes(callData.status) || (callData.end_reason && terminalStatuses.includes(callData.end_reason)) || callData.cancelled_by_caller) {
+              if (activeCallSession?.id === callData.id) {
+                setActiveCallSession(null);
+              }
+              return;
             }
+
+            // Only 'dialing' can trigger a new incoming call
+            if (callData.status !== 'dialing') return;
+
+            // 45-Second Ring Limit Protection:
+            // If call was created > 45 seconds ago, it is EXPIRED.
+            // Mark as ended in Firestore and do not trigger incoming call popup!
+            const now = Date.now();
+            const callAge = now - (callData.created_at || 0);
+            if (callAge > 45000) {
+              if (change.doc.ref) {
+                updateDoc(change.doc.ref, {
+                  status: 'ended',
+                  end_reason: 'timeout',
+                  call_status: 'missed',
+                  ended_at: now
+                }).catch(() => {});
+              }
+              return;
+            }
+
+            const callerUserObj = users[callData.caller] || users[callData.caller_clean] || Object.values(users).find(u => u.username?.toLowerCase() === callData.caller_clean || u.username === callData.caller);
+            setActiveCallSession({
+              id: callData.id,
+              type: callData.type as 'voice' | 'video',
+              status: 'ringing', // Mark as ringing for recipient
+              isIncoming: true,
+              partnerUsername: callData.caller,
+              partnerName: callData.caller_name || callerUserObj?.display_name || callData.caller,
+              partnerAvatarSeed: callData.caller_avatar_seed || callerUserObj?.avatar_seed || callData.caller,
+              partnerAvatarUrl: callData.caller_avatar_url || callerUserObj?.avatar_url,
+              startedAt: callData.created_at || now,
+              startTimeStr: callData.start_time_str || new Date(callData.created_at || now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            });
           }
         });
       };
@@ -2601,23 +2908,40 @@ export default function App() {
       if (typeof BroadcastChannel !== 'undefined' && userUsername) {
         const handleBcMsg = (e: MessageEvent) => {
           const callData = e.data;
+          if (!callData) return;
+
+          // If hangup/cancel/ended broadcast
+          if (callData.type === 'hangup' || callData.type === 'ended' || callData.type === 'cancel' || callData.reason === 'cancelled' || callData.reason === 'timeout') {
+            if (activeCallSession && (!callData.id || activeCallSession.id === callData.id)) {
+              setActiveCallSession(null);
+            }
+            return;
+          }
+
           const cleanSelf = userUsername.toLowerCase().trim().replace(/^@/, '');
           const recClean = callData?.receiver_clean || callData?.receiver?.toLowerCase();
-          if (callData && callData.status === 'dialing' && (recClean === cleanSelf || callData.receiver === userUsername || callData.receiver_uid === userId)) {
-            const callerUserObj = users[callData.caller] || Object.values(users).find(u => u.username === callData.caller);
-            setActiveCallSession({
-              id: callData.id,
-              type: callData.type as 'voice' | 'video',
-              status: 'ringing',
-              isIncoming: true,
-              partnerUsername: callData.caller,
-              partnerName: callerUserObj?.display_name || callData.caller,
-              partnerAvatarSeed: callerUserObj?.avatar_seed || callData.caller,
-              partnerAvatarUrl: callerUserObj?.avatar_url,
-              startedAt: callData.created_at || Date.now(),
-              startTimeStr: callData.start_time_str || new Date(callData.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            });
-          }
+          const isForMe = (recClean === cleanSelf || callData.receiver === userUsername || callData.receiver_uid === userId);
+          if (!isForMe) return;
+
+          if (callData.status !== 'dialing' || callData.cancelled_by_caller || callData.end_reason) return;
+
+          const now = Date.now();
+          const callAge = now - (callData.created_at || 0);
+          if (callAge > 45000) return; // Expired 45s limit
+
+          const callerUserObj = users[callData.caller] || Object.values(users).find(u => u.username === callData.caller);
+          setActiveCallSession({
+            id: callData.id,
+            type: callData.type as 'voice' | 'video',
+            status: 'ringing',
+            isIncoming: true,
+            partnerUsername: callData.caller,
+            partnerName: callerUserObj?.display_name || callData.caller,
+            partnerAvatarSeed: callerUserObj?.avatar_seed || callData.caller,
+            partnerAvatarUrl: callerUserObj?.avatar_url,
+            startedAt: callData.created_at || now,
+            startTimeStr: callData.start_time_str || new Date(callData.created_at || now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          });
         };
 
         localBc1 = new BroadcastChannel(`zenoa_incoming_calls_${userUsername}`);
@@ -2639,7 +2963,7 @@ export default function App() {
       if (localBc1) localBc1.close();
       if (localBc2) localBc2.close();
     };
-  }, [userUsername, userId, isFirebaseConfigured, db, users]);
+  }, [userUsername, userId, isFirebaseConfigured, db, users, activeCallSession?.id]);
 
   // Live Call History Listener across all devices & sessions (Caller and Receiver)
   useEffect(() => {
@@ -3440,6 +3764,12 @@ export default function App() {
       return { success: false, error: checkRes.reason || `@${cleanUsername} is already taken by another account.` };
     }
 
+    // Direct check against Firestore & local state for Zenoa ID uniqueness
+    const checkZenoaRes = await checkZenoaIdIsTakenInFirestore(db, cleanZenoaId, undefined, users);
+    if (checkZenoaRes.isTaken) {
+      return { success: false, error: checkZenoaRes.reason || `Zenoa ID @${cleanZenoaId} is already registered to an account.` };
+    }
+
     // Check if phone number is already registered to another account (Strict 1-to-1 Phone Constraint)
     if (data.mobile_number && data.mobile_number.trim()) {
       const rawDigits = data.mobile_number.replace(/[^0-9]/g, '');
@@ -3832,6 +4162,7 @@ export default function App() {
       const next = { ...prev };
       const userProfile: UserData = {
         id: userId,
+        zenoa_id: userZenoaId || (currentUserObj?.zenoa_id) || `${formattedUsername}@zenoa`,
         username: formattedUsername,
         display_name: formattedDisplayName,
         bio: editDraftBio,
@@ -3843,10 +4174,10 @@ export default function App() {
         online: true,
         last_seen: 'online'
       };
-      next[formattedUsername] = userProfile;
       if (oldUsername && oldUsername !== formattedUsername) {
-        next[oldUsername] = userProfile;
+        delete next[oldUsername];
       }
+      next[formattedUsername] = userProfile;
       if (userId) {
         next[userId] = userProfile;
       }
@@ -3902,8 +4233,22 @@ export default function App() {
 
         await setDoc(userDocRef, profilePayload, { merge: true });
 
-        // If username changed, update chat participant arrays in Firestore in the background
+        // Update usernames registry in Firestore and clean up any orphaned docs
         if (isUsernameChanged && oldUsername) {
+          try {
+            await setDoc(doc(db, 'usernames', formattedUsername), {
+              uid: userId,
+              username: formattedUsername,
+              zenoa_id: activeZenoaId,
+              updated_at: Date.now()
+            });
+            await deleteDoc(doc(db, 'usernames', oldUsername)).catch(() => {});
+            // Clean up legacy document if any exists under old username
+            if (oldUsername !== userId) {
+              await deleteDoc(doc(db, 'users', oldUsername)).catch(() => {});
+            }
+          } catch (e) {}
+
           const chatsColRef = collection(db, 'chats');
           const qOld = query(chatsColRef, where('participants', 'array-contains', oldUsername));
           const oldSnap = await getDocs(qOld);
@@ -6244,19 +6589,19 @@ export default function App() {
   const handleSendFollowRequest = async (targetUser: UserData) => {
     if (!isFirebaseConfigured || !db || !userId || !targetUser.id) return;
     try {
-      // Check if already requested
-      const q = query(collection(db, 'follow_requests'), 
-        where('fromId', '==', userId), 
-        where('toId', '==', targetUser.id),
-        where('status', '==', 'pending')
-      );
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        showToast("Already requested");
-        return;
+      const deterministicReqId = `${userId}_${targetUser.id}`;
+      const reqRef = doc(db, 'follow_requests', deterministicReqId);
+      const existingSnap = await getDoc(reqRef);
+      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+
+      if (existingSnap.exists()) {
+        const reqData = existingSnap.data();
+        if (reqData.timestamp && reqData.timestamp > oneDayAgo) {
+          showToast("Follow request already sent (active for 24 hours)");
+          return;
+        }
       }
 
-      const reqRef = doc(collection(db, 'follow_requests'));
       await setDoc(reqRef, {
         fromId: userId,
         toId: targetUser.id,
@@ -6267,8 +6612,18 @@ export default function App() {
         timestamp: Date.now()
       });
       
-      // Create notification for target
-      await createNotification(targetUser.id, 'follow_request');
+      // Send notification only if no notification was sent in the last 24h
+      const notifQ = query(
+        collection(db, 'notifications'),
+        where('userId', '==', targetUser.id),
+        where('fromId', '==', userId),
+        where('type', '==', 'follow_request')
+      );
+      const notifSnap = await getDocs(notifQ);
+      const hasRecentNotif = notifSnap.docs.some(d => (d.data().timestamp || 0) > oneDayAgo);
+      if (!hasRecentNotif) {
+        await createNotification(targetUser.id, 'follow_request');
+      }
       showToast("Follow request sent");
     } catch (err) {
       console.error("Follow request error:", err);
@@ -6416,7 +6771,20 @@ export default function App() {
           await setDoc(myDocRef, { following: arrayUnion(targetUsername) }, { merge: true });
           if (targetUserId) {
             await setDoc(doc(db, 'users', targetUserId), { followers: arrayUnion(userUsername) }, { merge: true });
-            await createNotification(targetUserId, 'new_follower');
+            
+            // Send new_follower notification at most once per 24 hours
+            const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+            const notifQ = query(
+              collection(db, 'notifications'),
+              where('userId', '==', targetUserId),
+              where('fromId', '==', myUserId),
+              where('type', '==', 'new_follower')
+            );
+            const notifSnap = await getDocs(notifQ);
+            const hasRecentFollowNotif = notifSnap.docs.some(d => (d.data().timestamp || 0) > oneDayAgo);
+            if (!hasRecentFollowNotif) {
+              await createNotification(targetUserId, 'new_follower');
+            }
           }
         }
       }
@@ -7673,63 +8041,118 @@ export default function App() {
         </div>
       )}
 
-      {/* SIDEBAR: Primary Navigation Panels (Chats, Discover, Settings) */}
-      <aside className={`hidden md:flex flex-col w-64 border-r shrink-0 h-full max-h-[100dvh] transition-colors ${themeMode === 'dark' ? 'bg-[#0f1422] border-slate-800/80' : 'bg-slate-50/80 border-slate-200/80'}`}>
-        {/* Brand App Header */}
-        <div className="flex items-center gap-2.5 h-16 px-4 border-b border-slate-200/80 dark:border-slate-800/80">
-          {branding.messenger_logo ? (
-            <img 
-              src={branding.messenger_logo} 
-              className="h-9 w-9 rounded-xl object-contain border border-slate-200/40 dark:border-slate-800/40 shadow-sm shrink-0" 
-              alt="App Logo" 
-              referrerPolicy="no-referrer"
-            />
-          ) : (
-            <div className="h-9 w-9 rounded-xl bg-neutral-900 dark:bg-neutral-800 border border-neutral-700 text-white font-zenoa font-bold text-base flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
-              Z
-            </div>
-          )}
-          <span className="font-zenoa font-bold text-base tracking-[0.14em] uppercase text-slate-900 dark:text-white truncate">
-            {branding.app_name || 'Zenoa'}
-          </span>
+      {/* SIDEBAR: Primary Navigation Rail (Chats, Search, Profile, Settings) */}
+      <aside className={`hidden md:flex flex-col w-[76px] border-r shrink-0 h-full max-h-[100dvh] transition-colors items-center py-4 justify-between z-20 select-none ${themeMode === 'dark' ? 'bg-[#0f1422] border-slate-800/80' : 'bg-slate-50/90 border-slate-200/80'}`}>
+        {/* Top: App Brand Icon */}
+        <div className="flex flex-col items-center gap-4 w-full">
+          <button 
+            onClick={() => { setActiveView('chats'); setShowProfilePanel(false); }}
+            className="group relative cursor-pointer active:scale-95 transition-transform"
+            title={branding.app_name || 'Inolas Messenger'}
+          >
+            {branding.messenger_logo ? (
+              <img 
+                src={branding.messenger_logo} 
+                className="h-10 w-10 rounded-2xl object-contain border border-slate-200/50 dark:border-slate-800 shadow-sm group-hover:shadow-md transition-shadow" 
+                alt="App Logo" 
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="h-10 w-10 rounded-2xl bg-neutral-900 dark:bg-neutral-800 border border-neutral-700 text-white font-bold text-base flex items-center justify-center shadow-md shadow-indigo-500/20 group-hover:scale-105 transition-transform">
+                {(branding.app_name || 'Z').charAt(0).toUpperCase()}
+              </div>
+            )}
+          </button>
+
+          {/* Navigation Icons Stack */}
+          <nav className="flex flex-col items-center gap-2 mt-2 w-full px-2">
+            {/* Chats */}
+            <button 
+              onClick={() => { setActiveView('chats'); setShowProfilePanel(false); }}
+              className={`relative p-3 rounded-2xl transition-all cursor-pointer group flex items-center justify-center w-12 h-12 ${
+                activeView === 'chats' 
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/25' 
+                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+              }`}
+              title="Chats"
+            >
+              <MessageSquare className="h-5 w-5 stroke-[2.2]" />
+              {totalUnreads > 0 && (
+                <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-bold h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center shadow-xs border-2 border-white dark:border-[#0f1422]">
+                  {totalUnreads > 99 ? '99+' : totalUnreads}
+                </span>
+              )}
+            </button>
+
+            {/* Search */}
+            <button 
+              onClick={() => { setActiveView('search'); setShowProfilePanel(false); }}
+              className={`relative p-3 rounded-2xl transition-all cursor-pointer group flex items-center justify-center w-12 h-12 ${
+                activeView === 'search' 
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/25' 
+                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+              }`}
+              title="Explore & Search"
+            >
+              <Search className="h-5 w-5 stroke-[2.2]" />
+            </button>
+
+            {/* Profile */}
+            <button 
+              onClick={() => { setActiveView('profile'); setShowProfilePanel(false); }}
+              className={`relative p-3 rounded-2xl transition-all cursor-pointer group flex items-center justify-center w-12 h-12 ${
+                activeView === 'profile' 
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/25' 
+                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+              }`}
+              title="My Profile"
+            >
+              <User className="h-5 w-5 stroke-[2.2]" />
+            </button>
+
+            {/* Settings */}
+            <button 
+              onClick={() => { setActiveView('settings'); setShowProfilePanel(false); }}
+              className={`relative p-3 rounded-2xl transition-all cursor-pointer group flex items-center justify-center w-12 h-12 ${
+                activeView === 'settings' 
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/25' 
+                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+              }`}
+              title="Settings & Themes"
+            >
+              <Palette className="h-5 w-5 stroke-[2.2]" />
+            </button>
+          </nav>
+        </div>
+
+        {/* Bottom Actions: Theme Toggle, Status & User Avatar */}
+        <div className="flex flex-col items-center gap-3 w-full px-2">
+          {/* Theme Toggle Button */}
+          <button 
+            onClick={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
+            className="p-2.5 rounded-2xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-all cursor-pointer"
+            title={`Switch to ${themeMode === 'light' ? 'Dark' : 'Light'} Mode`}
+          >
+            {themeMode === 'light' ? <Moon className="h-5 w-5 stroke-[2]" /> : <Sun className="h-5 w-5 text-amber-400 stroke-[2]" />}
+          </button>
+
+          {/* User Presence & Avatar */}
           {isAuthenticated && (
-            <div className="relative ml-auto">
-              <button 
+            <div className="relative">
+              <button
                 onClick={() => setShowStatusPopover(prev => !prev)}
-                className={`flex items-center gap-1.5 text-[10px] border px-2.5 py-1 rounded-full font-semibold cursor-pointer transition-colors shadow-2xs ${
-                  myPresenceStatus === 'online' 
-                    ? 'bg-emerald-500/10 dark:bg-emerald-500/15 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
-                    : myPresenceStatus === 'away'
-                    ? 'bg-amber-500/10 dark:bg-amber-500/15 border-amber-500/30 text-amber-700 dark:text-amber-300'
-                    : myPresenceStatus === 'busy'
-                    ? 'bg-rose-500/10 dark:bg-rose-500/15 border-rose-500/30 text-rose-700 dark:text-rose-300'
-                    : 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
-                }`}
-                title="Change Presence Status & Note"
+                className="relative p-0.5 rounded-full ring-2 ring-transparent hover:ring-indigo-500/50 transition-all cursor-pointer block"
+                title={`Status: ${myPresenceStatus} • Click to change`}
               >
-                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-9 w-9 text-xs')}
+                <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white dark:border-[#0f1422] ${
                   myPresenceStatus === 'online' ? 'bg-emerald-500' : myPresenceStatus === 'away' ? 'bg-amber-500' : myPresenceStatus === 'busy' ? 'bg-rose-500' : 'bg-slate-400'
                 }`} />
-                <span className="capitalize">{myPresenceStatus}</span>
-              </button>
-              
-              <button 
-                onClick={() => {
-                  setShowNotificationsPanel(true);
-                  markNotificationsAsRead();
-                }}
-                className="relative p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-all active:scale-95 cursor-pointer ml-1"
-                title="Notifications"
-              >
-                <Bell className="h-4.5 w-4.5 stroke-[2.2]" />
-                {(notifications.filter(n => !n.read).length > 0 || followRequests.length > 0) && (
-                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500 border-2 border-white dark:border-slate-900 animate-pulse" />
-                )}
               </button>
 
-              {/* Status & Activity Popover */}
+              {/* Status Popover */}
               {showStatusPopover && (
-                <div className="absolute right-0 top-9 z-50 w-56 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-3 backdrop-blur-md">
+                <div className="absolute left-14 bottom-0 z-50 w-56 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-3 backdrop-blur-md">
                   <div className="flex justify-between items-center">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Activity Status</span>
                     <button onClick={() => setShowStatusPopover(false)} className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-3 w-3" /></button>
@@ -7777,75 +8200,6 @@ export default function App() {
             </div>
           )}
         </div>
-
-        {/* Navigation list */}
-        <nav className="flex-1 p-3 space-y-1">
-          <button 
-            onClick={() => { setActiveView('chats'); setShowProfilePanel(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeView === 'chats' ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'}`}
-          >
-            <MessageSquare className="h-5 w-5" />
-            <span>Chats</span>
-            {totalUnreads > 0 && <span className="ml-auto bg-indigo-600 text-white text-[10px] font-bold h-4 px-1.5 rounded-full flex items-center justify-center shadow-xs">{totalUnreads}</span>}
-          </button>
-          
-          <button 
-            onClick={() => { setActiveView('search'); setShowProfilePanel(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeView === 'search' ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'}`}
-          >
-            <Search className="h-5 w-5" />
-            <span>Search</span>
-          </button>
-
-          <button 
-            onClick={() => { setActiveView('profile'); setShowProfilePanel(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeView === 'profile' ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'}`}
-          >
-            <User className="h-5 w-5" />
-            <span>Profile</span>
-          </button>
-
-          <button 
-            onClick={() => { setActiveView('settings'); setShowProfilePanel(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeView === 'settings' ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'}`}
-          >
-            <Palette className="h-5 w-5" />
-            <span>Settings</span>
-          </button>
-        </nav>
-
-        {/* Profile Card Footer */}
-        <div className="p-3 border-t border-slate-200/80 dark:border-slate-800/80">
-          <div 
-            onClick={() => { setActiveView('profile'); setShowProfilePanel(false); }}
-            className="flex items-center gap-2.5 p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/80 cursor-pointer hover:border-indigo-400/60 dark:hover:border-indigo-500/50 transition-all group shadow-2xs"
-          >
-            {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-8 w-8 text-xs')}
-            <div className="flex-1 min-w-0 text-left">
-              <p className="text-xs font-bold truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors text-slate-900 dark:text-white">{userDisplayName}</p>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">@{userUsername}</p>
-            </div>
-            <div className="flex items-center gap-1">
-              <button 
-                onClick={(e) => { 
-                  e.stopPropagation(); 
-                  changeTheme(themeMode === 'light' ? 'dark' : 'light'); 
-                }}
-                className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" 
-                title="Theme"
-              >
-                {themeMode === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-amber-400" />}
-              </button>
-              <button 
-                onClick={(e) => { e.stopPropagation(); setActiveView('settings'); }}
-                className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" 
-                title="Settings"
-              >
-                <Menu className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </div>
       </aside>
 
       {/* CENTER: Main working viewport */}
@@ -7856,20 +8210,21 @@ export default function App() {
           <div className="flex flex-1 h-full relative">
             
             {/* Left Sub-sidebar: Chat rooms */}
-            <div className={`${mobileShowChat ? 'hidden' : 'flex'} md:flex flex-col w-full md:w-80 border-r border-slate-200/80 dark:border-slate-800/80 shrink-0 h-full bg-white/70 dark:bg-[#0f1422]/90 backdrop-blur-md`}>
+            <div className={`${mobileShowChat ? 'hidden' : 'flex'} md:flex flex-col w-full md:w-80 lg:w-[340px] border-r border-slate-200/80 dark:border-slate-800/80 shrink-0 h-full bg-white/80 dark:bg-[#0f1422]/90 backdrop-blur-md`}>
               <div className="p-4 border-b border-slate-200/80 dark:border-slate-800/80">
-                <div className="flex items-center justify-between mb-3">
+                {/* Mobile Header: App Logo + Title + Bell + New Group */}
+                <div className="flex md:hidden items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     {branding.messenger_logo && (
                       <img 
                         src={branding.messenger_logo} 
-                        className="h-6 w-6 object-contain rounded-lg border border-slate-200/40 dark:border-slate-800/40 shadow-xs shrink-0" 
+                        className="h-7 w-7 object-contain rounded-lg border border-slate-200/40 dark:border-slate-800/40 shadow-xs shrink-0" 
                         alt="Logo" 
                         referrerPolicy="no-referrer"
                       />
                     )}
-                    <h1 className="font-zenoa text-xl md:text-2xl font-bold tracking-[0.14em] uppercase text-slate-900 dark:text-white select-none transition-colors truncate">
-                      {branding.app_name || 'Zenoa'}
+                    <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white select-none truncate">
+                      {branding.app_name || 'Inolas'}
                     </h1>
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -7880,7 +8235,7 @@ export default function App() {
                         markNotificationsAsRead();
                       }}
                       className="relative p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all active:scale-95 cursor-pointer"
-                      title="Notifications & Follow Requests"
+                      title="Notifications"
                     >
                       <Bell className="h-4 w-4" />
                       {(notifications.filter(n => !n.read).length > 0 || followRequests.length > 0) && (
@@ -7898,6 +8253,46 @@ export default function App() {
                       title="New Group Chat"
                     >
                       <Users className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Desktop Header: Clean "Messages" Heading + Bell + New Group (Zero Duplicate Branding) */}
+                <div className="hidden md:flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Messages</h2>
+                    {totalUnreads > 0 && (
+                      <span className="bg-indigo-600 text-white text-[11px] font-bold px-2 py-0.5 rounded-full shadow-xs">
+                        {totalUnreads} new
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {/* Notification Bell */}
+                    <button 
+                      onClick={() => {
+                        setShowNotificationsPanel(true);
+                        markNotificationsAsRead();
+                      }}
+                      className="relative p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-all active:scale-95 cursor-pointer"
+                      title="Notifications & Follow Requests"
+                    >
+                      <Bell className="h-4 w-4 stroke-[2.2]" />
+                      {(notifications.filter(n => !n.read).length > 0 || followRequests.length > 0) && (
+                        <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500 border-2 border-white dark:border-slate-900 animate-pulse" />
+                      )}
+                    </button>
+
+                    {/* New Group Button */}
+                    <button 
+                      onClick={() => {
+                        setNewGroupPreselectedUser(null);
+                        setShowNewGroupModal(true);
+                      }} 
+                      className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer" 
+                      title="New Group Chat"
+                    >
+                      <Users className="h-4 w-4 stroke-[2.2]" />
                     </button>
                   </div>
                 </div>
@@ -8452,9 +8847,9 @@ export default function App() {
                   <Pin className="h-3.5 w-3.5 text-neutral-900 dark:text-neutral-100 rotate-45 shrink-0" />
                   <div className="flex-1 min-w-0 text-left">
                     <p className="text-[10px] font-bold text-neutral-900 dark:text-neutral-100">Pinned</p>
-                    <p className="text-xs text-neutral-700 dark:text-neutral-300 truncate">
-                      {activeMessages.find(m => m.pinned && !m.deleted_for_me && !m.deleted_for_everyone)?.text || '[Attachment]'}
-                    </p>
+                    <div className="text-xs text-neutral-700 dark:text-neutral-300 truncate">
+                      <AppleEmojiText text={activeMessages.find(m => m.pinned && !m.deleted_for_me && !m.deleted_for_everyone)?.text || '[Attachment]'} />
+                    </div>
                   </div>
                 </div>
               )}
@@ -9643,7 +10038,9 @@ export default function App() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-neutral-700 dark:text-neutral-300 line-clamp-2">{msg.text}</p>
+                            <div className="text-xs text-neutral-700 dark:text-neutral-300 line-clamp-2">
+                              <AppleEmojiText text={msg.text} />
+                            </div>
                           </div>
                           <button className="text-neutral-500 dark:text-neutral-400 group-hover:text-neutral-900 dark:text-neutral-100 dark:group-hover:text-neutral-500 dark:text-neutral-400 text-xs font-semibold shrink-0 flex items-center gap-1">
                             <span>Open</span>
@@ -9955,7 +10352,7 @@ export default function App() {
             activeFontSize={activeFontSize}
             setActiveFontSize={setActiveFontSize}
             chatBubbleStyle={chatBubbleStyle}
-            setChatBubbleStyle={setChatBubbleStyle}
+            setChatBubbleStyle={handleSetChatBubbleStyle}
             notificationsSound={notificationsSound}
             setNotificationsSound={setNotificationsSound}
             previewTextInNotif={previewTextInNotif}
@@ -11474,6 +11871,10 @@ export default function App() {
         themeMode={themeMode}
         onToggleFollow={(uname) => handleToggleFollowUserInternal(uname)}
         currentUserFollowing={users[userUsername]?.following || []}
+        onViewProfile={(targetUsername) => {
+          setShowNotificationsPanel(false);
+          handleOpenUserProfile(targetUsername);
+        }}
       />
 
       {/* WHATSAPP-STYLE MEDIA EDITOR MODAL (Crop, Customize, Brush, Text, HD Quality, Send to Recipient) */}

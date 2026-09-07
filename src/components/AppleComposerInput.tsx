@@ -1,11 +1,10 @@
 import React, { useRef, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
-import { getAppleEmojiUrl } from '../utils/appleEmoji';
+import { getAppleEmojiCandidateUrls } from '../utils/appleEmoji';
+import { getSyncCachedEmojiUrl } from '../utils/appleEmojiCache';
 
-// Fast non-global test for any extended pictographic or emoji character
-const HAS_EMOJI_REGEX = /(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\u{1f1e6}-\u{1f1ff})/u;
-
-// Global regex used strictly when parsing text into emoji images
-const EMOJI_EXTRACTOR_REGEX = /(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\u{1f1e6}-\u{1f1ff})(?:[\u{1f3fb}-\u{1f3ff}]|\ufe0f|\u200d(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\u{1f1e6}-\u{1f1ff}))*/gu;
+// Unicode emoji detection regexes aligned with AppleEmojiText
+const EMOJI_CHECK_REGEX = /[\p{Extended_Pictographic}\p{Emoji_Presentation}\u{1f1e6}-\u{1f1ff}]/u;
+const NON_EMOJI_ONLY_REGEX = /^[a-zA-Z0-9\s.,!?:;'"_+\-=~`@#$%^&*()[\]{}|\\/<>]+$/;
 
 export interface AppleComposerInputHandle {
   focus: () => void;
@@ -30,12 +29,29 @@ function createEmojiElement(emoji: string): HTMLSpanElement {
   span.setAttribute('data-emoji', emoji);
   span.className = 'inline-flex items-center justify-center align-middle mx-0.5 select-all';
 
+  const candidates = getAppleEmojiCandidateUrls(emoji);
+  const syncBlob = getSyncCachedEmojiUrl(emoji);
+
   const img = document.createElement('img');
-  img.src = getAppleEmojiUrl(emoji);
+  img.src = syncBlob || candidates[0] || '';
   img.alt = emoji;
-  img.className = 'inline-block w-5 h-5 align-middle pointer-events-none select-none';
+  img.className = 'inline-block w-5 h-5 min-w-[20px] min-h-[20px] align-middle pointer-events-none select-none object-contain';
   img.setAttribute('referrerpolicy', 'no-referrer');
+  img.loading = 'eager';
+  img.decoding = 'async';
   img.draggable = false;
+
+  let candIdx = 0;
+  img.onerror = () => {
+    candIdx++;
+    if (candIdx < candidates.length) {
+      img.src = candidates[candIdx];
+    } else {
+      // Fallback to crisp text if all CDNs fail
+      span.innerHTML = '';
+      span.textContent = emoji;
+    }
+  };
 
   span.appendChild(img);
   return span;
@@ -77,28 +93,48 @@ function renderValueToElement(el: HTMLElement, val: string) {
   if (!val) return;
 
   const fragment = document.createDocumentFragment();
-  let lastIndex = 0;
-  const re = new RegExp(EMOJI_EXTRACTOR_REGEX.source, 'gu');
-  let match: RegExpExecArray | null;
 
-  while ((match = re.exec(val)) !== null) {
-    const textBefore = val.substring(lastIndex, match.index);
-    if (textBefore) {
-      fragment.appendChild(document.createTextNode(textBefore));
+  // Prefer Intl.Segmenter for exact Unicode grapheme cluster splitting
+  if (typeof Intl !== 'undefined' && (Intl as any).Segmenter) {
+    const segmenter = new (Intl as any).Segmenter(undefined, { granularity: 'grapheme' });
+    let textBuf = '';
+
+    for (const { segment } of segmenter.segment(val)) {
+      const isEmoji = EMOJI_CHECK_REGEX.test(segment) && !NON_EMOJI_ONLY_REGEX.test(segment);
+      if (isEmoji) {
+        if (textBuf) {
+          fragment.appendChild(document.createTextNode(textBuf));
+          textBuf = '';
+        }
+        fragment.appendChild(createEmojiElement(segment));
+      } else {
+        textBuf += segment;
+      }
     }
-    fragment.appendChild(createEmojiElement(match[0]));
-    lastIndex = re.lastIndex;
-  }
 
-  const remainingText = val.substring(lastIndex);
-  if (remainingText) {
-    fragment.appendChild(document.createTextNode(remainingText));
+    if (textBuf) {
+      fragment.appendChild(document.createTextNode(textBuf));
+    }
   } else {
-    // Trailing empty text node ensures the browser can always anchor the caret AFTER the final emoji
-    fragment.appendChild(document.createTextNode(''));
+    fragment.appendChild(document.createTextNode(val));
   }
 
+  // Trailing empty text node ensures the browser can always anchor the caret AFTER the final emoji
+  fragment.appendChild(document.createTextNode(''));
   el.appendChild(fragment);
+}
+
+function hasUnparsedEmojiInTextNodes(el: HTMLElement): boolean {
+  for (let i = 0; i < el.childNodes.length; i++) {
+    const node = el.childNodes[i];
+    if (node.nodeType === Node.TEXT_NODE) {
+      const txt = node.textContent || '';
+      if (EMOJI_CHECK_REGEX.test(txt) && !NON_EMOJI_ONLY_REGEX.test(txt)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function getCaretPosition(root: HTMLElement): number {
@@ -272,8 +308,8 @@ export const AppleComposerInput = forwardRef<AppleComposerInputHandle, AppleComp
     const el = containerRef.current;
     if (!el) return;
 
-    // Check if raw typed characters contain OS-level unicode emojis
-    if (HAS_EMOJI_REGEX.test(el.textContent || '')) {
+    // Only re-parse if raw, unparsed emoji unicode characters were inserted into text nodes
+    if (hasUnparsedEmojiInTextNodes(el)) {
       const rawText = getCleanTextFromElement(el);
       const currentPos = getCaretPosition(el);
 
@@ -432,7 +468,7 @@ export const AppleComposerInput = forwardRef<AppleComposerInputHandle, AppleComp
           onFocus?.();
         }}
         data-placeholder={placeholder}
-        className={`w-full max-h-28 overflow-y-auto outline-none break-words whitespace-pre-wrap text-left ${className}`}
+        className={`font-chat w-full max-h-28 overflow-y-auto outline-none break-words whitespace-pre-wrap text-left font-[460] tracking-[-0.012em] ${className}`}
         style={{
           wordBreak: 'break-word',
           minHeight: '22px',
@@ -445,7 +481,7 @@ export const AppleComposerInput = forwardRef<AppleComposerInputHandle, AppleComp
       {!value && (
         <span 
           onClick={() => containerRef.current?.focus()}
-          className="absolute left-2 text-sm text-current opacity-40 pointer-events-none select-none truncate"
+          className="absolute left-2 font-chat text-sm font-[460] tracking-[-0.012em] text-current opacity-45 pointer-events-none select-none truncate"
           dir="ltr"
         >
           {placeholder}

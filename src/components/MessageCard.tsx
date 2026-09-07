@@ -322,7 +322,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
 
         {/* Message Bubble Card */}
         <div
-          className={`text-left min-w-[80px] break-words [overflow-wrap:anywhere] transition-all relative ${
+          className={`font-chat text-left min-w-[80px] break-words [overflow-wrap:anywhere] transition-all relative ${
             isCleanTransparent ? 'p-1 bg-transparent border-0 shadow-none' : 'p-3 shadow-xs'
           } ${
             msg.reply_to ? 'rounded-b-2xl' : 'rounded-2xl'
