@@ -2,6 +2,7 @@ import React from 'react';
 import { ArrowRight, Terminal, Lock, ShieldCheck, Zap, Key, ArrowLeft } from 'lucide-react';
 import { UserData } from '../../../types';
 import { useBranding } from '../../../brandingUtils';
+import { BrandLogo } from '../../common/BrandLogo';
 
 interface LandingViewProps {
   user: UserData | null;
@@ -19,9 +20,11 @@ export const LandingView: React.FC<LandingViewProps> = ({ user, onOpenConsole, o
       <header className="border-b border-slate-200 bg-white sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center text-indigo-600 overflow-hidden">
-              {activeLogo ? <img src={activeLogo} alt="Logo" className="h-full w-full object-contain" /> : <Terminal className="h-4 w-4" />}
-            </div>
+            <BrandLogo
+              src={activeLogo}
+              name={branding.app_name || 'Zenoa'}
+              size="sm"
+            />
             <div className="flex items-center gap-2">
               <span className="font-semibold text-base tracking-tight">{branding.app_name || 'Zenoa'}</span>
               <span className="text-[10px] uppercase bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-bold tracking-wider">Developers</span>

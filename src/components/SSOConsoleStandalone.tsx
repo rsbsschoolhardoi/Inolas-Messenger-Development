@@ -5,6 +5,7 @@ import { SSOPortal } from './SSOPortal';
 import { ZenoaAuthGatewayModal } from './ZenoaAuthGatewayModal';
 import { UserData } from '../types';
 import { useBranding } from '../brandingUtils';
+import { BrandLogo } from './common/BrandLogo';
 import { 
   Shield, ArrowRight, Lock, Key, Sparkles, RefreshCw, 
   User, Mail, Terminal, ArrowLeft, LogOut, Globe, CheckCircle2,
@@ -109,9 +110,11 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
         }`}>
           <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold text-xs shadow-xs">
-                {(branding.app_name || 'Z').charAt(0).toUpperCase()}
-              </div>
+              <BrandLogo
+                src={branding.oauth_logo || branding.dev_console_logo || branding.public_logo}
+                name={branding.app_name || 'Zenoa'}
+                size="sm"
+              />
               <div className="flex items-center gap-2">
                 <span className="font-bold text-sm sm:text-base tracking-tight">{branding.app_name || 'Zenoa'}</span>
                 <span className="text-[10px] font-mono uppercase bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800/60 font-bold">

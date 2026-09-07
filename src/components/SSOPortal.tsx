@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { UserData } from '../types';
 import { useBranding } from '../brandingUtils';
+import { BrandLogo } from './common/BrandLogo';
 import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebaseClient';
 
@@ -521,22 +522,22 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
           setActiveTab(id);
           setMobileMenuOpen(false);
         }}
-        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer select-none ${
           isActive
             ? isDark
-              ? 'bg-indigo-950/60 text-indigo-400 border border-indigo-800/80 shadow-xs'
+              ? 'bg-indigo-950/70 text-indigo-400 border border-indigo-800/80 shadow-xs'
               : 'bg-indigo-50 text-indigo-700 border border-indigo-100 shadow-xs'
             : isDark
-            ? 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200'
-            : 'text-slate-600 hover:bg-slate-100/70 hover:text-slate-900'
+            ? 'text-slate-400 hover:bg-slate-900/80 hover:text-slate-200'
+            : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900'
         }`}
       >
-        <div className="flex items-center gap-2.5">
-          <Icon className={`h-4 w-4 ${isActive ? (isDark ? 'text-indigo-400' : 'text-indigo-600') : 'text-slate-400'}`} />
-          <span>{label}</span>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <Icon className={`h-4 w-4 shrink-0 ${isActive ? (isDark ? 'text-indigo-400' : 'text-indigo-600') : 'text-slate-400'}`} />
+          <span className="truncate">{label}</span>
         </div>
         {badge && (
-          <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ${
+          <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold shrink-0 ${
             isActive
               ? isDark ? 'bg-indigo-900/80 text-indigo-200' : 'bg-indigo-100 text-indigo-800'
               : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'
@@ -549,7 +550,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
   };
 
   return (
-    <div className={`flex h-screen font-sans overflow-hidden transition-colors ${
+    <div className={`flex h-screen w-full font-sans overflow-hidden transition-colors ${
       isDark ? 'bg-[#0b0f19] text-slate-100' : 'bg-[#f8fafc] text-slate-900'
     }`}>
       {/* Toast Alert */}
@@ -566,7 +567,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             }`}
           >
             {notification.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />}
-            <span>{notification.message}</span>
+            <span className="truncate max-w-xs">{notification.message}</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -581,17 +582,15 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         <div className={`p-4 border-b flex items-center justify-between ${
           isDark ? 'border-slate-800/80' : 'border-slate-100'
         }`}>
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-xs overflow-hidden shrink-0">
-              {activeLogo ? (
-                <img src={activeLogo} alt="Logo" className="h-full w-full object-contain p-1" />
-              ) : (
-                <span>{(branding.app_name || 'Z').charAt(0).toUpperCase()}</span>
-              )}
-            </div>
+          <div className="flex items-center gap-3 min-w-0">
+            <BrandLogo
+              src={activeLogo}
+              name={branding.app_name || 'Zenoa'}
+              size="sm"
+            />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <h1 className="text-sm font-bold tracking-tight truncate">
+                <h1 className="text-sm font-bold tracking-tight truncate text-slate-900 dark:text-white">
                   {branding.app_name || 'Zenoa'} OAuth
                 </h1>
                 <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60">
@@ -648,7 +647,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         }`}>
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="h-8 w-8 rounded-xl bg-slate-200 dark:bg-slate-800 flex items-center justify-center font-bold text-xs text-indigo-600 dark:text-indigo-400 overflow-hidden shrink-0 border border-slate-300 dark:border-slate-700">
+              <div className="h-8 w-8 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-xs text-indigo-600 dark:text-indigo-400 overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700">
                 {currentUser?.avatar_url ? (
                   <img src={currentUser.avatar_url} alt="User" className="h-full w-full object-cover" />
                 ) : (
@@ -656,7 +655,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                 )}
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold truncate">{currentUser?.display_name || currentUser?.username || 'Developer'}</p>
+                <p className="text-xs font-bold truncate text-slate-900 dark:text-white">{currentUser?.display_name || currentUser?.username || 'Developer'}</p>
                 <p className="text-[10px] text-slate-400 truncate">@{currentUser?.username || 'dev'}</p>
               </div>
             </div>
@@ -664,7 +663,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             {onBack && (
               <button
                 onClick={onBack}
-                className={`p-1.5 rounded-lg border transition-colors cursor-pointer text-slate-400 hover:text-slate-700 dark:hover:text-white ${
+                className={`p-2 rounded-xl border transition-colors cursor-pointer text-slate-400 hover:text-slate-700 dark:hover:text-white shrink-0 ${
                   isDark ? 'border-slate-800 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-100'
                 }`}
                 title="Return to Messenger"
@@ -699,18 +698,20 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
               }`}
             >
               <div className="p-4 border-b flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold text-xs">
-                    {(branding.app_name || 'Z').charAt(0).toUpperCase()}
-                  </div>
-                  <div>
-                    <h2 className="text-sm font-bold">{branding.app_name || 'Zenoa'} OAuth</h2>
+                <div className="flex items-center gap-3 min-w-0">
+                  <BrandLogo
+                    src={activeLogo}
+                    name={branding.app_name || 'Zenoa'}
+                    size="sm"
+                  />
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-bold truncate">{branding.app_name || 'Zenoa'} OAuth</h2>
                     <p className="text-[10px] text-slate-400">Developer Identity</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setMobileMenuOpen(false)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -731,12 +732,12 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
               <div className="p-4 border-t flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span className="text-xs font-bold">@{currentUser?.username || 'dev'}</span>
+                  <span className="text-xs font-bold truncate">@{currentUser?.username || 'dev'}</span>
                 </div>
                 {onBack && (
                   <button
                     onClick={onBack}
-                    className="text-xs font-semibold text-rose-500 flex items-center gap-1"
+                    className="text-xs font-semibold text-rose-500 flex items-center gap-1 cursor-pointer"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                     <span>Exit</span>
@@ -751,24 +752,24 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       {/* ========================================================================= */}
       {/* MAIN WORKSPACE VIEWPORT                                                   */}
       {/* ========================================================================= */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* Top Header Bar */}
         <header className={`h-16 border-b flex items-center justify-between px-4 sm:px-6 shrink-0 backdrop-blur-md z-10 ${
           isDark ? 'bg-[#0b0f19]/90 border-slate-800/80' : 'bg-white/90 border-slate-200'
         }`}>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             {/* Mobile Menu Button */}
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className={`p-2 rounded-xl border md:hidden transition-colors cursor-pointer ${
+              className={`p-2 rounded-xl border md:hidden transition-colors cursor-pointer shrink-0 ${
                 isDark ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-700 hover:bg-slate-100'
               }`}
             >
               <Menu className="w-4 h-4" />
             </button>
 
-            <div>
-              <h2 className="text-sm sm:text-base font-bold tracking-tight">
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-base font-bold tracking-tight truncate text-slate-900 dark:text-white">
                 {activeTab === 'overview' && 'Console Overview'}
                 {activeTab === 'apps' && 'OAuth 2.0 Client Registry'}
                 {activeTab === 'create' && (editingAppId ? 'Update Client Configuration' : 'Register Application')}
@@ -777,7 +778,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                 {activeTab === 'docs' && 'SDKs & API Reference'}
                 {activeTab === 'activity' && 'Security & Audit Logs'}
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block truncate">
                 {activeTab === 'overview' && 'System status, identity protocol metrics, and OAuth endpoints.'}
                 {activeTab === 'apps' && 'Manage your registered client applications, credentials, and callback URIs.'}
                 {activeTab === 'create' && 'Configure application details, allowed redirect URIs, and scopes.'}
@@ -789,7 +790,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 shrink-0">
             {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
@@ -808,7 +809,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                   resetForm();
                   setActiveTab('create');
                 }}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Register Client</span>
@@ -828,7 +829,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             {activeTab === 'overview' && (
               <div className="space-y-6 animate-fade-in">
                 {/* Metric Summary Widgets */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className={`p-4 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Registered Clients</span>
@@ -837,8 +838,8 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                       </div>
                     </div>
                     <div className="mt-2 flex items-baseline gap-2">
-                      <span className="text-2xl font-bold tracking-tight">{apps.length}</span>
-                      <span className="text-[11px] font-bold text-emerald-500">Live</span>
+                      <span className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{apps.length}</span>
+                      <span className="text-[11px] font-bold text-emerald-500">Live Active</span>
                     </div>
                   </div>
 
@@ -850,7 +851,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                       </div>
                     </div>
                     <div className="mt-2 flex items-baseline gap-2">
-                      <span className="text-2xl font-bold tracking-tight">
+                      <span className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
                         {apps.reduce((acc, a) => acc + (a.redirect_uris?.length || 0), 0)}
                       </span>
                       <span className="text-[11px] font-bold text-slate-400">Whitelisted</span>
@@ -877,7 +878,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                       </div>
                     </div>
                     <div className="mt-2 flex items-baseline gap-2">
-                      <span className="text-xs font-mono font-bold">HMAC-SHA256</span>
+                      <span className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200">HMAC-SHA256</span>
                     </div>
                   </div>
                 </div>
@@ -892,7 +893,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                         </span>
                         <span className="text-xs font-semibold text-slate-400">&bull; Production Ready</span>
                       </div>
-                      <h3 className="font-bold text-base sm:text-lg tracking-tight">
+                      <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">
                         Integrate "Continue with {branding.app_name || 'Zenoa'}" Identity
                       </h3>
                       <p className="text-xs text-slate-500 dark:text-slate-400 max-w-2xl leading-relaxed">
@@ -900,7 +901,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap">
                       <button
                         onClick={() => setActiveTab('playground')}
                         className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -931,48 +932,48 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1">
+                    <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1.5">
                         <span>Authorization Endpoint</span>
-                        <span className="text-[10px] text-indigo-500 font-mono">GET</span>
+                        <span className="text-[10px] text-indigo-500 font-mono font-bold">GET</span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <code className="text-xs font-mono font-bold truncate">/auth/sso</code>
+                        <code className="text-xs font-mono font-bold truncate text-slate-800 dark:text-slate-200">/auth/sso</code>
                         <button
                           onClick={() => handleCopy(`${window.location.origin}/auth/sso`, 'auth_ep', 'Authorization endpoint copied')}
-                          className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                          className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer shrink-0"
                         >
                           {copiedKey === 'auth_ep' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                         </button>
                       </div>
                     </div>
 
-                    <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1">
+                    <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1.5">
                         <span>Token Exchange Endpoint</span>
-                        <span className="text-[10px] text-emerald-500 font-mono">POST</span>
+                        <span className="text-[10px] text-emerald-500 font-mono font-bold">POST</span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <code className="text-xs font-mono font-bold truncate">/api/oauth/token</code>
+                        <code className="text-xs font-mono font-bold truncate text-slate-800 dark:text-slate-200">/api/oauth/token</code>
                         <button
                           onClick={() => handleCopy(`${window.location.origin}/api/oauth/token`, 'token_ep', 'Token endpoint copied')}
-                          className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                          className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer shrink-0"
                         >
                           {copiedKey === 'token_ep' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                         </button>
                       </div>
                     </div>
 
-                    <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1">
+                    <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1.5">
                         <span>UserInfo Endpoint</span>
-                        <span className="text-[10px] text-sky-500 font-mono">GET</span>
+                        <span className="text-[10px] text-sky-500 font-mono font-bold">GET</span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <code className="text-xs font-mono font-bold truncate">/api/oauth/userinfo</code>
+                        <code className="text-xs font-mono font-bold truncate text-slate-800 dark:text-slate-200">/api/oauth/userinfo</code>
                         <button
                           onClick={() => handleCopy(`${window.location.origin}/api/oauth/userinfo`, 'user_ep', 'UserInfo endpoint copied')}
-                          className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                          className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer shrink-0"
                         >
                           {copiedKey === 'user_ep' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                         </button>
@@ -1008,7 +1009,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                   <div className="flex items-center gap-2">
                     <button
                       onClick={fetchApps}
-                      className={`p-2 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                      className={`px-3 py-2 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition-colors cursor-pointer ${
                         isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
                       }`}
                     >
@@ -1029,7 +1030,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                     isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200'
                   }`}>
                     <Key className="w-10 h-10 text-slate-400 stroke-1" />
-                    <h3 className="font-bold text-sm">No Client Applications Found</h3>
+                    <h3 className="font-bold text-sm text-slate-900 dark:text-white">No Client Applications Found</h3>
                     <p className="text-xs text-slate-500 max-w-sm">
                       Register your first OAuth 2.0 client to start using "Continue with {branding.app_name || 'Zenoa'}" authentication.
                     </p>
@@ -1049,7 +1050,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                       return (
                         <div
                           key={app.id}
-                          className={`p-5 rounded-2xl border transition-all ${
+                          className={`p-5 sm:p-6 rounded-2xl border transition-all ${
                             isDark
                               ? 'bg-[#111726] border-slate-800 hover:border-slate-700'
                               : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-xs'
@@ -1057,16 +1058,14 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                         >
                           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
                             <div className="flex items-start gap-3.5 min-w-0">
-                              <div className="w-11 h-11 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-base overflow-hidden shrink-0 shadow-xs">
-                                {app.logo_url ? (
-                                  <img src={app.logo_url} alt={app.app_name} className="h-full w-full object-contain p-1" />
-                                ) : (
-                                  <span>{app.app_name.charAt(0).toUpperCase()}</span>
-                                )}
-                              </div>
+                              <BrandLogo
+                                src={app.logo_url}
+                                name={app.app_name}
+                                size="md"
+                              />
                               <div className="min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <h3 className="font-bold text-sm sm:text-base tracking-tight truncate">{app.app_name}</h3>
+                                  <h3 className="font-bold text-sm sm:text-base tracking-tight truncate text-slate-900 dark:text-white">{app.app_name}</h3>
                                   {isOfficial && (
                                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60">
                                       Official System Client
@@ -1080,7 +1079,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                                     {app.environment || 'Production'}
                                   </span>
                                 </div>
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed line-clamp-2">
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
                                   {app.app_description || 'OAuth 2.0 Single Sign-On Identity Client'}
                                 </p>
                               </div>
@@ -1115,7 +1114,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                                 title="Test in OAuth Sandbox"
                               >
                                 <Play className="w-3.5 h-3.5" />
-                                <span>Test in Sandbox</span>
+                                <span>Test Sandbox</span>
                               </button>
 
                               <button
@@ -1144,15 +1143,15 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                             <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                               <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1.5">
                                 <span>Client ID (Public Identifier)</span>
-                                <span className="text-[10px] text-emerald-500 font-mono">Public</span>
+                                <span className="text-[10px] text-emerald-500 font-mono font-bold">Public</span>
                               </div>
                               <div className="flex items-center justify-between gap-2">
-                                <code className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 truncate">
+                                <code className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 break-all select-all">
                                   {app.client_id}
                                 </code>
                                 <button
                                   onClick={() => handleCopy(app.client_id, `cid_${app.id}`, 'Client ID copied')}
-                                  className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer shrink-0"
+                                  className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer shrink-0"
                                   title="Copy Client ID"
                                 >
                                   {copiedKey === `cid_${app.id}` ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
@@ -1166,26 +1165,26 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                                 <span className="text-rose-500">Client Secret (HMAC-SHA256)</span>
                                 <button
                                   onClick={() => setSecretRotateModalApp(app)}
-                                  className="text-[10px] text-indigo-500 hover:underline cursor-pointer"
+                                  className="text-[10px] text-indigo-500 hover:underline font-bold cursor-pointer"
                                 >
                                   Rotate Secret
                                 </button>
                               </div>
                               <div className="flex items-center justify-between gap-2">
-                                <code className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 truncate">
+                                <code className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 break-all select-all">
                                   {isSecretVisible ? app.client_secret : '••••••••••••••••••••••••••••••••'}
                                 </code>
                                 <div className="flex items-center gap-1 shrink-0">
                                   <button
                                     onClick={() => setRevealedSecrets(prev => ({ ...prev, [app.id]: !prev[app.id] }))}
-                                    className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                                    className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
                                     title={isSecretVisible ? "Hide Secret" : "Reveal Secret"}
                                   >
                                     {isSecretVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                                   </button>
                                   <button
                                     onClick={() => handleCopy(app.client_secret, `sec_${app.id}`, 'Client Secret copied')}
-                                    className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                                    className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
                                     title="Copy Secret"
                                   >
                                     {copiedKey === `sec_${app.id}` ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
@@ -1200,7 +1199,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-[11px] font-bold text-slate-400">Redirect URIs ({app.redirect_uris?.length || 0}):</span>
                               {app.redirect_uris?.slice(0, 2).map((uri, i) => (
-                                <span key={i} className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-mono text-[11px] text-slate-600 dark:text-slate-300 truncate max-w-xs">
+                                <span key={i} className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-mono text-[11px] text-slate-600 dark:text-slate-300 break-all">
                                   {uri}
                                 </span>
                               ))}
@@ -1214,7 +1213,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-[11px] font-bold text-slate-400">Scopes:</span>
                               {(app.scopes || ['openid', 'profile']).map(s => (
-                                <span key={s} className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/40">
+                                <span key={s} className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/40 font-semibold">
                                   {s}
                                 </span>
                               ))}
@@ -1232,10 +1231,10 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             {/* TAB 3: APP REGISTRATION & CONFIGURATION FORM                             */}
             {/* ========================================================================= */}
             {activeTab === 'create' && (
-              <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'} animate-fade-in`}>
+              <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'} animate-fade-in`}>
                 <div className="flex items-center justify-between pb-5 border-b border-slate-100 dark:border-slate-800 mb-6">
                   <div>
-                    <h3 className="font-bold text-base sm:text-lg tracking-tight">
+                    <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">
                       {editingAppId ? 'Edit OAuth 2.0 Configuration' : 'Register New Application'}
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1359,18 +1358,18 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
 
                   {/* Authorized Redirect URIs Manager */}
                   <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                        <Link2 className="w-3.5 h-3.5 text-indigo-500" />
+                        <Link2 className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                         <span>Authorized Redirect URIs (Whitelisted Callbacks) <span className="text-rose-500">*</span></span>
                       </label>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <button
                           type="button"
                           onClick={() => handleAddRedirectUri('http://localhost:3000/auth/callback')}
                           className="text-[11px] text-indigo-500 hover:underline font-semibold cursor-pointer"
                         >
-                          + Add Localhost:3000
+                          + Localhost:3000
                         </button>
                         <span className="text-slate-400">&bull;</span>
                         <button
@@ -1378,7 +1377,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                           onClick={() => handleAddRedirectUri(window.location.origin + '/auth/callback')}
                           className="text-[11px] text-indigo-500 hover:underline font-semibold cursor-pointer"
                         >
-                          + Add Current Origin
+                          + Current Origin
                         </button>
                       </div>
                     </div>
@@ -1404,7 +1403,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                       <button
                         type="button"
                         onClick={() => handleAddRedirectUri()}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl cursor-pointer"
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl cursor-pointer shrink-0"
                       >
                         Add URI
                       </button>
@@ -1454,21 +1453,21 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                           <div
                             key={sc.id}
                             onClick={() => !sc.required && toggleScope(sc.id)}
-                            className={`p-3 rounded-xl border flex items-start gap-3 transition-all cursor-pointer ${
+                            className={`p-3.5 rounded-xl border flex items-start gap-3 transition-all cursor-pointer ${
                               isChecked
                                 ? isDark ? 'border-indigo-700 bg-indigo-950/30' : 'border-indigo-300 bg-indigo-50/50'
                                 : isDark ? 'border-slate-800 bg-slate-900/40 opacity-70' : 'border-slate-200 bg-slate-50/50 opacity-70'
                             }`}
                           >
-                            <div className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center border ${
+                            <div className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
                               isChecked
                                 ? 'bg-indigo-600 border-indigo-600 text-white'
                                 : 'border-slate-400 bg-transparent'
                             }`}>
                               {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
                             </div>
-                            <div>
-                              <p className="text-xs font-bold font-mono">{sc.name}</p>
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold font-mono text-slate-900 dark:text-white">{sc.name}</p>
                               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{sc.desc}</p>
                             </div>
                           </div>
@@ -1507,10 +1506,10 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             {activeTab === 'playground' && (
               <div className="space-y-6 animate-fade-in">
                 {/* Simulator Config Card */}
-                <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100 dark:border-slate-800">
                     <div>
-                      <h3 className="font-bold text-base sm:text-lg tracking-tight">Interactive OAuth 2.0 Pipeline</h3>
+                      <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">Interactive OAuth 2.0 Pipeline</h3>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                         Simulate the end-to-end Authorization Code Grant flow without writing a single line of backend code.
                       </p>
@@ -1531,7 +1530,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                           setPlaygroundUserResult(null);
                           setTesterLog([]);
                         }}
-                        className={`px-3 py-1.5 text-xs rounded-xl border outline-none font-semibold ${
+                        className={`px-3.5 py-2 text-xs rounded-xl border outline-none font-semibold ${
                           isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
                         }`}
                       >
@@ -1545,27 +1544,29 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                   {/* 3 Step Interactive Workflow Pipeline */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-6">
                     {/* Step 1: Authorization Code */}
-                    <div className={`p-4 rounded-2xl border transition-all ${
+                    <div className={`p-5 rounded-2xl border transition-all flex flex-col justify-between ${
                       playgroundStep === 'idle'
                         ? isDark ? 'border-indigo-700 bg-indigo-950/20' : 'border-indigo-300 bg-indigo-50/40'
                         : isDark ? 'border-emerald-800/60 bg-emerald-950/20' : 'border-emerald-200 bg-emerald-50/30'
                     }`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 1</span>
-                        {playgroundAuthCode ? (
-                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white">Code Issued</span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500 text-white">Authorize</span>
-                        )}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 1</span>
+                          {playgroundAuthCode ? (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white">Code Issued</span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500 text-white">Authorize</span>
+                          )}
+                        </div>
+                        <h4 className="font-bold text-xs text-slate-900 dark:text-white">POST /auth/sso</h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                          Requests user approval and generates a one-time cryptographic code.
+                        </p>
                       </div>
-                      <h4 className="font-bold text-xs">POST /auth/sso</h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                        Requests user approval and generates a one-time cryptographic code.
-                      </p>
                       <button
                         onClick={handlePlaygroundAuthorize}
                         disabled={isTesterRunning}
-                        className="mt-4 w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        className="mt-4 w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                       >
                         <Play className="w-3.5 h-3.5" />
                         <span>Issue Auth Code</span>
@@ -1573,29 +1574,31 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                     </div>
 
                     {/* Step 2: Token Exchange */}
-                    <div className={`p-4 rounded-2xl border transition-all ${
+                    <div className={`p-5 rounded-2xl border transition-all flex flex-col justify-between ${
                       playgroundStep === 'authorized'
                         ? isDark ? 'border-indigo-700 bg-indigo-950/20' : 'border-indigo-300 bg-indigo-50/40'
                         : playgroundAccessToken
                         ? isDark ? 'border-emerald-800/60 bg-emerald-950/20' : 'border-emerald-200 bg-emerald-50/30'
                         : isDark ? 'border-slate-800 bg-slate-900/30 opacity-60' : 'border-slate-200 bg-slate-50 opacity-60'
                     }`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 2</span>
-                        {playgroundAccessToken ? (
-                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white">Token Exchanged</span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-500 text-white">Token API</span>
-                        )}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 2</span>
+                          {playgroundAccessToken ? (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white">Token Exchanged</span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-500 text-white">Token API</span>
+                          )}
+                        </div>
+                        <h4 className="font-bold text-xs text-slate-900 dark:text-white">POST /api/oauth/token</h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                          Exchange authorization code + Client Secret for Bearer Access Token.
+                        </p>
                       </div>
-                      <h4 className="font-bold text-xs">POST /api/oauth/token</h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                        Exchange authorization code + Client Secret for Bearer Access Token.
-                      </p>
                       <button
                         onClick={handlePlaygroundExchangeToken}
                         disabled={!playgroundAuthCode || isTesterRunning}
-                        className="mt-4 w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+                        className="mt-4 w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
                       >
                         <Key className="w-3.5 h-3.5" />
                         <span>Exchange Bearer Token</span>
@@ -1603,29 +1606,31 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                     </div>
 
                     {/* Step 3: User Profile Claims */}
-                    <div className={`p-4 rounded-2xl border transition-all ${
+                    <div className={`p-5 rounded-2xl border transition-all flex flex-col justify-between ${
                       playgroundStep === 'token_exchanged'
                         ? isDark ? 'border-indigo-700 bg-indigo-950/20' : 'border-indigo-300 bg-indigo-50/40'
                         : playgroundUserResult
                         ? isDark ? 'border-emerald-800/60 bg-emerald-950/20' : 'border-emerald-200 bg-emerald-50/30'
                         : isDark ? 'border-slate-800 bg-slate-900/30 opacity-60' : 'border-slate-200 bg-slate-50 opacity-60'
                     }`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 3</span>
-                        {playgroundUserResult ? (
-                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white">Claims Verified</span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-500 text-white">UserInfo</span>
-                        )}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 3</span>
+                          {playgroundUserResult ? (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white">Claims Verified</span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-500 text-white">UserInfo</span>
+                          )}
+                        </div>
+                        <h4 className="font-bold text-xs text-slate-900 dark:text-white">GET /api/oauth/userinfo</h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                          Retrieve verified claims, email, display name, and avatar.
+                        </p>
                       </div>
-                      <h4 className="font-bold text-xs">GET /api/oauth/userinfo</h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                        Retrieve verified claims, email, display name, and avatar.
-                      </p>
                       <button
                         onClick={handlePlaygroundFetchUserInfo}
                         disabled={!playgroundAccessToken || isTesterRunning}
-                        className="mt-4 w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+                        className="mt-4 w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
                       >
                         <UserCheck className="w-3.5 h-3.5" />
                         <span>Fetch User Claims</span>
@@ -1635,7 +1640,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                 </div>
 
                 {/* Live Console Output Terminal */}
-                <div className="p-5 rounded-2xl bg-[#090d16] border border-slate-800 text-slate-200 font-mono text-xs shadow-2xl space-y-3">
+                <div className="p-5 sm:p-6 rounded-2xl bg-[#090d16] border border-slate-800 text-slate-200 font-mono text-xs shadow-2xl space-y-3">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                     <div className="flex items-center gap-2">
                       <Terminal className="w-4 h-4 text-emerald-400" />
@@ -1688,8 +1693,8 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             {/* ========================================================================= */}
             {activeTab === 'button' && (
               <div className="space-y-6 animate-fade-in">
-                <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
-                  <h3 className="font-bold text-base sm:text-lg tracking-tight">"Continue with {branding.app_name || 'Zenoa'}" Button Kit</h3>
+                <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                  <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">"Continue with {branding.app_name || 'Zenoa'}" Button Kit</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     Customize and export embeddable Single Sign-On button components for your website and apps.
                   </p>
@@ -1705,7 +1710,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                           className={`flex items-center justify-center gap-2.5 font-bold transition-all shadow-xs active:scale-95 cursor-pointer ${
                             buttonConfig.shape
                           } ${
-                            buttonConfig.size === 'sm' ? 'px-3.5 py-1.5 text-xs' : buttonConfig.size === 'lg' ? 'px-6 py-3.5 text-base' : 'px-5 py-2.5 text-sm'
+                            buttonConfig.size === 'sm' ? 'px-4 py-2 text-xs' : buttonConfig.size === 'lg' ? 'px-7 py-3.5 text-base' : 'px-5 py-2.5 text-sm'
                           } ${
                             buttonConfig.variant === 'dark'
                               ? 'bg-black hover:bg-slate-900 text-white'
@@ -1717,11 +1722,13 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                           }`}
                         >
                           {buttonConfig.showIcon && (
-                            <div className="w-4 h-4 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[10px] font-bold">
-                              {(branding.app_name || 'Z').charAt(0).toUpperCase()}
-                            </div>
+                            <BrandLogo
+                              src={activeLogo}
+                              name={branding.app_name || 'Zenoa'}
+                              size="xs"
+                            />
                           )}
-                          <span>{buttonConfig.label}</span>
+                          <span className="whitespace-nowrap">{buttonConfig.label}</span>
                         </button>
                       </div>
                     </div>
@@ -1785,17 +1792,17 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             {/* ========================================================================= */}
             {activeTab === 'docs' && (
               <div className="space-y-6 animate-fade-in">
-                <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100 dark:border-slate-800">
                     <div>
-                      <h3 className="font-bold text-base sm:text-lg tracking-tight">OAuth 2.0 Integration Handlers</h3>
+                      <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">OAuth 2.0 Integration Handlers</h3>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                         Production-ready authentication routes and token exchange snippets.
                       </p>
                     </div>
 
                     {/* Language Switcher Tabs */}
-                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800 flex-wrap">
                       {[
                         { id: 'react', label: 'React / Next.js' },
                         { id: 'nodejs', label: 'Node.js Express' },
@@ -1935,8 +1942,8 @@ curl -X GET ${window.location.origin}/api/oauth/userinfo \\
             {/* TAB 7: SECURITY & AUDIT TIMELINE                                         */}
             {/* ========================================================================= */}
             {activeTab === 'activity' && (
-              <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'} animate-fade-in`}>
-                <h3 className="font-bold text-base sm:text-lg tracking-tight">Security & OAuth Audit Stream</h3>
+              <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'} animate-fade-in`}>
+                <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">Security & OAuth Audit Stream</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   Real-time security logs for authorization grants, token generation, and credential rotations.
                 </p>
@@ -1949,12 +1956,12 @@ curl -X GET ${window.location.origin}/api/oauth/userinfo \\
                   ].map((log, i) => (
                     <div
                       key={i}
-                      className={`p-3.5 rounded-xl border flex items-center justify-between text-xs ${
+                      className={`p-4 rounded-xl border flex items-center justify-between text-xs ${
                         isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
                         <div>
                           <p className="font-bold text-slate-800 dark:text-slate-200">{log.event}</p>
                           <p className="text-[11px] text-slate-400">Client: {log.client} &bull; Origin: {log.ip}</p>

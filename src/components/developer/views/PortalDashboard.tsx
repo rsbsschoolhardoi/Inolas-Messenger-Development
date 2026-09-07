@@ -9,6 +9,7 @@ import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc } fro
 import { db } from '../../../firebaseClient';
 import { UserData } from '../../../types';
 import { useBranding } from '../../../brandingUtils';
+import { BrandLogo } from '../../common/BrandLogo';
 import { 
   generateTsSdk, generateNodeSdk, generatePythonSdk, generatePhpSdk, 
   generateGoSdk, generateJavaSdk, generateEnvConfig, generateHtmlSnippet, generateCurlSnippets 
@@ -288,11 +289,13 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
       <aside className="hidden md:flex flex-col w-64 border-r border-slate-200 bg-white shrink-0">
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-xs">
-              {activeLogo ? <img src={activeLogo} alt="Logo" className="h-full w-full object-contain p-1" /> : <Server className="h-5 w-5" />}
-            </div>
+            <BrandLogo
+              src={activeLogo}
+              name={branding.app_name || 'Zenoa'}
+              size="sm"
+            />
             <div>
-              <h1 className="text-sm font-bold text-slate-900 tracking-tight">Zenoa Developer Console</h1>
+              <h1 className="text-sm font-bold text-slate-900 tracking-tight">{branding.app_name || 'Zenoa'} Developer Console</h1>
               <p className="text-[11px] text-slate-500 font-medium">Enterprise APIs & Platform Services</p>
             </div>
           </div>
