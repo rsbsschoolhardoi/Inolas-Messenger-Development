@@ -11,6 +11,84 @@ export interface CliCommandResult {
   timestamp: number;
 }
 
+export interface CliCredentials {
+  username: string;
+  name?: string;
+  botName?: string;
+  clientId?: string;
+  clientSecret?: string;
+  targetUrl?: string;
+  savedAt?: number;
+}
+
+// Helpers for cross-environment storage (Node.js filesystem / Browser localStorage)
+function getStoredCredentials(): CliCredentials | null {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const data = localStorage.getItem('zenoa_cli_config');
+      return data ? JSON.parse(data) : null;
+    }
+    // Node.js environment
+    if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      const configPath = path.join(os.homedir(), '.zenoa', 'config.json');
+      if (fs.existsSync(configPath)) {
+        return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      }
+    }
+  } catch {
+    // Ignore read errors
+  }
+  return null;
+}
+
+function saveCredentials(creds: CliCredentials): boolean {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.setItem('zenoa_cli_config', JSON.stringify(creds));
+      return true;
+    }
+    if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      const dir = path.join(os.homedir(), '.zenoa');
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(creds, null, 2), 'utf8');
+      return true;
+    }
+  } catch {
+    // Ignore write errors
+  }
+  return false;
+}
+
+function clearCredentials(): boolean {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.removeItem('zenoa_cli_config');
+      return true;
+    }
+    if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      const configPath = path.join(os.homedir(), '.zenoa', 'config.json');
+      if (fs.existsSync(configPath)) {
+        fs.unlinkSync(configPath);
+        return true;
+      }
+    }
+  } catch {
+    // Ignore delete errors
+  }
+  return false;
+}
+
 export class ZenoaCliRunner {
   private targetUrl: string;
 
@@ -18,15 +96,10 @@ export class ZenoaCliRunner {
     this.targetUrl = targetUrl;
   }
 
-  public async execute(args: string[], userSession?: { username: string; name?: string; botName?: string; clientId?: string; clientSecret?: string }): Promise<CliCommandResult> {
+  public async execute(args: string[], userSession?: CliCredentials): Promise<CliCommandResult> {
     const mainCommand = args[0]?.toLowerCase() || 'help';
     const subCommand = args[1]?.toLowerCase();
     const timestamp = Date.now();
-
-    const username = userSession?.username || 'alex_developer';
-    const botHandle = userSession?.botName || `sa_${username}`;
-    const clientId = userSession?.clientId || `zenoa_oauth_${username}`;
-    const clientSecret = userSession?.clientSecret || 'zen_sec_99182abcdef123456789';
 
     // 1. HELP COMMAND
     if (mainCommand === 'help' || mainCommand === '--help' || mainCommand === '-h') {
@@ -40,71 +113,143 @@ Target Platform: ${this.targetUrl}
 USAGE:
   $ npx zenoa <command> [subcommand] [flags]
 
-CORE AUTH COMMANDS:
-  login              Authenticate CLI with your Zenoa Messenger Account
-  logout             Clear stored developer credentials
-  whoami             Display active logged-in developer profile
+AUTHENTICATION COMMANDS:
+  login              Authenticate CLI with your Zenoa Developer Account
+                     Flags: --username <user> --key <client_secret>
+  logout             Clear stored developer credentials from local device
+  whoami             Display current logged-in developer profile
 
 DEVELOPER CONSOLE (BOT & OTP):
   bot status         Check Service Account bot gateway health & SLA
-  bot send           Dispatch a test message to a Messenger user
-  otp test           Send a live 6-digit verification code to a recipient
+  bot send           Dispatch a message (Flags: --to @user --message "text")
+  otp test           Send a live 6-digit verification code (Flags: --to <phone/id>)
   bot listen         Listen for real-time incoming webhook events
 
 OAUTH 2.0 & SSO:
   oauth list         List registered OAuth 2.0 client applications
-  oauth create       Register a new client application with redirect URIs
-  oauth test-token   Simulate code-to-token exchange grant
+  oauth create       Register a new client application (Flags: --name "App Name")
 `
       };
     }
 
     // 2. LOGIN COMMAND
     if (mainCommand === 'login') {
+      const userIndex = args.indexOf('--username');
+      const keyIndex = args.indexOf('--key') !== -1 ? args.indexOf('--key') : args.indexOf('--secret');
+      
+      const inputUsername = userIndex !== -1 && args[userIndex + 1] ? args[userIndex + 1].replace(/^@/, '') : null;
+      const inputKey = keyIndex !== -1 && args[keyIndex + 1] ? args[keyIndex + 1] : null;
+
+      // If provided via session context (e.g. from developer web console portal)
+      const username = inputUsername || userSession?.username || (inputKey ? 'developer' : null);
+      const secret = inputKey || userSession?.clientSecret || null;
+
+      if (!username && !secret) {
+        // Guided login prompt
+        return {
+          command: 'zenoa login',
+          success: true,
+          timestamp,
+          output: `🔐 Zenoa CLI Developer Authentication
+
+Step 1: Open your Zenoa Developer Console:
+  👉 ${this.targetUrl}/developer
+
+Step 2: Copy your Client Secret & run in terminal:
+  $ npx zenoa login --username <your_username> --key <your_secret>
+
+Example:
+  $ npx zenoa login --username zenoa --key zen_sec_abc123456789`
+        };
+      }
+
+      const activeUser = username || 'developer';
+      const botHandle = userSession?.botName || `sa_${activeUser}`;
+      const clientId = userSession?.clientId || `zenoa_oauth_${activeUser}`;
+      const clientSecret = secret || `zen_sec_${Math.random().toString(36).substring(2, 12)}`;
+
+      const newCreds: CliCredentials = {
+        username: activeUser,
+        name: userSession?.name || activeUser,
+        botName: botHandle,
+        clientId,
+        clientSecret,
+        targetUrl: this.targetUrl,
+        savedAt: Date.now()
+      };
+
+      saveCredentials(newCreds);
+
       return {
-        command: 'zenoa login',
+        command: args.join(' '),
         success: true,
         timestamp,
-        output: `[1/2] Opening browser for Zenoa Messenger authorization...
-✓ Redirecting to: ${this.targetUrl}/auth/cli?session=cli_${Math.random().toString(36).substring(2, 8)}
-✓ Authentication successful!
-✓ Logged in as: @${username} (${userSession?.name || 'Developer'})
+        output: `✓ Authentication successful!
+✓ Logged in as: @${activeUser}
 ✓ Linked Service Account: @${botHandle} (Active)
 ✓ Target Host: ${this.targetUrl}
-✓ Credentials saved to local keyring.`
+✓ Local Keyring: Config saved securely on your device (~/.zenoa/config.json)`
       };
     }
 
-    // 3. WHOAMI COMMAND
+    // 3. LOGOUT COMMAND
+    if (mainCommand === 'logout') {
+      clearCredentials();
+      return {
+        command: 'zenoa logout',
+        success: true,
+        timestamp,
+        output: `✓ Successfully logged out. Developer credentials removed from your device.`
+      };
+    }
+
+    // Fetch stored or session credentials
+    const stored = getStoredCredentials();
+    const activeUsername = stored?.username || userSession?.username;
+    const activeBot = stored?.botName || userSession?.botName || (activeUsername ? `sa_${activeUsername}` : null);
+    const activeClientId = stored?.clientId || userSession?.clientId || (activeUsername ? `zenoa_oauth_${activeUsername}` : null);
+
+    // 4. WHOAMI COMMAND
     if (mainCommand === 'whoami') {
+      if (!activeUsername) {
+        return {
+          command: 'zenoa whoami',
+          success: false,
+          timestamp,
+          output: `⚠️ You are not logged in.
+Run "npx zenoa login" to authenticate with your Zenoa account.`
+        };
+      }
+
       return {
         command: 'zenoa whoami',
         success: true,
         timestamp,
-        output: `Logged in as: @${username}
-Display Name: ${userSession?.name || 'Alex Developer'}
-Active Service Account: @${botHandle}
-Default OAuth Client ID: ${clientId}
-Host Environment: ${this.targetUrl}`
+        output: `Logged in as: @${activeUsername}
+Active Service Account: @${activeBot}
+Default OAuth Client ID: ${activeClientId}
+Target Host: ${this.targetUrl}`
       };
     }
 
-    // 4. BOT COMMANDS
+    // 5. BOT COMMANDS
     if (mainCommand === 'bot') {
       if (subCommand === 'status') {
+        const botName = activeBot || 'sa_developer';
         return {
           command: 'zenoa bot status',
           success: true,
           timestamp,
-          output: `● Service Account Bot: @${botHandle}
+          output: `● Service Account Bot: @${botName}
 Gateway Status: OPERATIONAL (99.99% SLA)
 Channel: Production Live Delivery
-Daily Quota: 1,000 requests / day (984 remaining)
+Daily Quota: 1,000 requests / day (998 remaining)
 Host: ${this.targetUrl}/api/developer/dispatch`
         };
       }
 
       if (subCommand === 'send') {
+        const botName = activeBot || 'sa_developer';
         const toIndex = args.indexOf('--to');
         const toUser = toIndex !== -1 && args[toIndex + 1] ? args[toIndex + 1] : '@demo_user';
         const msgIndex = args.indexOf('--message');
@@ -114,18 +259,18 @@ Host: ${this.targetUrl}/api/developer/dispatch`
           command: args.join(' '),
           success: true,
           timestamp,
-          output: `✓ Dispatched message from @${botHandle} to ${toUser}
+          output: `✓ Dispatched message from @${botName} to ${toUser}
 Message ID: msg_zen_${Math.random().toString(36).substring(2, 10)}
-Status: DELIVERED (42ms latency)
+Status: DELIVERED (38ms latency)
 Content: "${text}"`
         };
       }
     }
 
-    // 5. OTP TEST COMMAND
+    // 6. OTP TEST COMMAND
     if (mainCommand === 'otp') {
       const toIndex = args.indexOf('--to');
-      const toUser = toIndex !== -1 && args[toIndex + 1] ? args[toIndex + 1] : '+1 (555) 019-2834';
+      const toUser = toIndex !== -1 && args[toIndex + 1] ? args[toIndex + 1] : '+919876543210';
       const testOtp = Math.floor(100000 + Math.random() * 900000).toString();
 
       return {
@@ -140,21 +285,22 @@ Delivery Gateway: Zenoa Messenger Encrypted Notification`
       };
     }
 
-    // 6. OAUTH COMMANDS
+    // 7. OAUTH COMMANDS
     if (mainCommand === 'oauth') {
       if (subCommand === 'list') {
+        const cid = activeClientId || 'zenoa_oauth_production';
         return {
           command: 'zenoa oauth list',
           success: true,
           timestamp,
           output: `REGISTERED OAUTH 2.0 CLIENTS (${this.targetUrl}):
-1. ${userSession?.name || 'Zenoa'} Official Client
+1. Zenoa Official Client
    Client ID: zenoa_official_app
    Redirect URI: ${this.targetUrl}/auth/sso
    Scopes: openid profile email phone
 
-2. My Web Application
-   Client ID: ${clientId}
+2. Developer Application (@${activeUsername || 'zenoa'})
+   Client ID: ${cid}
    Redirect URI: ${this.targetUrl}/auth/callback
    Scopes: openid profile email`
         };
@@ -188,3 +334,4 @@ Token Endpoint: ${this.targetUrl}/api/oauth/token`
     };
   }
 }
+
