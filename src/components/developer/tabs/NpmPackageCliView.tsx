@@ -50,13 +50,13 @@ export const NpmPackageCliView: React.FC<NpmPackageCliViewProps> = ({
     const args = rawCmd.replace(/^npx\s+/, '').replace(/^zenoa\s*/, '').trim().split(/\s+/).filter(Boolean);
     if (args.length === 0) args.push('help');
 
-    const result = await cliRunner.execute(args, {
+    const result = await cliRunner.execute(args, args[0] === 'login' && args.length === 1 ? {
       username: app?.owner || 'developer',
       name: app?.app_name || 'Developer',
       botName: app?.bot_username || 'sa_bot',
       clientId: app?.client_id || 'zen_client_production',
       clientSecret: app?.client_secret || 'zen_sec_production'
-    });
+    } : undefined);
 
     setTerminalHistory(prev => [
       ...prev,

@@ -33,7 +33,8 @@ function getStoredCredentials(): CliCredentials | null {
       const fs = require('fs');
       const path = require('path');
       const os = require('os');
-      const configPath = path.join(os.homedir(), '.zenoa', 'config.json');
+      const home = process.env.HOME || os.homedir();
+      const configPath = path.join(home, '.zenoa', 'config.json');
       if (fs.existsSync(configPath)) {
         return JSON.parse(fs.readFileSync(configPath, 'utf8'));
       }
@@ -54,7 +55,8 @@ function saveCredentials(creds: CliCredentials): boolean {
       const fs = require('fs');
       const path = require('path');
       const os = require('os');
-      const dir = path.join(os.homedir(), '.zenoa');
+      const home = process.env.HOME || os.homedir();
+      const dir = path.join(home, '.zenoa');
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
@@ -67,26 +69,38 @@ function saveCredentials(creds: CliCredentials): boolean {
   return false;
 }
 
-function clearCredentials(): boolean {
+function clearCredentials(): { success: boolean; path?: string } {
+  let clearedPath = '';
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       localStorage.removeItem('zenoa_cli_config');
-      return true;
+      localStorage.removeItem('zenoa_cli_session');
+      return { success: true, path: 'Local Storage' };
     }
     if (typeof process !== 'undefined' && process.versions && process.versions.node) {
       const fs = require('fs');
       const path = require('path');
       const os = require('os');
-      const configPath = path.join(os.homedir(), '.zenoa', 'config.json');
+      const home = process.env.HOME || os.homedir();
+      const configPath = path.join(home, '.zenoa', 'config.json');
+      clearedPath = configPath;
       if (fs.existsSync(configPath)) {
         fs.unlinkSync(configPath);
-        return true;
       }
+      const dir = path.join(home, '.zenoa');
+      if (fs.existsSync(dir)) {
+        try {
+          fs.rmdirSync(dir);
+        } catch {
+          // ignore if non-empty
+        }
+      }
+      return { success: true, path: configPath };
     }
-  } catch {
-    // Ignore delete errors
+  } catch (err: any) {
+    return { success: false, path: err.message };
   }
-  return false;
+  return { success: true, path: clearedPath || 'Config' };
 }
 
 export class ZenoaCliRunner {
@@ -213,21 +227,22 @@ Please verify your Client Secret in the Developer Console: ${this.targetUrl}/dev
 
     // 3. LOGOUT COMMAND
     if (mainCommand === 'logout') {
-      clearCredentials();
+      const res = clearCredentials();
       return {
         command: 'zenoa logout',
         success: true,
         timestamp,
-        output: `✓ Successfully logged out. Developer credentials removed from your device.`
+        output: `✓ Successfully logged out from Zenoa CLI.
+Credentials cleared from: ${res.path || '~/.zenoa/config.json'}`
       };
     }
 
-    // Fetch stored or session credentials
+    // Fetch stored credentials (strictly prioritize local stored device credentials)
     const stored = getStoredCredentials();
-    const activeUsername = stored?.username || userSession?.username;
-    const activeSecret = stored?.clientSecret || userSession?.clientSecret;
-    const activeClientId = stored?.clientId || userSession?.clientId || (activeUsername ? `zen_client_${activeUsername}` : null);
-    const activeBot = stored?.botName || userSession?.botName || (activeUsername ? `sa_${activeUsername}` : null);
+    const activeUsername = stored?.username;
+    const activeSecret = stored?.clientSecret;
+    const activeClientId = stored?.clientId || (activeUsername ? `zen_client_${activeUsername}` : null);
+    const activeBot = stored?.botName || (activeUsername ? `sa_${activeUsername}` : null);
 
     // 4. WHOAMI COMMAND
     if (mainCommand === 'whoami') {
