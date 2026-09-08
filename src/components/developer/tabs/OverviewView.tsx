@@ -30,10 +30,12 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
           <div className="flex items-center gap-4">
             <div className="h-14 w-14 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-xs shrink-0 overflow-hidden">
-              {activeLogo ? (
-                <img src={activeLogo} alt="Logo" className="h-full w-full object-contain p-1.5" />
+              {app?.avatar_url ? (
+                <img src={app.avatar_url} alt={app.app_name} className="h-full w-full object-cover" />
               ) : (
-                <Server className="h-7 w-7" />
+                <div className="h-full w-full bg-slate-100 text-slate-700 flex items-center justify-center text-xl font-black">
+                  {app?.app_name ? app.app_name.charAt(0).toUpperCase() : 'S'}
+                </div>
               )}
             </div>
             <div>

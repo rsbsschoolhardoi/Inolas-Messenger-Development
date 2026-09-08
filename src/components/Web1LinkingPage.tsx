@@ -276,25 +276,6 @@ export const Web1LinkingPage: React.FC<Web1LinkingPageProps> = ({
                 {themeMode === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               </button>
             )}
-
-            <button
-              onClick={() => {
-                if (onSwitchToDirectLogin) {
-                  onSwitchToDirectLogin();
-                } else {
-                  try {
-                    window.history.pushState({}, '', '/web1');
-                    window.dispatchEvent(new PopStateEvent('popstate'));
-                  } catch(e) {
-                    window.location.href = '/web1';
-                  }
-                }
-              }}
-              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
-            >
-              <LogIn className="h-3.5 w-3.5" />
-              <span>Open Messenger</span>
-            </button>
           </div>
         </header>
 
@@ -371,24 +352,6 @@ export const Web1LinkingPage: React.FC<Web1LinkingPageProps> = ({
               </p>
             </div>
 
-            <button
-              onClick={() => {
-                if (onSwitchToDirectLogin) {
-                  onSwitchToDirectLogin();
-                } else {
-                  try {
-                    window.history.pushState({}, '', '/web1');
-                    window.dispatchEvent(new PopStateEvent('popstate'));
-                  } catch(e) {
-                    window.location.href = '/web1';
-                  }
-                }
-              }}
-              className="w-full sm:w-auto px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer shrink-0"
-            >
-              <span>Open Zenoa Messenger</span>
-              <ArrowRight className="h-4 w-4" />
-            </button>
           </div>
 
         </main>
@@ -434,28 +397,6 @@ export const Web1LinkingPage: React.FC<Web1LinkingPageProps> = ({
               {themeMode === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
           )}
-
-          {/* Direct Login Button to switch to Web1 */}
-          <button
-            id="switch-to-web1-btn"
-            onClick={() => {
-              if (onSwitchToDirectLogin) {
-                onSwitchToDirectLogin();
-              } else {
-                try {
-                  window.history.pushState({}, '', '/web1');
-                  window.dispatchEvent(new PopStateEvent('popstate'));
-                } catch(e) {
-                  window.location.href = '/web1';
-                }
-              }
-            }}
-            className="px-3.5 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-white text-white dark:text-neutral-900 text-xs font-bold transition-all shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
-            title="Direct login with username and password on Web1"
-          >
-            <LogIn className="h-3.5 w-3.5" />
-            <span>Direct Login (Web1)</span>
-          </button>
         </div>
       </header>
 
@@ -525,30 +466,6 @@ export const Web1LinkingPage: React.FC<Web1LinkingPageProps> = ({
               </div>
             </div>
 
-            {/* Bottom Alternative Action: Direct Web1 Access */}
-            <div className="pt-8 border-t border-neutral-100 dark:border-neutral-800/80 mt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-              <div className="text-neutral-500 dark:text-neutral-400">
-                <span>Don't have your phone right now?</span>
-              </div>
-              <button
-                onClick={() => {
-                  if (onSwitchToDirectLogin) {
-                    onSwitchToDirectLogin();
-                  } else {
-                    try {
-                      window.history.pushState({}, '', '/web1');
-                      window.dispatchEvent(new PopStateEvent('popstate'));
-                    } catch(e) {
-                      window.location.href = '/web1';
-                    }
-                  }
-                }}
-                className="font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors inline-flex items-center gap-1 cursor-pointer"
-              >
-                <span>Direct Login on Web1 Messenger</span>
-                <ArrowRight className="h-3 w-3" />
-              </button>
-            </div>
           </div>
 
           {/* Right Column: Dynamic Live QR Code (5 cols) */}

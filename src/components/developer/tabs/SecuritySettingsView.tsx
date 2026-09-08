@@ -239,16 +239,12 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <h4 className="text-xs font-bold text-slate-900">Profile Picture</h4>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                    environment === 'test' 
-                      ? 'bg-amber-50 text-amber-800 border-amber-200' 
-                      : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                  }`}>
-                    {environment === 'test' ? 'Sandbox • Hidden from users' : 'Live • Visible to users'}
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200">
+                    Official Service Account Avatar
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-                  Square photo auto-customized to circle. Visible only in Live mode.
+                  Square photo auto-customized to circle. Custom avatar for your service account.
                 </p>
               </div>
             </div>

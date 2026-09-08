@@ -56,7 +56,13 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
   const [revealSecrets, setRevealSecrets] = useState(false);
 
   // Environment Switcher: 'test' (Sandbox) vs 'live' (Production)
-  const [environment, setEnvironment] = useState<'test' | 'live'>('test');
+  const [environment, setEnvironment] = useState<'test' | 'live'>(() => {
+    try {
+      const saved = localStorage.getItem('zenoa_dev_active_env');
+      if (saved === 'test' || saved === 'live') return saved;
+    } catch(e) {}
+    return 'test';
+  });
 
   // App Creation
   const [isCreating, setIsCreating] = useState(false);
@@ -73,6 +79,25 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
   useEffect(() => {
     fetchApps();
   }, [currentUser]);
+
+  // Restore active environment whenever selectedAppId or apps list updates
+  useEffect(() => {
+    if (selectedAppId && apps.length > 0) {
+      const targetApp = apps.find(a => a.id === selectedAppId);
+      if (targetApp) {
+        try {
+          const appSpecificEnv = localStorage.getItem(`zenoa_dev_env_${selectedAppId}`) as 'test' | 'live' | null;
+          if (appSpecificEnv === 'test' || appSpecificEnv === 'live') {
+            setEnvironment(appSpecificEnv);
+            return;
+          }
+        } catch (e) {}
+        if (targetApp.environment === 'test' || targetApp.environment === 'live') {
+          setEnvironment(targetApp.environment);
+        }
+      }
+    }
+  }, [selectedAppId, apps]);
 
   const showToast = (msg: string) => {
     setNotification(msg);
@@ -101,9 +126,15 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
         }
       }
 
-      // If no apps exist, keep fetchedApps empty so user manually creates their service account
       setApps(fetchedApps);
-      if (fetchedApps.length > 0) setSelectedAppId(fetchedApps[0].id);
+      if (fetchedApps.length > 0) {
+        const firstAppId = fetchedApps[0].id;
+        setSelectedAppId(firstAppId);
+        const storedEnv = localStorage.getItem(`zenoa_dev_env_${firstAppId}`) || fetchedApps[0].environment || 'test';
+        if (storedEnv === 'test' || storedEnv === 'live') {
+          setEnvironment(storedEnv as 'test' | 'live');
+        }
+      }
     } catch (err) {
       console.error("Fetch developer apps error:", err);
     } finally {
@@ -117,6 +148,12 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
 
   const handleSetEnvironment = async (newEnv: 'test' | 'live') => {
     setEnvironment(newEnv);
+    if (selectedAppId) {
+      try {
+        localStorage.setItem(`zenoa_dev_env_${selectedAppId}`, newEnv);
+        localStorage.setItem('zenoa_dev_active_env', newEnv);
+      } catch (e) {}
+    }
     if (!selectedApp) return;
 
     try {
@@ -129,11 +166,10 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
 
         const botU = selectedApp.bot_username?.toLowerCase().replace(/^@/, '');
         if (botU) {
-          // Live mode -> user avatar_url becomes visible; Sandbox mode -> avatar_url is hidden from users
           await setDoc(doc(db, 'users', botU), {
             environment: newEnv,
             is_live: newEnv === 'live',
-            avatar_url: newEnv === 'live' ? (selectedApp.avatar_url || null) : null
+            avatar_url: selectedApp.avatar_url || null
           }, { merge: true });
         }
       }
@@ -144,11 +180,9 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
         is_live: newEnv === 'live'
       } : a));
 
-      showToast(newEnv === 'live' 
-        ? 'Switched to Live Production mode: Service account profile picture is now visible to users.' 
-        : 'Switched to Sandbox Mode: Service account profile picture is now hidden from users.');
+      showToast(`Environment set to ${newEnv === 'live' ? 'Production Live' : 'Sandbox Testing'}. Preference saved.`);
     } catch (err: any) {
-      console.warn("Failed to sync environment:", err);
+      showToast(`Failed to set environment: ${err.message}`);
     }
   };
 

@@ -1,6 +1,7 @@
 /**
- * Production-ready SDK Generators for Zenoa Enterprise Services
- * Credentials & Endpoints are cryptographically embedded in generated files
+ * Production-ready SDK Generators for Zenoa Developer Console (Service Accounts & Bot APIs)
+ * Service Account Credentials & Endpoints are embedded for Developer Console services.
+ * Note: SSO / OAuth 2.0 Identity code is managed separately in the SSO Portal.
  */
 
 const resolveBotHandle = (app: any): string => {
@@ -18,7 +19,7 @@ export const generateTsSdk = (app: any) => {
   const appName = app.app_name || 'Service Account';
 
   return `/**
- * Zenoa Enterprise TypeScript SDK
+ * Zenoa Service Account TypeScript SDK
  * Service Account: ${botHandle} (${appName})
  * Pre-Configured with Encrypted Client Credentials
  */
@@ -51,20 +52,6 @@ export class ZenoaSDK {
     this.clientId = config?.clientId || "${cid}";
     this.clientSecret = config?.clientSecret || "${sec}";
     this.baseUrl = (config?.baseUrl || "${origin}").replace(/\\/$/, '');
-  }
-
-  /**
-   * Generates the OAuth 2.0 Account Selection & Login URL (opens https://accounts.zenoa.sbs/oauth)
-   */
-  getSSOAuthorizeUrl(redirectUri: string, state?: string, responseType = "code"): string {
-    const ssoHost = "https://accounts.zenoa.sbs/oauth";
-    const params = new URLSearchParams({
-      client_id: this.clientId,
-      redirect_uri: redirectUri,
-      response_type: responseType,
-      ...(state ? { state } : {})
-    });
-    return \`\${ssoHost}?\${params.toString()}\`;
   }
 
   /**
@@ -114,7 +101,7 @@ export class ZenoaSDK {
   }
 
   /**
-   * Sends an automated bot or notification message
+   * Sends an automated service account message or transaction notification
    */
   async sendMessage(recipient: string, message: string, mediaUrl?: string) {
     const res = await fetch(\`\${this.baseUrl}/api/v1/bot/send\`, {
@@ -148,7 +135,7 @@ export const generateNodeSdk = (app: any) => {
   const appName = app.app_name || 'Service Account';
 
   return `/**
- * Zenoa Node.js (CommonJS / ES Module) SDK
+ * Zenoa Node.js SDK (CommonJS / ES Module)
  * Service Account: ${botHandle} (${appName})
  */
 
@@ -157,16 +144,6 @@ class ZenoaSDK {
     this.clientId = config.clientId || "${cid}";
     this.clientSecret = config.clientSecret || "${sec}";
     this.baseUrl = (config.baseUrl || "${origin}").replace(/\\/$/, '');
-  }
-
-  /**
-   * Generates the OAuth 2.0 Account Selection & Login URL (opens https://accounts.zenoa.sbs/oauth)
-   */
-  getSSOAuthorizeUrl(redirectUri, state = null) {
-    const ssoHost = "https://accounts.zenoa.sbs/oauth";
-    let url = \`\${ssoHost}?client_id=\${encodeURIComponent(this.clientId)}&redirect_uri=\${encodeURIComponent(redirectUri)}&response_type=code\`;
-    if (state) url += \`&state=\${encodeURIComponent(state)}\`;
-    return url;
   }
 
   async sendOtp(recipient, templateType = "standard_otp", expiryMins = 10) {
@@ -228,24 +205,12 @@ Pre-configured with credentials
 
 import requests
 from typing import Optional, Dict, Any
-from urllib.parse import urlencode
 
 class ZenoaSDK:
     def __init__(self, client_id: str = "${cid}", client_secret: str = "${sec}", base_url: str = "${origin}"):
         self.client_id = client_id
         self.client_secret = client_secret
         self.base_url = base_url.rstrip("/")
-
-    def get_sso_authorize_url(self, redirect_uri: str, state: Optional[str] = None) -> str:
-        """Returns the OAuth 2.0 Account Selection & Login URL for user authorization."""
-        params = {
-            "client_id": self.client_id,
-            "redirect_uri": redirect_uri,
-            "response_type": "code"
-        }
-        if state:
-            params["state"] = state
-        return f"https://accounts.zenoa.sbs/oauth?{urlencode(params)}"
 
     def send_otp(self, recipient: str, template_type: str = "standard_otp", expiry_mins: int = 10) -> Dict[str, Any]:
         """Dispatches an OTP passcode directly to the recipient."""
@@ -277,7 +242,7 @@ class ZenoaSDK:
         return response.json()
 
     def send_message(self, recipient: str, message: str, media_url: Optional[str] = None) -> Dict[str, Any]:
-        """Sends a notification or bot message from service account."""
+        """Sends a notification or service account message."""
         url = f"{self.base_url}/api/v1/bot/send"
         headers = {
             "Authorization": f"Bearer {self.client_secret}",
@@ -302,17 +267,15 @@ export const generateGoSdk = (app: any) => {
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
 
-  return `// Package zenoa provides Go bindings for Zenoa APIs
+  return `// Package zenoa provides Go bindings for Zenoa Service Account APIs
 // Service Account: ${botHandle} (${appName})
 package zenoa
 
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"time"
 )
 
@@ -330,15 +293,6 @@ func NewClient() *Client {
 		BaseURL:      "${origin}",
 		HTTPClient:   &http.Client{Timeout: 10 * time.Second},
 	}
-}
-
-func (c *Client) GetSSOAuthorizeURL(redirectURI, state string) string {
-	u := fmt.Sprintf("https://accounts.zenoa.sbs/oauth?client_id=%s&redirect_uri=%s&response_type=code",
-		url.QueryEscape(c.ClientID), url.QueryEscape(redirectURI))
-	if state != "" {
-		u += "&state=" + url.QueryEscape(state)
-	}
-	return u
 }
 
 type OTPResponse struct {
@@ -382,7 +336,7 @@ export const generatePhpSdk = (app: any) => {
 
   return `<?php
 /**
- * Zenoa PHP SDK
+ * Zenoa Service Account PHP SDK
  * Service Account: ${botHandle} (${appName})
  */
 
@@ -395,16 +349,6 @@ class ZenoaSDK {
         $this->clientId = $clientId;
         $this->clientSecret = $clientSecret;
         $this->baseUrl = rtrim($baseUrl, '/');
-    }
-
-    public function getSSOAuthorizeUrl($redirectUri, $state = null) {
-        $params = [
-            "client_id" => $this->clientId,
-            "redirect_uri" => $redirectUri,
-            "response_type" => "code"
-        ];
-        if ($state) $params["state"] = $state;
-        return "https://accounts.zenoa.sbs/oauth?" . http_build_query($params);
     }
 
     public function sendOtp($recipient, $templateType = "standard_otp", $expiryMins = 10) {
@@ -462,7 +406,7 @@ export const generateJavaSdk = (app: any) => {
   const appName = app.app_name || 'Service Account';
 
   return `/**
- * Zenoa Java SDK (Java 11+)
+ * Zenoa Service Account Java SDK (Java 11+)
  * Service Account: ${botHandle} (${appName})
  */
 
@@ -491,14 +435,6 @@ public class ZenoaSDK {
                 .build();
     }
 
-    public String getSSOAuthorizeUrl(String redirectUri, String state) {
-        String url = String.format("https://accounts.zenoa.sbs/oauth?client_id=%s&redirect_uri=%s&response_type=code", clientId, redirectUri);
-        if (state != null && !state.isEmpty()) {
-            url += "&state=" + state;
-        }
-        return url;
-    }
-
     public String sendOtp(String recipient, String templateType) throws Exception {
         String json = String.format("{\\"recipient\\":\\"%s\\",\\"template_type\\":\\"%s\\",\\"expiry_mins\\":10}", recipient, templateType);
         HttpRequest request = HttpRequest.newBuilder()
@@ -523,7 +459,7 @@ export const generateEnvConfig = (app: any) => {
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
 
-  return `# Production Environment Configuration for ${appName}
+  return `# Service Account Configuration for ${appName}
 # Service Account Name: ${appName}
 # Service Account Handle: ${botHandle}
 ZENOA_SERVICE_ACCOUNT_NAME="${appName}"
@@ -531,8 +467,6 @@ ZENOA_SERVICE_ACCOUNT_HANDLE="${botHandle}"
 ZENOA_CLIENT_ID="${cid}"
 ZENOA_CLIENT_SECRET="${sec}"
 ZENOA_BASE_URL="${origin}"
-ZENOA_SSO_ACCOUNTS_URL="https://accounts.zenoa.sbs/oauth"
-ZENOA_SSO_TOKEN_URL="${origin}/api/v1/sso/token"
 ZENOA_OTP_SEND_URL="${origin}/api/v1/otp/send"
 ZENOA_OTP_VERIFY_URL="${origin}/api/v1/otp/verify"
 ZENOA_BOT_SEND_URL="${origin}/api/v1/bot/send"`;
@@ -541,6 +475,7 @@ ZENOA_BOT_SEND_URL="${origin}/api/v1/bot/send"`;
 export const generateCurlSnippets = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
+  const sec = app.active_client_secret || app.client_secret || 'zen_sec_secret';
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
   return `# 1. Send OTP Request
 curl -X POST "${origin}/api/v1/otp/send" \\
@@ -554,15 +489,17 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
   -H "Content-Type: application/json" \\
   -d '{"recipient": "+919876543210", "code": "481920"}'
 
-# 3. OAuth Account Login Redirect
-# Open in user browser: https://accounts.zenoa.sbs/oauth?client_id=${cid}&redirect_uri=YOUR_REDIRECT_URI&response_type=code`;
+# 3. Send Bot DM Message Request
+curl -X POST "${origin}/api/v1/bot/send" \\
+  -H "Authorization: Bearer ${sec}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"client_id": "${cid}", "recipient": "john_doe", "message": "Order confirmed!"}'`;
 };
 
 export const generateHtmlSnippet = (app: any) => {
   if (!app) return '';
-  const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
+  const botHandle = resolveBotHandle(app);
+  const appName = app.app_name || 'Service Account';
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
-  const uri = app.redirect_uris?.[0] || `${origin}/auth/sso`;
-  return `<a href="https://accounts.zenoa.sbs/oauth?client_id=${cid}&redirect_uri=${encodeURIComponent(uri)}&response_type=code" target="_blank" rel="noopener noreferrer">Sign in with Zenoa</a>`;
+  return `<a href="${origin}/@${botHandle.replace(/^@/, '')}" target="_blank" rel="noopener noreferrer">Contact ${appName} (${botHandle})</a>`;
 };
-
