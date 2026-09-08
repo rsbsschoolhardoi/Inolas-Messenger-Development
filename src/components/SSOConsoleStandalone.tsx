@@ -102,13 +102,13 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
     const isDark = themeMode === 'dark';
     return (
       <div className={`min-h-screen flex flex-col font-sans transition-colors ${
-        isDark ? 'bg-[#0b0f19] text-white selection:bg-indigo-600 selection:text-white' : 'bg-[#f8fafc] text-slate-900 selection:bg-indigo-500/20 selection:text-indigo-600'
+        isDark ? 'dark bg-slate-950 text-white selection:bg-indigo-600 selection:text-white' : 'bg-slate-50 text-slate-900 selection:bg-indigo-500/20 selection:text-indigo-600'
       }`}>
         {/* Top Navigation */}
         <header className={`border-b sticky top-0 z-50 backdrop-blur-md ${
-          isDark ? 'border-slate-800/80 bg-[#0b0f19]/90' : 'border-slate-200/80 bg-white/90'
+          isDark ? 'border-slate-800/80 bg-slate-950/90' : 'border-slate-200/80 bg-white/90'
         }`}>
-          <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <BrandLogo
                 src={branding.oauth_logo || branding.dev_console_logo || branding.public_logo}
@@ -123,10 +123,26 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5 sm:gap-3">
+              <button
+                onClick={() => {
+                  const nextTheme = themeMode === 'light' ? 'dark' : 'light';
+                  setThemeMode(nextTheme);
+                  try {
+                    localStorage.setItem('zenoa_oauth_theme', nextTheme);
+                  } catch (e) {}
+                }}
+                className={`p-2 rounded-xl border transition-colors cursor-pointer ${
+                  isDark ? 'border-slate-800 hover:bg-slate-900 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
+                }`}
+                title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+              >
+                {isDark ? <span className="text-amber-400 text-sm">☀️</span> : <span className="text-slate-600 text-sm">🌙</span>}
+              </button>
+
               <a
                 href="/"
-                className="text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5 transition-colors"
+                className="text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5 transition-colors hidden sm:flex"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 <span>Messenger</span>

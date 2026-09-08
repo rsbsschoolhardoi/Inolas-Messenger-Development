@@ -899,7 +899,17 @@ export default function App() {
   const [isAuthResolving, setIsAuthResolving] = useState<boolean>(true);
   const [isEmailVerificationPending, setIsEmailVerificationPending] = useState<boolean>(false);
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string>('');
-  const [showLandingPage, setShowLandingPage] = useState<boolean>(false);
+  const [showLandingPage, setShowLandingPage] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const path = window.location.pathname.toLowerCase();
+    const host = window.location.hostname.toLowerCase();
+    const isWeb = host.startsWith('web.') || host.startsWith('app.') || host.startsWith('chat.');
+    if (isWeb) return false;
+    if (path === '/login' || path === '/signup' || path === '/auth' || path === '/register' || path === '/admin' || path.startsWith('/u/')) {
+      return false;
+    }
+    return true;
+  });
   const [truecallerProfile, setTruecallerProfile] = useState<any>(null);
 
   // Saved Accounts (Fast 1-Tap Login & Persistent Device State)
@@ -978,6 +988,8 @@ export default function App() {
       const path = window.location.pathname.toLowerCase();
       const search = window.location.search.toLowerCase();
       const hash = window.location.hash.toLowerCase();
+      const host = window.location.hostname.toLowerCase();
+      const isWeb = host.startsWith('web.') || host.startsWith('app.') || host.startsWith('chat.');
 
       if (path === '/admin' || path === '/admin/' || search.includes('admin=true') || hash === '#/admin' || hash === '#admin') {
         setShowAdminPanel(true);
@@ -1000,7 +1012,13 @@ export default function App() {
         }
       } else {
         setShowAdminPanel(false);
-        setShowLandingPage(false);
+        if (isWeb) {
+          // web.zenoa.sbs opens directly into Messenger
+          setShowLandingPage(false);
+        } else {
+          // zenoa.sbs shows the public landing page!
+          setShowLandingPage(true);
+        }
         setAuthFlowInitialMode('login');
       }
     };
@@ -7819,11 +7837,16 @@ export default function App() {
       return (
         <LandingPage
           onStartAuth={(initialMode) => {
+            const host = window.location.hostname.toLowerCase();
             const mode = initialMode || 'login';
+            if (host.endsWith('zenoa.sbs') && !host.startsWith('web.')) {
+              window.location.href = `https://web.zenoa.sbs${mode === 'register' ? '/signup' : '/login'}`;
+              return;
+            }
             setAuthFlowInitialMode(mode);
             setShowLandingPage(false);
             try {
-              window.history.pushState({}, '', '/login');
+              window.history.pushState({}, '', mode === 'register' ? '/signup' : '/login');
             } catch(e) {}
           }}
           themeMode={themeMode}

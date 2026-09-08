@@ -573,7 +573,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
 
   return (
     <div className={`flex h-screen w-full font-sans overflow-hidden transition-colors ${
-      isDark ? 'bg-[#0b0f19] text-slate-100' : 'bg-[#f8fafc] text-slate-900'
+      isDark ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
     }`}>
       {/* Toast Alert */}
       <AnimatePresence>
@@ -598,7 +598,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       {/* DESKTOP SIDEBAR NAVIGATION (Matching Developer Console)                    */}
       {/* ========================================================================= */}
       <aside className={`hidden md:flex flex-col w-64 border-r shrink-0 select-none ${
-        isDark ? 'bg-[#0f1422] border-slate-800/80' : 'bg-white border-slate-200'
+        isDark ? 'bg-slate-900 border-slate-800/80' : 'bg-white border-slate-200'
       }`}>
         {/* Brand Header */}
         <div className={`p-4 border-b flex items-center justify-between ${
@@ -777,7 +777,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* Top Header Bar */}
         <header className={`h-16 border-b flex items-center justify-between px-4 sm:px-6 shrink-0 backdrop-blur-md z-10 ${
-          isDark ? 'bg-[#0b0f19]/90 border-slate-800/80' : 'bg-white/90 border-slate-200'
+          isDark ? 'bg-slate-900/90 border-slate-800/80' : 'bg-white/90 border-slate-200'
         }`}>
           <div className="flex items-center gap-3 min-w-0">
             {/* Mobile Menu Button */}
@@ -852,7 +852,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
               <div className="space-y-6 animate-fade-in">
                 {/* Metric Summary Widgets */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'}`}>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Registered Clients</span>
                       <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
@@ -865,7 +865,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                     </div>
                   </div>
 
-                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'}`}>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Authorized URIs</span>
                       <div className="p-2 rounded-xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400">
@@ -880,7 +880,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                     </div>
                   </div>
 
-                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'}`}>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Identity Protocol</span>
                       <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
@@ -892,7 +892,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                     </div>
                   </div>
 
-                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'}`}>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Token Verification</span>
                       <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
@@ -906,7 +906,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                 </div>
 
                 {/* Banner Card */}
-                <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                <div className={`p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'}`}>
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-2">
@@ -945,7 +945,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                 </div>
 
                 {/* Standard OIDC Endpoints Reference */}
-                <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'} space-y-4`}>
+                <div className={`p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'} space-y-4`}>
                   <div className="flex items-center justify-between">
                     <h3 className="font-bold text-sm uppercase tracking-wider text-slate-500 flex items-center gap-2">
                       <Server className="w-4 h-4 text-indigo-500" />
@@ -1021,7 +1021,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                       placeholder="Filter by application name or Client ID..."
                       className={`w-full px-3.5 py-2 pl-9 text-xs rounded-xl border outline-none font-medium transition-all ${
                         isDark
-                          ? 'bg-[#111726] border-slate-800 focus:border-indigo-500 text-white'
+                          ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white'
                           : 'bg-white border-slate-200 focus:border-indigo-500 text-slate-900'
                       }`}
                     />
@@ -1049,7 +1049,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                   </div>
                 ) : filteredApps.length === 0 ? (
                   <div className={`p-10 rounded-2xl border text-center flex flex-col items-center justify-center gap-2.5 ${
-                    isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200'
+                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
                   }`}>
                     <Key className="w-10 h-10 text-slate-400 stroke-1" />
                     <h3 className="font-bold text-sm text-slate-900 dark:text-white">No Client Applications Found</h3>
@@ -1074,8 +1074,8 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                           key={app.id}
                           className={`p-5 sm:p-6 rounded-2xl border transition-all ${
                             isDark
-                              ? 'bg-[#111726] border-slate-800 hover:border-slate-700'
-                              : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-xs'
+                              ? 'bg-slate-900 border-slate-800 hover:border-slate-700'
+                              : 'bg-white border-slate-200 hover:border-slate-300 shadow-xs'
                           }`}
                         >
                           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
@@ -1253,7 +1253,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             {/* TAB 3: APP REGISTRATION & CONFIGURATION FORM                             */}
             {/* ========================================================================= */}
             {activeTab === 'create' && (
-              <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'} animate-fade-in`}>
+              <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'} animate-fade-in`}>
                 <div className="flex items-center justify-between pb-5 border-b border-slate-100 dark:border-slate-800 mb-6">
                   <div>
                     <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">
@@ -1528,7 +1528,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             {activeTab === 'playground' && (
               <div className="space-y-6 animate-fade-in">
                 {/* Simulator Config Card */}
-                <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'}`}>
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100 dark:border-slate-800">
                     <div>
                       <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">Interactive OAuth 2.0 Pipeline</h3>
@@ -1715,7 +1715,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             {/* ========================================================================= */}
             {activeTab === 'button' && (
               <div className="space-y-6 animate-fade-in">
-                <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'}`}>
                   <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">"Continue with {branding.app_name || 'Zenoa'}" Button Kit</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     Customize and export embeddable Single Sign-On button components for your website and apps.
@@ -1726,7 +1726,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                     <div className="space-y-3">
                       <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Live Preview</span>
                       <div className={`h-48 rounded-2xl border flex flex-col items-center justify-center p-6 ${
-                        isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-100 border-slate-200'
+                        isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-100 border-slate-200'
                       }`}>
                         <button
                           className={`flex items-center justify-center gap-2.5 font-bold transition-all shadow-xs active:scale-95 cursor-pointer ${
@@ -1766,7 +1766,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                             value={buttonConfig.variant}
                             onChange={(e: any) => setButtonConfig(prev => ({ ...prev, variant: e.target.value }))}
                             className={`w-full px-3 py-2 text-xs rounded-xl border outline-none font-semibold ${
-                              isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                              isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
                             }`}
                           >
                             <option value="dark">Dark Solid (Onyx)</option>
@@ -1782,7 +1782,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                             value={buttonConfig.shape}
                             onChange={(e: any) => setButtonConfig(prev => ({ ...prev, shape: e.target.value }))}
                             className={`w-full px-3 py-2 text-xs rounded-xl border outline-none font-semibold ${
-                              isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                              isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
                             }`}
                           >
                             <option value="rounded-xl">Rounded Card (12px)</option>
@@ -1799,7 +1799,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                           value={buttonConfig.label}
                           onChange={e => setButtonConfig(prev => ({ ...prev, label: e.target.value }))}
                           className={`w-full px-3.5 py-2 text-xs rounded-xl border outline-none font-medium ${
-                            isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                            isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
                           }`}
                         />
                       </div>
@@ -1814,7 +1814,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             {/* ========================================================================= */}
             {activeTab === 'docs' && (
               <div className="space-y-6 animate-fade-in">
-                <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'}`}>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100 dark:border-slate-800">
                     <div>
                       <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">OAuth 2.0 Integration Handlers</h3>
@@ -1964,7 +1964,7 @@ curl -X GET ${window.location.origin}/api/oauth/userinfo \\
             {/* TAB 7: SECURITY & AUDIT TIMELINE                                         */}
             {/* ========================================================================= */}
             {activeTab === 'activity' && (
-              <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'} animate-fade-in`}>
+              <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'} animate-fade-in`}>
                 <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">Security & OAuth Audit Stream</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   Real-time security logs for authorization grants, token generation, and credential rotations.
@@ -1979,7 +1979,7 @@ curl -X GET ${window.location.origin}/api/oauth/userinfo \\
                     <div
                       key={i}
                       className={`p-4 rounded-xl border flex items-center justify-between text-xs ${
-                        isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                        isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
                       }`}
                     >
                       <div className="flex items-center gap-3">
@@ -2016,7 +2016,7 @@ curl -X GET ${window.location.origin}/api/oauth/userinfo \\
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               className={`max-w-md w-full p-6 rounded-2xl border shadow-2xl ${
-                isDark ? 'bg-[#111726] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+                isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
               }`}
             >
               <div className="flex items-center gap-3 mb-4">
@@ -2065,7 +2065,7 @@ curl -X GET ${window.location.origin}/api/oauth/userinfo \\
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               className={`max-w-md w-full p-6 rounded-2xl border shadow-2xl ${
-                isDark ? 'bg-[#111726] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+                isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
               }`}
             >
               <div className="flex items-center gap-3 mb-4">
