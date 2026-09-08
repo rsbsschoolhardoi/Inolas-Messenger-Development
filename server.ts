@@ -245,7 +245,7 @@ async function dispatchWebhookEvent(webhookUrl: string, secret: string, eventDat
 }
 
 // Helper to look up an SSO or Developer App across in-memory cache and Firestore collections
-async function lookupOAuthApp(keyOrId: string): Promise<{ id: string; data: any; collectionName: string } | null> {
+async function lookupOAuthAppInternal(keyOrId: string): Promise<{ id: string; data: any; collectionName: string } | null> {
   if (!keyOrId || typeof keyOrId !== 'string') return null;
   const trimmed = keyOrId.trim();
   if (!trimmed) return null;
@@ -389,6 +389,48 @@ async function lookupOAuthApp(keyOrId: string): Promise<{ id: string; data: any;
   }
 
   return null;
+}
+
+// Wrapper function to enforce strict developer owner account existence
+async function lookupOAuthApp(keyOrId: string): Promise<{ id: string; data: any; collectionName: string } | null> {
+  const result = await lookupOAuthAppInternal(keyOrId);
+  if (!result) return null;
+
+  if (result.id === 'default_app') return result;
+
+  if (db && result.data) {
+    const ownerName = (result.data.owner || result.data.owner_username || result.data.created_by || '').toLowerCase().replace(/^@/, '');
+    const ownerId = result.data.user_id;
+    if (ownerName || ownerId) {
+      let ownerExists = false;
+      try {
+        if (ownerId) {
+          const userDoc = await getDoc(doc(db, 'users', ownerId));
+          if (userDoc.exists()) ownerExists = true;
+        }
+        if (!ownerExists && ownerName) {
+          const userDoc = await getDoc(doc(db, 'users', ownerName));
+          if (userDoc.exists()) {
+            ownerExists = true;
+          } else {
+            const uQ = query(collection(db, 'users'), where('username', '==', ownerName));
+            const uSnap = await getDocs(uQ);
+            if (!uSnap.empty) ownerExists = true;
+          }
+        }
+      } catch (err) {
+        console.warn('Owner existence check warning:', err);
+      }
+
+      if (!ownerExists) {
+        console.warn(`[SECURITY LOCK] App ${result.id} owner (${ownerName || ownerId}) does not exist in users collection. Revoking app.`);
+        inMemorySsoApps.delete(result.id);
+        return null;
+      }
+    }
+  }
+
+  return result;
 }
 
 // Robust Multi-Credential Developer Authentication Middleware
@@ -1073,7 +1115,7 @@ app.post('/api/v1/otp/auto-simulate', authenticateApiKey, async (req: any, res: 
       action: 'bot_dm_delivered', 
       sender: `@${req.appData.owner || req.appData.owner_username || req.appData.bot_username || 'developer'}`, 
       recipient: `@${cleanRecipient}`, 
-      message_preview: `🔒 Verification Code: ${otpCode}`,
+      message_preview: `Verification Code: ${otpCode}`,
       status: 'delivered' 
     });
 
@@ -1144,8 +1186,8 @@ app.get('/api/v1/otp/active', authenticateApiKey, async (req: any, res: any) => 
 app.get('/api/v1/bot/rules', authenticateApiKey, async (req: any, res: any) => {
   try {
     const rules = inMemoryBotRules.get(req.appData.id) || req.appData.auto_responses || [
-      { id: '1', trigger: '/start', action: 'reply', response: '👋 Hello! I am your verified automated assistant. How can I help you today?', enabled: true },
-      { id: '2', trigger: '/otp', action: 'send_otp', response: '🔒 Initiating secure verification code request...', enabled: true },
+      { id: '1', trigger: '/start', action: 'reply', response: 'Hello! I am your verified automated assistant. How can I help you today?', enabled: true },
+      { id: '2', trigger: '/otp', action: 'send_otp', response: 'Initiating secure verification code request...', enabled: true },
       { id: '3', trigger: '/help', action: 'reply', response: 'Commands:\n• /start - Start interaction\n• /otp - Request authentication code\n• /help - Show available commands', enabled: true }
     ];
     return res.json({ success: true, rules });

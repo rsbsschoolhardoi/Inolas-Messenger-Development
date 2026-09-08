@@ -8,7 +8,7 @@ import {
 import { UserData } from '../types';
 import { db } from '../firebaseClient';
 import { useBranding } from '../brandingUtils';
-import { collection, query, where, getDocs, setDoc, doc, increment } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, setDoc, doc, increment } from 'firebase/firestore';
 
 interface SSOLoginProps {
   themeMode: 'light' | 'dark';
@@ -230,8 +230,15 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         }
 
         const ssoRef = collection(db, 'sso_applications');
-        const q = query(ssoRef, where('client_id', '==', effectiveClientId));
-        const snap = await getDocs(q);
+        let q = query(ssoRef, where('client_id', '==', effectiveClientId));
+        let snap = await getDocs(q);
+
+        if (snap.empty) {
+          // Fallback search in developer_apps collection
+          const devRef = collection(db, 'developer_apps');
+          q = query(devRef, where('client_id', '==', effectiveClientId));
+          snap = await getDocs(q);
+        }
 
         if (snap.empty) {
           setSecurityBlock({
@@ -247,6 +254,38 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         }
 
         const appData = snap.docs[0].data();
+
+        // STRICT OWNER ACCOUNT EXISTENCE CHECK
+        const ownerUsername = (appData.owner || appData.owner_username || appData.created_by || '').toLowerCase().replace(/^@/, '');
+        const ownerId = appData.user_id;
+        let ownerExists = false;
+        if (ownerId) {
+          const ownerDoc = await getDoc(doc(db, 'users', ownerId)).catch(() => null);
+          if (ownerDoc?.exists()) ownerExists = true;
+        }
+        if (!ownerExists && ownerUsername) {
+          const ownerDoc = await getDoc(doc(db, 'users', ownerUsername)).catch(() => null);
+          if (ownerDoc?.exists()) {
+            ownerExists = true;
+          } else {
+            const uQ = query(collection(db, 'users'), where('username', '==', ownerUsername));
+            const uSnap = await getDocs(uQ).catch(() => null);
+            if (uSnap && !uSnap.empty) ownerExists = true;
+          }
+        }
+
+        if (!ownerExists && (ownerUsername || ownerId)) {
+          setSecurityBlock({
+            code: 'INVALID_CLIENT_ID',
+            title: 'Unauthorized Access: Application Account Revoked',
+            attemptedUri: effectiveRedirectUri,
+            attemptedDomain: parsedAttemptedUrl.hostname,
+            reason: `The developer account linked to Client ID "${effectiveClientId}" has been deleted or revoked. Authentication requests for deleted or revoked developer accounts are automatically rejected.`,
+            recommendation: 'Contact the application administrator or re-register a new application in the Zenoa Console.'
+          });
+          setIsLoading(false);
+          return;
+        }
         const registeredUris: string[] = Array.isArray(appData.redirect_uris) ? appData.redirect_uris : [];
         const websiteUrl: string = appData.website_url || '';
 

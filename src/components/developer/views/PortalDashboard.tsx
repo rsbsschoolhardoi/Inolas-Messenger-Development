@@ -246,16 +246,21 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
 
         const botU = selectedApp.bot_username?.toLowerCase().replace(/^@/, '');
         if (botU) {
-          const activeEnv = updates.environment || selectedApp.environment || environment;
-          const isLive = activeEnv === 'live';
-          const userUpdates: any = {};
+          const userUpdates: any = {
+            updated_at: Date.now()
+          };
           if ('avatar_url' in updates) {
-            userUpdates.avatar_url = isLive ? (updates.avatar_url || null) : null;
+            userUpdates.avatar_url = updates.avatar_url || null;
           }
           if ('app_description' in updates) {
             userUpdates.bio = updates.app_description;
           }
           await setDoc(doc(db, 'users', botU), userUpdates, { merge: true });
+          await setDoc(doc(db, 'service_accounts', botU), {
+            avatar_url: updates.avatar_url || null,
+            updated_at: Date.now()
+          }, { merge: true }).catch(() => {});
+          await setDoc(doc(db, 'sso_applications', selectedApp.id), updates, { merge: true }).catch(() => {});
         }
       }
       setApps(prev => prev.map(a => a.id === selectedApp.id ? { ...a, ...updates } : a));

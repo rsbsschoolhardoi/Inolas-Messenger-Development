@@ -671,14 +671,14 @@ func main() {
           ],
           requestBodyExample: `{
   "recipient": "john_doe",
-  "message": "🚀 **Your Order #84920 has shipped!**\\n\\nCarrier: FedEx Priority\\nTracking: #9847291849",
+  "message": "**Your Order #84920 has shipped!**\\n\\nCarrier: FedEx Priority\\nTracking: #9847291849",
   "media_url": "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=600"
 }`,
           responseSuccess: `{
   "success": true,
   "message_id": "msg_9847192847",
   "recipient": "john_doe",
-  "sender_bot": "sa_${app?.username || 'developer'}",
+  "sender_bot": "@${app?.bot_username ? app.bot_username.replace(/^@/, '') : (app?.username || 'service_account')}",
   "status": "delivered",
   "timestamp": 1725184980000
 }`,
@@ -694,7 +694,7 @@ func main() {
 
 await axios.post('${baseUrl}/api/v1/bot/send', {
   recipient: 'john_doe',
-  message: '🚀 **Your Order #84920 has shipped!**\\nTrack at: https://example.com/track',
+  message: '**Your Order #84920 has shipped!**\\nTrack at: https://example.com/track',
   media_url: 'https://example.com/shipping-label.png'
 }, {
   headers: {
@@ -732,7 +732,7 @@ import (
 func main() {
   body, _ := json.Marshal(map[string]string{
     "recipient": "john_doe",
-    "message": "Welcome aboard! 🎉",
+    "message": "Welcome aboard.",
   })
   req, _ := http.NewRequest("POST", "${baseUrl}/api/v1/bot/send", bytes.NewBuffer(body))
   req.Header.Set("Authorization", "Bearer ${apiKey}")

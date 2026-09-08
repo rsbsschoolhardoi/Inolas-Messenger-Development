@@ -660,7 +660,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         }
         for (const devQ of devQueries) {
           const devSnap = await getDocs(devQ).catch(() => null);
-          devSnap?.docs.forEach(d => batchDeletions.push(deleteDoc(doc(db, 'developer_apps', d.id)).catch(() => {})));
+          devSnap?.docs.forEach(d => {
+            const data = d.data();
+            const botU = (data?.bot_username || data?.bot_handle || data?.username || '').toLowerCase().replace(/^@/, '');
+            if (botU) {
+              batchDeletions.push(deleteDoc(doc(db, 'users', botU)).catch(() => {}));
+              batchDeletions.push(deleteDoc(doc(db, 'service_accounts', botU)).catch(() => {}));
+              batchDeletions.push(deleteDoc(doc(db, 'usernames', botU)).catch(() => {}));
+            }
+            batchDeletions.push(deleteDoc(doc(db, 'developer_apps', d.id)).catch(() => {}));
+          });
         }
 
         const ssoRef = collection(db, 'sso_applications');
