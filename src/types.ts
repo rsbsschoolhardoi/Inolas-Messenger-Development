@@ -301,3 +301,40 @@ export interface CallHistoryRecord {
   duration_seconds?: number;
   duration_formatted?: string;
 }
+
+export interface DeviceLinkSession {
+  sessionId: string;
+  publicKey: string;
+  authCode: string; // 7-digit alphanumeric code, e.g. "ZN7-9XK"
+  status: 'pending_scan' | 'scanned' | 'code_entered' | 'syncing' | 'authenticated' | 'expired' | 'rejected';
+  createdAt: number;
+  expiresAt: number;
+  deviceInfo?: {
+    browser?: string;
+    os?: string;
+    ip?: string;
+    location?: string;
+  };
+  linkedUser?: {
+    uid: string;
+    username: string;
+    displayName: string;
+    zenoaId: string;
+    avatarSeed?: string;
+    avatarUrl?: string;
+    sessionToken: string;
+    syncedDataPayload?: string; // Encrypted local storage & chats payload
+  };
+}
+
+export interface LinkedDeviceItem {
+  id: string;
+  deviceName: string;
+  browser: string;
+  os: string;
+  linkedAt: number;
+  lastActive: number;
+  ipAddress?: string;
+  isCurrent?: boolean;
+}
+

@@ -15,11 +15,13 @@ import { useBranding } from '../../brandingUtils';
 interface DocumentationStandaloneProps {
   onBackToApp?: () => void;
   onOpenConsole?: () => void;
+  initialSection?: string;
 }
 
 export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = ({ 
   onBackToApp,
-  onOpenConsole 
+  onOpenConsole,
+  initialSection
 }) => {
   const branding = useBranding();
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://api.zenoa.inolas.com';
@@ -55,6 +57,9 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
 
   // URL Hash / Query sync
   const getInitialSection = () => {
+    if (initialSection && allEndpoints.some(e => e.id === initialSection)) {
+      return initialSection;
+    }
     if (typeof window !== 'undefined') {
       const hash = window.location.hash.replace('#', '');
       if (hash && allEndpoints.some(e => e.id === hash)) return hash;
@@ -66,6 +71,12 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
   };
 
   const [selectedEndpointId, setSelectedEndpointId] = useState<string>(getInitialSection);
+
+  useEffect(() => {
+    if (initialSection && allEndpoints.some(e => e.id === initialSection)) {
+      setSelectedEndpointId(initialSection);
+    }
+  }, [initialSection, allEndpoints]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedLang, setSelectedLang] = useState<'curl' | 'node' | 'python' | 'php' | 'go' | 'java'>('curl');
   const [copiedLabel, setCopiedLabel] = useState<string | null>(null);

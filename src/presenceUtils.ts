@@ -102,17 +102,21 @@ export const formatRelativePresenceTime = (timestamp?: number | string | null): 
 };
 
 /**
- * Returns accurate human-readable status text (e.g. "Business Account", "online", "last seen 2m ago", "last seen 3 days ago").
+ * Returns accurate human-readable status text (e.g. "Official Zenoa Account", "Business Account", "online", "last seen 2m ago", "last seen 3 days ago").
  * Guaranteed to never return 'offline'.
  */
 export const getOnlineStatusText = (user: PresenceUser | undefined | null): string => {
   if (!user) return 'last seen recently';
 
+  if (isOfficialAccount(user, user.username)) {
+    return 'Official Zenoa Account';
+  }
+
+  if (isBusinessAccount(user, user.username)) {
+    return 'Business Account';
+  }
+
   if (user.is_service_account || (user as any).is_business_account || isServiceAccount(user, user.username)) {
-    const uname = (user.username || '').toLowerCase();
-    if (['zenoa', 'sa_zenoa', 'zenoa_official'].includes(uname)) {
-      return 'Official Zenoa Account';
-    }
     return 'Business Account';
   }
 
@@ -142,32 +146,42 @@ export const getOnlineStatusText = (user: PresenceUser | undefined | null): stri
 };
 
 
+export const isOfficialAccount = (user: PresenceUser | any | undefined | null, explicitUsername?: string): boolean => {
+  const uname = (explicitUsername || user?.username || '').toLowerCase();
+  if (['zenoa', 'sa_zenoa', 'zenoa_official', 'zenoa_security', 'zenoa_auth', 'zenoa_support', 'zenoa_updates'].includes(uname) || uname.startsWith('zenoa_') || uname.startsWith('sa_zenoa')) {
+    return true;
+  }
+  return !!(user?.is_official || (user?.is_service_account && !user?.is_business_account));
+};
+
+export const isBusinessAccount = (user: PresenceUser | any | undefined | null, explicitUsername?: string): boolean => {
+  if (isOfficialAccount(user, explicitUsername)) return false;
+  if (user?.is_business_account) return true;
+  if (user?.is_service_account && !isOfficialAccount(user, explicitUsername)) return true;
+  
+  const uname = (explicitUsername || user?.username || '').toLowerCase();
+  if (uname && uname.startsWith('sa_') && !uname.startsWith('sa_zenoa')) return true;
+  return false;
+};
+
 export const isServiceAccount = (user: PresenceUser | any | undefined | null, explicitUsername?: string): boolean => {
+  if (isOfficialAccount(user, explicitUsername) || isBusinessAccount(user, explicitUsername)) return true;
   if (!user && !explicitUsername) return false;
   if (user?.is_service_account || user?.is_business_account) return true;
   
-  const uname = explicitUsername || user?.username;
-  if (!uname) return false;
-  
-  const normalized = uname.toLowerCase();
-  return normalized.startsWith('sa_') || normalized === 'zenoa' || normalized === 'sa_zenoa' || normalized === 'zenoa_official' || normalized.startsWith('zenoa_');
-};
-
-export const isOfficialAccount = (user: PresenceUser | any | undefined | null, explicitUsername?: string): boolean => {
   const uname = (explicitUsername || user?.username || '').toLowerCase();
-  if (['zenoa', 'sa_zenoa', 'zenoa_official', 'zenoa_security', 'zenoa_auth', 'zenoa_support', 'zenoa_updates'].includes(uname) || uname.startsWith('zenoa_')) {
-    return true;
-  }
-  return !!(user?.is_official || (user?.is_service_account && user?.verified_type === 'purple' && !user?.is_business_account));
+  return uname.startsWith('sa_') || uname === 'zenoa' || uname === 'sa_zenoa' || uname === 'zenoa_official' || uname.startsWith('zenoa_');
 };
 
 export const isAccountVerified = (user: PresenceUser | any | undefined | null, explicitUsername?: string): boolean => {
+  // Official Zenoa Service Accounts created by admin are ALWAYS verified
   if (isOfficialAccount(user, explicitUsername)) {
     return true;
   }
-  if (!user) return false;
-  if (user.is_business_account && !user.is_official && !user.is_verified) {
-    return false;
+  // Developer Business Accounts are NEVER automatically verified
+  if (isBusinessAccount(user, explicitUsername)) {
+    return !!(user?.is_verified && user?.verified_type);
   }
+  if (!user) return false;
   return !!user.is_verified || user.verified_type === 'purple' || user.verified_type === 'official';
 };

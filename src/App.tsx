@@ -1,6 +1,8 @@
 // Forced Sync Timestamp: 0x75bcd15
 import { FullScreenProfilePanel } from './components/FullScreenProfilePanel';
 import { FollowListModal } from './components/FollowListModal';
+import { Web1LinkingPage } from './components/Web1LinkingPage';
+import { LinkDeviceModal } from './components/LinkDeviceModal';
 // Inolas Messenger - Verified UTF-8 Source Code
 import { SSOConsoleStandalone } from "./components/SSOConsoleStandalone";
 import { SSOLogin } from "./components/SSOLogin";
@@ -22,6 +24,7 @@ import {
   Grid, Bookmark, Download, Palette, 
 
   Database, Volume2, Laptop, ChevronRight, Copy, Lock, Bell, ShieldCheck, Mail, Phone,
+  Building2,
   MapPin, BarChart2, Play, Pause, StopCircle, UserPlus, Users, ExternalLink,
   ZoomIn, ZoomOut, RotateCw, RefreshCw, Maximize2, MoreVertical, MoreHorizontal, BellOff, ShieldAlert, Edit3, Archive, Folder, Clock, Shield, Sparkles, FileDown,
   PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneCall, PhoneOff, ArrowUpRight, ArrowDownLeft, ArrowLeft, History, Calendar, VideoOff, Filter, Ban,
@@ -55,10 +58,11 @@ import { PublicProfileView } from './components/PublicProfileView';
 import { DetailedProfilePage } from './components/DetailedProfilePage';
 import { AdminPanel } from './components/AdminPanel';
 import { PurpleVerifiedBadge } from './components/PurpleVerifiedBadge';
+import { BusinessAccountInfoDropdown } from './components/BusinessAccountInfoDropdown';
 import {  NewGroupModal } from './components/NewGroupModal';
 import {  GroupDetailsModal } from './components/GroupDetailsModal';
 import { GoogleDriveLogo } from './components/GoogleDriveLogo';
-import { isUserEffectivelyOnline, getOnlineStatusText, isServiceAccount, isAccountVerified, isOfficialAccount } from './presenceUtils';
+import { isUserEffectivelyOnline, getOnlineStatusText, isServiceAccount, isAccountVerified, isOfficialAccount, isBusinessAccount } from './presenceUtils';
 import { getThemeById, DEFAULT_THEME_ID } from './chatThemes';
 import { getMessageDateKey, formatChatDateDivider, formatChatListTime, formatCleanChatPreview, formatMessageTime } from './dateUtils';
 import { encryptMessageText, decryptMessageText, encryptFile, decryptFile } from './cryptoUtils';
@@ -740,6 +744,7 @@ export default function App() {
   const [sharedMediaPreview, setSharedMediaPreview] = useState<{ url: string; type: string; title?: string } | null>(null);
   const [showProfileOptionsModal, setShowProfileOptionsModal] = useState<boolean>(false);
   const [showPrivacySafetyModal, setShowPrivacySafetyModal] = useState<boolean>(false);
+  const [showLinkDeviceModal, setShowLinkDeviceModal] = useState<boolean>(false);
 
   // Real Working Settings Preferences
   const [soundEffects, setSoundEffects] = useState<boolean>(true);
@@ -1102,6 +1107,12 @@ export default function App() {
       return;
     }
 
+    // Linked web companions (Web1 / QR link) coexist peacefully with the mobile/primary device
+    const isLinkedClient = sessionStorage.getItem('zenoa_is_linked_client') === 'true';
+    if (isLinkedClient) {
+      return;
+    }
+
     const cleanUsername = userUsername.toLowerCase().trim();
     const currentSessionId = tabSessionIdRef.current;
 
@@ -1145,9 +1156,10 @@ export default function App() {
           event.data &&
           event.data.type === 'ACCOUNT_LOGIN_TAKEOVER' &&
           event.data.username === cleanUsername &&
-          event.data.sessionId !== currentSessionId
+          event.data.sessionId !== currentSessionId &&
+          !event.data.isLinkedCompanion
         ) {
-          // This account was opened/logged in on another tab! Trigger Kickout Modal with 5s countdown
+          // This account was opened/logged in on another primary tab! Trigger Kickout Modal with 5s countdown
           setKickoutData({
             username: userUsername,
             countdown: 5
@@ -1665,6 +1677,11 @@ export default function App() {
   const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
   const [reportedUsers, setReportedUsers] = useState<string[]>([]);
 
+  // Business Account Info Dropdown & In-App Documentation Modal
+  const [showBusinessInfoDropdown, setShowBusinessInfoDropdown] = useState<boolean>(false);
+  const [showDocumentationModal, setShowDocumentationModal] = useState<boolean>(false);
+  const [documentationInitialSection, setDocumentationInitialSection] = useState<string>('business-vs-official-accounts');
+
   // Media Editor Modal State (WhatsApp-style Photo/Video Editor)
   const [pendingMediaEditorData, setPendingMediaEditorData] = useState<MediaEditorData | null>(null);
 
@@ -1688,6 +1705,11 @@ export default function App() {
 
   // Chat scroll ref
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Close business info dropdown when active chat changes
+  useEffect(() => {
+    setShowBusinessInfoDropdown(false);
+  }, [activeChatId]);
 
   // Scroll to bottom helper
   useEffect(() => {
@@ -1878,6 +1900,7 @@ export default function App() {
                   }
                   setUserUsername(uName);
                   setUserDisplayName(dName);
+                  setUserZenoaId(profile.zenoa_id || `${uName}@zenoa`);
                   setUserPhone(uPhone);
                   setUserBio(profile.bio || '');
                   setUserAvatarSeed(profile.avatar_seed || uName);
@@ -2801,6 +2824,12 @@ export default function App() {
         const data = snap.data();
         if (!data || !data.active_session_token) return;
 
+        // If this tab is a linked device companion session, do not terminate from primary session updates
+        const isLinkedClient = sessionStorage.getItem('zenoa_is_linked_client') === 'true';
+        if (isLinkedClient) {
+          return;
+        }
+
         // If the token in Firestore matches our own token, we are active
         if (data.active_session_token === currentSessionToken) {
           return;
@@ -2825,6 +2854,87 @@ export default function App() {
       if (broadcastChannel) broadcastChannel.close();
     };
   }, [isFirebaseConfigured, db, userUsername, userId, currentSessionToken, currentSessionCreatedAt]);
+
+  // Remote Revocation Watcher for Linked Web Companion Sessions (Zenoa Web)
+  useEffect(() => {
+    const isLinkedClient = sessionStorage.getItem('zenoa_is_linked_client') === 'true';
+    const linkedSessionId = sessionStorage.getItem('zenoa_linked_session_id');
+    if (!isLinkedClient || !linkedSessionId || !isAuthenticated) return;
+
+    let isMounted = true;
+    const checkRevocation = async () => {
+      try {
+        const res = await fetch(`/api/v1/link-device/session/${encodeURIComponent(linkedSessionId)}`);
+        const data = await res.json();
+        if (isMounted && data.success && data.session) {
+          if (data.session.status === 'rejected' || data.session.status === 'expired' || data.session.expiresAt <= Date.now()) {
+            showToast('This linked web session was logged out from your primary device.');
+            sessionStorage.removeItem('zenoa_is_linked_client');
+            sessionStorage.removeItem('zenoa_linked_session_id');
+            handleLogout();
+          }
+        }
+      } catch (err) {
+        console.warn('Revocation poll notice:', err);
+      }
+    };
+
+    const interval = setInterval(checkRevocation, 4000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [isAuthenticated]);
+
+  // Auto-restore companion session on startup (Zenoa Web)
+  useEffect(() => {
+    if (isAuthenticated) return;
+    const isLinkedClient = localStorage.getItem('zenoa_is_linked_client') === 'true' || sessionStorage.getItem('zenoa_is_linked_client') === 'true';
+    const linkedSessionId = localStorage.getItem('zenoa_linked_session_id') || sessionStorage.getItem('zenoa_linked_session_id');
+
+    if (isLinkedClient && linkedSessionId) {
+      let isMounted = true;
+      fetch(`/api/v1/link-device/session/${encodeURIComponent(linkedSessionId)}`)
+        .then(r => r.json())
+        .then(async data => {
+          if (!isMounted) return;
+          if (data.success && data.session && data.session.status === 'authenticated' && data.session.linkedUser) {
+            const u = data.session.linkedUser;
+            sessionStorage.setItem('zenoa_is_linked_client', 'true');
+            sessionStorage.setItem('zenoa_linked_session_id', linkedSessionId);
+            if (u.sessionToken) sessionStorage.setItem('zenoa_active_session_token', u.sessionToken);
+            
+            if (data.session.syncedDataPayload) {
+              try {
+                await storageManager.importUserDataPackage(data.session.syncedDataPayload);
+              } catch (e) {
+                console.warn('Startup companion payload sync note:', e);
+              }
+            }
+
+            setUserUsername(u.username);
+            setUserDisplayName(u.displayName || u.username);
+            setUserAvatarSeed(u.avatarSeed || u.username);
+            if (u.avatarUrl) setUserAvatarUrl(u.avatarUrl);
+            setUserId(u.id || u.username);
+            setIsAuthenticated(true);
+          } else if (data.session && (data.session.status === 'rejected' || data.session.status === 'expired')) {
+            localStorage.removeItem('zenoa_is_linked_client');
+            localStorage.removeItem('zenoa_linked_session_id');
+            localStorage.removeItem('zenoa_active_session_token');
+            localStorage.removeItem('zenoa_linked_user_data');
+            sessionStorage.removeItem('zenoa_is_linked_client');
+            sessionStorage.removeItem('zenoa_linked_session_id');
+            sessionStorage.removeItem('zenoa_active_session_token');
+          }
+        })
+        .catch(() => {});
+
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [isAuthenticated]);
 
   // Monitor active call document status changes to close Call Modal on both sides if ended, cancelled, timed out, or declined
   useEffect(() => {
@@ -3914,6 +4024,14 @@ export default function App() {
           created_at: now
         });
 
+        // Direct primary key index: zenoa_ids/{cleanZenoaId} -> uid
+        await setDoc(doc(db, 'zenoa_ids', cleanZenoaId), {
+          uid: userObj.uid,
+          username: cleanUsername,
+          zenoa_id: cleanZenoaId,
+          created_at: now
+        });
+
         // Zero-Trust Fresh Account Assurance:
         // Clear all local cached data for this username to prevent any stale remnants from a previous account that shared this username
         await storageManager.wipeUserData(cleanUsername);
@@ -4504,6 +4622,15 @@ export default function App() {
     setIsDriveConnected(false);
     setDriveAccessToken(null);
     localStorage.removeItem('zenoa_drive_connected');
+    localStorage.removeItem('zenoa_is_linked_client');
+    localStorage.removeItem('zenoa_linked_session_id');
+    localStorage.removeItem('zenoa_active_session_token');
+    localStorage.removeItem('zenoa_linked_user_data');
+    localStorage.removeItem('zenoa_authenticated');
+    localStorage.removeItem('zenoa_active_user');
+    sessionStorage.removeItem('zenoa_is_linked_client');
+    sessionStorage.removeItem('zenoa_linked_session_id');
+    sessionStorage.removeItem('zenoa_active_session_token');
   };
 
   const handleConnectDrive = async () => {
@@ -7620,6 +7747,7 @@ export default function App() {
 
   const currentUserObj: UserData | null = isAuthenticated ? {
     id: userId,
+    zenoa_id: userZenoaId || dbUserObj?.zenoa_id || (userUsername ? `${userUsername}@zenoa` : ''),
     username: userUsername,
     display_name: dbUserObj?.display_name || userDisplayName,
     email: userEmail,
@@ -7651,6 +7779,68 @@ export default function App() {
   const isDevSubdomain = currentHostname.startsWith("developer.") || currentHostname.startsWith("developers.") || currentHostname.startsWith("dev.") || currentHostname.startsWith("portal.") || currentHostname.startsWith("dash.");
   // 4. docs.zenoa.sbs -> API Documentation
   const isDocsSubdomain = currentHostname.startsWith("docs.") || currentHostname.startsWith("api-docs.") || currentHostname.startsWith("api.");
+  // 5. web1.zenoa.sbs / web.zenoa.sbs -> Standalone Web 1.0 Linking & Pairing Portal
+  const isWeb1Subdomain = currentHostname.startsWith("web1.") || currentHostname.startsWith("web.");
+
+  // Z. Standalone Web1 / Web Linking Portal (web1.zenoa.sbs, /web1, /web, /link-device, ?view=web1)
+  const isWeb1Path = isWeb1Subdomain || (
+    currentPathname === "/web1" || 
+    currentPathname === "/web" || 
+    currentPathname === "/link-device" ||
+    currentSearchParams.get("view") === "web1" ||
+    currentSearchParams.get("view") === "web"
+  );
+  if (isWeb1Path && !isAuthenticated) {
+    return (
+      <Web1LinkingPage 
+        onSuccessfulLogin={async (linkedUser) => {
+          if (linkedUser && linkedUser.username) {
+            // Check if local data payload arrived via P2P
+            try {
+              const res = await fetch(`/api/v1/link-device/session/${linkedUser.sessionId || ''}`);
+              const data = await res.json();
+              if (data.success && data.session?.syncedDataPayload) {
+                await storageManager.importUserDataPackage(data.session.syncedDataPayload);
+              }
+            } catch (e) {
+              console.warn('P2P local payload import note:', e);
+            }
+
+            // Set logged in session as linked companion
+            sessionStorage.setItem('zenoa_is_linked_client', 'true');
+            localStorage.setItem('zenoa_is_linked_client', 'true');
+            if (linkedUser.sessionId) {
+              sessionStorage.setItem('zenoa_linked_session_id', linkedUser.sessionId);
+              localStorage.setItem('zenoa_linked_session_id', linkedUser.sessionId);
+            }
+            if (linkedUser.sessionToken) {
+              sessionStorage.setItem('zenoa_active_session_token', linkedUser.sessionToken);
+              localStorage.setItem('zenoa_active_session_token', linkedUser.sessionToken);
+            }
+            try {
+              localStorage.setItem('zenoa_linked_user_data', JSON.stringify(linkedUser));
+              localStorage.setItem('zenoa_active_user', linkedUser.username);
+              localStorage.setItem('zenoa_authenticated', 'true');
+            } catch (e) {}
+            setIsAuthenticated(true);
+            setUserUsername(linkedUser.username);
+            setUserDisplayName(linkedUser.displayName || linkedUser.username);
+            setUserAvatarSeed(linkedUser.avatarSeed || linkedUser.username);
+            if (linkedUser.avatarUrl) setUserAvatarUrl(linkedUser.avatarUrl);
+            showToast(`Linked successfully as @${linkedUser.username}!`);
+          }
+        }}
+        onNavigateHome={() => {
+          try {
+            window.history.pushState({}, '', '/');
+            window.dispatchEvent(new PopStateEvent('popstate'));
+          } catch(e) {
+            window.location.href = '/';
+          }
+        }}
+      />
+    );
+  }
 
   // A. Accounts / OAuth 2.0 Consent Screen (accounts.zenoa.sbs, /auth/sso, /oauth, or client_id query param)
   const isSSOAuthConsent = isAccountsSubdomain || currentPathname === "/auth/sso" || currentPathname === "/oauth" || currentSearchParams.has("client_id") || currentSearchParams.has("redirect_uri");
@@ -8824,7 +9014,7 @@ export default function App() {
                       ) : (
                         <span><AppleEmojiText text={activeChat.name} /></span>
                       )}
-                      {activeChat.type !== 'group' && activeChat?.username && !!users[activeChat?.username]?.is_verified && (
+                      {activeChat.type !== 'group' && activeChat?.username && isAccountVerified(users[activeChat?.username], activeChat?.username) && (
                         <PurpleVerifiedBadge size="xs"  />
                       )}
                       {activeChat.type === 'group' && (
@@ -8860,10 +9050,25 @@ export default function App() {
                         <span className="text-indigo-600 dark:text-indigo-400 font-medium flex items-center gap-1">
                           <Phone className="h-3 w-3 inline" /> in audio call...
                         </span>
-                      ) : isServiceAccount(users[activeChat?.username], activeChat?.username) ? (
-                        <span className="inline-flex items-center gap-1.5 font-bold text-[10px] tracking-wide text-blue-500 dark:text-blue-400">
-                          <span>{isServiceAccount(users[activeChat?.username], activeChat?.username) ? (['zenoa', 'sa_zenoa', 'zenoa_official'].includes(activeChat?.username.toLowerCase()) ? 'Official Zenoa Account' : 'Business Account') : 'End-to-End Encrypted'}</span>
+                      ) : isOfficialAccount(users[activeChat?.username], activeChat?.username) ? (
+                        <span className="inline-flex items-center gap-1 font-bold text-[10px] tracking-wide text-purple-600 dark:text-purple-400">
+                          <ShieldCheck className="h-3 w-3 inline" />
+                          <span>Official Zenoa Account</span>
                         </span>
+                      ) : isBusinessAccount(users[activeChat?.username], activeChat?.username) ? (
+                        <button 
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowBusinessInfoDropdown(prev => !prev);
+                          }}
+                          className="inline-flex items-center gap-1 font-bold text-[10px] tracking-wide text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors cursor-pointer group"
+                          title="Click to learn more about this Business Account"
+                        >
+                          <Building2 className="h-3 w-3 text-blue-500 inline" />
+                          <span>Business Account</span>
+                          <span className="font-normal text-[9px] opacity-80 group-hover:opacity-100 underline decoration-dotted">• Tap to learn more</span>
+                        </button>
                       ) : isUserEffectivelyOnline(users[activeChat?.username]) ? (
                         <span className="text-emerald-600 dark:text-emerald-400 font-medium inline-flex items-center gap-1">
                           <span>Online</span>
@@ -8961,6 +9166,37 @@ export default function App() {
                 </div>
               </div>
               )}
+
+              {/* Dropdown Popup for Business Account Info */}
+              <AnimatePresence>
+                {showBusinessInfoDropdown && activeChat.type !== 'group' && activeChat?.username && isBusinessAccount(users[activeChat?.username], activeChat?.username) && (
+                  <BusinessAccountInfoDropdown
+                    businessUser={{
+                      display_name: activeChat.name,
+                      username: activeChat.username,
+                      avatar_seed: activeChat.avatar_seed,
+                      avatar_url: activeChat.avatar_url || users[activeChat.username]?.avatar_url,
+                      is_verified: isAccountVerified(users[activeChat.username], activeChat.username),
+                      bio: users[activeChat.username]?.bio
+                    }}
+                    isOpen={showBusinessInfoDropdown}
+                    onClose={() => setShowBusinessInfoDropdown(false)}
+                    onOpenDocs={(sectionId) => {
+                      setShowBusinessInfoDropdown(false);
+                      setDocumentationInitialSection(sectionId || 'business-vs-official-accounts');
+                      setShowDocumentationModal(true);
+                    }}
+                    isMuted={!!activeChat.muted}
+                    onToggleMute={() => {
+                      handleToggleMuteChat(null, activeChat.id);
+                    }}
+                    isBlocked={blockedUsers.includes(activeChat.username)}
+                    onToggleBlock={() => {
+                      handleToggleBlockUser(activeChat.username);
+                    }}
+                  />
+                )}
+              </AnimatePresence>
 
               {/* ACTIVE CALL SUB-HEADER BANNER */}
               {activeCallSession && (
@@ -9087,15 +9323,45 @@ export default function App() {
                   >
                 {/* Automatic Top Privacy & Encryption Banner (Zenoa zero-knowledge) */}
                 <div className="flex justify-center my-3 px-2 select-none">
-                  <div className={`max-w-md w-full border rounded-2xl p-3 text-center shadow-2xs backdrop-blur-xs ${isServiceAccount(users[activeChat?.username], activeChat?.username) ? 'bg-blue-50/50 dark:bg-blue-900/20 border-blue-200/80 dark:border-blue-800/50' : 'bg-neutral-100 dark:bg-neutral-800/90 dark:bg-neutral-900/90 border-amber-200/80 dark:border-neutral-800'}`}>
-                    <div className={`flex items-center justify-center gap-1.5 font-bold text-xs mb-1 ${isServiceAccount(users[activeChat?.username], activeChat?.username) ? 'text-blue-900 dark:text-blue-300' : 'text-amber-900 dark:text-amber-300'}`}>
-                      {isServiceAccount(users[activeChat?.username], activeChat?.username) ? <Shield className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" /> : <Lock className="h-3.5 w-3.5 text-neutral-600 dark:text-neutral-400" />}
-                      <span>{isServiceAccount(users[activeChat?.username], activeChat?.username) ? (['zenoa', 'sa_zenoa', 'zenoa_official'].includes(activeChat?.username.toLowerCase()) ? 'Official Zenoa Account' : 'Business Account') : 'End-to-End Encrypted'}</span>
+                  {isOfficialAccount(users[activeChat?.username], activeChat?.username) ? (
+                    <div className="max-w-md w-full border rounded-2xl p-3 text-center shadow-2xs backdrop-blur-xs bg-purple-50/60 dark:bg-purple-950/20 border-purple-200/80 dark:border-purple-800/50">
+                      <div className="flex items-center justify-center gap-1.5 font-bold text-xs mb-1 text-purple-900 dark:text-purple-300">
+                        <ShieldCheck className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                        <span>Official Zenoa Account</span>
+                        <PurpleVerifiedBadge size="xs" />
+                      </div>
+                      <p className="text-[11px] leading-relaxed font-medium text-purple-950/80 dark:text-purple-200/80">
+                        This is an official Zenoa account verified by Zenoa. System notifications, authentication alerts, and direct communications are authenticated and securely delivered.
+                      </p>
                     </div>
-                    <p className={`text-[11px] leading-relaxed font-medium ${isServiceAccount(users[activeChat?.username], activeChat?.username) ? 'text-blue-950/80 dark:text-blue-200/80' : 'text-amber-950/80 dark:text-neutral-300'}`}>
-                      {isServiceAccount(users[activeChat?.username], activeChat?.username) ? 'This business uses Zenoa Business securely. System updates, verification codes, and direct messages are delivered safely.' : 'Messages and calls are secured with end-to-end encryption. No third party can read or listen to them, not even Zenoa.'}
-                    </p>
-                  </div>
+                  ) : isBusinessAccount(users[activeChat?.username], activeChat?.username) ? (
+                    <div 
+                      onClick={() => setShowBusinessInfoDropdown(prev => !prev)}
+                      className="max-w-md w-full border rounded-2xl p-3 text-center shadow-2xs backdrop-blur-xs bg-blue-50/60 dark:bg-blue-950/20 border-blue-200/80 dark:border-blue-800/50 cursor-pointer hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-md transition-all group"
+                      role="button"
+                      tabIndex={0}
+                      title="Tap to learn more about this Business Account"
+                    >
+                      <div className="flex items-center justify-center gap-1.5 font-bold text-xs mb-1 text-blue-900 dark:text-blue-300">
+                        <Building2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                        <span>Business Account</span>
+                        <span className="text-[10px] font-normal text-blue-600/80 dark:text-blue-400/80 bg-blue-100/80 dark:bg-blue-900/60 px-1.5 py-0.5 rounded-full ml-1">Verified Gateway</span>
+                      </div>
+                      <p className="text-[11px] leading-relaxed font-medium text-blue-950/80 dark:text-blue-200/80">
+                        This business account uses secure Zenoa infrastructure to communicate. <span className="underline font-semibold text-blue-600 dark:text-blue-400 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors">Tap to learn more</span>
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="max-w-md w-full border rounded-2xl p-3 text-center shadow-2xs backdrop-blur-xs bg-neutral-100 dark:bg-neutral-800/90 dark:bg-neutral-900/90 border-amber-200/80 dark:border-neutral-800">
+                      <div className="flex items-center justify-center gap-1.5 font-bold text-xs mb-1 text-amber-900 dark:text-amber-300">
+                        <Lock className="h-3.5 w-3.5 text-neutral-600 dark:text-neutral-400" />
+                        <span>End-to-End Encrypted</span>
+                      </div>
+                      <p className="text-[11px] leading-relaxed font-medium text-amber-950/80 dark:text-neutral-300">
+                        Messages and calls are secured with end-to-end encryption. No third party can read or listen to them, not even Zenoa.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Pagination: Load Earlier Messages */}
@@ -10624,6 +10890,7 @@ export default function App() {
             onBackupToDrive={handleBackupToDrive}
             onRestoreFromDrive={handleRestoreFromDrive}
             onDeleteBackupFromDrive={handleDeleteBackupFromDrive}
+            onOpenLinkDevice={() => setShowLinkDeviceModal(true)}
           />
         )}
 
@@ -10680,6 +10947,7 @@ export default function App() {
                   blockedUsers={blockedUsers}
                   handleToggleBlockUser={handleToggleBlockUser}
                   handleReportUser={handleReportUser}
+                  onOpenLinkDevice={() => setShowLinkDeviceModal(true)}
                 />
               )}
             </AnimatePresence>
@@ -12451,6 +12719,33 @@ export default function App() {
         onLogoutOnly={handleDirectLogout}
         onCancel={() => setShowLogoutModal(false)}
       />
+
+      {/* P2P LINK DEVICE & ZERO-CLOUD SYNC MODAL */}
+      <LinkDeviceModal
+        isOpen={showLinkDeviceModal}
+        onClose={() => setShowLinkDeviceModal(false)}
+        currentUser={currentUserObj || users[userUsername] || {
+          id: userId || userUsername,
+          username: userUsername,
+          displayName: userDisplayName,
+          avatarSeed: userAvatarSeed,
+          avatarUrl: userAvatarUrl
+        }}
+        themeMode={themeMode}
+        onSyncSuccess={(details) => {
+          showToast(`Device linked successfully to ${details.clientInfo?.browser || 'Browser'} (${details.clientInfo?.os || 'Web'})!`);
+        }}
+      />
+
+      {/* IN-APP API & SYSTEM DOCUMENTATION MODAL */}
+      {showDocumentationModal && (
+        <div className="fixed inset-0 z-50 bg-neutral-900/60 backdrop-blur-xs flex flex-col">
+          <DocumentationStandalone
+            initialSection={documentationInitialSection}
+            onBackToApp={() => setShowDocumentationModal(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }

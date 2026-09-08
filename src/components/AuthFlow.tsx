@@ -376,14 +376,13 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     const finalUsername = cleanRegUsername || activeZenoaHandle;
     const finalZenoaId = activeZenoaId;
 
-    // Mutual exclusivity: Either Mobile OR Email
-    const finalMobile = contactType === 'phone' && regPhoneDigits.trim() 
+    // Optional Mobile Number for SMS verification / Account recovery
+    const finalMobile = regPhoneDigits.trim() 
       ? `${selectedCountry.dial}${regPhoneDigits.replace(/[^0-9]/g, '')}`
       : '';
     
-    const finalEmail = contactType === 'email' && regEmail.trim()
-      ? regEmail.trim()
-      : '';
+    // Zenoa ID is the primary key and identity: no email is required or generated
+    const finalEmail = '';
 
     if (!regAgreedToLegal) {
       setErrorMessage('Please accept the Terms to continue.');
@@ -1030,7 +1029,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
               </motion.div>
             )}
 
-            {/* STEP 3: CONTACT METHOD (MUTUAL EXCLUSIVITY: MOBILE NUMBER OR EMAIL ADDRESS ONLY) */}
+            {/* STEP 3: RECOVERY CONTACT (OPTIONAL MOBILE - NO EMAIL REQUIRED OR GENERATED) */}
             {wizardStep === 3 && (
               <motion.div
                 key="step-3"
@@ -1042,160 +1041,99 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
               >
                 <div>
                   <h2 className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-white">
-                    Contact Method
+                    Account Recovery (Optional)
                   </h2>
                   <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                    Choose either Mobile Number or Email to sign up.
+                    Your Zenoa ID is your primary digital identity and master key. Email is completely optional and never required. You can optionally link a mobile number for SMS verification.
                   </p>
                 </div>
 
-                {/* Clean Segmented Tab Selector */}
-                <div className="grid grid-cols-2 p-1 bg-neutral-100 dark:bg-neutral-800/80 rounded-xl">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setContactType('phone');
-                      setErrorMessage('');
-                    }}
-                    className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                      contactType === 'phone'
-                        ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white shadow-xs'
-                        : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
-                    }`}
-                  >
-                    <Smartphone className="h-3.5 w-3.5" />
-                    <span>Mobile Number</span>
-                  </button>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">
+                      Mobile Number (Optional)
+                    </label>
+                    <div className="flex gap-2 relative">
+                      {/* Country Code Dropdown */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setIsCountryDropdownOpen(!isCountryDropdownOpen)}
+                          className="flex items-center gap-1 px-3 py-2.5 text-xs font-medium rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer h-full"
+                        >
+                          <span>{selectedCountry.flag}</span>
+                          <span className="font-semibold">{selectedCountry.dial}</span>
+                          <ChevronDown className="h-3 w-3 text-neutral-400" />
+                        </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setContactType('email');
-                      setErrorMessage('');
-                    }}
-                    className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                      contactType === 'email'
-                        ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white shadow-xs'
-                        : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
-                    }`}
-                  >
-                    <Mail className="h-3.5 w-3.5" />
-                    <span>Email Address</span>
-                  </button>
-                </div>
-
-                {contactType === 'phone' ? (
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                        Mobile Number
-                      </label>
-                      <div className="flex gap-2 relative">
-                        {/* Country Code Dropdown */}
-                        <div className="relative">
-                          <button
-                            type="button"
-                            onClick={() => setIsCountryDropdownOpen(!isCountryDropdownOpen)}
-                            className="flex items-center gap-1 px-3 py-2.5 text-xs font-medium rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer h-full"
-                          >
-                            <span>{selectedCountry.flag}</span>
-                            <span className="font-semibold">{selectedCountry.dial}</span>
-                            <ChevronDown className="h-3 w-3 text-neutral-400" />
-                          </button>
-
-                          {isCountryDropdownOpen && (
-                            <div className="absolute left-0 top-12 z-50 w-56 max-h-48 overflow-y-auto bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl shadow-xl p-1.5">
-                              <input
-                                type="text"
-                                value={countrySearch}
-                                onChange={e => setCountrySearch(e.target.value)}
-                                placeholder="Search country..."
-                                autoComplete="off"
-                                className="w-full px-2 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800 outline-none mb-1 text-neutral-900 dark:text-white"
-                              />
-                              <div className="space-y-0.5">
-                                {filteredCountries.map(c => (
-                                  <button
-                                    key={c.code + c.dial}
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedCountry(c);
-                                      setIsCountryDropdownOpen(false);
-                                      setCountrySearch('');
-                                    }}
-                                    className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left transition-colors ${
-                                      selectedCountry.code === c.code ? 'bg-neutral-100 dark:bg-neutral-800 font-semibold' : ''
-                                    }`}
-                                  >
-                                    <span className="flex items-center gap-1.5 truncate">
-                                      <span>{c.flag}</span>
-                                      <span className="truncate">{c.name}</span>
-                                    </span>
-                                    <span className="font-mono text-neutral-400 shrink-0">{c.dial}</span>
-                                  </button>
-                                ))}
-                              </div>
+                        {isCountryDropdownOpen && (
+                          <div className="absolute left-0 top-12 z-50 w-56 max-h-48 overflow-y-auto bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl shadow-xl p-1.5">
+                            <input
+                              type="text"
+                              value={countrySearch}
+                              onChange={e => setCountrySearch(e.target.value)}
+                              placeholder="Search country..."
+                              autoComplete="off"
+                              className="w-full px-2 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800 outline-none mb-1 text-neutral-900 dark:text-white"
+                            />
+                            <div className="space-y-0.5">
+                              {filteredCountries.map(c => (
+                                <button
+                                  key={c.code + c.dial}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedCountry(c);
+                                    setIsCountryDropdownOpen(false);
+                                    setCountrySearch('');
+                                  }}
+                                  className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left transition-colors ${
+                                    selectedCountry.code === c.code ? 'bg-neutral-100 dark:bg-neutral-800 font-semibold' : ''
+                                  }`}
+                                >
+                                  <span className="flex items-center gap-1.5 truncate">
+                                    <span>{c.flag}</span>
+                                    <span className="truncate">{c.name}</span>
+                                  </span>
+                                  <span className="font-mono text-neutral-400 shrink-0">{c.dial}</span>
+                                </button>
+                              ))}
                             </div>
-                          )}
-                        </div>
-
-                        {/* Phone Digits Input */}
-                        <div className="relative flex-1 flex items-center">
-                          <input
-                            type="tel"
-                            value={regPhoneDigits}
-                            onChange={e => setRegPhoneDigits(e.target.value.replace(/[^0-9]/g, ''))}
-                            placeholder=""
-                            autoComplete="off"
-                            className="w-full px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 outline-none focus:border-neutral-900 dark:focus:border-neutral-100 text-neutral-900 dark:text-white transition-colors font-mono"
-                          />
-                          {isTruecallerVerified && (
-                            <Check className="absolute right-3 h-4 w-4 text-emerald-500" />
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
 
-                    {/* Truecaller 1-Tap Trigger */}
-                    <button
-                      type="button"
-                      onClick={handleTruecallerVerification}
-                      disabled={isLoading}
-                      className="w-full h-10 px-3 bg-[#0087FF] hover:bg-[#0076E0] text-white rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      <Phone className="h-3.5 w-3.5" />
-                      <span>{isTruecallerVerified ? '✓ Truecaller Verified' : 'Verify with Truecaller'}</span>
-                    </button>
-                    
-                    <p className="text-[11px] text-neutral-400 text-center">
-                      No magic link required for mobile signups. You can add email later in profile.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                        Email Address
-                      </label>
-                      <div className="relative flex items-center">
-                        <Mail className="absolute left-3.5 h-4 w-4 text-neutral-400 pointer-events-none" />
+                      {/* Phone Digits Input */}
+                      <div className="relative flex-1 flex items-center">
                         <input
-                          type="email"
-                          value={regEmail}
-                          onChange={e => setRegEmail(e.target.value)}
-                          placeholder=""
+                          type="tel"
+                          value={regPhoneDigits}
+                          onChange={e => setRegPhoneDigits(e.target.value.replace(/[^0-9]/g, ''))}
+                          placeholder="Enter mobile number"
                           autoComplete="off"
-                          spellCheck={false}
-                          className="w-full pl-10 pr-3.5 py-2.5 text-xs sm:text-sm font-medium rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 outline-none focus:border-neutral-900 dark:focus:border-neutral-100 text-neutral-900 dark:text-white transition-colors"
+                          className="w-full px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 outline-none focus:border-neutral-900 dark:focus:border-neutral-100 text-neutral-900 dark:text-white transition-colors font-mono"
                         />
+                        {isTruecallerVerified && (
+                          <Check className="absolute right-3 h-4 w-4 text-emerald-500" />
+                        )}
                       </div>
                     </div>
-
-                    <p className="text-[11px] text-neutral-400 text-center">
-                      A magic link / verification link will be sent to this email address.
-                    </p>
                   </div>
-                )}
+
+                  {/* Truecaller 1-Tap Trigger */}
+                  <button
+                    type="button"
+                    onClick={handleTruecallerVerification}
+                    disabled={isLoading}
+                    className="w-full h-10 px-3 bg-[#0087FF] hover:bg-[#0076E0] text-white rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Phone className="h-3.5 w-3.5" />
+                    <span>{isTruecallerVerified ? '✓ Truecaller Verified' : 'Verify with Truecaller (Optional)'}</span>
+                  </button>
+                  
+                  <p className="text-[11px] text-neutral-400 text-center">
+                    You can proceed without a phone number. Your account is secured by your Zenoa ID & password.
+                  </p>
+                </div>
 
                 <div className="flex items-center gap-2 pt-1">
                   <button
@@ -1209,18 +1147,13 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
                   <button
                     type="button"
-                    disabled={contactType === 'phone' ? regPhoneDigits.length < 7 : (!regEmail || !regEmail.includes('@'))}
                     onClick={() => {
                       setWizardStep(4);
                       setErrorMessage('');
                     }}
-                    className={`flex-1 h-11 text-xs sm:text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer ${
-                      (contactType === 'phone' ? regPhoneDigits.length >= 7 : (regEmail && regEmail.includes('@')))
-                        ? 'bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-950'
-                        : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-600 cursor-not-allowed'
-                    }`}
+                    className="flex-1 h-11 text-xs sm:text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-950"
                   >
-                    <span>Next</span>
+                    <span>{regPhoneDigits.trim().length >= 7 ? 'Next' : 'Skip & Set Password'}</span>
                     <ArrowRight className="h-4 w-4" />
                   </button>
                 </div>
@@ -1355,13 +1288,13 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                     <span className="font-semibold text-neutral-900 dark:text-white">@{activeHandle}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-neutral-400">Zenoa ID:</span>
-                    <span className="font-mono text-neutral-700 dark:text-neutral-300">{activeHandle}@zenoa</span>
+                    <span className="text-neutral-400">Zenoa ID (Primary Key):</span>
+                    <span className="font-mono font-medium text-neutral-800 dark:text-neutral-200">{activeHandle}@zenoa</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-neutral-400">Contact:</span>
+                    <span className="text-neutral-400">Recovery Contact:</span>
                     <span className="font-mono text-neutral-700 dark:text-neutral-300">
-                      {contactType === 'phone' ? `${selectedCountry.dial} ${regPhoneDigits}` : regEmail}
+                      {regPhoneDigits.trim() ? `${selectedCountry.dial} ${regPhoneDigits}` : 'Zenoa ID & Password'}
                     </span>
                   </div>
                 </div>

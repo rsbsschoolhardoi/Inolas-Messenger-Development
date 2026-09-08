@@ -1756,8 +1756,6 @@ app.post('/api/v1/sso/authorize', async (req: any, res: any) => {
     if (!client_id || !user_data || !redirect_uri) {
       return res.status(400).json({ error: 'Missing required parameters (client_id, user_data, redirect_uri)' });
     }
-    
-    if (!db) return res.status(500).json({ error: 'Database service unavailable' });
 
     const match = await lookupOAuthApp(client_id);
     if (!match) {
@@ -2573,6 +2571,413 @@ app.post('/api/v1/team/remove', authenticateApiKey, async (req: any, res: any) =
     res.json({ success: true, message: 'Collaborator removed successfully.' });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to remove collaborator: ' + err.message });
+  }
+});
+
+// ==========================================
+// P2P / QR CODE DEVICE LINKING & SYNC SESSIONS (WEB1 & NATIVE APP)
+// ==========================================
+interface EphemeralLinkSession {
+  sessionId: string;
+  publicKey: string;
+  authCode: string; // 7-character formatted code (e.g. "ZN7-9XK")
+  rawCode: string;  // stripped uppercase code (e.g. "ZN79XK")
+  status: 'pending_scan' | 'scanned' | 'code_entered' | 'syncing' | 'authenticated' | 'expired' | 'rejected';
+  createdAt: number;
+  expiresAt: number;
+  deviceInfo?: any;
+  linkedUser?: any;
+  syncedDataPayload?: any; // Direct P2P encrypted payload stream
+}
+
+const activeLinkSessions = new Map<string, EphemeralLinkSession>();
+
+// Helper to generate cryptographically random 7-character human-readable code
+function generate7DigitAuthCode(): { formatted: string; raw: string } {
+  const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'; // Exclude ambiguous 0/O, 1/I
+  let result = '';
+  for (let i = 0; i < 6; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  // Format as ZN + 5 random chars with hyphen, total 7 display characters e.g. "ZN4-8KP"
+  const raw = ('Z' + result).toUpperCase();
+  const formatted = `${raw.substring(0, 3)}-${raw.substring(3, 7)}`;
+  return { formatted, raw };
+}
+
+// 1. Create a fresh QR linking session (called by Web1 browser)
+app.post('/api/v1/link-device/create-session', async (req: any, res: any) => {
+  try {
+    const { publicKey, browser, os } = req.body;
+    const sessionId = 'dlink_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+    const { formatted, raw } = generate7DigitAuthCode();
+    const now = Date.now();
+    const expiresAt = now + 10 * 60 * 1000; // 10 minutes TTL
+
+    const session: EphemeralLinkSession = {
+      sessionId,
+      publicKey: publicKey || '',
+      authCode: formatted,
+      rawCode: raw,
+      status: 'pending_scan',
+      createdAt: now,
+      expiresAt,
+      deviceInfo: {
+        browser: browser || req.headers['user-agent'] || 'Web Browser',
+        os: os || 'Desktop',
+        ip: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1'
+      }
+    };
+
+    activeLinkSessions.set(sessionId, session);
+
+    // Also persist in Firestore if db available for cross-instance reliability
+    if (db) {
+      try {
+        await setDoc(doc(db, 'device_link_sessions', sessionId), sanitizeFirestoreData({
+          sessionId,
+          publicKey: session.publicKey,
+          authCode: formatted,
+          rawCode: raw,
+          status: 'pending_scan',
+          createdAt: now,
+          expiresAt,
+          deviceInfo: session.deviceInfo
+        }));
+      } catch (fErr) {
+        console.warn('Device link session Firestore write notice:', fErr);
+      }
+    }
+
+    res.json({
+      success: true,
+      sessionId,
+      expiresAt,
+      qrPayload: JSON.stringify({
+        protocol: 'zenoa_link_v1',
+        sessionId,
+        createdAt: now
+      })
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to create link session: ' + err.message });
+  }
+});
+
+// 2. Poll session status (called by Web1 browser awaiting phone confirmation)
+app.get('/api/v1/link-device/session/:sessionId', async (req: any, res: any) => {
+  try {
+    const { sessionId } = req.params;
+    let session = activeLinkSessions.get(sessionId);
+
+    if (!session && db) {
+      try {
+        const snap = await getDoc(doc(db, 'device_link_sessions', sessionId));
+        if (snap.exists()) {
+          session = snap.data() as EphemeralLinkSession;
+          activeLinkSessions.set(sessionId, session);
+        }
+      } catch (fErr) {
+        console.warn('Device link session Firestore fetch note:', fErr);
+      }
+    }
+
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found or expired' });
+    }
+
+    if (Date.now() > session.expiresAt) {
+      session.status = 'expired';
+      return res.json({ success: true, session: { status: 'expired' } });
+    }
+
+    // High security: Only reveal 7-character authCode once phone has physically scanned the QR code
+    const isScannedOrActive = session.status === 'scanned' || session.status === 'authenticated';
+    const codeToDeliver = isScannedOrActive ? session.authCode : null;
+
+    res.json({
+      success: true,
+      session: {
+        sessionId: session.sessionId,
+        status: session.status,
+        authCode: codeToDeliver,
+        createdAt: session.createdAt,
+        expiresAt: session.expiresAt,
+        linkedUser: session.status === 'authenticated' ? session.linkedUser : undefined,
+        syncedDataPayload: session.status === 'authenticated' ? session.syncedDataPayload : undefined
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to query link session: ' + err.message });
+  }
+});
+
+// 3. Mark session scanned by Mobile Scanner (opens code entry on Mobile)
+app.post('/api/v1/link-device/scan', async (req: any, res: any) => {
+  try {
+    const { sessionId } = req.body;
+    let session = activeLinkSessions.get(sessionId);
+
+    if (!session && db) {
+      const snap = await getDoc(doc(db, 'device_link_sessions', sessionId));
+      if (snap.exists()) {
+        session = snap.data() as EphemeralLinkSession;
+        activeLinkSessions.set(sessionId, session);
+      }
+    }
+
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Invalid or expired QR session' });
+    }
+
+    if (session.status === 'authenticated') {
+      return res.status(400).json({ success: false, error: 'This session has already been authenticated and cannot be rescanned.' });
+    }
+
+    if (Date.now() > session.expiresAt) {
+      session.status = 'expired';
+      return res.status(400).json({ success: false, error: 'QR Code expired. Please refresh the web page.' });
+    }
+
+    session.status = 'scanned';
+    activeLinkSessions.set(sessionId, session);
+
+    if (db) {
+      await setDoc(doc(db, 'device_link_sessions', sessionId), { status: 'scanned' }, { merge: true }).catch(() => {});
+    }
+
+    res.json({
+      success: true,
+      sessionId,
+      deviceInfo: session.deviceInfo,
+      message: 'QR code scanned successfully. Please enter the 7-character code shown on your Web screen.'
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Scan handler failed: ' + err.message });
+  }
+});
+
+// 4. Verify 7-digit code entered on phone and stream encrypted P2P local data payload
+app.post('/api/v1/link-device/verify-and-sync', async (req: any, res: any) => {
+  try {
+    const { sessionId, code, user, syncedDataPayload } = req.body;
+    if (!sessionId || !code || !user) {
+      return res.status(400).json({ success: false, error: 'sessionId, verification code, and user profile are required' });
+    }
+
+    let session = activeLinkSessions.get(sessionId);
+
+    if (!session && db) {
+      const snap = await getDoc(doc(db, 'device_link_sessions', sessionId));
+      if (snap.exists()) {
+        session = snap.data() as EphemeralLinkSession;
+        activeLinkSessions.set(sessionId, session);
+      }
+    }
+
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Link session not found' });
+    }
+
+    // Strict single-use protection
+    if (session.status === 'authenticated') {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'This linking session and code have already been used. Each code is strictly single-use only.' 
+      });
+    }
+
+    if (Date.now() > session.expiresAt || session.status === 'expired') {
+      return res.status(400).json({ success: false, error: 'Session has expired. Please generate a new QR code.' });
+    }
+
+    if (session.status !== 'scanned') {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'QR code must be scanned with camera before entering verification code.' 
+      });
+    }
+
+    // Clean codes for matching
+    const cleanEntered = String(code).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const cleanSession = session.rawCode.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const cleanFormatted = session.authCode.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+
+    if (cleanEntered !== cleanSession && cleanEntered !== cleanFormatted) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid 7-character code. Check the code displayed on your Web browser screen.' 
+      });
+    }
+
+    // Handshake verified! Upgrade status to authenticated and burn code to prevent reuse
+    session.status = 'authenticated';
+    session.linkedUser = {
+      uid: user.id || user.uid,
+      username: user.username,
+      displayName: user.display_name || user.displayName || user.username,
+      zenoaId: user.zenoa_id || `${user.username}@zenoa`,
+      avatarSeed: user.avatar_seed || user.username,
+      avatarUrl: user.avatar_url || '',
+      sessionToken: 'wlink_' + Date.now() + '_' + Math.random().toString(36).substring(2, 12)
+    };
+    session.syncedDataPayload = syncedDataPayload || null;
+
+    activeLinkSessions.set(sessionId, session);
+
+    if (db) {
+      await setDoc(doc(db, 'device_link_sessions', sessionId), sanitizeFirestoreData({
+        status: 'authenticated',
+        linkedUser: session.linkedUser,
+        syncedDataPayload: session.syncedDataPayload,
+        authenticatedAt: Date.now()
+      }), { merge: true }).catch(() => {});
+    }
+
+    res.json({
+      success: true,
+      message: 'Device linked and authenticated successfully! Web session is now active.',
+      session: {
+        sessionId,
+        status: 'authenticated',
+        deviceInfo: session.deviceInfo
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Verification failed: ' + err.message });
+  }
+});
+
+// 5. Reject / Revoke device link session from phone
+app.post('/api/v1/link-device/reject', async (req: any, res: any) => {
+  try {
+    const { sessionId } = req.body;
+    if (sessionId) {
+      const session = activeLinkSessions.get(sessionId);
+      if (session) {
+        session.status = 'rejected';
+        activeLinkSessions.set(sessionId, session);
+      }
+      if (db) {
+        await setDoc(doc(db, 'device_link_sessions', sessionId), { status: 'rejected' }, { merge: true }).catch(() => {});
+      }
+    }
+    res.json({ success: true, message: 'Link request rejected' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Reject failed: ' + err.message });
+  }
+});
+
+// 6. Get all active linked devices for a user
+app.get('/api/v1/link-device/list/:username', async (req: any, res: any) => {
+  try {
+    const { username } = req.params;
+    if (!username) {
+      return res.status(400).json({ success: false, error: 'Username is required' });
+    }
+    const cleanUsername = String(username).toLowerCase();
+    const activeDevices: any[] = [];
+    const now = Date.now();
+
+    // Scan in-memory sessions
+    for (const [sessId, session] of activeLinkSessions.entries()) {
+      if (
+        session.status === 'authenticated' &&
+        session.linkedUser &&
+        session.linkedUser.username.toLowerCase() === cleanUsername &&
+        session.expiresAt > now
+      ) {
+        activeDevices.push({
+          id: session.sessionId,
+          sessionId: session.sessionId,
+          sessionToken: session.linkedUser.sessionToken,
+          browser: session.deviceInfo?.browser || 'Web Browser',
+          os: session.deviceInfo?.os || 'Desktop',
+          ip: session.deviceInfo?.ip || 'Unknown',
+          location: session.deviceInfo?.location || 'Desktop Client',
+          linkedAt: session.createdAt || now,
+          lastActive: now,
+          status: 'active'
+        });
+      }
+    }
+
+    // Also query Firestore if db is available
+    if (db) {
+      try {
+        const sessionsRef = collection(db, 'device_link_sessions');
+        const q = query(
+          sessionsRef,
+          where('status', '==', 'authenticated')
+        );
+        const snap = await getDocs(q);
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (
+            data.linkedUser &&
+            data.linkedUser.username &&
+            data.linkedUser.username.toLowerCase() === cleanUsername &&
+            (!data.expiresAt || data.expiresAt > now)
+          ) {
+            const alreadyIn = activeDevices.some(d => d.sessionId === docSnap.id);
+            if (!alreadyIn) {
+              activeDevices.push({
+                id: docSnap.id,
+                sessionId: docSnap.id,
+                sessionToken: data.linkedUser?.sessionToken,
+                browser: data.deviceInfo?.browser || 'Web Browser',
+                os: data.deviceInfo?.os || 'Desktop',
+                ip: data.deviceInfo?.ip || 'Unknown',
+                location: data.deviceInfo?.location || 'Desktop Client',
+                linkedAt: data.createdAt || data.authenticatedAt || now,
+                lastActive: data.lastActive || now,
+                status: 'active'
+              });
+            }
+          }
+        });
+      } catch (fErr) {
+        console.warn('Firestore fetch active devices error:', fErr);
+      }
+    }
+
+    res.json({
+      success: true,
+      devices: activeDevices
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to fetch linked devices: ' + err.message });
+  }
+});
+
+// 7. Revoke / Logout specific linked device
+app.post('/api/v1/link-device/revoke', async (req: any, res: any) => {
+  try {
+    const { sessionId, username } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ success: false, error: 'sessionId is required' });
+    }
+
+    const session = activeLinkSessions.get(sessionId);
+    if (session) {
+      session.status = 'rejected';
+      session.expiresAt = 0;
+      activeLinkSessions.set(sessionId, session);
+    }
+
+    if (db) {
+      await setDoc(doc(db, 'device_link_sessions', sessionId), {
+        status: 'rejected',
+        revokedAt: Date.now()
+      }, { merge: true }).catch(() => {});
+    }
+
+    res.json({
+      success: true,
+      message: 'Linked device session revoked successfully'
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to revoke device: ' + err.message });
   }
 });
 

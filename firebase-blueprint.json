@@ -49,6 +49,66 @@
         "read": { "type": "boolean" },
         "timestamp": { "type": "number" }
       }
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "Direct and group conversation sessions",
+      "type": "object",
+      "properties": {
+        "participants": { "type": "array" },
+        "last_message": { "type": "string" },
+        "updated_at": { "type": "number" },
+        "created_at": { "type": "number" },
+        "is_group": { "type": "boolean" }
+      }
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Encrypted chat message payload",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "recipientId": { "type": "string" },
+        "content": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "encrypted": { "type": "boolean" },
+        "type": { "type": "string" }
+      }
+    },
+    "Call": {
+      "title": "Call",
+      "description": "WebRTC audio/video signaling session",
+      "type": "object",
+      "properties": {
+        "callerId": { "type": "string" },
+        "recipientId": { "type": "string" },
+        "status": { "type": "string" },
+        "type": { "type": "string" },
+        "createdAt": { "type": "number" }
+      }
+    },
+    "DeviceLinkSession": {
+      "title": "Device Link Session",
+      "description": "Ephemeral companion pairing session for Zenoa Web",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "expiresAt": { "type": "number" }
+      }
+    },
+    "SSOApplication": {
+      "title": "SSO Application",
+      "description": "Registered OAuth 2.0 application profile",
+      "type": "object",
+      "properties": {
+        "client_id": { "type": "string" },
+        "app_name": { "type": "string" },
+        "owner": { "type": "string" },
+        "created_at": { "type": "number" }
+      }
     }
   },
   "firestore": {
@@ -63,6 +123,26 @@
     "notifications/{notifId}": {
       "schema": "Notification",
       "description": "Collection for user notifications"
+    },
+    "chats/{chatId}": {
+      "schema": "Chat",
+      "description": "Chat conversations"
+    },
+    "messages/{messageId}": {
+      "schema": "Message",
+      "description": "Encrypted chat messages"
+    },
+    "calls/{callId}": {
+      "schema": "Call",
+      "description": "WebRTC call signaling"
+    },
+    "device_link_sessions/{sessionId}": {
+      "schema": "DeviceLinkSession",
+      "description": "Companion device linking sessions"
+    },
+    "sso_applications/{appId}": {
+      "schema": "SSOApplication",
+      "description": "SSO and OAuth client applications"
     }
   }
 }

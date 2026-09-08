@@ -337,11 +337,13 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         .map(b => b.toString(16).padStart(2, '0')).join('');
       const expiryDate = Date.now() + 10 * 60 * 1000; // 10 mins
 
+      const cleanZenoaId = targetUser.zenoa_id || (targetUser.username ? `${targetUser.username.toLowerCase()}@zenoa` : '');
       const cleanUserData = {
         id: targetUser.id,
+        zenoa_id: cleanZenoaId,
         username: targetUser.username,
         display_name: targetUser.display_name || targetUser.username,
-        email: targetUser.email || `${targetUser.username.toLowerCase()}@zenoa.im`,
+        email: targetUser.email || cleanZenoaId,
         mobile_number: targetUser.mobile_number || '',
         avatar_url: targetUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${targetUser.avatar_seed || targetUser.username}`,
         is_verified: true
@@ -409,12 +411,13 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
 
       // Also create signed JWT payload for immediate fallback compatibility
       const rawProfile = {
-        iss: 'https://zenoa.im/oauth',
+        iss: 'https://zenoa.sbs/oauth',
         sub: targetUser.id,
         aud: clientId,
+        zenoa_id: targetUser.zenoa_id || `${targetUser.username}@zenoa`,
         username: targetUser.username,
         name: targetUser.display_name || targetUser.username,
-        email: targetUser.email || `${targetUser.username}@zenoa.im`,
+        email: targetUser.email || targetUser.zenoa_id || `${targetUser.username}@zenoa`,
         phone_number: targetUser.mobile_number || '',
         picture: targetUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${targetUser.avatar_seed || targetUser.username}`,
         auth_time: Math.floor(Date.now() / 1000),

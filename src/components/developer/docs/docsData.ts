@@ -138,6 +138,126 @@ public class ZenoaHealth {
           ]
         },
         {
+          id: 'business-vs-official-accounts',
+          category: 'Getting Started',
+          title: 'Service Accounts: Official vs Business Accounts',
+          method: 'GUIDE',
+          path: '/docs/service-accounts',
+          summary: 'Detailed distinction between Zenoa Official Accounts and third-party Developer Business Accounts, including trust tiers, verification status, and user privacy protections.',
+          description: `Zenoa maintains a strict dual-tier architecture for non-human service accounts to guarantee platform integrity, combat spam, and safeguard user sovereign privacy.
+
+---
+
+### 1. Official Zenoa Service Accounts
+Official accounts represent verified system services, security notifications, platform infrastructure, and administrative tooling.
+
+- **Creation Authority**: Provisioned exclusively by Zenoa administrators through the internal Admin Console.
+- **Verification**: **Always Verified**. Permanently carries the immutable purple verification rosette badge.
+- **Header & Subtitle**: Displays **"Official Zenoa Account"** directly beneath the display name.
+- **Security & Integrity**: Certified by Zenoa cryptographic root keys. Delivers critical security alerts, login challenge codes, and system-wide announcements.
+- **Examples**: \`@zenoa\`, \`@zenoa_official\`, \`@zenoa_security\`, \`@zenoa_auth\`.
+
+---
+
+### 2. Business Accounts (Developer & Enterprise Services)
+Business accounts are created by third-party developers, startups, e-commerce platforms, and organizations to interact with Zenoa users programmatically.
+
+- **Creation Authority**: Can be registered by any developer via the Zenoa Developer Console.
+- **Verification**: **Never Automatically Verified**. Business accounts remain unverified by default. They can only obtain verification if audited and manually approved by Zenoa compliance officers.
+- **Header & Subtitle**: Displays **"Business Account"** directly beneath the display name.
+- **In-Chat Banner**: Displays **"This business account uses secure Zenoa infrastructure to communicate. Tap to learn more."**
+
+---
+
+### 3. Capabilities: What Business Accounts Can & Cannot Do
+
+#### What Business Accounts CAN Do:
+1. **Automated Transactional Notifications**: Send order confirmations, shipping updates, 2FA/OTP passcodes, and appointment reminders.
+2. **Customer Service & Inquiries**: Receive and respond to user messages when the user chooses to converse with the business.
+3. **Structured Interactive Messages**: Send rich message templates with quick-reply buttons and deep action links.
+
+#### What Business Accounts CANNOT Do:
+1. **Zero Access to Personal Chats**: Business accounts have zero visibility into your private end-to-end encrypted conversations, contact lists, or audio/video calls.
+2. **Zero Access to Encryption Keys**: All Zenoa user-to-user encryption keys remain isolated on client devices using zero-knowledge architecture.
+3. **No Unrestricted Broadcasts**: Business accounts cannot scrape user directories or send unsolicited bulk spam. They must adhere to strict rate limits and template compliance.
+
+---
+
+### 4. User Sovereign Controls & Protections
+Every Zenoa user retains complete sovereign authority over every business interaction:
+
+- **Instant Mute**: Tap the business info banner to mute notifications with a single click.
+- **Immediate One-Tap Block**: Block any business permanently. Once blocked, the business cannot send messages or determine your online status.
+- **Abuse Reporting**: One-tap reporting directly sends conversational context to Zenoa Trust & Safety for review.`,
+          authRequired: false,
+          rateLimit: 'Unlimited',
+          cost: 'Free',
+          headers: [],
+          params: [],
+          responseSuccess: `{
+  "account_tier": "business_service_account",
+  "verification_status": "unverified_default",
+  "encryption_level": "tls_1_3_secure_gateway",
+  "user_sovereign_controls": {
+    "can_mute": true,
+    "can_block": true,
+    "can_report": true
+  }
+}`,
+          snippets: {
+            curl: `# Check Service Account Tier Status
+curl -X GET "${baseUrl}/api/v1/accounts/verify?username=my_business_bot"`,
+            node: `const axios = require('axios');
+
+async function checkAccountType(username) {
+  const res = await axios.get('${baseUrl}/api/v1/accounts/verify?username=' + username);
+  console.log('Account Info:', res.data);
+}
+checkAccountType('my_business_bot');`,
+            python: `import requests
+
+res = requests.get("${baseUrl}/api/v1/accounts/verify?username=my_business_bot")
+print("Account Info:", res.json())`,
+            php: `<?php
+$res = file_get_contents("${baseUrl}/api/v1/accounts/verify?username=my_business_bot");
+echo "Account Info: " . $res;`,
+            go: `package main
+
+import (
+  "fmt"
+  "net/http"
+  "io/ioutil"
+)
+
+func main() {
+  resp, err := http.Get("${baseUrl}/api/v1/accounts/verify?username=my_business_bot")
+  if err != nil { panic(err) }
+  defer resp.Body.Close()
+  body, _ := ioutil.ReadAll(resp.Body)
+  fmt.Println(string(body))
+}`,
+            java: `import java.net.http.*;
+import java.net.URI;
+
+public class VerifyAccount {
+  public static void main(String[] args) throws Exception {
+    HttpClient client = HttpClient.newHttpClient();
+    HttpRequest req = HttpRequest.newBuilder()
+      .uri(URI.create("${baseUrl}/api/v1/accounts/verify?username=my_business_bot"))
+      .GET()
+      .build();
+    HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
+    System.out.println("Response: " + res.body());
+  }
+}`
+          },
+          notes: [
+            'Official Zenoa accounts are strictly identified and protected by internal system keys.',
+            'Developer accounts cannot mimic or claim "Official Zenoa Account" status.',
+            'Misleading branding or impersonation results in instant permanent revocation of API keys.'
+          ]
+        },
+        {
           id: 'auth-guide',
           category: 'Getting Started',
           title: 'Authentication & API Keys',

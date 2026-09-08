@@ -501,10 +501,11 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     setTimeout(() => {
       const userInfoResult = {
         sub: currentUser?.zenoa_id || currentUser?.id || 'usr_zenoa_9901',
+        zenoa_id: currentUser?.zenoa_id || `${currentUser?.username || 'developer'}@zenoa`,
         username: currentUser?.username || 'alex_dev',
         name: currentUser?.display_name || 'Alex Developer',
-        email: currentUser?.email || `${currentUser?.username || 'developer'}@zenoa.im`,
-        email_verified: true,
+        email: currentUser?.email || currentUser?.zenoa_id || `${currentUser?.username || 'developer'}@zenoa`,
+        email_verified: Boolean(currentUser?.email),
         phone: currentUser?.phone_number || currentUser?.mobile_number || '+1 (555) 019-2834',
         phone_verified: true,
         avatar_url: currentUser?.avatar_url || '',

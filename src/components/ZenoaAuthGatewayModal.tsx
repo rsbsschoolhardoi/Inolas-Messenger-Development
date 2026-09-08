@@ -140,28 +140,49 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
 
     try {
       const cleanIdent = identifier.trim();
+      const pureHandle = cleanIdent.replace(/^@/, '').split('@')[0].toLowerCase();
       
       // Resolve target profile from Firestore
       let targetUserData = await fetchFullUserProfile(cleanIdent);
-      let targetEmail = targetUserData?.email || (cleanIdent.includes('@') ? cleanIdent : `${cleanIdent.toLowerCase()}@zenoa.im`);
+      
+      const candidateEmails = [
+        targetUserData?.email,
+        `${pureHandle}@zenoa.auth`,
+        `${pureHandle}@zenoa.sbs`,
+        `${pureHandle}@zenoa.internal`,
+        `${pureHandle}@zenoa.im`,
+        cleanIdent.includes('@') ? cleanIdent : null
+      ].filter((e): e is string => Boolean(e && e.includes('@')));
 
-      if (!targetUserData && !cleanIdent.includes('@')) {
-        setError(`No Zenoa Messenger account found for username "@${cleanIdent}". Please register first on Zenoa Messenger.`);
+      if (!targetUserData && candidateEmails.length === 0) {
+        setError(`No Zenoa account found for identifier "${cleanIdent}".`);
         setLoading(false);
         return;
       }
 
       // Perform Firebase Auth Sign In
       let authUserUid: string | undefined;
-      try {
-        if (auth) {
-          const userCredential = await signInWithEmailAndPassword(auth, targetEmail, password);
-          authUserUid = userCredential.user.uid;
+      let loginSuccess = false;
+      let lastAuthErr: any = null;
+
+      if (auth) {
+        for (const candEmail of candidateEmails) {
+          try {
+            const userCredential = await signInWithEmailAndPassword(auth, candEmail, password);
+            authUserUid = userCredential.user.uid;
+            loginSuccess = true;
+            break;
+          } catch (authErr: any) {
+            lastAuthErr = authErr;
+            if (authErr.code === 'auth/wrong-password') {
+              break;
+            }
+          }
         }
-      } catch (authErr: any) {
-        console.warn('Firebase Auth login note:', authErr.message);
-        // If password login explicitly failed
-        if (authErr.code === 'auth/wrong-password' || authErr.code === 'auth/invalid-credential') {
+      }
+
+      if (!loginSuccess && lastAuthErr) {
+        if (lastAuthErr.code === 'auth/wrong-password' || lastAuthErr.code === 'auth/invalid-credential') {
           setError('Incorrect password for this Zenoa account. Please try again.');
           setLoading(false);
           return;
@@ -193,9 +214,10 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
         const cleanName = cleanIdent.includes('@') ? cleanIdent.split('@')[0] : cleanIdent;
         const fallbackUser: UserData = {
           id: authUserUid || 'u_' + cleanName.toLowerCase(),
+          zenoa_id: `${cleanName.toLowerCase()}@zenoa`,
           username: cleanName.toLowerCase(),
           display_name: cleanName,
-          email: targetEmail,
+          email: '',
           bio: 'Verified Zenoa Account',
           avatar_seed: cleanName.toLowerCase(),
           online: true,

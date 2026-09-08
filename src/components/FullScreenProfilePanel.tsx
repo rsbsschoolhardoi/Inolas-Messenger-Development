@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   BellOff, Users, Bell, Lock, Share2, Shield, ImageIcon, User, Clock, 
   Palette, RefreshCw, Edit3, Camera, Play, ChevronRight, Search, 
-  ChevronLeft, MoreHorizontal, Edit2, Video, ShieldCheck, Phone, Settings
+  ChevronLeft, MoreHorizontal, Edit2, Video, ShieldCheck, Phone, Settings,
+  Laptop, QrCode
 } from 'lucide-react';
 import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
 import { UserData, Message, FollowRequest } from '../types';
@@ -49,6 +50,7 @@ interface FullScreenProfilePanelProps {
   blockedUsers?: string[];
   handleToggleBlockUser?: (username: string) => void;
   handleReportUser?: (username: string) => void;
+  onOpenLinkDevice?: () => void;
 }
 
 export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
@@ -91,6 +93,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
   blockedUsers = [],
   handleToggleBlockUser,
   handleReportUser,
+  onOpenLinkDevice,
 }) => {
   const [profileActiveTab, setProfileActiveTab] = useState<'info' | 'media' | 'calls'>('info');
   const [mediaSearchQuery, setMediaSearchQuery] = useState('');
@@ -249,13 +252,19 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                             </div>
 
                             {/* Full Display Name (Username is strictly in the header) */}
-                            <div className="space-y-1">
+                            <div className="space-y-1.5">
                               <h2 className="text-2xl font-black tracking-tight text-neutral-900 dark:text-white flex items-center justify-center gap-2">
                                 <span>{userDisplayName || userUsername}</span>
                                 {!!users[userUsername]?.is_verified && (
                                   <PurpleVerifiedBadge size="sm"  />
                                 )}
                               </h2>
+                              <div className="flex justify-center">
+                                <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200/80 dark:border-neutral-700/80 text-[11px] font-mono font-medium text-neutral-700 dark:text-neutral-300 shadow-xs">
+                                  <Shield className="h-3 w-3 text-indigo-500 shrink-0" />
+                                  <span>{users[userUsername]?.zenoa_id || (userUsername ? `${userUsername}@zenoa` : 'user@zenoa')}</span>
+                                </span>
+                              </div>
                             </div>
 
                             {/* Interactive Metric Showcase Cards */}
@@ -337,6 +346,28 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
 
                         {/* Quick Luxury Settings Directory */}
                         <div className="space-y-1 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 overflow-hidden p-2 shadow-sm">
+                          {/* Link Device (Web) Trigger */}
+                          <button 
+                            onClick={() => {
+                              if (onOpenLinkDevice) onOpenLinkDevice();
+                            }}
+                            className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl hover:bg-neutral-100 dark:hover:bg-neutral-800/60 transition-colors text-left cursor-pointer group bg-gradient-to-r from-indigo-50/50 to-transparent dark:from-indigo-950/20"
+                          >
+                            <div className="h-9 w-9 rounded-xl bg-indigo-600 dark:bg-indigo-500 flex items-center justify-center text-white shrink-0 font-bold shadow-sm shadow-indigo-500/20">
+                              <Laptop className="h-5 w-5 stroke-[1.8]" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-bold text-neutral-900 dark:text-white">Link Device (Zenoa Web)</p>
+                                <span className="px-1.5 py-0.5 rounded-md bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold">
+                                  Web 1.0
+                                </span>
+                              </div>
+                              <p className="text-xs text-neutral-500 dark:text-neutral-400">Scan QR to sync chats with desktop browser</p>
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+                          </button>
+
                           <button 
                             onClick={() => {
                               setShowProfilePanel(false);
@@ -349,7 +380,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-bold text-neutral-900 dark:text-white">Account Settings</p>
-                              <p className="text-xs text-neutral-500 dark:text-neutral-400">Security, email, and Google Drive backup</p>
+                              <p className="text-xs text-neutral-500 dark:text-neutral-400">Security, Zenoa ID, and account preferences</p>
                             </div>
                             <ChevronRight className="h-4 w-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
                           </button>
