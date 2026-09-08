@@ -3,6 +3,7 @@ import { FullScreenProfilePanel } from './components/FullScreenProfilePanel';
 import { FollowListModal } from './components/FollowListModal';
 import { Web1LinkingPage } from './components/Web1LinkingPage';
 import { LinkDeviceModal } from './components/LinkDeviceModal';
+import { ServiceAccountModal } from './components/ServiceAccountModal';
 // Inolas Messenger - Verified UTF-8 Source Code
 import { SSOConsoleStandalone } from "./components/SSOConsoleStandalone";
 import { SSOLogin } from "./components/SSOLogin";
@@ -58,7 +59,6 @@ import { PublicProfileView } from './components/PublicProfileView';
 import { DetailedProfilePage } from './components/DetailedProfilePage';
 import { AdminPanel } from './components/AdminPanel';
 import { PurpleVerifiedBadge } from './components/PurpleVerifiedBadge';
-import { BusinessAccountInfoDropdown } from './components/BusinessAccountInfoDropdown';
 import {  NewGroupModal } from './components/NewGroupModal';
 import {  GroupDetailsModal } from './components/GroupDetailsModal';
 import { GoogleDriveLogo } from './components/GoogleDriveLogo';
@@ -266,16 +266,23 @@ export default function App() {
     initOneSignal();
   }, []);
 
-  // Theme & Layout state - Supports system prefers-color-scheme for perfect device adaptation
+  // Theme & Layout state - Directly uses user's system OS theme (prefers-color-scheme)
+  const getSystemTheme = (): 'light' | 'dark' => {
+    try {
+      if (typeof window !== 'undefined' && window.matchMedia) {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+    } catch {}
+    return 'light';
+  };
+
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
     try {
-      const saved = localStorage.getItem('zenoa_theme');
-      if (saved === 'dark') return 'dark';
-      if (saved === 'light') return 'light';
-      const systemPrefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      return systemPrefersDark ? 'dark' : 'light';
+      const override = localStorage.getItem('zenoa_theme_override');
+      if (override === 'dark' || override === 'light') return override;
+      return getSystemTheme();
     } catch {
-      return 'light';
+      return getSystemTheme();
     }
   });
 
@@ -286,24 +293,24 @@ export default function App() {
     } else {
       document.documentElement.classList.remove('dark');
     }
-    try {
-      localStorage.setItem('zenoa_theme', themeMode);
-    } catch {
-      // ignore
-    }
   }, [themeMode]);
 
-  // Listen for device system theme adjustments
+  // Continuously listen for OS system theme adjustments
   useEffect(() => {
-    if (!window.matchMedia) return;
+    if (typeof window === 'undefined' || !window.matchMedia) return;
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    
+    // Automatically match system if no explicit override
+    const override = localStorage.getItem('zenoa_theme_override');
+    if (!override) {
+      setThemeMode(mediaQuery.matches ? 'dark' : 'light');
+    }
+
     const handleChange = (e: MediaQueryListEvent) => {
-      try {
-        const hasSaved = localStorage.getItem('zenoa_theme');
-        if (!hasSaved) {
-          setThemeMode(e.matches ? 'dark' : 'light');
-        }
-      } catch {}
+      const currentOverride = localStorage.getItem('zenoa_theme_override');
+      if (!currentOverride) {
+        setThemeMode(e.matches ? 'dark' : 'light');
+      }
     };
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
@@ -388,6 +395,9 @@ export default function App() {
 
   const changeTheme = (newTheme: 'light' | 'dark') => {
     setThemeMode(newTheme);
+    try {
+      localStorage.setItem('zenoa_theme_override', newTheme);
+    } catch {}
     showToast(`${newTheme === 'light' ? 'Light' : 'Dark'} mode`);
   };
   const [activeView, setActiveView] = useState<'chats' | 'search' | 'profile' | 'settings' | 'developer_portal'>('chats');
@@ -1677,8 +1687,7 @@ export default function App() {
   const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
   const [reportedUsers, setReportedUsers] = useState<string[]>([]);
 
-  // Business Account Info Dropdown & In-App Documentation Modal
-  const [showBusinessInfoDropdown, setShowBusinessInfoDropdown] = useState<boolean>(false);
+  // In-App Documentation Modal
   const [showDocumentationModal, setShowDocumentationModal] = useState<boolean>(false);
   const [documentationInitialSection, setDocumentationInitialSection] = useState<string>('business-vs-official-accounts');
 
@@ -1690,26 +1699,52 @@ export default function App() {
 
   // Selected Profile state for Slide-over Panel
   const [selectedProfileUsername, setSelectedProfileUsername] = useState<string>('');
+  const [selectedServiceAccountUser, setSelectedServiceAccountUser] = useState<any>(null);
+  const [showServiceAccountModal, setShowServiceAccountModal] = useState<boolean>(false);
+
+  // Active URL route state with automatic popstate listening
+  const [currentPathname, setCurrentPathname] = useState<string>(() => {
+    return typeof window !== "undefined" ? window.location.pathname.toLowerCase() : "/";
+  });
+
+  useEffect(() => {
+    const handleLocationChange = () => {
+      if (typeof window !== "undefined") {
+        setCurrentPathname(window.location.pathname.toLowerCase());
+      }
+    };
+    window.addEventListener("popstate", handleLocationChange);
+    return () => window.removeEventListener("popstate", handleLocationChange);
+  }, []);
+
+  const navigateTo = (path: string) => {
+    try {
+      window.history.pushState({}, '', path);
+      setCurrentPathname(path.toLowerCase());
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    } catch(e) {
+      window.location.href = path;
+    }
+  };
 
   const handleOpenUserProfile = (targetUserOrUsername: string | undefined) => {
     if (!targetUserOrUsername) return;
     const cleanU = targetUserOrUsername.toLowerCase().replace(/^@/, '');
     const targetUserObj = users[cleanU] || Object.values(users).find(u => (u.username || '').toLowerCase() === cleanU);
-    if (isServiceAccount(targetUserObj, cleanU) && currentUserObj?.role !== 'admin' && currentUserObj?.role !== 'super_admin') {
-      showToast("Service accounts are automated business entities and cannot be viewed as personal user profiles.");
+    
+    // Service accounts have a dedicated entity info modal instead of personal user profiles
+    if (isServiceAccount(targetUserObj, cleanU)) {
+      setSelectedServiceAccountUser(targetUserObj || { username: cleanU, display_name: cleanU });
+      setShowServiceAccountModal(true);
       return;
     }
+    
     setSelectedProfileUsername(cleanU);
     setShowProfilePanel(true);
   };
 
   // Chat scroll ref
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Close business info dropdown when active chat changes
-  useEffect(() => {
-    setShowBusinessInfoDropdown(false);
-  }, [activeChatId]);
 
   // Scroll to bottom helper
   useEffect(() => {
@@ -7767,7 +7802,6 @@ export default function App() {
 
   // 1. DEDICATED STANDALONE SERVICES & SUBDOMAIN ROUTING (Independent identities & "Continue with Zenoa" gateways)
   const currentHostname = typeof window !== "undefined" ? window.location.hostname.toLowerCase() : "";
-  const currentPathname = typeof window !== "undefined" ? window.location.pathname.toLowerCase() : "";
   const currentSearchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
 
   // Subdomain matching:
@@ -7779,20 +7813,38 @@ export default function App() {
   const isDevSubdomain = currentHostname.startsWith("developer.") || currentHostname.startsWith("developers.") || currentHostname.startsWith("dev.") || currentHostname.startsWith("portal.") || currentHostname.startsWith("dash.");
   // 4. docs.zenoa.sbs -> API Documentation
   const isDocsSubdomain = currentHostname.startsWith("docs.") || currentHostname.startsWith("api-docs.") || currentHostname.startsWith("api.");
-  // 5. web1.zenoa.sbs / web.zenoa.sbs -> Standalone Web 1.0 Linking & Pairing Portal
-  const isWeb1Subdomain = currentHostname.startsWith("web1.") || currentHostname.startsWith("web.");
+  // 5. web1.zenoa.sbs -> Standalone Web1 Direct Real Messenger
+  const isWeb1Subdomain = currentHostname.startsWith("web1.");
+  // 6. web.zenoa.sbs -> Standalone Web QR Code Messenger
+  const isWebSubdomain = currentHostname.startsWith("web.");
 
-  // Z. Standalone Web1 / Web Linking Portal (web1.zenoa.sbs, /web1, /web, /link-device, ?view=web1)
-  const isWeb1Path = isWeb1Subdomain || (
+  // Web1: Direct access to real messenger (Direct login, signup, saved accounts, full messenger)
+  const isWeb1DirectMessenger = isWeb1Subdomain || (
     currentPathname === "/web1" || 
-    currentPathname === "/web" || 
-    currentPathname === "/link-device" ||
+    currentPathname.startsWith("/web1/") ||
     currentSearchParams.get("view") === "web1" ||
-    currentSearchParams.get("view") === "web"
+    currentPathname === "/login" ||
+    currentPathname === "/signup"
   );
-  if (isWeb1Path && !isAuthenticated) {
+
+  // Web: QR-Code based Web Messenger (companion for website visitors)
+  const isWebQRPairing = !isWeb1DirectMessenger && (
+    isWebSubdomain ||
+    currentPathname === "/web" || 
+    currentPathname.startsWith("/web/") ||
+    currentPathname === "/link-device" ||
+    currentSearchParams.get("view") === "web" ||
+    currentPathname === "/" || 
+    currentPathname === ""
+  );
+
+  // Render Web QR-Code Pairing Companion on Web routes when not authenticated
+  if (isWebQRPairing && !isAuthenticated) {
     return (
       <Web1LinkingPage 
+        themeMode={themeMode}
+        onToggleTheme={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
+        onSwitchToDirectLogin={() => navigateTo('/web1')}
         onSuccessfulLogin={async (linkedUser) => {
           if (linkedUser && linkedUser.username) {
             // Check if local data payload arrived via P2P
@@ -7830,14 +7882,7 @@ export default function App() {
             showToast(`Linked successfully as @${linkedUser.username}!`);
           }
         }}
-        onNavigateHome={() => {
-          try {
-            window.history.pushState({}, '', '/');
-            window.dispatchEvent(new PopStateEvent('popstate'));
-          } catch(e) {
-            window.location.href = '/';
-          }
-        }}
+        onNavigateHome={() => navigateTo('/web1')}
       />
     );
   }
@@ -8023,14 +8068,14 @@ export default function App() {
       );
     }
 
-    if (showLandingPage) {
+    if (showLandingPage && !isWeb1DirectMessenger) {
       return (
         <LandingPage
           onStartAuth={(initialMode) => {
             const host = window.location.hostname.toLowerCase();
             const mode = initialMode || 'login';
-            if (host.endsWith('zenoa.sbs') && !host.startsWith('web.')) {
-              window.location.href = `https://web.zenoa.sbs${mode === 'register' ? '/signup' : '/login'}`;
+            if (host.endsWith('zenoa.sbs') && !host.startsWith('web1.')) {
+              window.location.href = `https://web1.zenoa.sbs${mode === 'register' ? '/signup' : '/login'}`;
               return;
             }
             setAuthFlowInitialMode(mode);
@@ -9060,10 +9105,11 @@ export default function App() {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setShowBusinessInfoDropdown(prev => !prev);
+                            setDocumentationInitialSection('business-vs-official-accounts');
+                            setShowDocumentationModal(true);
                           }}
                           className="inline-flex items-center gap-1 font-bold text-[10px] tracking-wide text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors cursor-pointer group"
-                          title="Click to learn more about this Business Account"
+                          title="Click to learn more about Business Accounts in Documentation"
                         >
                           <Building2 className="h-3 w-3 text-blue-500 inline" />
                           <span>Business Account</span>
@@ -9166,37 +9212,6 @@ export default function App() {
                 </div>
               </div>
               )}
-
-              {/* Dropdown Popup for Business Account Info */}
-              <AnimatePresence>
-                {showBusinessInfoDropdown && activeChat.type !== 'group' && activeChat?.username && isBusinessAccount(users[activeChat?.username], activeChat?.username) && (
-                  <BusinessAccountInfoDropdown
-                    businessUser={{
-                      display_name: activeChat.name,
-                      username: activeChat.username,
-                      avatar_seed: activeChat.avatar_seed,
-                      avatar_url: activeChat.avatar_url || users[activeChat.username]?.avatar_url,
-                      is_verified: isAccountVerified(users[activeChat.username], activeChat.username),
-                      bio: users[activeChat.username]?.bio
-                    }}
-                    isOpen={showBusinessInfoDropdown}
-                    onClose={() => setShowBusinessInfoDropdown(false)}
-                    onOpenDocs={(sectionId) => {
-                      setShowBusinessInfoDropdown(false);
-                      setDocumentationInitialSection(sectionId || 'business-vs-official-accounts');
-                      setShowDocumentationModal(true);
-                    }}
-                    isMuted={!!activeChat.muted}
-                    onToggleMute={() => {
-                      handleToggleMuteChat(null, activeChat.id);
-                    }}
-                    isBlocked={blockedUsers.includes(activeChat.username)}
-                    onToggleBlock={() => {
-                      handleToggleBlockUser(activeChat.username);
-                    }}
-                  />
-                )}
-              </AnimatePresence>
 
               {/* ACTIVE CALL SUB-HEADER BANNER */}
               {activeCallSession && (
@@ -9336,11 +9351,14 @@ export default function App() {
                     </div>
                   ) : isBusinessAccount(users[activeChat?.username], activeChat?.username) ? (
                     <div 
-                      onClick={() => setShowBusinessInfoDropdown(prev => !prev)}
+                      onClick={() => {
+                        setDocumentationInitialSection('business-vs-official-accounts');
+                        setShowDocumentationModal(true);
+                      }}
                       className="max-w-md w-full border rounded-2xl p-3 text-center shadow-2xs backdrop-blur-xs bg-blue-50/60 dark:bg-blue-950/20 border-blue-200/80 dark:border-blue-800/50 cursor-pointer hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-md transition-all group"
                       role="button"
                       tabIndex={0}
-                      title="Tap to learn more about this Business Account"
+                      title="Tap to learn more about Business Accounts in Documentation"
                     >
                       <div className="flex items-center justify-center gap-1.5 font-bold text-xs mb-1 text-blue-900 dark:text-blue-300">
                         <Building2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
@@ -12736,6 +12754,21 @@ export default function App() {
           showToast(`Device linked successfully to ${details.clientInfo?.browser || 'Browser'} (${details.clientInfo?.os || 'Web'})!`);
         }}
       />
+
+      {/* SERVICE ACCOUNT ENTITY PREVIEW MODAL */}
+      {showServiceAccountModal && selectedServiceAccountUser && (
+        <ServiceAccountModal
+          user={selectedServiceAccountUser}
+          users={users}
+          themeMode={themeMode}
+          onClose={() => setShowServiceAccountModal(false)}
+          onOpenDocs={() => {
+            setShowServiceAccountModal(false);
+            setDocumentationInitialSection('business-vs-official-accounts');
+            setShowDocumentationModal(true);
+          }}
+        />
+      )}
 
       {/* IN-APP API & SYSTEM DOCUMENTATION MODAL */}
       {showDocumentationModal && (

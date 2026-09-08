@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Settings, ShieldCheck, Lock, Globe, AlertTriangle, 
-  RotateCw, Check, Copy, Radio, Shield, Sparkles, Layers
+  RotateCw, Check, Copy, Radio, Shield, Sparkles, Layers,
+  Bot, Camera, Trash2, Upload
 } from 'lucide-react';
 
 interface SecuritySettingsViewProps {
@@ -40,6 +41,45 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
     setWebsiteUrl(app?.website_url || '');
     setAllowedIps(formatAllowedIps(app?.allowed_ips));
   }, [app]);
+
+  const handleImageFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('Please select a valid image file (PNG, JPG, WebP).');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        // Center crop square & convert to 256x256 circular profile picture
+        const size = Math.min(img.width, img.height);
+        const sx = (img.width - size) / 2;
+        const sy = (img.height - size) / 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, sx, sy, size, size, 0, 0, 256, 256);
+          const base64Url = canvas.toDataURL('image/jpeg', 0.88);
+          onUpdateApp({ avatar_url: base64Url });
+          showToast(environment === 'live' 
+            ? 'Profile picture updated! Active and visible to users in Live mode.' 
+            : 'Profile picture saved! Photo is hidden in Sandbox mode and will show once switched to Live mode.');
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemovePhoto = () => {
+    onUpdateApp({ avatar_url: null });
+    showToast('Service account profile picture removed.');
+  };
 
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -184,6 +224,52 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
             <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-slate-100 text-slate-600 border border-slate-200">
               Locked Identity
             </span>
+          </div>
+
+          {/* Minimal Square Photo Upload & Auto-Circle UI */}
+          <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="relative h-12 w-12 rounded-full overflow-hidden bg-slate-200 border-2 border-indigo-500/20 shadow-2xs shrink-0 flex items-center justify-center">
+                {app?.avatar_url ? (
+                  <img src={app.avatar_url} alt="Service Account Avatar" className="w-full h-full object-cover rounded-full" />
+                ) : (
+                  <Bot className="h-6 w-6 text-slate-400" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-bold text-slate-900">Profile Picture</h4>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    environment === 'test' 
+                      ? 'bg-amber-50 text-amber-800 border-amber-200' 
+                      : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  }`}>
+                    {environment === 'test' ? 'Sandbox • Hidden from users' : 'Live • Visible to users'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                  Square photo auto-customized to circle. Visible only in Live mode.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <label className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs transition-all flex items-center gap-1.5">
+                <Camera className="h-3.5 w-3.5" />
+                <span>{app?.avatar_url ? 'Change Photo' : 'Upload Photo'}</span>
+                <input type="file" accept="image/*" onChange={handleImageFileSelect} className="hidden" />
+              </label>
+              {app?.avatar_url && (
+                <button
+                  type="button"
+                  onClick={handleRemovePhoto}
+                  className="px-2 py-1.5 text-xs text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                  title="Remove photo"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

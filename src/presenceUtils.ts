@@ -178,9 +178,9 @@ export const isAccountVerified = (user: PresenceUser | any | undefined | null, e
   if (isOfficialAccount(user, explicitUsername)) {
     return true;
   }
-  // Developer Business Accounts are NEVER automatically verified
+  // Developer Business Accounts are NEVER automatically verified - only if admin sets is_verified to true
   if (isBusinessAccount(user, explicitUsername)) {
-    return !!(user?.is_verified && user?.verified_type);
+    return !!(user?.is_verified);
   }
   if (!user) return false;
   return !!user.is_verified || user.verified_type === 'purple' || user.verified_type === 'official';

@@ -140,55 +140,51 @@ public class ZenoaHealth {
         {
           id: 'business-vs-official-accounts',
           category: 'Getting Started',
-          title: 'Service Accounts: Official vs Business Accounts',
+          title: 'Business Service Accounts & Secure Infrastructure',
           method: 'GUIDE',
-          path: '/docs/service-accounts',
-          summary: 'Detailed distinction between Zenoa Official Accounts and third-party Developer Business Accounts, including trust tiers, verification status, and user privacy protections.',
-          description: `Zenoa maintains a strict dual-tier architecture for non-human service accounts to guarantee platform integrity, combat spam, and safeguard user sovereign privacy.
+          path: '/docs/business-service-accounts',
+          summary: 'Comprehensive guide to Developer Business Service Accounts, communication infrastructure, user privacy protections, verification standards, and sovereign controls.',
+          description: `Zenoa provides Developer Business Service Accounts to enable organizations, startups, and developers to automate transactional messaging, 2FA/OTP delivery, and customer care on secure carrier infrastructure.
 
 ---
 
-### 1. Official Zenoa Service Accounts
-Official accounts represent verified system services, security notifications, platform infrastructure, and administrative tooling.
+### 1. What is a Business Service Account?
+Business accounts are programmatic, non-human entities registered by developers through the Zenoa Developer Console. They allow verified external applications to converse with Zenoa users over end-to-end encrypted gateways.
 
-- **Creation Authority**: Provisioned exclusively by Zenoa administrators through the internal Admin Console.
-- **Verification**: **Always Verified**. Permanently carries the immutable purple verification rosette badge.
-- **Header & Subtitle**: Displays **"Official Zenoa Account"** directly beneath the display name.
-- **Security & Integrity**: Certified by Zenoa cryptographic root keys. Delivers critical security alerts, login challenge codes, and system-wide announcements.
-- **Examples**: \`@zenoa\`, \`@zenoa_official\`, \`@zenoa_security\`, \`@zenoa_auth\`.
-
----
-
-### 2. Business Accounts (Developer & Enterprise Services)
-Business accounts are created by third-party developers, startups, e-commerce platforms, and organizations to interact with Zenoa users programmatically.
-
-- **Creation Authority**: Can be registered by any developer via the Zenoa Developer Console.
-- **Verification**: **Never Automatically Verified**. Business accounts remain unverified by default. They can only obtain verification if audited and manually approved by Zenoa compliance officers.
-- **Header & Subtitle**: Displays **"Business Account"** directly beneath the display name.
+- **Developer Controlled**: Configured with custom application names, handles (prefixed with \`sa_\`), webhook webhooks, and REST API credentials.
+- **Verification Policy**: **Never Automatically Verified**. Business accounts remain unverified by default. Verification is exclusively granted after manual compliance audit and review by Zenoa administrators.
+- **Subtitles & Badging**: Displays **"Business Account"** beneath the handle in chats and message bubbles.
 - **In-Chat Banner**: Displays **"This business account uses secure Zenoa infrastructure to communicate. Tap to learn more."**
 
 ---
 
-### 3. Capabilities: What Business Accounts Can & Cannot Do
+### 2. Capabilities: What Business Accounts Can & Cannot Do
 
 #### What Business Accounts CAN Do:
-1. **Automated Transactional Notifications**: Send order confirmations, shipping updates, 2FA/OTP passcodes, and appointment reminders.
-2. **Customer Service & Inquiries**: Receive and respond to user messages when the user chooses to converse with the business.
-3. **Structured Interactive Messages**: Send rich message templates with quick-reply buttons and deep action links.
+1. **Automated Transactional Notifications**: Send order confirmations, shipping tracking updates, OTP authentication codes, and flight or booking receipts.
+2. **Customer Service & Inquiries**: Receive and respond to user messages when the user chooses to converse with the business entity.
+3. **Structured Interactive Messages**: Send rich message templates with quick-reply action buttons, media attachments, and deep links.
 
 #### What Business Accounts CANNOT Do:
 1. **Zero Access to Personal Chats**: Business accounts have zero visibility into your private end-to-end encrypted conversations, contact lists, or audio/video calls.
-2. **Zero Access to Encryption Keys**: All Zenoa user-to-user encryption keys remain isolated on client devices using zero-knowledge architecture.
-3. **No Unrestricted Broadcasts**: Business accounts cannot scrape user directories or send unsolicited bulk spam. They must adhere to strict rate limits and template compliance.
+2. **Zero Access to Encryption Keys**: All user cryptographic keys remain isolated on individual client devices using zero-knowledge architecture.
+3. **No Unsolicited Bulk Spam**: Business accounts cannot scrape directory databases or send broadcast spam without explicit recipient opt-in.
+4. **No Calling Features**: Service accounts cannot initiate or receive voice or video calls.
+
+---
+
+### 3. Profile Picture & Environment Visibility
+- **Testing (Sandbox) Mode**: Developers can upload and update their service account profile photo in the Developer Console settings. While in Sandbox mode, this photo is kept private and will not be displayed to messenger users.
+- **Live (Production) Mode**: Once the developer switches their service account to Live Production mode, the customized square/circular profile photo becomes active and visible to all messenger users.
 
 ---
 
 ### 4. User Sovereign Controls & Protections
 Every Zenoa user retains complete sovereign authority over every business interaction:
 
-- **Instant Mute**: Tap the business info banner to mute notifications with a single click.
-- **Immediate One-Tap Block**: Block any business permanently. Once blocked, the business cannot send messages or determine your online status.
-- **Abuse Reporting**: One-tap reporting directly sends conversational context to Zenoa Trust & Safety for review.`,
+- **Instant Mute**: One-tap muting directly from the chat menu or business security banner.
+- **Immediate One-Tap Block**: Block any business permanently with zero delay. Once blocked, the business cannot send messages or determine your online status.
+- **Abuse Reporting**: One-tap reporting immediately routes conversational context and transcript signatures to Zenoa Trust & Safety for review.`,
           authRequired: false,
           rateLimit: 'Unlimited',
           cost: 'Free',
@@ -198,6 +194,7 @@ Every Zenoa user retains complete sovereign authority over every business intera
   "account_tier": "business_service_account",
   "verification_status": "unverified_default",
   "encryption_level": "tls_1_3_secure_gateway",
+  "operational_modes": ["sandbox", "live"],
   "user_sovereign_controls": {
     "can_mute": true,
     "can_block": true,
@@ -205,22 +202,22 @@ Every Zenoa user retains complete sovereign authority over every business intera
   }
 }`,
           snippets: {
-            curl: `# Check Service Account Tier Status
-curl -X GET "${baseUrl}/api/v1/accounts/verify?username=my_business_bot"`,
+            curl: `# Check Business Account Status & Security Tier
+curl -X GET "${baseUrl}/api/v1/accounts/verify?username=sa_my_business"`,
             node: `const axios = require('axios');
 
-async function checkAccountType(username) {
+async function checkBusinessAccount(username) {
   const res = await axios.get('${baseUrl}/api/v1/accounts/verify?username=' + username);
-  console.log('Account Info:', res.data);
+  console.log('Business Account Info:', res.data);
 }
-checkAccountType('my_business_bot');`,
+checkBusinessAccount('sa_my_business');`,
             python: `import requests
 
-res = requests.get("${baseUrl}/api/v1/accounts/verify?username=my_business_bot")
-print("Account Info:", res.json())`,
+res = requests.get("${baseUrl}/api/v1/accounts/verify?username=sa_my_business")
+print("Business Account Info:", res.json())`,
             php: `<?php
-$res = file_get_contents("${baseUrl}/api/v1/accounts/verify?username=my_business_bot");
-echo "Account Info: " . $res;`,
+$res = file_get_contents("${baseUrl}/api/v1/accounts/verify?username=sa_my_business");
+echo "Business Account Info: " . $res;`,
             go: `package main
 
 import (
@@ -230,7 +227,7 @@ import (
 )
 
 func main() {
-  resp, err := http.Get("${baseUrl}/api/v1/accounts/verify?username=my_business_bot")
+  resp, err := http.Get("${baseUrl}/api/v1/accounts/verify?username=sa_my_business")
   if err != nil { panic(err) }
   defer resp.Body.Close()
   body, _ := ioutil.ReadAll(resp.Body)
@@ -239,11 +236,11 @@ func main() {
             java: `import java.net.http.*;
 import java.net.URI;
 
-public class VerifyAccount {
+public class VerifyBusinessAccount {
   public static void main(String[] args) throws Exception {
     HttpClient client = HttpClient.newHttpClient();
     HttpRequest req = HttpRequest.newBuilder()
-      .uri(URI.create("${baseUrl}/api/v1/accounts/verify?username=my_business_bot"))
+      .uri(URI.create("${baseUrl}/api/v1/accounts/verify?username=sa_my_business"))
       .GET()
       .build();
     HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
@@ -252,9 +249,9 @@ public class VerifyAccount {
 }`
           },
           notes: [
-            'Official Zenoa accounts are strictly identified and protected by internal system keys.',
-            'Developer accounts cannot mimic or claim "Official Zenoa Account" status.',
-            'Misleading branding or impersonation results in instant permanent revocation of API keys.'
+            'Business accounts operate strictly within sandbox and production gateway standards.',
+            'Developer accounts cannot mimic or claim system administrator status.',
+            'Misleading branding, phishing, or impersonation results in instant permanent revocation of API keys.'
           ]
         },
         {

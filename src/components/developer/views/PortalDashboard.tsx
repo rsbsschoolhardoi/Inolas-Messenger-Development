@@ -101,22 +101,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
         }
       }
 
-      // Fallback local memory app if none exists
-      if (fetchedApps.length === 0) {
-        const fallbackApp = {
-          id: `sa_${currentUser.username.toLowerCase()}`,
-          owner: currentUser.username,
-          app_name: `${currentUser.display_name || currentUser.username}'s Application`,
-          bot_username: `sa_${currentUser.username.toLowerCase()}`,
-          client_id: `zen_client_${currentUser.username.toLowerCase()}`,
-          client_secret: `zen_sec_${Math.random().toString(36).substring(2, 18)}`,
-          test_client_id: `zen_test_${currentUser.username.toLowerCase()}`,
-          test_client_secret: `zen_test_sec_${Math.random().toString(36).substring(2, 18)}`,
-          created_at: Date.now()
-        };
-        fetchedApps.push(fallbackApp);
-      }
-
+      // If no apps exist, keep fetchedApps empty so user manually creates their service account
       setApps(fetchedApps);
       if (fetchedApps.length > 0) setSelectedAppId(fetchedApps[0].id);
     } catch (err) {
@@ -128,6 +113,43 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
 
   const containsZenoa = (text: string): boolean => {
     return /zenoa/i.test(text || '');
+  };
+
+  const handleSetEnvironment = async (newEnv: 'test' | 'live') => {
+    setEnvironment(newEnv);
+    if (!selectedApp) return;
+
+    try {
+      if (db) {
+        const appRef = doc(db, 'developer_apps', selectedApp.id);
+        await setDoc(appRef, {
+          environment: newEnv,
+          is_live: newEnv === 'live'
+        }, { merge: true });
+
+        const botU = selectedApp.bot_username?.toLowerCase().replace(/^@/, '');
+        if (botU) {
+          // Live mode -> user avatar_url becomes visible; Sandbox mode -> avatar_url is hidden from users
+          await setDoc(doc(db, 'users', botU), {
+            environment: newEnv,
+            is_live: newEnv === 'live',
+            avatar_url: newEnv === 'live' ? (selectedApp.avatar_url || null) : null
+          }, { merge: true });
+        }
+      }
+
+      setApps(prev => prev.map(a => a.id === selectedApp.id ? {
+        ...a,
+        environment: newEnv,
+        is_live: newEnv === 'live'
+      } : a));
+
+      showToast(newEnv === 'live' 
+        ? 'Switched to Live Production mode: Service account profile picture is now visible to users.' 
+        : 'Switched to Sandbox Mode: Service account profile picture is now hidden from users.');
+    } catch (err: any) {
+      console.warn("Failed to sync environment:", err);
+    }
   };
 
   const handleCreateApp = async (e: React.FormEvent) => {
@@ -152,7 +174,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
       const testClientId = `zen_test_${Math.random().toString(36).substring(2,15)}`;
       const testClientSecret = `zen_test_sec_${Math.random().toString(36).substring(2,20)}`;
       const rawBot = botUsername.trim().toLowerCase().replace(/^@/, '');
-      const finalBotUsername = rawBot ? (rawBot.startsWith('sa_') ? rawBot : `sa_${rawBot}`) : `sa_${cleanDevUser}`;
+      const finalBotUsername = rawBot ? rawBot : cleanDevUser;
 
       if (containsZenoa(finalBotUsername)) {
         showToast("Security Violation: The word 'Zenoa' cannot be used in service account handles.");
@@ -221,6 +243,20 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
       if (db) {
         const appRef = doc(db, 'developer_apps', selectedApp.id);
         await setDoc(appRef, updates, { merge: true });
+
+        const botU = selectedApp.bot_username?.toLowerCase().replace(/^@/, '');
+        if (botU) {
+          const activeEnv = updates.environment || selectedApp.environment || environment;
+          const isLive = activeEnv === 'live';
+          const userUpdates: any = {};
+          if ('avatar_url' in updates) {
+            userUpdates.avatar_url = isLive ? (updates.avatar_url || null) : null;
+          }
+          if ('app_description' in updates) {
+            userUpdates.bio = updates.app_description;
+          }
+          await setDoc(doc(db, 'users', botU), userUpdates, { merge: true });
+        }
       }
       setApps(prev => prev.map(a => a.id === selectedApp.id ? { ...a, ...updates } : a));
     } catch (err: any) {
@@ -569,7 +605,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                             const val = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '');
                             setBotUsername(val);
                           }} 
-                          placeholder={`sa_${currentUser.username}`} 
+                          placeholder="e.g. acme_bot" 
                           className={`w-full px-4 py-2.5 rounded-r-lg border outline-none transition-all text-sm font-mono ${containsZenoa(botUsername) ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40 text-rose-900' : 'border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-900'}`} 
                         />
                       </div>
@@ -843,7 +879,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
             <SecuritySettingsView 
               app={selectedApp} 
               environment={environment}
-              onSetEnvironment={setEnvironment}
+              onSetEnvironment={handleSetEnvironment}
               showToast={showToast} 
               onUpdateApp={handleUpdateApp}
               onRotateKey={handleRotateKey}
