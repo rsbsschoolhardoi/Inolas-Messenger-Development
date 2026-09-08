@@ -7619,9 +7619,19 @@ export default function App() {
     is_private: dbUserObj?.is_private ?? false
   } : null;
 
-  // 1. DEDICATED STANDALONE SERVICES ROUTING (Independent identities & "Continue with Zenoa" gateways)
-  const isSSOPath = typeof window !== "undefined" && window.location.pathname === "/auth/sso";
-  if (isSSOPath) {
+  // 1. DEDICATED STANDALONE SERVICES & SUBDOMAIN ROUTING (Independent identities & "Continue with Zenoa" gateways)
+  const currentHostname = typeof window !== "undefined" ? window.location.hostname.toLowerCase() : "";
+  const currentPathname = typeof window !== "undefined" ? window.location.pathname.toLowerCase() : "";
+  const currentSearchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+
+  // Subdomain matching (e.g., developer.zenoa.sbs, console.zenoa.sbs, sso.zenoa.sbs, docs.zenoa.sbs)
+  const isDevSubdomain = currentHostname.startsWith("developer.") || currentHostname.startsWith("developers.") || currentHostname.startsWith("dev.") || currentHostname.startsWith("console.") || currentHostname.startsWith("portal.") || currentHostname.startsWith("dash.");
+  const isSSOSubdomain = currentHostname.startsWith("sso.") || currentHostname.startsWith("auth.") || currentHostname.startsWith("identity.") || currentHostname.startsWith("oauth.") || currentHostname.startsWith("login.");
+  const isDocsSubdomain = currentHostname.startsWith("docs.") || currentHostname.startsWith("api-docs.") || currentHostname.startsWith("api.");
+
+  // A. SSO OAuth 2.0 Consent Screen (/auth/sso or query parameters on SSO subdomain)
+  const isSSOAuthConsent = currentPathname === "/auth/sso" || (isSSOSubdomain && (currentPathname === "/oauth" || currentSearchParams.has("client_id") || currentSearchParams.has("redirect_uri")));
+  if (isSSOAuthConsent) {
     if (onboardingStep > 0 && onboardingStep < 3 && isAuthenticated) {
       return (
         <AccountSetup
@@ -7652,39 +7662,56 @@ export default function App() {
     );
   }
 
-  const isDocsPath = typeof window !== "undefined" && (
-    window.location.pathname === "/docs" || 
-    window.location.pathname === "/documentation" || 
-    window.location.pathname === "/api-docs" ||
-    new URLSearchParams(window.location.search).get("view") === "docs" ||
-    new URLSearchParams(window.location.search).get("view") === "documentation"
+  // B. Interactive API Documentation & Reference
+  const isDocsPath = isDocsSubdomain || (
+    currentPathname === "/docs" || 
+    currentPathname === "/documentation" || 
+    currentPathname === "/api-docs" ||
+    currentSearchParams.get("view") === "docs" ||
+    currentSearchParams.get("view") === "documentation"
   );
   if (isDocsPath) {
     return (
       <DocumentationStandalone 
         onBackToApp={() => {
           try {
-            window.history.pushState({}, '', '/');
-            window.location.href = '/';
+            if (isDocsSubdomain) {
+              const rootDomain = currentHostname.split('.').slice(-2).join('.');
+              window.location.href = `https://${rootDomain}`;
+            } else {
+              window.history.pushState({}, '', '/');
+              window.location.href = '/';
+            }
           } catch(e) {}
         }}
         onOpenConsole={() => {
           try {
-            window.history.pushState({}, '', '/developer');
-            window.location.href = '/developer';
+            if (isDocsSubdomain) {
+              const rootDomain = currentHostname.split('.').slice(-2).join('.');
+              window.location.href = `https://developer.${rootDomain}`;
+            } else {
+              window.history.pushState({}, '', '/developer');
+              window.location.href = '/developer';
+            }
           } catch(e) {}
         }}
       />
     );
   }
 
-  const isSSOConsolePath = typeof window !== "undefined" && (window.location.pathname === "/sso" || window.location.pathname === "/developer/sso"); 
+  // C. SSO & OAuth Management Console
+  const isSSOConsolePath = isSSOSubdomain || (
+    currentPathname === "/sso" || 
+    currentPathname === "/developer/sso" ||
+    currentSearchParams.get("view") === "sso"
+  ); 
   if (isSSOConsolePath) return <SSOConsoleStandalone currentUser={currentUserObj} />; 
 
-  const isDeveloperPath = typeof window !== "undefined" && (
-    window.location.pathname === "/developer" || 
-    window.location.pathname === "/portal" ||
-    new URLSearchParams(window.location.search).get("view") === "developer"
+  // D. Developer Console Portal
+  const isDeveloperPath = isDevSubdomain || (
+    currentPathname === "/developer" || 
+    currentPathname === "/portal" ||
+    currentSearchParams.get("view") === "developer"
   );
   if (isDeveloperPath) return <DeveloperConsoleStandalone />;
   
