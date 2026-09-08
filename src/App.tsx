@@ -7624,13 +7624,18 @@ export default function App() {
   const currentPathname = typeof window !== "undefined" ? window.location.pathname.toLowerCase() : "";
   const currentSearchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
 
-  // Subdomain matching (e.g., developer.zenoa.sbs, console.zenoa.sbs, sso.zenoa.sbs, docs.zenoa.sbs)
-  const isDevSubdomain = currentHostname.startsWith("developer.") || currentHostname.startsWith("developers.") || currentHostname.startsWith("dev.") || currentHostname.startsWith("console.") || currentHostname.startsWith("portal.") || currentHostname.startsWith("dash.");
-  const isSSOSubdomain = currentHostname.startsWith("sso.") || currentHostname.startsWith("auth.") || currentHostname.startsWith("identity.") || currentHostname.startsWith("oauth.") || currentHostname.startsWith("login.");
+  // Subdomain matching:
+  // 1. accounts.zenoa.sbs -> OAuth 2.0 Account Selection & Consent Gate
+  const isAccountsSubdomain = currentHostname.startsWith("accounts.") || currentHostname.startsWith("account.") || currentHostname.startsWith("auth.") || currentHostname.startsWith("identity.") || currentHostname.startsWith("oauth.");
+  // 2. console.zenoa.sbs / sso.zenoa.sbs -> SSO & OAuth Management Console
+  const isConsoleSubdomain = currentHostname.startsWith("console.") || currentHostname.startsWith("sso.") || currentHostname.startsWith("id.");
+  // 3. developer.zenoa.sbs -> Developer APIs & Services Console
+  const isDevSubdomain = currentHostname.startsWith("developer.") || currentHostname.startsWith("developers.") || currentHostname.startsWith("dev.") || currentHostname.startsWith("portal.") || currentHostname.startsWith("dash.");
+  // 4. docs.zenoa.sbs -> API Documentation
   const isDocsSubdomain = currentHostname.startsWith("docs.") || currentHostname.startsWith("api-docs.") || currentHostname.startsWith("api.");
 
-  // A. SSO OAuth 2.0 Consent Screen (/auth/sso or query parameters on SSO subdomain)
-  const isSSOAuthConsent = currentPathname === "/auth/sso" || (isSSOSubdomain && (currentPathname === "/oauth" || currentSearchParams.has("client_id") || currentSearchParams.has("redirect_uri")));
+  // A. Accounts / OAuth 2.0 Consent Screen (accounts.zenoa.sbs, /auth/sso, /oauth, or client_id query param)
+  const isSSOAuthConsent = isAccountsSubdomain || currentPathname === "/auth/sso" || currentPathname === "/oauth" || currentSearchParams.has("client_id") || currentSearchParams.has("redirect_uri");
   if (isSSOAuthConsent) {
     if (onboardingStep > 0 && onboardingStep < 3 && isAuthenticated) {
       return (
@@ -7699,15 +7704,15 @@ export default function App() {
     );
   }
 
-  // C. SSO & OAuth Management Console
-  const isSSOConsolePath = isSSOSubdomain || (
+  // C. SSO & OAuth Management Console (console.zenoa.sbs or /sso)
+  const isSSOConsolePath = isConsoleSubdomain || (
     currentPathname === "/sso" || 
     currentPathname === "/developer/sso" ||
     currentSearchParams.get("view") === "sso"
   ); 
   if (isSSOConsolePath) return <SSOConsoleStandalone currentUser={currentUserObj} />; 
 
-  // D. Developer Console Portal
+  // D. Developer Console Portal (developer.zenoa.sbs or /developer)
   const isDeveloperPath = isDevSubdomain || (
     currentPathname === "/developer" || 
     currentPathname === "/portal" ||

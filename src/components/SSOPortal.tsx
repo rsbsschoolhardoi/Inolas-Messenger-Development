@@ -147,6 +147,28 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     }, 2000);
   };
 
+  const getAccountsAuthUrl = () => {
+    if (typeof window === 'undefined') return '/auth/sso';
+    const hostname = window.location.hostname.toLowerCase();
+    if (hostname.includes('zenoa.sbs')) {
+      return 'https://accounts.zenoa.sbs/auth/sso';
+    }
+    const parts = hostname.split('.');
+    if (parts.length >= 2 && !hostname.includes('localhost') && !hostname.includes('127.0.0.1') && !hostname.includes('run.app')) {
+      return `https://accounts.${parts.slice(-2).join('.')}/auth/sso`;
+    }
+    return `${window.location.origin}/auth/sso`;
+  };
+
+  const getApiTokenUrl = () => {
+    if (typeof window === 'undefined') return '/api/oauth/token';
+    const hostname = window.location.hostname.toLowerCase();
+    if (hostname.includes('zenoa.sbs')) {
+      return 'https://accounts.zenoa.sbs/api/oauth/token';
+    }
+    return `${window.location.origin}/api/oauth/token`;
+  };
+
   // Load User's SSO Applications
   const fetchApps = async () => {
     const ownerName = currentUser?.username || 'developer_user';
@@ -1828,10 +1850,10 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                   <div className="mt-4 relative rounded-2xl bg-[#090d16] border border-slate-800 p-4 font-mono text-xs text-slate-200 overflow-x-auto">
                     <button
                       onClick={() => handleCopy(
-                        docsLanguage === 'react' ? `// React Login Handler\nconst handleZenoaLogin = () => {\n  const authUrl = "${window.location.origin}/auth/sso?client_id=${activeSnippetApp.client_id}&redirect_uri=" + encodeURIComponent(window.location.origin + "/auth/callback");\n  window.location.href = authUrl;\n};`
-                        : docsLanguage === 'nodejs' ? `// Node.js Express Token Exchange\napp.get('/auth/callback', async (req, res) => {\n  const { code } = req.query;\n  const response = await fetch('${window.location.origin}/api/oauth/token', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      grant_type: 'authorization_code',\n      client_id: '${activeSnippetApp.client_id}',\n      client_secret: '${activeSnippetApp.client_secret}',\n      code,\n      redirect_uri: '${activeSnippetApp.redirect_uris[0]}'\n    })\n  });\n  const tokenData = await response.json();\n  res.json(tokenData);\n});`
-                        : docsLanguage === 'python' ? `# Python FastAPI OAuth Handler\nimport httpx\nfrom fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get("/auth/callback")\nasync def auth_callback(code: str):\n    async with httpx.AsyncClient() as client:\n        resp = await client.post("${window.location.origin}/api/oauth/token", json={\n            "grant_type": "authorization_code",\n            "client_id": "${activeSnippetApp.client_id}",\n            "client_secret": "${activeSnippetApp.client_secret}",\n            "code": code,\n            "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"\n        })\n        return resp.json()`
-                        : `curl -X POST ${window.location.origin}/api/oauth/token \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "grant_type": "authorization_code",\n    "client_id": "${activeSnippetApp.client_id}",\n    "client_secret": "${activeSnippetApp.client_secret}",\n    "code": "zen_code_YOUR_CODE",\n    "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"\n  }'`,
+                        docsLanguage === 'react' ? `// React Login Handler\nconst handleZenoaLogin = () => {\n  const authUrl = "${getAccountsAuthUrl()}?client_id=${activeSnippetApp.client_id}&redirect_uri=" + encodeURIComponent(window.location.origin + "/auth/callback");\n  window.location.href = authUrl;\n};`
+                        : docsLanguage === 'nodejs' ? `// Node.js Express Token Exchange\napp.get('/auth/callback', async (req, res) => {\n  const { code } = req.query;\n  const response = await fetch('${getApiTokenUrl()}', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      grant_type: 'authorization_code',\n      client_id: '${activeSnippetApp.client_id}',\n      client_secret: '${activeSnippetApp.client_secret}',\n      code,\n      redirect_uri: '${activeSnippetApp.redirect_uris[0]}'\n    })\n  });\n  const tokenData = await response.json();\n  res.json(tokenData);\n});`
+                        : docsLanguage === 'python' ? `# Python FastAPI OAuth Handler\nimport httpx\nfrom fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get("/auth/callback")\nasync def auth_callback(code: str):\n    async with httpx.AsyncClient() as client:\n        resp = await client.post("${getApiTokenUrl()}", json={\n            "grant_type": "authorization_code",\n            "client_id": "${activeSnippetApp.client_id}",\n            "client_secret": "${activeSnippetApp.client_secret}",\n            "code": code,\n            "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"\n        })\n        return resp.json()`
+                        : `curl -X POST ${getApiTokenUrl()} \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "grant_type": "authorization_code",\n    "client_id": "${activeSnippetApp.client_id}",\n    "client_secret": "${activeSnippetApp.client_secret}",\n    "code": "zen_code_YOUR_CODE",\n    "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"\n  }'`,
                         'code_snippet',
                         'Code snippet copied'
                       )}
@@ -1847,7 +1869,7 @@ export const ZenoaLoginButton = () => {
   const handleLogin = () => {
     const clientId = "${activeSnippetApp.client_id}";
     const redirectUri = encodeURIComponent(window.location.origin + "/auth/callback");
-    const authUrl = \`${window.location.origin}/auth/sso?client_id=\${clientId}&redirect_uri=\${redirectUri}&response_type=code&scope=openid profile email\`;
+    const authUrl = \`${getAccountsAuthUrl()}?client_id=\${clientId}&redirect_uri=\${redirectUri}&response_type=code&scope=openid profile email\`;
     window.location.href = authUrl;
   };
 
@@ -1866,7 +1888,7 @@ app.get('/auth/callback', async (req, res) => {
   const { code } = req.query;
   
   // 1. Exchange auth code for Bearer Access Token
-  const tokenRes = await fetch('${window.location.origin}/api/oauth/token', {
+  const tokenRes = await fetch('${getApiTokenUrl()}', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
