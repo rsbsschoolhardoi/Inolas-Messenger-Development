@@ -91,7 +91,6 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
     'bot-messaging': true,
     'message-templates': true,
     'webhooks-guide': true,
-    'oauth-sso': true,
     'billing-quotas': true,
     'error-codes': true
   });

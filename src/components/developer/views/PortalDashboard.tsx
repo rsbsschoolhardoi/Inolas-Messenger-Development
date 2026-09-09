@@ -404,11 +404,28 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
             userUpdates.avatar_url = updates.avatar_url || null;
           }
           if ('app_description' in updates) {
-            userUpdates.bio = updates.app_description;
+            userUpdates.bio = updates.app_description || null;
+            userUpdates.app_description = updates.app_description || null;
+          }
+          if ('website_url' in updates) {
+            userUpdates.website_url = updates.website_url || null;
+          }
+          if ('additional_websites' in updates) {
+            userUpdates.additional_websites = updates.additional_websites || null;
+          }
+          if ('office_address' in updates) {
+            userUpdates.office_address = updates.office_address || null;
+            userUpdates.address = updates.office_address || null;
+          }
+          if ('support_email' in updates) {
+            userUpdates.support_email = updates.support_email || null;
+          }
+          if ('support_phone' in updates) {
+            userUpdates.support_phone = updates.support_phone || null;
           }
           await setDoc(doc(db, 'users', botU), userUpdates, { merge: true });
           await setDoc(doc(db, 'service_accounts', botU), {
-            avatar_url: updates.avatar_url || null,
+            ...userUpdates,
             updated_at: Date.now()
           }, { merge: true }).catch(() => {});
           await setDoc(doc(db, 'sso_applications', selectedApp.id), updates, { merge: true }).catch(() => {});

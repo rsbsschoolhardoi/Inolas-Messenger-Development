@@ -146,8 +146,18 @@ export const getOnlineStatusText = (user: PresenceUser | undefined | null): stri
 };
 
 
+const dynamicServiceAccountHandles = new Set<string>();
+
+export const registerServiceAccountHandle = (handle: string | undefined | null) => {
+  if (!handle) return;
+  const clean = String(handle).toLowerCase().replace(/^@/, '').trim();
+  if (clean) {
+    dynamicServiceAccountHandles.add(clean);
+  }
+};
+
 export const isOfficialAccount = (user: PresenceUser | any | undefined | null, explicitUsername?: string): boolean => {
-  const uname = (explicitUsername || user?.username || '').toLowerCase();
+  const uname = (explicitUsername || user?.username || '').toLowerCase().replace(/^@/, '');
   if (['zenoa', 'sa_zenoa', 'zenoa_official', 'zenoa_security', 'zenoa_auth', 'zenoa_support', 'zenoa_updates'].includes(uname) || uname.startsWith('zenoa_') || uname.startsWith('sa_zenoa')) {
     return true;
   }
@@ -156,10 +166,11 @@ export const isOfficialAccount = (user: PresenceUser | any | undefined | null, e
 
 export const isBusinessAccount = (user: PresenceUser | any | undefined | null, explicitUsername?: string): boolean => {
   if (isOfficialAccount(user, explicitUsername)) return false;
+  const uname = (explicitUsername || user?.username || '').toLowerCase().replace(/^@/, '');
   if (user?.is_business_account) return true;
   if (user?.is_service_account && !isOfficialAccount(user, explicitUsername)) return true;
-  
-  const uname = (explicitUsername || user?.username || '').toLowerCase();
+  if (user?.is_bot || user?.role === 'service_account') return true;
+  if (uname && dynamicServiceAccountHandles.has(uname)) return true;
   if (uname && uname.startsWith('sa_') && !uname.startsWith('sa_zenoa')) return true;
   return false;
 };
@@ -167,9 +178,10 @@ export const isBusinessAccount = (user: PresenceUser | any | undefined | null, e
 export const isServiceAccount = (user: PresenceUser | any | undefined | null, explicitUsername?: string): boolean => {
   if (isOfficialAccount(user, explicitUsername) || isBusinessAccount(user, explicitUsername)) return true;
   if (!user && !explicitUsername) return false;
-  if (user?.is_service_account || user?.is_business_account) return true;
+  if (user?.is_service_account || user?.is_business_account || user?.is_bot || user?.role === 'service_account') return true;
   
-  const uname = (explicitUsername || user?.username || '').toLowerCase();
+  const uname = (explicitUsername || user?.username || '').toLowerCase().replace(/^@/, '');
+  if (dynamicServiceAccountHandles.has(uname)) return true;
   return uname.startsWith('sa_') || uname === 'zenoa' || uname === 'sa_zenoa' || uname === 'zenoa_official' || uname.startsWith('zenoa_');
 };
 

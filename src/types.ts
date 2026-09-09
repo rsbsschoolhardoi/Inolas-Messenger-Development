@@ -217,9 +217,13 @@ export interface Chat {
   is_group?: boolean;
   isGroup?: boolean;
   name: string;
+  display_name?: string;
   username: string;
   avatar_seed: string;
   avatar_url?: string;
+  is_service_account?: boolean;
+  is_business_account?: boolean;
+  is_official?: boolean;
   participants: string[];
   participant_ids?: string[];
   unread: number;

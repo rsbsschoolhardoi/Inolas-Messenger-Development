@@ -9279,20 +9279,9 @@ export default function App() {
                           <span>Official Zenoa Account</span>
                         </span>
                       ) : isBusinessAccount(users[activeChat?.username], activeChat?.username) ? (
-                        <button 
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDocumentationInitialSection('business-vs-official-accounts');
-                            setShowDocumentationModal(true);
-                          }}
-                          className="inline-flex items-center gap-1 font-bold text-[10px] tracking-wide text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors cursor-pointer group"
-                          title="Click to learn more about Business Accounts in Documentation"
-                        >
-                          <Building2 className="h-3 w-3 text-blue-500 inline" />
+                        <span className="inline-flex items-center gap-1 font-semibold text-[10px] tracking-wide text-blue-600 dark:text-blue-400">
                           <span>Business Account</span>
-                          <span className="font-normal text-[9px] opacity-80 group-hover:opacity-100 underline decoration-dotted">• Tap to learn more</span>
-                        </button>
+                        </span>
                       ) : isUserEffectivelyOnline(users[activeChat?.username]) ? (
                         <span className="text-emerald-600 dark:text-emerald-400 font-medium inline-flex items-center gap-1">
                           <span>Online</span>
@@ -9533,17 +9522,12 @@ export default function App() {
                         setDocumentationInitialSection('business-vs-official-accounts');
                         setShowDocumentationModal(true);
                       }}
-                      className="max-w-md w-full border rounded-2xl p-3 text-center shadow-2xs backdrop-blur-xs bg-blue-50/60 dark:bg-blue-950/20 border-blue-200/80 dark:border-blue-800/50 cursor-pointer hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-md transition-all group"
+                      className="max-w-sm w-full border rounded-xl px-3 py-2 text-center shadow-2xs backdrop-blur-xs bg-blue-50/50 dark:bg-blue-950/20 border-blue-200/60 dark:border-blue-800/40 cursor-pointer hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-xs transition-all group"
                       role="button"
                       tabIndex={0}
                       title="Tap to learn more about Business Accounts in Documentation"
                     >
-                      <div className="flex items-center justify-center gap-1.5 font-bold text-xs mb-1 text-blue-900 dark:text-blue-300">
-                        <Building2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                        <span>Business Account</span>
-                        <span className="text-[10px] font-normal text-blue-600/80 dark:text-blue-400/80 bg-blue-100/80 dark:bg-blue-900/60 px-1.5 py-0.5 rounded-full ml-1">Verified Gateway</span>
-                      </div>
-                      <p className="text-[11px] leading-relaxed font-medium text-blue-950/80 dark:text-blue-200/80">
+                      <p className="text-[10.5px] leading-snug font-medium text-blue-950/80 dark:text-blue-200/80">
                         This business account uses secure Zenoa infrastructure to communicate. <span className="underline font-semibold text-blue-600 dark:text-blue-400 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors">Tap to learn more</span>
                       </p>
                     </div>

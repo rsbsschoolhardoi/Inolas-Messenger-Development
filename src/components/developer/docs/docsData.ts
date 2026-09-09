@@ -48,6 +48,7 @@ export const generateDocsData = (app: any, baseUrl: string): DocCategory[] => {
   const apiKey = app?.active_client_id || app?.client_id || 'zen_test_app_sample_key';
   const secretKey = app?.active_client_secret || app?.client_secret || 'zen_sec_sample_secret';
   const appName = app?.app_name || 'My Application';
+  const botHandle = app?.bot_username ? (app.bot_username.startsWith('@') ? app.bot_username : `@${app.bot_username}`) : '@sa_business_bot';
 
   return [
     {
@@ -63,14 +64,13 @@ export const generateDocsData = (app: any, baseUrl: string): DocCategory[] => {
           method: 'GUIDE',
           path: '/docs/introduction',
           summary: 'High-performance messaging, OTP verification, and bot infrastructure for modern web & mobile apps.',
-          description: `Zenoa Developer Platform provides resilient, carrier-grade communication APIs engineered for sub-second OTP verification, automated service account notifications, message template governance, real-time webhooks, WebRTC voice/video signaling, and unified OAuth 2.0 Single Sign-On.
+          description: `Zenoa Developer Platform provides carrier-grade communication APIs engineered for sub-second OTP verification, automated service account notifications, message template governance, and real-time webhooks.
 
 ### Key Capabilities:
 - **Instant OTP Verification**: Deliver 4 or 6-digit numeric passcodes to Zenoa user inboxes and verified mobile numbers in under 400ms.
-- **Service Account Direct Messaging**: Send rich Markdown, media attachments, and interactive buttons from your verified bot identity.
+- **Service Account Direct Messaging**: Send rich Markdown, media attachments, and interactive buttons from your verified service account identity.
 - **Message Templates & Anti-Spam Compliance**: Ensure enterprise brand safety with pre-approved message formats and variable syntax.
 - **Real-Time Webhooks with HMAC Signatures**: Receive instant delivery reports, read receipts, and user reply events with SHA-256 cryptographic verification.
-- **OAuth 2.0 Identity Gateway**: Allow millions of users to authenticate into your web or mobile app using "Login with Zenoa".
 - **Transparent Credits & Rate Governance**: Monitor API quotas, wallet balances, and usage metrics with zero hidden overage charges.`,
           authRequired: false,
           rateLimit: 'Unlimited',
@@ -151,7 +151,7 @@ public class ZenoaHealth {
 ### 1. What is a Business Service Account?
 Business accounts are programmatic, non-human entities registered by developers through the Zenoa Developer Console. They allow verified external applications to converse with Zenoa users over end-to-end encrypted gateways.
 
-- **Developer Controlled**: Configured with custom application names, handles (prefixed with \`sa_\`), webhook webhooks, and REST API credentials.
+- **Developer Controlled**: Configured with custom application names, handles (prefixed with \`sa_\`), webhooks, and REST API credentials.
 - **Verification Policy**: **Never Automatically Verified**. Business accounts remain unverified by default. Verification is exclusively granted after manual compliance audit and review by Zenoa administrators.
 - **Subtitles & Badging**: Displays **"Business Account"** beneath the handle in chats and message bubbles.
 - **In-Chat Banner**: Displays **"This business account uses secure Zenoa infrastructure to communicate. Tap to learn more."**
@@ -161,21 +161,22 @@ Business accounts are programmatic, non-human entities registered by developers 
 ### 2. Capabilities: What Business Accounts Can & Cannot Do
 
 #### What Business Accounts CAN Do:
-1. **Automated Transactional Notifications**: Send order confirmations, shipping tracking updates, OTP authentication codes, and flight or booking receipts.
+1. **Automated Transactional Notifications**: Send order confirmations, shipping tracking updates, OTP authentication codes, and booking receipts.
 2. **Customer Service & Inquiries**: Receive and respond to user messages when the user chooses to converse with the business entity.
 3. **Structured Interactive Messages**: Send rich message templates with quick-reply action buttons, media attachments, and deep links.
 
 #### What Business Accounts CANNOT Do:
-1. **Zero Access to Personal Chats**: Business accounts have zero visibility into your private end-to-end encrypted conversations, contact lists, or audio/video calls.
+1. **Zero Access to Personal Chats**: Business accounts have zero visibility into your private conversations, contact lists, or audio/video calls.
 2. **Zero Access to Encryption Keys**: All user cryptographic keys remain isolated on individual client devices using zero-knowledge architecture.
 3. **No Unsolicited Bulk Spam**: Business accounts cannot scrape directory databases or send broadcast spam without explicit recipient opt-in.
 4. **No Calling Features**: Service accounts cannot initiate or receive voice or video calls.
+5. **No Personal Social Features**: Follow button, personal nicknames, group chat creation, and online timestamps are disabled for service accounts.
 
 ---
 
 ### 3. Profile Picture & Environment Visibility
 - **Testing (Sandbox) Mode**: Developers can upload and update their service account profile photo in the Developer Console settings. While in Sandbox mode, this photo is kept private and will not be displayed to messenger users.
-- **Live (Production) Mode**: Once the developer switches their service account to Live Production mode, the customized square/circular profile photo becomes active and visible to all messenger users.
+- **Live (Production) Mode**: Once the developer switches their service account to Live Production mode, the customized profile photo becomes active and visible to all messenger users.
 
 ---
 
@@ -257,76 +258,87 @@ public class VerifyBusinessAccount {
         {
           id: 'auth-guide',
           category: 'Getting Started',
-          title: 'Authentication & API Keys',
+          title: 'Authentication & Dual-Credential Security',
           method: 'GUIDE',
           path: '/docs/authentication',
-          summary: 'How to authenticate all API requests via Bearer Tokens and Header keys.',
-          description: `All requests to the Zenoa Developer API require authentication via HTTP Bearer token in the \`Authorization\` header, or via the \`X-API-Key\` header.
+          summary: 'Strict dual-credential enforcement: All service account operations require BOTH Client ID and Client Secret.',
+          description: `All programmatic requests to Zenoa Developer Platform service account endpoints strictly mandate **Dual-Credential Verification**.
 
-### Key Types:
-1. **Client ID (\`client_id\` / \`api_key\`)**: Safe for public identity identification. Starts with \`zen_test_\` (Sandbox) or \`zen_live_\` (Production).
-2. **Client Secret (\`client_secret\`)**: Strictly confidential master secret. Used for signing OAuth 2.0 token exchanges, secret rotation, and server-side privileged commands.
+### Credential Requirements:
+1. **Client ID (\`client_id\` / \`X-Client-Id\`)**: Identifies your registered Service Account (\`${apiKey}\`).
+2. **Client Secret (\`client_secret\` / \`X-Client-Secret\` / Basic Auth)**: Strictly confidential master token. Mandatory for all OTP dispatches, passcode verifications, and bot messaging.
 
 ### Header Standards:
 \`\`\`http
-Authorization: Bearer ${apiKey}
+X-Client-Id: ${apiKey}
+X-Client-Secret: YOUR_SERVICE_ACCOUNT_SECRET
+Authorization: Basic base64(client_id:client_secret)
 Content-Type: application/json
 \`\`\`
 
-> **CRITICAL SECURITY RULE**: Never embed your Client Secret in client-side applications (React, iOS, Android, Vue) or commit them to public GitHub repositories. Always proxy requests through your secure backend server.`,
+> **CRITICAL SECURITY RULE**: Never pass API requests with only a Client ID. Unauthenticated requests without a matching Client Secret will be rejected with HTTP 401 Unauthorized.`,
           authRequired: true,
           rateLimit: 'Governed by Plan Tier',
           cost: 'Free',
           headers: [
-            { name: 'Authorization', value: `Bearer ${apiKey}`, desc: 'Standard HTTP Bearer authorization token', required: true },
-            { name: 'X-API-Key', value: apiKey, desc: 'Alternative header if Bearer prefix is not supported', required: false },
+            { name: 'X-Client-Id', value: apiKey, desc: 'Your App Client ID', required: true },
+            { name: 'X-Client-Secret', value: 'YOUR_CLIENT_SECRET', desc: 'Your App Client Secret (Confidential)', required: true },
+            { name: 'Authorization', value: `Basic <base64(client_id:client_secret)>`, desc: 'Standard HTTP Basic Authorization header', required: false },
             { name: 'Content-Type', value: 'application/json', desc: 'Mandatory for all POST/PUT requests', required: true }
           ],
           params: [],
           responseSuccess: `{
   "authenticated": true,
   "app_id": "${apiKey}",
+  "service_account": "${botHandle}",
   "environment": "test",
   "permissions": ["otp:send", "otp:verify", "bot:send", "templates:read", "webhooks:manage"]
 }`,
           responseError: `{
   "error": "UNAUTHORIZED",
-  "message": "Invalid or missing Bearer token in Authorization header.",
+  "message": "Missing client_secret. Developer Console Service Account actions strictly require BOTH client_id and client_secret.",
   "status": 401
 }`,
           snippets: {
             curl: `curl -X GET "${baseUrl}/api/v1/billing/summary" \\
-  -H "Authorization: Bearer ${apiKey}" \\
+  -H "X-Client-Id: ${apiKey}" \\
+  -H "X-Client-Secret: $ZENOA_SA_CLIENT_SECRET" \\
   -H "Content-Type: application/json"`,
             node: `const axios = require('axios');
 
 const client = axios.create({
   baseURL: '${baseUrl}',
   headers: {
-    'Authorization': 'Bearer ${apiKey}',
+    'X-Client-Id': process.env.ZENOA_SA_CLIENT_ID || '${apiKey}',
+    'X-Client-Secret': process.env.ZENOA_SA_CLIENT_SECRET,
     'Content-Type': 'application/json'
   }
 });`,
-            python: `import requests
+            python: `import os
+import requests
 
 headers = {
-    "Authorization": "Bearer ${apiKey}",
+    "X-Client-Id": os.environ.get("ZENOA_SA_CLIENT_ID", "${apiKey}"),
+    "X-Client-Secret": os.environ.get("ZENOA_SA_CLIENT_SECRET", ""),
     "Content-Type": "application/json"
 }
 response = requests.get("${baseUrl}/api/v1/billing/summary", headers=headers)`,
             php: `<?php
 $headers = [
-  'Authorization: Bearer ${apiKey}',
+  'X-Client-Id: ' . (getenv('ZENOA_SA_CLIENT_ID') ?: '${apiKey}'),
+  'X-Client-Secret: ' . getenv('ZENOA_SA_CLIENT_SECRET'),
   'Content-Type: application/json'
 ];`,
-            go: `req.Header.Set("Authorization", "Bearer ${apiKey}")
+            go: `req.Header.Set("X-Client-Id", os.Getenv("ZENOA_SA_CLIENT_ID"))
+req.Header.Set("X-Client-Secret", os.Getenv("ZENOA_SA_CLIENT_SECRET"))
 req.Header.Set("Content-Type", "application/json")`,
             java: `HttpRequest.newBuilder()
-  .header("Authorization", "Bearer ${apiKey}")
+  .header("X-Client-Id", System.getenv("ZENOA_SA_CLIENT_ID"))
+  .header("X-Client-Secret", System.getenv("ZENOA_SA_CLIENT_SECRET"))
   .header("Content-Type", "application/json")`
           },
           notes: [
-            'API keys can be instantly rotated in the Settings & Security console tab without server restart.',
+            'Both client_id and client_secret are strictly required for every service account action.',
             'Failed authentication attempts return HTTP 401 Unauthorized with descriptive machine-readable error codes.'
           ]
         }
@@ -345,7 +357,7 @@ req.Header.Set("Content-Type", "application/json")`,
           method: 'POST',
           path: '/api/v1/otp/send',
           summary: 'Dispatches a high-priority 4 or 6-digit verification passcode to any target user.',
-          description: `Dispatches an instant, cryptographically secure OTP directly to a user's Zenoa chat inbox or verified phone number. In Sandbox mode, requests succeed instantly and allow simulation without consuming balance.
+          description: `Dispatches an instant, cryptographically secure OTP directly to a user's Zenoa chat inbox or verified phone number. Strictly requires dual-credential authentication with both Client ID and Client Secret.
 
 ### Delivery Logic:
 - If recipient is a \`@username\`, delivered to the user's active Zenoa chat.
@@ -355,17 +367,22 @@ req.Header.Set("Content-Type", "application/json")`,
           rateLimit: '60 req/min (Free) • 500 req/min (Growth)',
           cost: '1 Credit per OTP dispatched (0 in Sandbox)',
           headers: [
-            { name: 'Authorization', value: `Bearer ${apiKey}`, desc: 'App Client ID / API Key', required: true },
+            { name: 'X-Client-Id', value: apiKey, desc: 'App Client ID', required: true },
+            { name: 'X-Client-Secret', value: 'YOUR_CLIENT_SECRET', desc: 'App Client Secret', required: true },
             { name: 'Content-Type', value: 'application/json', desc: 'JSON body format', required: true }
           ],
           params: [
+            { name: 'client_id', type: 'string', required: true, desc: 'Your Service Account Client ID' },
+            { name: 'client_secret', type: 'string', required: true, desc: 'Your Service Account Client Secret' },
             { name: 'recipient', type: 'string', required: true, desc: 'Target @username or E.164 phone number (+919876543210)' },
             { name: 'template_type', type: 'string', required: false, desc: 'Format: "standard_otp" | "2fa_auth" | "password_reset" | "transaction_auth"', default: 'standard_otp' },
             { name: 'expiry_mins', type: 'number', required: false, desc: 'Passcode validity window in minutes (1 to 1440)', default: '10' },
             { name: 'custom_code', type: 'string', required: false, desc: 'Specific 4 or 6-digit code if generated by your internal system' },
-            { name: 'custom_message', type: 'string', required: false, desc: 'Optional custom prefix text (must adhere to template compliance)' }
+            { name: 'custom_message', type: 'string', required: false, desc: 'Optional custom prefix text' }
           ],
           requestBodyExample: `{
+  "client_id": "${apiKey}",
+  "client_secret": "YOUR_CLIENT_SECRET",
   "recipient": "+919876543210",
   "template_type": "standard_otp",
   "expiry_mins": 10
@@ -381,15 +398,17 @@ req.Header.Set("Content-Type", "application/json")`,
 }`,
           responseError: `{
   "success": false,
-  "error": "RATE_LIMIT_EXCEEDED",
-  "message": "Too many OTP requests dispatched to this recipient. Please wait 60 seconds.",
-  "retry_after_seconds": 60
+  "error": "UNAUTHORIZED",
+  "message": "Missing client_secret. Both client_id and client_secret are strictly required for OTP dispatch."
 }`,
           snippets: {
             curl: `curl -X POST "${baseUrl}/api/v1/otp/send" \\
-  -H "Authorization: Bearer ${apiKey}" \\
+  -H "X-Client-Id: ${apiKey}" \\
+  -H "X-Client-Secret: $ZENOA_SA_CLIENT_SECRET" \\
   -H "Content-Type: application/json" \\
   -d '{
+    "client_id": "${apiKey}",
+    "client_secret": "'"$ZENOA_SA_CLIENT_SECRET"'",
     "recipient": "+919876543210",
     "template_type": "standard_otp",
     "expiry_mins": 10
@@ -398,12 +417,15 @@ req.Header.Set("Content-Type", "application/json")`,
 
 async function sendVerificationOtp(recipient) {
   const response = await axios.post('${baseUrl}/api/v1/otp/send', {
+    client_id: process.env.ZENOA_SA_CLIENT_ID || '${apiKey}',
+    client_secret: process.env.ZENOA_SA_CLIENT_SECRET,
     recipient: recipient,
     template_type: 'standard_otp',
     expiry_mins: 10
   }, {
     headers: {
-      'Authorization': 'Bearer ${apiKey}',
+      'X-Client-Id': process.env.ZENOA_SA_CLIENT_ID || '${apiKey}',
+      'X-Client-Secret': process.env.ZENOA_SA_CLIENT_SECRET,
       'Content-Type': 'application/json'
     }
   });
@@ -413,14 +435,18 @@ async function sendVerificationOtp(recipient) {
 }
 
 sendVerificationOtp('+919876543210');`,
-            python: `import requests
+            python: `import os
+import requests
 
 url = "${baseUrl}/api/v1/otp/send"
 headers = {
-    "Authorization": "Bearer ${apiKey}",
+    "X-Client-Id": os.environ.get("ZENOA_SA_CLIENT_ID", "${apiKey}"),
+    "X-Client-Secret": os.environ.get("ZENOA_SA_CLIENT_SECRET", ""),
     "Content-Type": "application/json"
 }
 payload = {
+    "client_id": os.environ.get("ZENOA_SA_CLIENT_ID", "${apiKey}"),
+    "client_secret": os.environ.get("ZENOA_SA_CLIENT_SECRET", ""),
     "recipient": "+919876543210",
     "template_type": "standard_otp",
     "expiry_mins": 10
@@ -430,7 +456,12 @@ response = requests.post(url, json=payload, headers=headers)
 print("OTP Send Response:", response.json())`,
             php: `<?php
 $ch = curl_init("${baseUrl}/api/v1/otp/send");
+$clientId = getenv('ZENOA_SA_CLIENT_ID') ?: "${apiKey}";
+$clientSecret = getenv('ZENOA_SA_CLIENT_SECRET');
+
 $payload = json_encode([
+    "client_id" => $clientId,
+    "client_secret" => $clientSecret,
     "recipient" => "+919876543210",
     "template_type" => "standard_otp",
     "expiry_mins" => 10
@@ -438,7 +469,8 @@ $payload = json_encode([
 
 curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
 curl_setopt($ch, CURLOPT_HTTPHEADER, [
-    'Authorization: Bearer ${apiKey}',
+    'X-Client-Id: ' . $clientId,
+    'X-Client-Secret: ' . $clientSecret,
     'Content-Type: application/json'
 ]);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -454,18 +486,26 @@ import (
   "fmt"
   "net/http"
   "io/ioutil"
+  "os"
 )
 
 func main() {
+  clientID := os.Getenv("ZENOA_SA_CLIENT_ID")
+  if clientID == "" { clientID = "${apiKey}" }
+  clientSecret := os.Getenv("ZENOA_SA_CLIENT_SECRET")
+
   payload := map[string]interface{}{
-    "recipient": "+919876543210",
+    "client_id":     clientID,
+    "client_secret": clientSecret,
+    "recipient":     "+919876543210",
     "template_type": "standard_otp",
-    "expiry_mins": 10,
+    "expiry_mins":   10,
   }
   jsonPayload, _ := json.Marshal(payload)
 
   req, _ := http.NewRequest("POST", "${baseUrl}/api/v1/otp/send", bytes.NewBuffer(jsonPayload))
-  req.Header.Set("Authorization", "Bearer ${apiKey}")
+  req.Header.Set("X-Client-Id", clientID)
+  req.Header.Set("X-Client-Secret", clientSecret)
   req.Header.Set("Content-Type", "application/json")
 
   client := &http.Client{}
@@ -479,11 +519,15 @@ import java.net.URI;
 
 public class SendOtp {
   public static void main(String[] args) throws Exception {
-    String json = "{\\"recipient\\":\\"+919876543210\\",\\"template_type\\":\\"standard_otp\\",\\"expiry_mins\\":10}";
+    String clientId = System.getenv("ZENOA_SA_CLIENT_ID") != null ? System.getenv("ZENOA_SA_CLIENT_ID") : "${apiKey}";
+    String clientSecret = System.getenv("ZENOA_SA_CLIENT_SECRET") != null ? System.getenv("ZENOA_SA_CLIENT_SECRET") : "";
+
+    String json = String.format("{\\"client_id\\":\\"%s\\",\\"client_secret\\":\\"%s\\",\\"recipient\\":\\"+919876543210\\",\\"template_type\\":\\"standard_otp\\",\\"expiry_mins\\":10}", clientId, clientSecret);
     HttpClient client = HttpClient.newHttpClient();
     HttpRequest req = HttpRequest.newBuilder()
       .uri(URI.create("${baseUrl}/api/v1/otp/send"))
-      .header("Authorization", "Bearer ${apiKey}")
+      .header("X-Client-Id", clientId)
+      .header("X-Client-Secret", clientSecret)
       .header("Content-Type", "application/json")
       .POST(HttpRequest.BodyPublishers.ofString(json))
       .build();
@@ -493,8 +537,8 @@ public class SendOtp {
 }`
           },
           notes: [
-            'Sandbox mode simulates delivery without deducting wallet credits.',
-            'Recipient rate limiting restricts maximum 5 OTP dispatches per phone number in a 5-minute window to eliminate SMS bombing.'
+            'Strict dual-credential authentication: Both client_id and client_secret are required.',
+            'Recipient rate limiting restricts maximum 5 OTP dispatches per phone number in a 5-minute window.'
           ]
         },
         {
@@ -503,27 +547,32 @@ public class SendOtp {
           title: 'Verify Passcode',
           method: 'POST',
           path: '/api/v1/otp/verify',
-          summary: 'Validates user-submitted OTP code with sub-millisecond accuracy.',
-          description: `Performs atomic verification of the 6-digit passcode submitted by the end user. Expired, invalid, or already consumed codes are immediately rejected.
+          summary: 'Validates user-submitted OTP code with dual-credential protection.',
+          description: `Performs atomic verification of the 6-digit passcode submitted by the end user. Expired, invalid, or already consumed codes are immediately rejected. Strictly requires both Client ID and Client Secret.
 
 ### Verification Lifecycle:
-1. Matches recipient and app ID in secure atomic storage.
-2. Checks timestamp validity (\`Date.now() < expires_at\`).
-3. Compares string token match.
+1. Validates client_id and client_secret dual authentication.
+2. Matches recipient and app ID in secure atomic storage.
+3. Checks timestamp validity (\`Date.now() < expires_at\`).
 4. Auto-expires code upon successful verification (One-Time Use guarantee).
 5. Increments failed attempt counter (locks code after 5 consecutive failures).`,
           authRequired: true,
           rateLimit: '120 req/min',
           cost: 'Free (Included with Send)',
           headers: [
-            { name: 'Authorization', value: `Bearer ${apiKey}`, desc: 'App Client ID / API Key', required: true },
+            { name: 'X-Client-Id', value: apiKey, desc: 'App Client ID', required: true },
+            { name: 'X-Client-Secret', value: 'YOUR_CLIENT_SECRET', desc: 'App Client Secret', required: true },
             { name: 'Content-Type', value: 'application/json', desc: 'JSON format', required: true }
           ],
           params: [
+            { name: 'client_id', type: 'string', required: true, desc: 'Your Service Account Client ID' },
+            { name: 'client_secret', type: 'string', required: true, desc: 'Your Service Account Client Secret' },
             { name: 'recipient', type: 'string', required: true, desc: 'Target @username or mobile number used during send' },
             { name: 'code', type: 'string', required: true, desc: '6-digit passcode entered by the user' }
           ],
           requestBodyExample: `{
+  "client_id": "${apiKey}",
+  "client_secret": "YOUR_CLIENT_SECRET",
   "recipient": "+919876543210",
   "code": "584920"
 }`,
@@ -543,9 +592,12 @@ public class SendOtp {
 }`,
           snippets: {
             curl: `curl -X POST "${baseUrl}/api/v1/otp/verify" \\
-  -H "Authorization: Bearer ${apiKey}" \\
+  -H "X-Client-Id: ${apiKey}" \\
+  -H "X-Client-Secret: $ZENOA_SA_CLIENT_SECRET" \\
   -H "Content-Type: application/json" \\
   -d '{
+    "client_id": "${apiKey}",
+    "client_secret": "'"$ZENOA_SA_CLIENT_SECRET"'",
     "recipient": "+919876543210",
     "code": "584920"
   }'`,
@@ -554,11 +606,14 @@ public class SendOtp {
 async function verifyUserCode(recipient, userCode) {
   try {
     const res = await axios.post('${baseUrl}/api/v1/otp/verify', {
+      client_id: process.env.ZENOA_SA_CLIENT_ID || '${apiKey}',
+      client_secret: process.env.ZENOA_SA_CLIENT_SECRET,
       recipient: recipient,
       code: userCode
     }, {
       headers: {
-        'Authorization': 'Bearer ${apiKey}',
+        'X-Client-Id': process.env.ZENOA_SA_CLIENT_ID || '${apiKey}',
+        'X-Client-Secret': process.env.ZENOA_SA_CLIENT_SECRET,
         'Content-Type': 'application/json'
       }
     });
@@ -574,13 +629,17 @@ async function verifyUserCode(recipient, userCode) {
 }
 
 verifyUserCode('+919876543210', '584920');`,
-            python: `import requests
+            python: `import os
+import requests
 
 res = requests.post("${baseUrl}/api/v1/otp/verify", json={
+    "client_id": os.environ.get("ZENOA_SA_CLIENT_ID", "${apiKey}"),
+    "client_secret": os.environ.get("ZENOA_SA_CLIENT_SECRET", ""),
     "recipient": "+919876543210",
     "code": "584920"
 }, headers={
-    "Authorization": "Bearer ${apiKey}",
+    "X-Client-Id": os.environ.get("ZENOA_SA_CLIENT_ID", "${apiKey}"),
+    "X-Client-Secret": os.environ.get("ZENOA_SA_CLIENT_SECRET", ""),
     "Content-Type": "application/json"
 })
 
@@ -588,13 +647,19 @@ data = res.json()
 if data.get("verified"):
     print("Authentication confirmed!")`,
             php: `<?php
+$clientId = getenv('ZENOA_SA_CLIENT_ID') ?: "${apiKey}";
+$clientSecret = getenv('ZENOA_SA_CLIENT_SECRET');
+
 $ch = curl_init("${baseUrl}/api/v1/otp/verify");
 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+  "client_id" => $clientId,
+  "client_secret" => $clientSecret,
   "recipient" => "+919876543210",
   "code" => "584920"
 ]));
 curl_setopt($ch, CURLOPT_HTTPHEADER, [
-  'Authorization: Bearer ${apiKey}',
+  'X-Client-Id: ' . $clientId,
+  'X-Client-Secret: ' . $clientSecret,
   'Content-Type: application/json'
 ]);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -608,15 +673,23 @@ import (
   "encoding/json"
   "fmt"
   "net/http"
+  "os"
 )
 
 func main() {
+  clientID := os.Getenv("ZENOA_SA_CLIENT_ID")
+  if clientID == "" { clientID = "${apiKey}" }
+  clientSecret := os.Getenv("ZENOA_SA_CLIENT_SECRET")
+
   body, _ := json.Marshal(map[string]string{
-    "recipient": "+919876543210",
-    "code": "584920",
+    "client_id":     clientID,
+    "client_secret": clientSecret,
+    "recipient":     "+919876543210",
+    "code":          "584920",
   })
   req, _ := http.NewRequest("POST", "${baseUrl}/api/v1/otp/verify", bytes.NewBuffer(body))
-  req.Header.Set("Authorization", "Bearer ${apiKey}")
+  req.Header.Set("X-Client-Id", clientID)
+  req.Header.Set("X-Client-Secret", clientSecret)
   req.Header.Set("Content-Type", "application/json")
 
   resp, _ := http.DefaultClient.Do(req)
@@ -625,14 +698,15 @@ func main() {
 }`,
             java: `HttpRequest req = HttpRequest.newBuilder()
   .uri(URI.create("${baseUrl}/api/v1/otp/verify"))
-  .header("Authorization", "Bearer ${apiKey}")
+  .header("X-Client-Id", System.getenv("ZENOA_SA_CLIENT_ID") != null ? System.getenv("ZENOA_SA_CLIENT_ID") : "${apiKey}")
+  .header("X-Client-Secret", System.getenv("ZENOA_SA_CLIENT_SECRET") != null ? System.getenv("ZENOA_SA_CLIENT_SECRET") : "")
   .header("Content-Type", "application/json")
-  .POST(HttpRequest.BodyPublishers.ofString("{\\"recipient\\":\\"+919876543210\\",\\"code\\":\\"584920\\"}"))
+  .POST(HttpRequest.BodyPublishers.ofString("{\\"client_id\\":\\"${apiKey}\\",\\"client_secret\\":\\"SECRET\\",\\"recipient\\":\\"+919876543210\\",\\"code\\":\\"584920\\"}"))
   .build();`
           },
           notes: [
             'Once verified, the token is automatically invalidated to prevent replay attacks.',
-            'Triggering verification dispatches an `otp.verified` webhook event to all subscribed endpoints.'
+            'Dual authentication ensures only authorized servers can verify codes.'
           ]
         }
       ]
@@ -650,7 +724,7 @@ func main() {
           method: 'POST',
           path: '/api/v1/bot/send',
           summary: 'Sends a branded transactional message, order alert, or notification to a user inbox.',
-          description: `Dispatches an instant transactional alert, order status update, ticket notification, or direct message from your verified Service Account / Bot identity.
+          description: `Dispatches an instant transactional alert, order status update, ticket notification, or direct message from your verified Service Account identity. Strictly requires both Client ID and Client Secret.
 
 ### Supported Features:
 - **Markdown Formatting**: Bold (\`**text**\`), Italic (\`*text*\`), Inline Code (\`\` \`code\` \`\`), and Code Blocks.
@@ -660,16 +734,21 @@ func main() {
           rateLimit: '100 req/min',
           cost: '1 Credit per message',
           headers: [
-            { name: 'Authorization', value: `Bearer ${apiKey}`, desc: 'App Client ID or Secret', required: true },
+            { name: 'X-Client-Id', value: apiKey, desc: 'App Client ID', required: true },
+            { name: 'X-Client-Secret', value: 'YOUR_CLIENT_SECRET', desc: 'App Client Secret', required: true },
             { name: 'Content-Type', value: 'application/json', desc: 'JSON format', required: true }
           ],
           params: [
+            { name: 'client_id', type: 'string', required: true, desc: 'Your Service Account Client ID' },
+            { name: 'client_secret', type: 'string', required: true, desc: 'Your Service Account Client Secret' },
             { name: 'recipient', type: 'string', required: true, desc: 'Target @username or mobile number (+91...)' },
             { name: 'message', type: 'string', required: true, desc: 'Message content body with Markdown support' },
             { name: 'media_url', type: 'string', required: false, desc: 'Public URL to image or document attachment' },
             { name: 'actions', type: 'array', required: false, desc: 'List of button actions: [{ label: "View Order", url: "https://..." }]' }
           ],
           requestBodyExample: `{
+  "client_id": "${apiKey}",
+  "client_secret": "YOUR_CLIENT_SECRET",
   "recipient": "john_doe",
   "message": "**Your Order #84920 has shipped!**\\n\\nCarrier: FedEx Priority\\nTracking: #9847291849",
   "media_url": "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=600"
@@ -678,318 +757,270 @@ func main() {
   "success": true,
   "message_id": "msg_9847192847",
   "recipient": "john_doe",
-  "sender_bot": "@${app?.bot_username ? app.bot_username.replace(/^@/, '') : (app?.username || 'service_account')}",
+  "sender_bot": "${botHandle}",
   "status": "delivered",
   "timestamp": 1725184980000
 }`,
           snippets: {
             curl: `curl -X POST "${baseUrl}/api/v1/bot/send" \\
-  -H "Authorization: Bearer ${apiKey}" \\
+  -H "X-Client-Id: ${apiKey}" \\
+  -H "X-Client-Secret: $ZENOA_SA_CLIENT_SECRET" \\
   -H "Content-Type: application/json" \\
   -d '{
+    "client_id": "${apiKey}",
+    "client_secret": "'"$ZENOA_SA_CLIENT_SECRET"'",
     "recipient": "john_doe",
     "message": "Your payment of $49.00 was received successfully!"
   }'`,
             node: `const axios = require('axios');
 
 await axios.post('${baseUrl}/api/v1/bot/send', {
+  client_id: process.env.ZENOA_SA_CLIENT_ID || '${apiKey}',
+  client_secret: process.env.ZENOA_SA_CLIENT_SECRET,
   recipient: 'john_doe',
   message: '**Your Order #84920 has shipped!**\\nTrack at: https://example.com/track',
   media_url: 'https://example.com/shipping-label.png'
 }, {
   headers: {
-    'Authorization': 'Bearer ${apiKey}',
+    'X-Client-Id': process.env.ZENOA_SA_CLIENT_ID || '${apiKey}',
+    'X-Client-Secret': process.env.ZENOA_SA_CLIENT_SECRET,
     'Content-Type': 'application/json'
   }
 });`,
-            python: `import requests
+            python: `import os
+import requests
 
-requests.post("${baseUrl}/api/v1/bot/send", json={
-    "recipient": "john_doe",
-    "message": "Hello from Zenoa Bot! Your build completed successfully."
-}, headers={
-    "Authorization": "Bearer ${apiKey}",
+url = "${baseUrl}/api/v1/bot/send"
+headers = {
+    "X-Client-Id": os.environ.get("ZENOA_SA_CLIENT_ID", "${apiKey}"),
+    "X-Client-Secret": os.environ.get("ZENOA_SA_CLIENT_SECRET", ""),
     "Content-Type": "application/json"
-})`,
+}
+payload = {
+    "client_id": os.environ.get("ZENOA_SA_CLIENT_ID", "${apiKey}"),
+    "client_secret": os.environ.get("ZENOA_SA_CLIENT_SECRET", ""),
+    "recipient": "john_doe",
+    "message": "Your flight **ZN-402** is on schedule for boarding at Gate 14."
+}
+
+res = requests.post(url, json=payload, headers=headers)
+print("Message Dispatched:", res.json())`,
             php: `<?php
+$clientId = getenv('ZENOA_SA_CLIENT_ID') ?: "${apiKey}";
+$clientSecret = getenv('ZENOA_SA_CLIENT_SECRET');
+
 $ch = curl_init("${baseUrl}/api/v1/bot/send");
 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+  "client_id" => $clientId,
+  "client_secret" => $clientSecret,
   "recipient" => "john_doe",
-  "message" => "Invoice #1094 ready for download."
+  "message" => "Welcome to our platform!"
 ]));
-curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ${apiKey}', 'Content-Type: application/json']);
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+  'X-Client-Id: ' . $clientId,
+  'X-Client-Secret: ' . $clientSecret,
+  'Content-Type: application/json'
+]);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 $res = curl_exec($ch);
-curl_close($ch);`,
+curl_close($ch);
+echo $res;`,
             go: `package main
 
 import (
   "bytes"
   "encoding/json"
+  "fmt"
   "net/http"
+  "os"
 )
 
 func main() {
-  body, _ := json.Marshal(map[string]string{
-    "recipient": "john_doe",
-    "message": "Welcome aboard.",
+  clientID := os.Getenv("ZENOA_SA_CLIENT_ID")
+  if clientID == "" { clientID = "${apiKey}" }
+  clientSecret := os.Getenv("ZENOA_SA_CLIENT_SECRET")
+
+  body, _ := json.Marshal(map[string]interface{}{
+    "client_id":     clientID,
+    "client_secret": clientSecret,
+    "recipient":     "john_doe",
+    "message":       "Hello from Go Service Account SDK!",
   })
   req, _ := http.NewRequest("POST", "${baseUrl}/api/v1/bot/send", bytes.NewBuffer(body))
-  req.Header.Set("Authorization", "Bearer ${apiKey}")
+  req.Header.Set("X-Client-Id", clientID)
+  req.Header.Set("X-Client-Secret", clientSecret)
   req.Header.Set("Content-Type", "application/json")
-  http.DefaultClient.Do(req)
+
+  resp, _ := http.DefaultClient.Do(req)
+  defer resp.Body.Close()
+  fmt.Println("Message Send Status:", resp.Status)
 }`,
             java: `HttpRequest req = HttpRequest.newBuilder()
   .uri(URI.create("${baseUrl}/api/v1/bot/send"))
-  .header("Authorization", "Bearer ${apiKey}")
+  .header("X-Client-Id", System.getenv("ZENOA_SA_CLIENT_ID") != null ? System.getenv("ZENOA_SA_CLIENT_ID") : "${apiKey}")
+  .header("X-Client-Secret", System.getenv("ZENOA_SA_CLIENT_SECRET") != null ? System.getenv("ZENOA_SA_CLIENT_SECRET") : "")
   .header("Content-Type", "application/json")
-  .POST(HttpRequest.BodyPublishers.ofString("{\\"recipient\\":\\"john_doe\\",\\"message\\":\\"Hello World\\"}"))
+  .POST(HttpRequest.BodyPublishers.ofString("{\\"client_id\\":\\"${apiKey}\\",\\"client_secret\\":\\"SECRET\\",\\"recipient\\":\\"john_doe\\",\\"message\\":\\"Hello from Java!\\"}"))
   .build();`
           },
           notes: [
-            'Messages are sent under your verified Service Account / Bot identity with verified badge.',
-            'Recipients can directly reply to messages, triggering inbound webhook events.'
+            'Messages are sent under your service account identity.',
+            'Target users receive standard push notifications for all inbound messages.'
           ]
         }
       ]
     },
     {
       id: 'message-templates',
-      name: 'Message Templates & Anti-Spam',
+      name: 'Templates & Anti-Spam Governance',
       icon: 'FileCode',
-      description: 'Template creation, variable parameters, and automated compliance moderation.',
+      description: 'Pre-approved message layouts, variable placeholders, compliance tiers, and approval status.',
       sections: [
         {
           id: 'templates-list',
-          category: 'Message Templates & Anti-Spam',
-          title: 'List Pre-Approved Templates',
+          category: 'Templates & Anti-Spam Governance',
+          title: 'List Active Templates',
           method: 'GET',
           path: '/api/v1/templates',
-          summary: 'Retrieves all active system and custom pre-approved message templates.',
-          description: `Returns all registered message templates for your application along with approval status (\`approved\`, \`pending\`, \`rejected\`), category tags, and variable placeholders.`,
+          summary: 'Retrieves all approved and pending message templates registered for this application.',
+          description: `Returns the full catalog of registered message templates. In Production mode, transactional messages must adhere to pre-approved templates with dynamic \`{{variable}}\` placeholders.`,
           authRequired: true,
-          rateLimit: '300 req/min',
+          rateLimit: '120 req/min',
           cost: 'Free',
           headers: [
-            { name: 'Authorization', value: `Bearer ${apiKey}`, desc: 'App Client ID / API Key', required: true }
+            { name: 'X-Client-Id', value: apiKey, desc: 'App Client ID', required: true },
+            { name: 'X-Client-Secret', value: 'YOUR_CLIENT_SECRET', desc: 'App Client Secret', required: true }
           ],
           params: [],
           responseSuccess: `{
   "success": true,
   "templates": [
     {
-      "id": "tpl_otp_standard",
-      "name": "Standard OTP Passcode",
+      "id": "tpl_otp_verification",
+      "name": "Standard OTP Code",
       "category": "AUTHENTICATION",
       "status": "approved",
-      "body": "Your {{app_name}} verification passcode is {{code}}. Valid for {{expiry}} minutes. Never share this code."
-    },
-    {
-      "id": "tpl_2fa_auth",
-      "name": "2FA Two-Factor Authentication",
-      "category": "AUTHENTICATION",
-      "status": "approved",
-      "body": "Security Alert: Use code {{code}} to approve your {{app_name}} sign-in attempt."
-    },
-    {
-      "id": "tpl_order_shipped",
-      "name": "Order Dispatch Notice",
-      "category": "UTILITY",
-      "status": "approved",
-      "body": "Your {{app_name}} order #{{order_id}} has been dispatched! Track at {{tracking_url}}."
+      "body": "Your Zenoa verification code is {{1}}. Valid for {{2}} minutes.",
+      "created_at": 1725184900000
     }
   ]
 }`,
           snippets: {
             curl: `curl -X GET "${baseUrl}/api/v1/templates" \\
-  -H "Authorization: Bearer ${apiKey}"`,
+  -H "X-Client-Id: ${apiKey}" \\
+  -H "X-Client-Secret: $ZENOA_SA_CLIENT_SECRET"`,
             node: `const axios = require('axios');
 
 const res = await axios.get('${baseUrl}/api/v1/templates', {
-  headers: { 'Authorization': 'Bearer ${apiKey}' }
+  headers: {
+    'X-Client-Id': process.env.ZENOA_SA_CLIENT_ID || '${apiKey}',
+    'X-Client-Secret': process.env.ZENOA_SA_CLIENT_SECRET
+  }
 });
-console.log('Approved templates:', res.data.templates);`,
-            python: `import requests
+console.log('Registered Templates:', res.data.templates);`,
+            python: `import os
+import requests
 
-res = requests.get("${baseUrl}/api/v1/templates", headers={"Authorization": "Bearer ${apiKey}"})
+res = requests.get("${baseUrl}/api/v1/templates", headers={
+    "X-Client-Id": os.environ.get("ZENOA_SA_CLIENT_ID", "${apiKey}"),
+    "X-Client-Secret": os.environ.get("ZENOA_SA_CLIENT_SECRET", "")
+})
 print("Templates:", res.json())`,
             php: `<?php
 $ch = curl_init("${baseUrl}/api/v1/templates");
-curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ${apiKey}']);
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+  'X-Client-Id: ' . (getenv('ZENOA_SA_CLIENT_ID') ?: '${apiKey}'),
+  'X-Client-Secret: ' . getenv('ZENOA_SA_CLIENT_SECRET')
+]);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-echo curl_exec($ch);`,
+$res = curl_exec($ch);
+curl_close($ch);
+echo $res;`,
             go: `req, _ := http.NewRequest("GET", "${baseUrl}/api/v1/templates", nil)
-req.Header.Set("Authorization", "Bearer ${apiKey}")
+req.Header.Set("X-Client-Id", os.Getenv("ZENOA_SA_CLIENT_ID"))
+req.Header.Set("X-Client-Secret", os.Getenv("ZENOA_SA_CLIENT_SECRET"))
 resp, _ := http.DefaultClient.Do(req)`,
             java: `HttpRequest req = HttpRequest.newBuilder()
   .uri(URI.create("${baseUrl}/api/v1/templates"))
-  .header("Authorization", "Bearer ${apiKey}")
+  .header("X-Client-Id", System.getenv("ZENOA_SA_CLIENT_ID"))
+  .header("X-Client-Secret", System.getenv("ZENOA_SA_CLIENT_SECRET"))
   .GET()
   .build();`
           },
           notes: [
-            'Templates ensure anti-spam compliance and protect brand delivery rates.',
-            'Custom templates submitted via Developer Console are reviewed within 15 minutes.'
+            'Templates can be submitted and managed via Developer Console Templates tab.',
+            'Approval takes under 5 minutes through automated compliance scanning.'
           ]
         }
       ]
     },
     {
       id: 'webhooks-guide',
-      name: 'Webhooks & Event System',
+      name: 'Real-Time Webhooks & Events',
       icon: 'Webhook',
-      description: 'Real-time HTTP push notifications, cryptographic HMAC-SHA256 signatures, and event specs.',
+      description: 'HTTPS delivery webhooks, HMAC SHA-256 signature verification, and automated retry policies.',
       sections: [
         {
-          id: 'webhooks-spec',
-          category: 'Webhooks & Event System',
-          title: 'Webhook Architecture & Verification',
-          method: 'POST',
-          path: 'Incoming HTTP POST to your server',
-          summary: 'Cryptographically verified real-time events pushed directly to your infrastructure.',
-          description: `Zenoa delivers instant HTTP POST webhooks for all real-time events. Each request contains a SHA-256 HMAC signature in the \`X-Zenoa-Signature\` header calculated against your app's Client Secret.
-
-### Webhook Headers Sent by Zenoa:
-- \`X-Zenoa-Signature\`: Hex-encoded HMAC-SHA256 digest computed with your Client Secret.
-- \`X-Zenoa-Event\`: Machine-readable event name (e.g., \`otp.verified\`, \`message.received\`).
-- \`X-Zenoa-Timestamp\`: Unix timestamp in milliseconds for replay attack prevention.
+          id: 'webhooks-verify',
+          category: 'Real-Time Webhooks & Events',
+          title: 'Verify Inbound HMAC Signatures',
+          method: 'GUIDE',
+          path: '/docs/webhooks/signatures',
+          summary: 'Cryptographically authenticate webhook events sent by Zenoa to your HTTP server.',
+          description: `Every webhook dispatched by Zenoa contains a \`X-Zenoa-Signature\` header containing the HMAC-SHA256 hex digest of the raw request payload computed using your app's confidential Client Secret.
 
 ### Verification Algorithm:
-\`\`\`javascript
-const expected = crypto.createHmac('sha256', CLIENT_SECRET).update(rawRequestBody).digest('hex');
-if (req.headers['x-zenoa-signature'] !== expected) {
-  return res.status(401).send('Invalid signature');
-}
+\`\`\`
+computed_signature = HMAC_SHA256(raw_request_body, app.client_secret)
+is_valid = constant_time_compare(computed_signature, req.headers['X-Zenoa-Signature'])
 \`\`\``,
           authRequired: false,
-          rateLimit: 'Real-time push',
+          rateLimit: 'N/A',
           cost: 'Free',
           headers: [
-            { name: 'X-Zenoa-Signature', value: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', desc: 'HMAC-SHA256 signature', required: true },
-            { name: 'X-Zenoa-Event', value: 'otp.verified', desc: 'Event identifier string', required: true },
-            { name: 'X-Zenoa-Timestamp', value: '1725184920123', desc: 'Epoch timestamp ms', required: true }
+            { name: 'X-Zenoa-Signature', value: 'sha256=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08', desc: 'HMAC SHA-256 hex digest', required: true }
           ],
           params: [],
           responseSuccess: `{
-  "event": "otp.verified",
-  "app_id": "${apiKey}",
-  "timestamp": 1725184920123,
-  "data": {
-    "recipient": "+919876543210",
-    "verified": true,
-    "otp_id": "+919876543210_${apiKey}",
-    "latency_ms": 312
-  }
+  "event": "message.delivered",
+  "message_id": "msg_849201948",
+  "recipient": "alex_turner",
+  "timestamp": 1725184985000
 }`,
           snippets: {
-            curl: `# Simulated Webhook Payload Inspection
-curl -X POST "https://your-domain.com/api/zenoa-webhook" \\
-  -H "X-Zenoa-Signature: hmac_sha256_hash_here" \\
-  -H "X-Zenoa-Event: otp.verified" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "event": "otp.verified",
-    "app_id": "${apiKey}",
-    "timestamp": 1725184920000,
-    "data": { "recipient": "+919876543210", "verified": true }
-  }'`,
-            node: `// Express.js Webhook Handler with HMAC-SHA256 Verification
-const express = require('express');
-const crypto = require('crypto');
+            curl: `# Simulate Inbound Webhook Event Verification
+echo -n '{"event":"message.delivered"}' | openssl dgst -sha256 -hmac "${secretKey}"`,
+            node: `const crypto = require('crypto');
 
-const app = express();
-// Load signing secret securely from environment variable
-const CLIENT_SECRET = process.env.ZENOA_SA_CLIENT_SECRET || process.env.ZENOA_SA_WEBHOOK_SECRET || process.env.ZENOA_CLIENT_SECRET || 'YOUR_SIGNING_SECRET';
-
-app.post('/api/zenoa-webhook', express.raw({ type: 'application/json' }), (req, res) => {
-  const signature = req.headers['x-zenoa-signature'];
-  const eventName = req.headers['x-zenoa-event'];
-
-  // Compute expected HMAC
-  const expectedSig = crypto
-    .createHmac('sha256', CLIENT_SECRET)
-    .update(req.body)
-    .digest('hex');
-
-  if (signature !== expectedSig) {
-    console.error('Signature mismatch!');
-    return res.status(401).json({ error: 'INVALID_SIGNATURE' });
-  }
-
-  const payload = JSON.parse(req.body.toString());
-  console.log(\`Received \${eventName} event:\`, payload);
-
-  // Acknowledge receipt
-  res.status(200).json({ received: true });
-});
-
-app.listen(8080, () => console.log('Webhook server running on port 8080'));`,
-            python: `import os
-import hmac
+function verifyWebhook(rawPayload, signatureHeader, secretKey) {
+  const hmac = crypto.createHmac('sha256', secretKey);
+  const expectedSig = 'sha256=' + hmac.update(rawPayload).digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(signatureHeader), Buffer.from(expectedSig));
+}`,
+            python: `import hmac
 import hashlib
-from flask import Flask, request, jsonify
 
-app = Flask(__name__)
-# Load signing secret securely from environment variable
-CLIENT_SECRET = (os.environ.get("ZENOA_SA_CLIENT_SECRET") or os.environ.get("ZENOA_SA_WEBHOOK_SECRET") or os.environ.get("ZENOA_CLIENT_SECRET", "YOUR_SIGNING_SECRET")).encode('utf-8')
-
-@app.route('/api/zenoa-webhook', methods=['POST'])
-def handle_webhook():
-    signature = request.headers.get('X-Zenoa-Signature')
-    expected = hmac.new(CLIENT_SECRET, request.data, hashlib.sha256).hexdigest()
-    
-    if signature != expected:
-        return jsonify({"error": "Unauthorized"}), 401
-        
-    event_data = request.json
-    print(f"Verified event: {event_data.get('event')}")
-    return jsonify({"received": True}), 200`,
+def verify_webhook(raw_payload: bytes, signature_header: str, secret_key: str) -> bool:
+    expected_sig = "sha256=" + hmac.new(secret_key.encode(), raw_payload, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature_header, expected_sig)`,
             php: `<?php
-$rawBody = file_get_contents('php://input');
-$signature = $_SERVER['HTTP_X_ZENOA_SIGNATURE'] ?? '';
-$clientSecret = getenv('ZENOA_SA_CLIENT_SECRET') ?: (getenv('ZENOA_SA_WEBHOOK_SECRET') ?: (getenv('ZENOA_CLIENT_SECRET') ?: 'YOUR_SIGNING_SECRET'));
-
-$expectedSig = hash_hmac('sha256', $rawBody, $clientSecret);
-
-if ($signature !== $expectedSig) {
-    http_response_code(401);
-    echo json_encode(["error" => "Invalid HMAC Signature"]);
-    exit;
-}
-
-$event = json_decode($rawBody, true);
-http_response_code(200);
-echo json_encode(["received" => true]);`,
+function verifyWebhook($rawPayload, $signatureHeader, $secretKey) {
+    $expected = 'sha256=' . hash_hmac('sha256', $rawPayload, $secretKey);
+    return hash_equals($expected, $signatureHeader);
+}`,
             go: `package main
 
 import (
   "crypto/hmac"
   "crypto/sha256"
   "encoding/hex"
-  "io/ioutil"
-  "net/http"
-  "os"
 )
 
-func webhookHandler(w http.ResponseWriter, r *http.Request) {
-  body, _ := ioutil.ReadAll(r.Body)
-  sig := r.Header.Get("X-Zenoa-Signature")
-
-  secret := os.Getenv("ZENOA_SA_CLIENT_SECRET")
-  if secret == "" {
-    secret = os.Getenv("ZENOA_CLIENT_SECRET")
-  }
+func VerifyWebhook(payload []byte, signature, secret string) bool {
   mac := hmac.New(sha256.New, []byte(secret))
-  mac.Write(body)
-  expected := hex.EncodeToString(mac.Sum(nil))
-
-  if sig != expected {
-    w.WriteHeader(http.StatusUnauthorized)
-    return
-  }
-
-  w.WriteHeader(http.StatusOK)
-  w.Write([]byte("OK"))
+  mac.Write(payload)
+  expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+  return hmac.Equal([]byte(signature), []byte(expected))
 }`,
             java: `import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -1000,7 +1031,7 @@ public class WebhookVerifier {
     Mac mac = Mac.getInstance("HmacSHA256");
     mac.init(new SecretKeySpec(secret.getBytes(), "HmacSHA256"));
     byte[] hash = mac.doFinal(payload);
-    String expected = HexFormat.of().formatHex(hash);
+    String expected = "sha256=" + HexFormat.of().formatHex(hash);
     return expected.equals(signature);
   }
 }`
@@ -1008,127 +1039,6 @@ public class WebhookVerifier {
           notes: [
             'Webhook endpoints must return HTTP 2xx within 5 seconds.',
             'Failed deliveries trigger automatic retries with exponential backoff (1m, 5m, 15m, 1h).'
-          ]
-        }
-      ]
-    },
-    {
-      id: 'oauth-sso',
-      name: 'OAuth 2.0 & Identity SSO',
-      icon: 'Key',
-      description: 'Login with Zenoa authorization code flow, profile tokens, and scope access.',
-      sections: [
-        {
-          id: 'sso-token',
-          category: 'OAuth 2.0 & Identity SSO',
-          title: 'Exchange Authorization Code',
-          method: 'POST',
-          path: '/api/v1/sso/token',
-          summary: 'Exchanges OAuth 2.0 authorization code for user access token and profile info.',
-          description: `Completes the "Login with Zenoa" standard OAuth 2.0 Authorization Code flow. After user grants permission on the consent screen, your redirect URI receives a \`?code=...\` parameter which your backend server exchanges for a permanent or temporary user access token.`,
-          authRequired: true,
-          rateLimit: '60 req/min',
-          cost: 'Free',
-          headers: [
-            { name: 'Content-Type', value: 'application/json', desc: 'JSON payload format', required: true }
-          ],
-          params: [
-            { name: 'client_id', type: 'string', required: true, desc: 'Your App Client ID' },
-            { name: 'client_secret', type: 'string', required: true, desc: 'Your App Client Secret' },
-            { name: 'code', type: 'string', required: true, desc: 'Authorization code from redirect URI parameter' },
-            { name: 'grant_type', type: 'string', required: true, desc: 'Must be "authorization_code"' }
-          ],
-          requestBodyExample: `{
-  "client_id": "${apiKey}",
-  "client_secret": "YOUR_CLIENT_SECRET",
-  "code": "zen_code_984719284712",
-  "grant_type": "authorization_code"
-}`,
-          responseSuccess: `{
-  "access_token": "zen_at_849201948201",
-  "token_type": "Bearer",
-  "expires_in": 86400,
-  "scope": "read:profile send:messages",
-  "user": {
-    "id": "usr_84920481",
-    "username": "alex_turner",
-    "full_name": "Alex Turner",
-    "mobile_number": "+919876543210",
-    "avatar_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
-    "verified": true
-  }
-}`,
-          snippets: {
-            curl: `# Backend Token Exchange Request
-# Note: Load client_secret securely from environment (e.g. $ZENOA_CLIENT_SECRET)
-curl -X POST "${baseUrl}/api/v1/sso/token" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "client_id": "${apiKey}",
-    "client_secret": "'"$ZENOA_CLIENT_SECRET"'",
-    "code": "AUTH_CODE_RECEIVED",
-    "grant_type": "authorization_code"
-  }'`,
-            node: `const axios = require('axios');
-
-async function handleOAuthCallback(authCode) {
-  // Never expose client_secret in client-side code; exchange on backend server
-  const res = await axios.post('${baseUrl}/api/v1/sso/token', {
-    client_id: '${apiKey}',
-    client_secret: process.env.ZENOA_CLIENT_SECRET,
-    code: authCode,
-    grant_type: 'authorization_code'
-  });
-
-  console.log('Authenticated User Profile:', res.data.user);
-  return res.data;
-}`,
-            python: `import os
-import requests
-
-res = requests.post("${baseUrl}/api/v1/sso/token", json={
-    "client_id": "${apiKey}",
-    "client_secret": os.environ.get("ZENOA_CLIENT_SECRET"),
-    "code": auth_code,
-    "grant_type": "authorization_code"
-})
-print("User profile:", res.json()["user"])`,
-            php: `<?php
-$ch = curl_init("${baseUrl}/api/v1/sso/token");
-curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-  "client_id" => "${apiKey}",
-  "client_secret" => getenv('ZENOA_CLIENT_SECRET'),
-  "code" => $_GET['code'],
-  "grant_type" => "authorization_code"
-]));
-curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-$data = curl_exec($ch);
-curl_close($ch);`,
-            go: `// Go OAuth exchange example
-package main
-
-import (
-  "bytes"
-  "encoding/json"
-  "net/http"
-  "os"
-)
-
-func exchangeToken(authCode string) (*http.Response, error) {
-  payload, _ := json.Marshal(map[string]string{
-    "client_id": "${apiKey}",
-    "client_secret": os.Getenv("ZENOA_CLIENT_SECRET"),
-    "code": authCode,
-    "grant_type": "authorization_code",
-  })
-  return http.Post("${baseUrl}/api/v1/sso/token", "application/json", bytes.NewBuffer(payload))
-}`,
-            java: `// Java OAuth exchange example`
-          },
-          notes: [
-            'Codes expire after 10 minutes if not exchanged.',
-            'Never pass client_secret in frontend JavaScript applications.'
           ]
         }
       ]
@@ -1151,7 +1061,8 @@ func exchangeToken(authCode string) (*http.Response, error) {
           rateLimit: '300 req/min',
           cost: 'Free',
           headers: [
-            { name: 'Authorization', value: `Bearer ${apiKey}`, desc: 'App Client ID / API Key', required: true }
+            { name: 'X-Client-Id', value: apiKey, desc: 'App Client ID', required: true },
+            { name: 'X-Client-Secret', value: 'YOUR_CLIENT_SECRET', desc: 'App Client Secret', required: true }
           ],
           params: [],
           responseSuccess: `{
@@ -1169,34 +1080,49 @@ func exchangeToken(authCode string) (*http.Response, error) {
 }`,
           snippets: {
             curl: `curl -X GET "${baseUrl}/api/v1/billing/summary" \\
-  -H "Authorization: Bearer ${apiKey}"`,
+  -H "X-Client-Id: ${apiKey}" \\
+  -H "X-Client-Secret: $ZENOA_SA_CLIENT_SECRET"`,
             node: `const axios = require('axios');
 
 const res = await axios.get('${baseUrl}/api/v1/billing/summary', {
-  headers: { 'Authorization': 'Bearer ${apiKey}' }
+  headers: {
+    'X-Client-Id': process.env.ZENOA_SA_CLIENT_ID || '${apiKey}',
+    'X-Client-Secret': process.env.ZENOA_SA_CLIENT_SECRET
+  }
 });
 console.log('Remaining Credits:', res.data.billing.credits_balance);`,
-            python: `import requests
+            python: `import os
+import requests
 
-res = requests.get("${baseUrl}/api/v1/billing/summary", headers={"Authorization": "Bearer ${apiKey}"})
+res = requests.get("${baseUrl}/api/v1/billing/summary", headers={
+    "X-Client-Id": os.environ.get("ZENOA_SA_CLIENT_ID", "${apiKey}"),
+    "X-Client-Secret": os.environ.get("ZENOA_SA_CLIENT_SECRET", "")
+})
 print("Quota Status:", res.json())`,
             php: `<?php
-$res = file_get_contents("${baseUrl}/api/v1/billing/summary", false, stream_context_create([
-  'http' => ['header' => 'Authorization: Bearer ${apiKey}']
-]));
+$ch = curl_init("${baseUrl}/api/v1/billing/summary");
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+  'X-Client-Id: ' . (getenv('ZENOA_SA_CLIENT_ID') ?: '${apiKey}'),
+  'X-Client-Secret: ' . getenv('ZENOA_SA_CLIENT_SECRET')
+]);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+$res = curl_exec($ch);
+curl_close($ch);
 echo $res;`,
             go: `req, _ := http.NewRequest("GET", "${baseUrl}/api/v1/billing/summary", nil)
-req.Header.Set("Authorization", "Bearer ${apiKey}")
+req.Header.Set("X-Client-Id", os.Getenv("ZENOA_SA_CLIENT_ID"))
+req.Header.Set("X-Client-Secret", os.Getenv("ZENOA_SA_CLIENT_SECRET"))
 resp, _ := http.DefaultClient.Do(req)`,
             java: `HttpRequest req = HttpRequest.newBuilder()
   .uri(URI.create("${baseUrl}/api/v1/billing/summary"))
-  .header("Authorization", "Bearer ${apiKey}")
+  .header("X-Client-Id", System.getenv("ZENOA_SA_CLIENT_ID"))
+  .header("X-Client-Secret", System.getenv("ZENOA_SA_CLIENT_SECRET"))
   .GET()
   .build();`
           },
           notes: [
             'Test API keys will show high Sandbox test balances for uninterrupted development.',
-            'HTTP 429 Too Many Requests response headers include `Retry-After: <seconds>`.'
+            'HTTP 429 Too Many Requests response headers include \`Retry-After: <seconds>\`.'
           ]
         }
       ]
@@ -1223,7 +1149,7 @@ resp, _ := http.DefaultClient.Do(req)`,
   "error": "MACHINE_READABLE_CODE",
   "message": "Human-readable explanation of why the request failed.",
   "status": 400,
-  "documentation_url": "https://zenoa.inolas.com/docs/errors#MACHINE_READABLE_CODE"
+  "documentation_url": "https://zenoa.sbs/docs/errors#MACHINE_READABLE_CODE"
 }
 \`\`\`
 
@@ -1233,8 +1159,8 @@ resp, _ := http.DefaultClient.Do(req)`,
 | :--- | :--- | :--- | :--- |
 | **400** | \`INVALID_PAYLOAD\` | Missing required fields in JSON body. | Validate that \`recipient\` and \`message\`/\`code\` exist. |
 | **400** | \`INVALID_PHONE_FORMAT\` | Phone number is not in E.164 standard. | Format numbers with country code e.g. \`+919876543210\`. |
-| **401** | \`UNAUTHORIZED\` | Missing or malformed \`Authorization\` header. | Pass \`Authorization: Bearer <API_KEY>\`. |
-| **401** | \`INVALID_API_KEY\` | API Key or Client ID does not exist or was rotated. | Copy active key from API Credentials tab. |
+| **401** | \`UNAUTHORIZED\` | Missing or invalid \`client_id\` or \`client_secret\`. | Provide both \`X-Client-Id\` and \`X-Client-Secret\`. |
+| **401** | \`INVALID_CREDENTIALS\` | Secret or Client ID does not match registered service account. | Copy credentials from API Credentials console tab. |
 | **403** | \`IP_NOT_ALLOWLISTED\` | Request IP is blocked by CIDR security rules. | Add your server public IP in Security & IPs tab. |
 | **403** | \`INSUFFICIENT_CREDITS\` | Production wallet balance is 0. | Add credits or switch to Sandbox mode. |
 | **403** | \`TEMPLATE_NOT_APPROVED\` | Template is in pending review or rejected status. | Wait for template approval or use standard template. |
@@ -1256,7 +1182,8 @@ resp, _ := http.DefaultClient.Do(req)`,
           snippets: {
             curl: `# Handling error responses in cURL
 curl -i -X POST "${baseUrl}/api/v1/otp/verify" \\
-  -H "Authorization: Bearer invalid_key"`,
+  -H "X-Client-Id: invalid_id" \\
+  -H "X-Client-Secret: invalid_secret"`,
             node: `// Robust Error Handling in Node.js
 try {
   const res = await axios.post('${baseUrl}/api/v1/otp/send', payload, { headers });
@@ -1280,7 +1207,7 @@ except requests.exceptions.HTTPError as err:
             java: `// Java Error handling example`
           },
           notes: [
-            'Always inspect the `error` string field rather than parsing the `message` for robust programmatic handling.',
+            'Always inspect the \`error\` string field rather than parsing the \`message\` for robust programmatic handling.',
             'All error responses are logged in real-time in the Live Inspector tab for instant debugging.'
           ]
         }

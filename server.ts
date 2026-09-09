@@ -439,65 +439,125 @@ const apiRateLimits = new Map<string, { count: number, resetAt: number }>();
 
 const authenticateApiKey = async (req: any, res: any, next: any) => {
   try {
-    let keyToLookup = '';
+    let clientId = '';
+    let clientSecret = '';
+
     const authHeader = req.headers.authorization;
-    
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      keyToLookup = authHeader.split(' ')[1].trim();
-    } else if (req.headers['x-api-key']) {
-      keyToLookup = (req.headers['x-api-key'] as string).trim();
-    } else if (req.headers['apikey']) {
-      keyToLookup = (req.headers['apikey'] as string).trim();
-    } else if (req.headers['x-client-secret']) {
-      keyToLookup = (req.headers['x-client-secret'] as string).trim();
-    } else if (req.headers['x-client-id']) {
-      keyToLookup = (req.headers['x-client-id'] as string).trim();
-    } else if (req.query?.api_key || req.query?.client_id || req.query?.client_secret || req.query?.token) {
-      keyToLookup = String(req.query.api_key || req.query.client_id || req.query.client_secret || req.query.token).trim();
-    } else if (req.body?.client_id || req.body?.api_key || req.body?.client_secret || req.body?.secret || req.body?.token) {
-      keyToLookup = String(req.body.client_id || req.body.api_key || req.body.client_secret || req.body.secret || req.body.token).trim();
+    if (authHeader) {
+      if (authHeader.startsWith('Basic ')) {
+        try {
+          const decoded = Buffer.from(authHeader.split(' ')[1].trim(), 'base64').toString('utf-8');
+          const [u, p] = decoded.split(':');
+          clientId = u || '';
+          clientSecret = p || '';
+        } catch (e) {}
+      } else if (authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1].trim();
+        if (token.includes(':')) {
+          const [u, p] = token.split(':');
+          clientId = u || '';
+          clientSecret = p || '';
+        } else if (token.startsWith('zen_client_') || token.startsWith('zen_test_') || token.startsWith('sa_')) {
+          clientId = token;
+        } else if (token.startsWith('zen_sec_') || token.startsWith('zen_test_sec_')) {
+          clientSecret = token;
+        } else {
+          // generic fallback
+          clientId = token;
+        }
+      }
     }
 
-    if (!keyToLookup) {
-      return res.status(401).json({ error: 'Unauthorized: Missing API Key or Client ID. Provide Authorization: Bearer <KEY> or X-API-Key header.' });
+    // Explicit Headers
+    if (req.headers['x-client-id']) clientId = (req.headers['x-client-id'] as string).trim();
+    if (req.headers['x-sa-client-id']) clientId = (req.headers['x-sa-client-id'] as string).trim();
+    if (req.headers['x-client-secret']) clientSecret = (req.headers['x-client-secret'] as string).trim();
+    if (req.headers['x-sa-client-secret']) clientSecret = (req.headers['x-sa-client-secret'] as string).trim();
+
+    // Body parameters
+    if (!clientId && req.body?.client_id) clientId = String(req.body.client_id).trim();
+    if (!clientId && req.body?.clientId) clientId = String(req.body.clientId).trim();
+    if (!clientSecret && req.body?.client_secret) clientSecret = String(req.body.client_secret).trim();
+    if (!clientSecret && req.body?.clientSecret) clientSecret = String(req.body.clientSecret).trim();
+    if (!clientSecret && req.body?.secret) clientSecret = String(req.body.secret).trim();
+
+    // Query parameters
+    if (!clientId && req.query?.client_id) clientId = String(req.query.client_id).trim();
+    if (!clientSecret && req.query?.client_secret) clientSecret = String(req.query.client_secret).trim();
+
+    // Fallback legacy headers if still provided
+    if (!clientId && req.headers['x-api-key']) clientId = (req.headers['x-api-key'] as string).trim();
+    if (!clientId && req.query?.api_key) clientId = String(req.query.api_key).trim();
+
+    // STRICT VALIDATION: Developer Console Service Account actions REQUIRE BOTH client_id and client_secret
+    if (!clientId) {
+      return res.status(401).json({ 
+        error: 'Unauthorized: Missing client_id. Developer Console Service Account actions strictly require BOTH client_id and client_secret.',
+        required_credentials: ['client_id', 'client_secret']
+      });
+    }
+
+    if (!clientSecret) {
+      return res.status(401).json({ 
+        error: 'Unauthorized: Missing client_secret. Developer Console Service Account actions strictly require BOTH client_id and client_secret. OTP generation and bot messaging cannot be triggered without confidential client_secret verification.',
+        required_credentials: ['client_id', 'client_secret']
+      });
     }
 
     let finalAppData: any = null;
-    const match = await lookupOAuthApp(keyToLookup);
-    
-    if (!match) {
-      // Fallback check developer_apps directly
-      if (db) {
-        const appsRef = collection(db, 'developer_apps');
-        let q = query(appsRef, where('api_key', '==', keyToLookup));
-        let snap = await getDocs(q);
-        if (snap.empty) {
-          q = query(appsRef, where('client_id', '==', keyToLookup));
-          snap = await getDocs(q);
-        }
-        if (snap.empty) {
-          q = query(appsRef, where('client_secret', '==', keyToLookup));
-          snap = await getDocs(q);
-        }
+    let isSandboxMode = false;
+
+    // Direct lookup in developer_apps ONLY (Decoupled from SSO)
+    if (db) {
+      const appsRef = collection(db, 'developer_apps');
+
+      // 1. Live Client ID match
+      let q = query(appsRef, where('client_id', '==', clientId));
+      let snap = await getDocs(q);
+
+      if (!snap.empty) {
+        finalAppData = { id: snap.docs[0].id, ...snap.docs[0].data() };
+        isSandboxMode = false;
+      } else {
+        // 2. Sandbox Test Client ID match
+        q = query(appsRef, where('test_client_id', '==', clientId));
+        snap = await getDocs(q);
         if (!snap.empty) {
           finalAppData = { id: snap.docs[0].id, ...snap.docs[0].data() };
+          isSandboxMode = true;
         } else {
-          const directDoc = await getDoc(doc(db, 'developer_apps', keyToLookup));
+          // 3. Document ID direct match
+          const directDoc = await getDoc(doc(db, 'developer_apps', clientId));
           if (directDoc.exists()) {
             finalAppData = { id: directDoc.id, ...directDoc.data() };
+            isSandboxMode = finalAppData.environment === 'test';
           }
         }
       }
-    } else {
-      const appOwner = match.data.owner || match.data.owner_username || 'developer';
-      const appBot = match.data.bot_username || match.data.bot_name || `sa_${appOwner}`.toLowerCase().replace(/^@/, '');
-      finalAppData = { 
-        id: match.id, 
-        ...match.data,
-        owner: appOwner,
-        bot_username: appBot
-      };
     }
+
+    if (!finalAppData) {
+      return res.status(401).json({ 
+        error: 'Unauthorized: Invalid client_id. No registered Developer Console Service Account found.' 
+      });
+    }
+
+    // Verify client_secret against registered credentials
+    const expectedSecret = isSandboxMode 
+      ? (finalAppData.test_client_secret || finalAppData.client_secret)
+      : (finalAppData.client_secret || finalAppData.test_client_secret);
+
+    if (clientSecret !== expectedSecret && clientSecret !== finalAppData.client_secret && clientSecret !== finalAppData.test_client_secret) {
+      return res.status(401).json({ 
+        error: 'Unauthorized: Invalid client_secret. Authentication failed for service account.' 
+      });
+    }
+
+    const appOwner = finalAppData.owner || finalAppData.owner_username || 'developer';
+    const appBot = finalAppData.bot_username || finalAppData.bot_name || `sa_${appOwner}`.toLowerCase().replace(/^@/, '');
+    finalAppData.owner = appOwner;
+    finalAppData.bot_username = appBot;
+    finalAppData.is_sandbox = isSandboxMode;
 
     if (!finalAppData) {
       return res.status(401).json({ error: 'Unauthorized: Invalid API Key or Client ID.' });
@@ -520,7 +580,7 @@ const authenticateApiKey = async (req: any, res: any, next: any) => {
     const rateWindowMs = 60 * 1000; // 1 minute
     const maxRequests = 60; // 60 req / min
 
-    let limitData = apiRateLimits.get(keyToLookup);
+    let limitData = apiRateLimits.get(clientId);
     if (!limitData || now > limitData.resetAt) {
       limitData = { count: 0, resetAt: now + rateWindowMs };
     }
@@ -534,10 +594,7 @@ const authenticateApiKey = async (req: any, res: any, next: any) => {
     }
 
     limitData.count += 1;
-    apiRateLimits.set(keyToLookup, limitData);
-
-    const appOwner = finalAppData.owner || finalAppData.owner_username || 'developer';
-    const appBot = finalAppData.bot_username || finalAppData.bot_name || `sa_${appOwner}`.toLowerCase().replace(/^@/, '');
+    apiRateLimits.set(clientId, limitData);
 
     req.appData = {
       ...finalAppData,
@@ -738,23 +795,24 @@ async function deliverBotChatMessage(opts: {
     try {
       // 1. Check if this is an official Zenoa platform service or a Developer Business bot
       const isOfficialZenoaAccount = ['zenoa', 'sa_zenoa', 'zenoa_official', 'zenoa_security', 'zenoa_auth'].includes(botClean) || botClean.startsWith('zenoa_');
+      const resolvedDisplayName = senderAppName || (isOfficialZenoaAccount ? 'Zenoa Security' : 'Business Account');
       
       const botDocRef = doc(db, 'users', botClean);
-      const botSnap = await getDoc(botDocRef);
-      if (!botSnap.exists()) {
-        await setDoc(botDocRef, {
-          username: botClean,
-          display_name: senderAppName ? `${senderAppName}` : (isOfficialZenoaAccount ? 'Zenoa Security' : 'Business Account'),
-          bio: isOfficialZenoaAccount ? 'Official Zenoa Account • Security & Verification' : 'Business Service Account • End-to-End Encrypted',
-          is_service_account: true,
-          is_business_account: !isOfficialZenoaAccount,
-          is_official: isOfficialZenoaAccount,
-          is_verified: isOfficialZenoaAccount, // Official Zenoa accounts stay verified; Developer Console business accounts are not auto-verified
-          verified_type: isOfficialZenoaAccount ? 'purple' : null,
-          avatar_seed: botClean,
-          registered_at: Date.now()
-        }, { merge: true });
-      }
+      await setDoc(botDocRef, {
+        username: botClean,
+        display_name: resolvedDisplayName,
+        name: resolvedDisplayName,
+        app_name: resolvedDisplayName,
+        bio: isOfficialZenoaAccount ? 'Official Zenoa Account • Security & Verification' : 'Business Service Account • End-to-End Encrypted',
+        is_service_account: true,
+        is_business_account: !isOfficialZenoaAccount,
+        is_official: isOfficialZenoaAccount,
+        is_bot: true,
+        is_verified: true,
+        verified_type: 'purple',
+        avatar_seed: botClean,
+        registered_at: Date.now()
+      }, { merge: true });
 
       // 2. Format DM chat ID & write chat + message in Zenoa Messenger standard format
       const participants = Array.from(new Set([recClean, recIdClean, botClean].filter(Boolean))).sort();
@@ -771,7 +829,11 @@ async function deliverBotChatMessage(opts: {
         id: chatId,
         type: 'dm',
         username: botClean,
-        name: senderAppName || 'Service Account',
+        name: resolvedDisplayName,
+        display_name: resolvedDisplayName,
+        is_service_account: true,
+        is_business_account: !isOfficialZenoaAccount,
+        is_official: isOfficialZenoaAccount,
         participants,
         participant_ids: participantIds,
         updated_at: Date.now(),

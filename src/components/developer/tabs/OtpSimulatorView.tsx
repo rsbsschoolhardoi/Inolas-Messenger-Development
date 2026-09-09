@@ -29,7 +29,9 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  const apiKey = app?.client_id || app?.api_key || '';
+  const isSandbox = app?.environment === 'test' || !app?.is_live;
+  const clientId = isSandbox ? (app?.test_client_id || app?.client_id || '') : (app?.client_id || app?.test_client_id || '');
+  const clientSecret = isSandbox ? (app?.test_client_secret || app?.client_secret || '') : (app?.client_secret || app?.test_client_secret || '');
 
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
@@ -55,11 +57,14 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
       const res = await fetch(`/api/v1/otp/send`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'X-API-Key': apiKey,
+          'X-Client-Id': clientId,
+          'X-Client-Secret': clientSecret,
+          'Authorization': `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
           recipient: recipient.trim(),
           template_type: templateType,
           expiry_mins: expiryMins,
@@ -96,11 +101,14 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
       const res = await fetch(`/api/v1/otp/verify`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'X-API-Key': apiKey,
+          'X-Client-Id': clientId,
+          'X-Client-Secret': clientSecret,
+          'Authorization': `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
           recipient: recipient.trim(),
           code: verifyCodeInput.trim()
         })
@@ -136,11 +144,16 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
       const res = await fetch(`/api/v1/otp/auto-simulate`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'X-API-Key': apiKey,
+          'X-Client-Id': clientId,
+          'X-Client-Secret': clientSecret,
+          'Authorization': `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ recipient: recipient.trim() })
+        body: JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
+          recipient: recipient.trim()
+        })
       });
 
       const data = await res.json();

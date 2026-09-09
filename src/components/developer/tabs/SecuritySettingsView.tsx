@@ -31,8 +31,12 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
   };
 
   const [appName, setAppName] = useState(app?.app_name || '');
-  const [appDescription, setAppDescription] = useState(app?.app_description || '');
+  const [appDescription, setAppDescription] = useState(app?.app_description || app?.bio || '');
   const [websiteUrl, setWebsiteUrl] = useState(app?.website_url || '');
+  const [additionalWebsites, setAdditionalWebsites] = useState(app?.additional_websites || '');
+  const [officeAddress, setOfficeAddress] = useState(app?.office_address || app?.address || '');
+  const [supportEmail, setSupportEmail] = useState(app?.support_email || '');
+  const [supportPhone, setSupportPhone] = useState(app?.support_phone || '');
   const [allowedIps, setAllowedIps] = useState(formatAllowedIps(app?.allowed_ips));
   const [isSaving, setIsSaving] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
@@ -41,8 +45,12 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
 
   useEffect(() => {
     setAppName(app?.app_name || '');
-    setAppDescription(app?.app_description || '');
+    setAppDescription(app?.app_description || app?.bio || '');
     setWebsiteUrl(app?.website_url || '');
+    setAdditionalWebsites(app?.additional_websites || '');
+    setOfficeAddress(app?.office_address || app?.address || '');
+    setSupportEmail(app?.support_email || '');
+    setSupportPhone(app?.support_phone || '');
     setAllowedIps(formatAllowedIps(app?.allowed_ips));
   }, [app]);
 
@@ -70,9 +78,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
           ctx.drawImage(img, sx, sy, size, size, 0, 0, 256, 256);
           const base64Url = canvas.toDataURL('image/jpeg', 0.88);
           onUpdateApp({ avatar_url: base64Url });
-          showToast(environment === 'live' 
-            ? 'Profile picture updated! Active and visible to users in Live mode.' 
-            : 'Profile picture saved! Photo is hidden in Sandbox mode and will show once switched to Live mode.');
+          showToast('Profile picture updated and visible on service account profile!');
         }
       };
       img.src = event.target?.result as string;
@@ -97,9 +103,13 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
       await onUpdateApp({
         app_description: appDescription.trim(),
         website_url: websiteUrl.trim(),
+        additional_websites: additionalWebsites.trim(),
+        office_address: officeAddress.trim(),
+        support_email: supportEmail.trim(),
+        support_phone: supportPhone.trim(),
         allowed_ips: ipList
       });
-      showToast('Application security settings updated successfully!');
+      showToast('Application profile & security settings updated successfully!');
     } catch (err: any) {
       showToast('Failed to save settings: ' + err.message);
     } finally {
@@ -303,30 +313,98 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          {/* Service Profile Details */}
+          <div className="space-y-3 pt-2 border-t border-slate-100">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+              <span>Public Service Profile Information</span>
+            </h4>
+            <p className="text-[11px] text-slate-500">
+              Information provided here appears live when users click on your service account profile. Empty fields are automatically hidden.
+            </p>
+
+            {/* Service Description / About */}
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
-                Website / App URL
+                Service Description &amp; About
               </label>
-              <input
-                type="url"
-                value={websiteUrl}
-                onChange={e => setWebsiteUrl(e.target.value)}
-                placeholder="https://example.com"
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs text-slate-900"
+              <textarea
+                rows={2}
+                value={appDescription}
+                onChange={e => setAppDescription(e.target.value)}
+                placeholder="Write a clear, professional overview of your service account capabilities..."
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs text-slate-900 resize-none"
               />
             </div>
 
+            {/* Primary & Additional Websites */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
+                  Primary Website URL
+                </label>
+                <input
+                  type="url"
+                  value={websiteUrl}
+                  onChange={e => setWebsiteUrl(e.target.value)}
+                  placeholder="https://example.com"
+                  className="w-full px-3 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
+                  Additional Websites / Links
+                </label>
+                <input
+                  type="text"
+                  value={additionalWebsites}
+                  onChange={e => setAdditionalWebsites(e.target.value)}
+                  placeholder="https://docs.example.com, https://status.example.com"
+                  className="w-full px-3 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs text-slate-900"
+                />
+              </div>
+            </div>
+
+            {/* Customer Support Email & Phone */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
+                  Customer Support Email
+                </label>
+                <input
+                  type="email"
+                  value={supportEmail}
+                  onChange={e => setSupportEmail(e.target.value)}
+                  placeholder="support@example.com"
+                  className="w-full px-3 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
+                  Customer Support Mobile / Phone
+                </label>
+                <input
+                  type="tel"
+                  value={supportPhone}
+                  onChange={e => setSupportPhone(e.target.value)}
+                  placeholder="+1 (800) 555-0199"
+                  className="w-full px-3 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs text-slate-900"
+                />
+              </div>
+            </div>
+
+            {/* Office Address */}
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
-                Service Description
+                Office / Physical Address
               </label>
-              <input
-                type="text"
-                value={appDescription}
-                onChange={e => setAppDescription(e.target.value)}
-                placeholder="Brief description of application"
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs text-slate-900"
+              <textarea
+                rows={2}
+                value={officeAddress}
+                onChange={e => setOfficeAddress(e.target.value)}
+                placeholder="Suite 500, Innovation Tower, San Francisco, CA 94105"
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs text-slate-900 resize-none"
               />
             </div>
           </div>

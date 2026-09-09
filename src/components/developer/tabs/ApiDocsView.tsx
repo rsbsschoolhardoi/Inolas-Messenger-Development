@@ -34,7 +34,6 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({ app, showToast }) => {
     'bot-messaging': true,
     'message-templates': true,
     'webhooks-guide': true,
-    'oauth-sso': true,
     'billing-quotas': true,
     'error-codes': true
   });

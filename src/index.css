@@ -57,17 +57,26 @@ html.dark, html.dark body, html.dark #root {
   color: #f4f4f5;
 }
 
-@keyframes marquee-running {
+@keyframes marquee-smooth-loop {
   0% {
     transform: translateX(0%);
   }
   15% {
     transform: translateX(0%);
   }
-  75% {
-    transform: translateX(calc(-100% + 140px));
+  55% {
+    transform: translateX(calc(-100% - 16px));
+    opacity: 1;
   }
-  90% {
+  55.01% {
+    transform: translateX(calc(100% + 16px));
+    opacity: 0;
+  }
+  57% {
+    transform: translateX(calc(100% + 16px));
+    opacity: 1;
+  }
+  92% {
     transform: translateX(0%);
   }
   100% {
@@ -75,10 +84,20 @@ html.dark, html.dark body, html.dark #root {
   }
 }
 
+.animate-marquee-smooth-loop {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee-smooth-loop 12s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+}
+
+.animate-marquee-smooth-loop:hover {
+  animation-play-state: paused;
+}
+
 .animate-marquee-running {
   display: inline-block;
   white-space: nowrap;
-  animation: marquee-running 7s ease-in-out infinite;
+  animation: marquee-smooth-loop 12s cubic-bezier(0.25, 1, 0.5, 1) infinite;
 }
 
 .animate-marquee-running:hover {
