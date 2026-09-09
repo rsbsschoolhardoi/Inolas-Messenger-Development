@@ -7818,75 +7818,6 @@ export default function App() {
   // 6. web.zenoa.sbs -> Standalone Web QR Code Messenger
   const isWebSubdomain = currentHostname.startsWith("web.");
 
-  // Web1: Direct access to real messenger (Direct login, signup, saved accounts, full messenger)
-  const isWeb1DirectMessenger = isWeb1Subdomain || (
-    currentPathname === "/web1" || 
-    currentPathname.startsWith("/web1/") ||
-    currentSearchParams.get("view") === "web1" ||
-    currentPathname === "/login" ||
-    currentPathname === "/signup"
-  );
-
-  // Web: QR-Code based Web Messenger (companion for website visitors)
-  const isWebQRPairing = !isWeb1DirectMessenger && (
-    isWebSubdomain ||
-    currentPathname === "/web" || 
-    currentPathname.startsWith("/web/") ||
-    currentPathname === "/link-device" ||
-    currentSearchParams.get("view") === "web" ||
-    currentPathname === "/" || 
-    currentPathname === ""
-  );
-
-  // Render Web QR-Code Pairing Companion on Web routes when not authenticated
-  if (isWebQRPairing && !isAuthenticated) {
-    return (
-      <Web1LinkingPage 
-        themeMode={themeMode}
-        onToggleTheme={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
-        onSwitchToDirectLogin={() => navigateTo('/web1')}
-        onSuccessfulLogin={async (linkedUser) => {
-          if (linkedUser && linkedUser.username) {
-            // Check if local data payload arrived via P2P
-            try {
-              const res = await fetch(`/api/v1/link-device/session/${linkedUser.sessionId || ''}`);
-              const data = await res.json();
-              if (data.success && data.session?.syncedDataPayload) {
-                await storageManager.importUserDataPackage(data.session.syncedDataPayload);
-              }
-            } catch (e) {
-              console.warn('P2P local payload import note:', e);
-            }
-
-            // Set logged in session as linked companion
-            sessionStorage.setItem('zenoa_is_linked_client', 'true');
-            localStorage.setItem('zenoa_is_linked_client', 'true');
-            if (linkedUser.sessionId) {
-              sessionStorage.setItem('zenoa_linked_session_id', linkedUser.sessionId);
-              localStorage.setItem('zenoa_linked_session_id', linkedUser.sessionId);
-            }
-            if (linkedUser.sessionToken) {
-              sessionStorage.setItem('zenoa_active_session_token', linkedUser.sessionToken);
-              localStorage.setItem('zenoa_active_session_token', linkedUser.sessionToken);
-            }
-            try {
-              localStorage.setItem('zenoa_linked_user_data', JSON.stringify(linkedUser));
-              localStorage.setItem('zenoa_active_user', linkedUser.username);
-              localStorage.setItem('zenoa_authenticated', 'true');
-            } catch (e) {}
-            setIsAuthenticated(true);
-            setUserUsername(linkedUser.username);
-            setUserDisplayName(linkedUser.displayName || linkedUser.username);
-            setUserAvatarSeed(linkedUser.avatarSeed || linkedUser.username);
-            if (linkedUser.avatarUrl) setUserAvatarUrl(linkedUser.avatarUrl);
-            showToast(`Linked successfully as @${linkedUser.username}!`);
-          }
-        }}
-        onNavigateHome={() => navigateTo('/web1')}
-      />
-    );
-  }
-
   // A. Accounts / OAuth 2.0 Consent Screen (accounts.zenoa.sbs, /auth/sso, /oauth, or client_id query param)
   const isSSOAuthConsent = isAccountsSubdomain || currentPathname === "/auth/sso" || currentPathname === "/oauth" || currentSearchParams.has("client_id") || currentSearchParams.has("redirect_uri");
   if (isSSOAuthConsent) {
@@ -7972,6 +7903,74 @@ export default function App() {
     currentSearchParams.get("view") === "developer"
   );
   if (isDeveloperPath) return <DeveloperConsoleStandalone />;
+
+  // E. Standalone Web & Web1 Messenger Services
+  // Web1: Direct access to real messenger (Direct login, signup, saved accounts, full messenger)
+  const isWeb1DirectMessenger = isWeb1Subdomain || (
+    currentPathname === "/web1" || 
+    currentPathname.startsWith("/web1/") ||
+    currentSearchParams.get("view") === "web1" ||
+    currentPathname === "/login" ||
+    currentPathname === "/signup"
+  );
+
+  // Web: QR-Code based Web Messenger (companion for web.zenoa.sbs or /web)
+  const isWebQRPairing = !isWeb1DirectMessenger && (
+    isWebSubdomain ||
+    currentPathname === "/web" || 
+    currentPathname.startsWith("/web/") ||
+    currentPathname === "/link-device" ||
+    currentSearchParams.get("view") === "web"
+  );
+
+  // Render Web QR-Code Pairing Companion on Web routes when not authenticated
+  if (isWebQRPairing && !isAuthenticated) {
+    return (
+      <Web1LinkingPage 
+        themeMode={themeMode}
+        onToggleTheme={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
+        onSwitchToDirectLogin={() => navigateTo('/web1')}
+        onSuccessfulLogin={async (linkedUser) => {
+          if (linkedUser && linkedUser.username) {
+            // Check if local data payload arrived via P2P
+            try {
+              const res = await fetch(`/api/v1/link-device/session/${linkedUser.sessionId || ''}`);
+              const data = await res.json();
+              if (data.success && data.session?.syncedDataPayload) {
+                await storageManager.importUserDataPackage(data.session.syncedDataPayload);
+              }
+            } catch (e) {
+              console.warn('P2P local payload import note:', e);
+            }
+
+            // Set logged in session as linked companion
+            sessionStorage.setItem('zenoa_is_linked_client', 'true');
+            localStorage.setItem('zenoa_is_linked_client', 'true');
+            if (linkedUser.sessionId) {
+              sessionStorage.setItem('zenoa_linked_session_id', linkedUser.sessionId);
+              localStorage.setItem('zenoa_linked_session_id', linkedUser.sessionId);
+            }
+            if (linkedUser.sessionToken) {
+              sessionStorage.setItem('zenoa_active_session_token', linkedUser.sessionToken);
+              localStorage.setItem('zenoa_active_session_token', linkedUser.sessionToken);
+            }
+            try {
+              localStorage.setItem('zenoa_linked_user_data', JSON.stringify(linkedUser));
+              localStorage.setItem('zenoa_active_user', linkedUser.username);
+              localStorage.setItem('zenoa_authenticated', 'true');
+            } catch (e) {}
+            setIsAuthenticated(true);
+            setUserUsername(linkedUser.username);
+            setUserDisplayName(linkedUser.displayName || linkedUser.username);
+            setUserAvatarSeed(linkedUser.avatarSeed || linkedUser.username);
+            if (linkedUser.avatarUrl) setUserAvatarUrl(linkedUser.avatarUrl);
+            showToast(`Linked successfully as @${linkedUser.username}!`);
+          }
+        }}
+        onNavigateHome={() => navigateTo('/web1')}
+      />
+    );
+  }
   
   if (!isAuthenticated) {
     if (isEmailVerificationPending) {

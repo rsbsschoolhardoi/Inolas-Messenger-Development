@@ -92,7 +92,7 @@ app.get('/api/apple-emoji/:filename', async (req, res) => {
 
       if (response.status === 200 && response.data) {
         const buffer = Buffer.from(response.data);
-        const contentType = response.headers['content-type'] || 'image/png';
+        const contentType = String(response.headers['content-type'] || 'image/png');
         if (appleEmojiMemoryCache.size < 2500) {
           appleEmojiMemoryCache.set(filename, { buffer, contentType });
         }
@@ -1010,7 +1010,7 @@ app.post(['/api/v1/otp/verify', '/v1/otp/verify'], authenticateApiKey, async (re
     }
 
     // If auto_verify requested in developer sandbox or code matches
-    const codeMatch = auto_verify === true || otpData.code === String(codeInput).trim();
+    const codeMatch = autoVerify === true || otpData.code === String(codeInput).trim();
     if (!codeMatch) {
       return res.status(400).json({ error: 'Invalid verification code. Please check and try again.' });
     }

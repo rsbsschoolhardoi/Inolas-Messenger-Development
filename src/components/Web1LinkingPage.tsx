@@ -252,17 +252,9 @@ export const Web1LinkingPage: React.FC<Web1LinkingPageProps> = ({
               Z
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-base sm:text-lg tracking-tight text-white">
-                  Zenoa Messenger
-                </span>
-                <span className="px-2 py-0.5 rounded-md bg-indigo-950/80 border border-indigo-800 text-[10px] font-mono font-bold text-indigo-400">
-                  Official App
-                </span>
-              </div>
-              <p className="text-xs text-slate-400">
-                Sovereign Peer-to-Peer Encrypted Communication
-              </p>
+              <span className="font-extrabold text-base sm:text-lg tracking-tight text-white block">
+                Zenoa Messenger
+              </span>
             </div>
           </div>
 
@@ -372,17 +364,9 @@ export const Web1LinkingPage: React.FC<Web1LinkingPageProps> = ({
             <Globe className="h-5 w-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-base sm:text-lg tracking-tight text-neutral-900 dark:text-white">
-                Zenoa Web
-              </span>
-              <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                Web Companion
-              </span>
-            </div>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 hidden sm:block">
-              Scan QR code from your phone to link this web browser
-            </p>
+            <span className="font-bold text-base sm:text-lg tracking-tight text-neutral-900 dark:text-white block">
+              Zenoa Web
+            </span>
           </div>
         </div>
 

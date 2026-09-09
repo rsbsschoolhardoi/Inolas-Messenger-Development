@@ -100,12 +100,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   return (
     <div className="min-h-screen h-full w-full overflow-y-auto overflow-x-hidden flex flex-col font-sans transition-colors duration-200 bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100">
 
-      {/* Top Status Indicator */}
-      <div className="w-full bg-neutral-900 text-white dark:bg-neutral-900 border-b border-neutral-800 px-4 py-1.5 text-center text-[11px] font-medium tracking-wide">
-        <span className="text-emerald-400 font-bold mr-2">● RELAY ACTIVE</span>
-        Zero-Cloud Persistent Storage • Client-Side AES-256-GCM Hardware Encryption • V3.4 Protocol
-      </div>
-
       {/* Navigation Header */}
       <header className="sticky top-0 z-40 w-full backdrop-blur-md border-b border-neutral-200/80 dark:border-neutral-800/80 bg-white/90 dark:bg-neutral-950/90 transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -119,16 +113,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               )}
             </div>
             <div className="flex flex-col">
-              <div className="flex items-center gap-2">
-                <span className="text-base font-black tracking-widest uppercase text-neutral-900 dark:text-white">
-                  ZENOA
-                </span>
-                <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700">
-                  VAULT v3.4
-                </span>
-              </div>
-              <span className="text-[10px] font-medium tracking-tight text-neutral-400">
-                Zero-Retention Ephemeral Messenger
+              <span className="text-base font-black tracking-widest uppercase text-neutral-900 dark:text-white">
+                ZENOA
               </span>
             </div>
           </div>

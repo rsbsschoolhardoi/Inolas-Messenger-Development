@@ -191,7 +191,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
               <div className="flex items-center gap-2">
                 <span className="font-bold text-base tracking-tight text-white">{branding.app_name || 'Zenoa'}</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-indigo-900/60 text-indigo-300 border border-indigo-700/50">
-                  DOCS v2.4
+                  Docs
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 hidden sm:block">Enterprise System & Communication API Reference</p>

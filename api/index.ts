@@ -1,4 +1,4 @@
-import { app } from '../server';
+import { app } from '../server.js';
 
 export default function handler(req: any, res: any) {
   // Universal CORS preflight & headers
@@ -16,13 +16,9 @@ export default function handler(req: any, res: any) {
   }
 
   // Handle Vercel URL mapping
-  if (req.url) {
-    if (!req.url.startsWith('/api') && (req.url.startsWith('/v1') || req.url.startsWith('/health'))) {
-      req.url = '/api' + req.url;
-    }
+  if (req.url && !req.url.startsWith('/api')) {
+    req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
   }
 
   return app(req, res);
 }
-
-
