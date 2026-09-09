@@ -9655,7 +9655,7 @@ export default function App() {
           })()}
 
               {/* Composer Input Area Controls OR Blocked User Banner - Theme Adaptive */}
-              <div className={`p-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] md:pb-3 shrink-0 space-y-2 min-w-0 transition-all duration-300 ${currentChatTheme.composerBorder} ${currentChatTheme.composerBg}`}>
+              <div className={`p-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] md:pb-3 shrink-0 space-y-2 min-w-0 transition-all duration-300 backdrop-blur-2xl shadow-[0_-4px_24px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_24px_rgba(0,0,0,0.35)] ${currentChatTheme.composerBorder} ${currentChatTheme.composerBg}`}>
                 {activeChat && blockedUsers.includes(activeChat?.username) ? (
                   <div className="p-4 bg-neutral-100 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 rounded-2xl flex flex-col items-center justify-center gap-3 text-center animate-fade-in">
                     <div className="flex items-center gap-2 text-neutral-900 dark:text-neutral-100 font-bold text-sm">

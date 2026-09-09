@@ -86,6 +86,24 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
     if (selectedAppId && apps.length > 0) {
       const targetApp = apps.find(a => a.id === selectedAppId);
       if (targetApp) {
+        // 1. If the target app has an explicit environment stored in Firestore, use it
+        if (targetApp.environment === 'test' || targetApp.environment === 'live') {
+          setEnvironment(targetApp.environment);
+          try {
+            localStorage.setItem(`zenoa_dev_env_${selectedAppId}`, targetApp.environment);
+            localStorage.setItem('zenoa_dev_active_env', targetApp.environment);
+          } catch (e) {}
+          return;
+        }
+        if (targetApp.is_live === true) {
+          setEnvironment('live');
+          try {
+            localStorage.setItem(`zenoa_dev_env_${selectedAppId}`, 'live');
+            localStorage.setItem('zenoa_dev_active_env', 'live');
+          } catch (e) {}
+          return;
+        }
+        // 2. Check localStorage as fallback
         try {
           const appSpecificEnv = localStorage.getItem(`zenoa_dev_env_${selectedAppId}`) as 'test' | 'live' | null;
           if (appSpecificEnv === 'test' || appSpecificEnv === 'live') {
@@ -93,9 +111,6 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
             return;
           }
         } catch (e) {}
-        if (targetApp.environment === 'test' || targetApp.environment === 'live') {
-          setEnvironment(targetApp.environment);
-        }
       }
     }
   }, [selectedAppId, apps]);
@@ -129,12 +144,29 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
 
       setApps(fetchedApps);
       if (fetchedApps.length > 0) {
-        const firstAppId = fetchedApps[0].id;
+        const firstApp = fetchedApps[0];
+        const firstAppId = firstApp.id;
         setSelectedAppId(firstAppId);
-        const storedEnv = localStorage.getItem(`zenoa_dev_env_${firstAppId}`) || fetchedApps[0].environment || 'test';
-        if (storedEnv === 'test' || storedEnv === 'live') {
-          setEnvironment(storedEnv as 'test' | 'live');
+        
+        let appEnv: 'test' | 'live' = 'test';
+        if (firstApp.environment === 'test' || firstApp.environment === 'live') {
+          appEnv = firstApp.environment;
+        } else if (firstApp.is_live === true) {
+          appEnv = 'live';
+        } else {
+          try {
+            const savedLocal = localStorage.getItem(`zenoa_dev_env_${firstAppId}`) || localStorage.getItem('zenoa_dev_active_env');
+            if (savedLocal === 'test' || savedLocal === 'live') {
+              appEnv = savedLocal as 'test' | 'live';
+            }
+          } catch (e) {}
         }
+
+        setEnvironment(appEnv);
+        try {
+          localStorage.setItem('zenoa_dev_active_env', appEnv);
+          localStorage.setItem(`zenoa_dev_env_${firstAppId}`, appEnv);
+        } catch (e) {}
       }
     } catch (err) {
       console.error("Fetch developer apps error:", err);
@@ -149,12 +181,13 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
 
   const handleSetEnvironment = async (newEnv: 'test' | 'live') => {
     setEnvironment(newEnv);
-    if (selectedAppId) {
-      try {
+    try {
+      localStorage.setItem('zenoa_dev_active_env', newEnv);
+      if (selectedAppId) {
         localStorage.setItem(`zenoa_dev_env_${selectedAppId}`, newEnv);
-        localStorage.setItem('zenoa_dev_active_env', newEnv);
-      } catch (e) {}
-    }
+      }
+    } catch (e) {}
+
     if (!selectedApp) return;
 
     try {
@@ -162,26 +195,42 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
         const appRef = doc(db, 'developer_apps', selectedApp.id);
         await setDoc(appRef, {
           environment: newEnv,
-          is_live: newEnv === 'live'
+          is_live: newEnv === 'live',
+          updated_at: Date.now()
         }, { merge: true });
+
+        const cleanDevUser = currentUser.username.toLowerCase();
+        const directAppRef = doc(db, 'developer_apps', `sa_${cleanDevUser}`);
+        await setDoc(directAppRef, {
+          environment: newEnv,
+          is_live: newEnv === 'live',
+          updated_at: Date.now()
+        }, { merge: true }).catch(() => {});
 
         const botU = selectedApp.bot_username?.toLowerCase().replace(/^@/, '');
         if (botU) {
           await setDoc(doc(db, 'users', botU), {
             environment: newEnv,
             is_live: newEnv === 'live',
-            avatar_url: selectedApp.avatar_url || null
-          }, { merge: true });
+            avatar_url: selectedApp.avatar_url || null,
+            updated_at: Date.now()
+          }, { merge: true }).catch(() => {});
         }
+
+        const devUserRef = doc(db, 'users', currentUser.id || cleanDevUser);
+        await setDoc(devUserRef, {
+          service_account_environment: newEnv,
+          updated_at: Date.now()
+        }, { merge: true }).catch(() => {});
       }
 
-      setApps(prev => prev.map(a => a.id === selectedApp.id ? {
+      setApps(prev => prev.map(a => (a.id === selectedApp.id || a.id === `sa_${currentUser.username.toLowerCase()}`) ? {
         ...a,
         environment: newEnv,
         is_live: newEnv === 'live'
       } : a));
 
-      showToast(`Environment set to ${newEnv === 'live' ? 'Production Live' : 'Sandbox Testing'}. Preference saved.`);
+      showToast(`Environment switched to ${newEnv === 'live' ? 'Live Production' : 'Sandbox (Test)'}. Saved permanently.`);
     } catch (err: any) {
       showToast(`Failed to set environment: ${err.message}`);
     }
@@ -189,27 +238,30 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
 
   const handleCreateApp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!appName.trim()) return;
+    const finalAppName = appName.trim();
+    if (!finalAppName) return;
 
     if (apps.length > 0) {
       showToast('Limit Reached: Only 1 service account per user is allowed.');
       return;
     }
 
-    if (containsZenoa(appName) || containsZenoa(botUsername)) {
+    if (containsZenoa(finalAppName) || containsZenoa(botUsername)) {
       showToast("Security Violation: The word 'Zenoa' is strictly reserved for official system accounts and cannot be used anywhere in service account names or handles.");
       return;
     }
 
     setIsCreating(true);
     try {
-      const cleanDevUser = currentUser.username.toLowerCase();
+      const cleanDevUser = currentUser.username.toLowerCase().replace(/[^a-z0-9._]/g, '');
       const clientId = `zen_client_${Math.random().toString(36).substring(2,15)}`;
       const clientSecret = `zen_sec_${Math.random().toString(36).substring(2,20)}`;
       const testClientId = `zen_test_${Math.random().toString(36).substring(2,15)}`;
       const testClientSecret = `zen_test_sec_${Math.random().toString(36).substring(2,20)}`;
-      const rawBot = botUsername.trim().toLowerCase().replace(/^@/, '');
-      const finalBotUsername = rawBot ? rawBot : cleanDevUser;
+      
+      // Username allows only (a-z0-9._), while Name remains As-It-Is (e.g. "Azad")
+      const rawBot = botUsername.trim().toLowerCase().replace(/^@/, '').replace(/[^a-z0-9._]/g, '');
+      const finalBotUsername = rawBot ? rawBot : (finalAppName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9._]/g, '') || cleanDevUser);
 
       if (containsZenoa(finalBotUsername)) {
         showToast("Security Violation: The word 'Zenoa' cannot be used in service account handles.");
@@ -220,14 +272,18 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
       const newAppData = {
         owner: currentUser.username,
         owner_id: currentUser.id || '',
-        app_name: appName.trim(),
-        bot_username: finalBotUsername,
+        app_name: finalAppName, // Exactly as entered (e.g. "Azad")
+        bot_username: finalBotUsername, // Standard handle (a-z0-9._)
+        environment: selectedEnvOnCreate,
+        is_live: selectedEnvOnCreate === 'live',
         client_id: clientId,
         client_secret: clientSecret,
         test_client_id: testClientId,
         test_client_secret: testClientSecret,
         api_key: clientId,
         is_locked: true,
+        is_verified: true,
+        verified_type: 'purple',
         created_at: Date.now()
       };
 
@@ -236,23 +292,49 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
         await setDoc(appRef, newAppData);
         (newAppData as any).id = appRef.id;
 
+        // Register bot user profile in the users collection with exact Name casing preserved
+        const botUserDocRef = doc(db, 'users', finalBotUsername);
+        await setDoc(botUserDocRef, {
+          id: finalBotUsername,
+          username: finalBotUsername,
+          display_name: finalAppName, // Exactly as registered (e.g. "Azad")
+          name: finalAppName, // Exactly as registered (e.g. "Azad")
+          is_service_account: true,
+          is_business_account: true,
+          is_bot: true,
+          is_verified: true,
+          verified_type: 'purple',
+          role: 'service_account',
+          owner: currentUser.username,
+          environment: selectedEnvOnCreate,
+          is_live: selectedEnvOnCreate === 'live',
+          created_at: Date.now(),
+          updated_at: Date.now()
+        }, { merge: true });
+
         // Register service account metadata on the developer's user profile directly
         const devUserDocRef = doc(db, 'users', currentUser.id || cleanDevUser);
         await setDoc(devUserDocRef, {
           has_service_account: true,
           service_account_id: appRef.id,
-          service_account_app_name: appName.trim(),
+          service_account_app_name: finalAppName, // Exactly as registered (e.g. "Azad")
           service_account_bot_username: finalBotUsername,
           service_account_client_id: clientId,
+          service_account_environment: selectedEnvOnCreate,
           updated_at: Date.now()
         }, { merge: true });
       }
 
+      try {
+        localStorage.setItem('zenoa_dev_active_env', selectedEnvOnCreate);
+        localStorage.setItem(`zenoa_dev_env_sa_${cleanDevUser}`, selectedEnvOnCreate);
+      } catch (e) {}
+
       setApps([newAppData]);
       setSelectedAppId((newAppData as any).id);
       setEnvironment(selectedEnvOnCreate);
-      setNewlyGeneratedSecret({ clientId, clientSecret, appName: appName.trim(), botUsername: finalBotUsername });
-      showToast(`Service account created in ${selectedEnvOnCreate === 'test' ? 'Sandbox' : 'Production'} mode and locked for security.`);
+      setNewlyGeneratedSecret({ clientId, clientSecret, appName: finalAppName, botUsername: finalBotUsername });
+      showToast(`Service account @${finalBotUsername} (${finalAppName}) created in ${selectedEnvOnCreate === 'test' ? 'Sandbox' : 'Production'} mode.`);
     } catch (err: any) {
       showToast('Error: ' + err.message);
     } finally {
@@ -535,10 +617,40 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
+          <div className="flex items-center gap-3">
+            {/* Environment Switcher Pills */}
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => handleSetEnvironment('test')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  environment === 'test'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+                title="Switch to Sandbox Test Environment"
+              >
+                <span className={`h-2 w-2 rounded-full ${environment === 'test' ? 'bg-white' : 'bg-amber-500'}`} />
+                <span>Sandbox</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetEnvironment('live')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  environment === 'live'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+                title="Switch to Live Production Environment"
+              >
+                <span className={`h-2 w-2 rounded-full ${environment === 'live' ? 'bg-white animate-pulse' : 'bg-emerald-500'}`} />
+                <span>Production</span>
+              </button>
+            </div>
+
+            <span className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              API Gateway Online
+              Gateway Online
             </span>
           </div>
         </header>
@@ -553,8 +665,8 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               <span>API calls simulate full verification and delivery flows with 0 balance deduction.</span>
             </div>
             <button
-              onClick={() => setEnvironment('live')}
-              className="text-xs font-bold text-amber-900 hover:text-amber-950 underline hidden sm:inline"
+              onClick={() => handleSetEnvironment('live')}
+              className="text-xs font-bold text-amber-900 hover:text-amber-950 underline hidden sm:inline cursor-pointer"
             >
               Switch to Live Mode →
             </button>
@@ -649,7 +761,9 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
 
                   <form onSubmit={handleCreateApp} className="space-y-5">
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">Application / Service Name</label>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                        Application / Service Name <span className="text-xs text-slate-400 font-normal">(Display Name, case preserved as-is)</span>
+                      </label>
                       <input 
                         type="text" 
                         value={appName} 
@@ -657,7 +771,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                           const val = e.target.value;
                           setAppName(val);
                         }} 
-                        placeholder="e.g. Acme Corp Authentication" 
+                        placeholder="e.g. Azad" 
                         className={`w-full px-4 py-2.5 rounded-lg border outline-none transition-all text-sm ${containsZenoa(appName) ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40 text-rose-900' : 'border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-900'}`} 
                         required 
                       />
@@ -669,17 +783,20 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                     </div>
 
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">Bot Username / Handle</label>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                        Bot Username / Handle <span className="text-xs text-slate-400 font-normal">(Only a-z, 0-9, ., _)</span>
+                      </label>
                       <div className="flex">
                         <span className="inline-flex items-center px-4 rounded-l-lg border border-r-0 border-slate-300 bg-slate-50 text-slate-500 text-sm font-mono">@</span>
                         <input 
                           type="text" 
                           value={botUsername} 
                           onChange={e => {
-                            const val = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '');
+                            // Username strictly allows only lowercase letters, numbers, dot, and underscore (a-z0-9._)
+                            const val = e.target.value.toLowerCase().replace(/[^a-z0-9._]/g, '');
                             setBotUsername(val);
                           }} 
-                          placeholder="e.g. acme_bot" 
+                          placeholder="e.g. azad_bot" 
                           className={`w-full px-4 py-2.5 rounded-r-lg border outline-none transition-all text-sm font-mono ${containsZenoa(botUsername) ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40 text-rose-900' : 'border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-900'}`} 
                         />
                       </div>
