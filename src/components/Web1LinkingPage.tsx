@@ -121,12 +121,16 @@ export const Web1LinkingPage: React.FC<Web1LinkingPageProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          customSessionId: fallbackId,
           browser: typeof navigator !== 'undefined' ? navigator.userAgent : 'Web Browser',
           os: typeof navigator !== 'undefined' ? navigator.platform : 'Desktop'
         })
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(text); } catch {}
+
       if (data.success && data.sessionId && data.qrPayload) {
         setSessionId(data.sessionId);
         await renderQRCode(data.qrPayload);
@@ -158,7 +162,9 @@ export const Web1LinkingPage: React.FC<Web1LinkingPageProps> = ({
     pollTimerRef.current = setInterval(async () => {
       try {
         const res = await fetch(`/api/v1/link-device/session/${sessionId}`);
-        const data = await res.json();
+        const text = await res.text();
+        let data: any = {};
+        try { data = JSON.parse(text); } catch {}
 
         if (data.success && data.session) {
           const status = data.session.status;

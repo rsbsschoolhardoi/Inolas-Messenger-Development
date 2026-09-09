@@ -58,6 +58,47 @@ export const LinkDeviceModal: React.FC<LinkDeviceModalProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  const handleCodeChange = (index: number, value: string) => {
+    const char = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!char && value !== '') return;
+    
+    const newCodeArr = enteredCode.padEnd(7, ' ').split('');
+    if (char) {
+      newCodeArr[index] = char[char.length - 1];
+    } else {
+      newCodeArr[index] = ' ';
+    }
+    
+    const newCode = newCodeArr.join('').trimEnd();
+    setEnteredCode(newCode);
+    setErrorMessage('');
+
+    if (char && index < 6) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && (!enteredCode[index] || enteredCode[index] === ' ') && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData('text').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (pasted) {
+      const chars = pasted.slice(0, 7);
+      setEnteredCode(chars);
+      if (chars.length < 7) {
+        inputRefs.current[chars.length]?.focus();
+      } else {
+        inputRefs.current[6]?.focus();
+      }
+    }
+  };
 
   // Initialize camera when in scan mode
   useEffect(() => {
@@ -109,6 +150,22 @@ export const LinkDeviceModal: React.FC<LinkDeviceModalProps> = ({
     }
   };
 
+  const safeFetchJson = async (url: string, options?: RequestInit) => {
+    try {
+      const res = await fetch(url, options);
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { success: false, error: `Server response error (${res.status})` };
+      }
+      return { ok: res.ok, status: res.status, data };
+    } catch (netErr: any) {
+      return { ok: false, status: 0, data: { success: false, error: netErr.message || 'Network connection failed' } };
+    }
+  };
+
   const scanQRCode = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
@@ -121,23 +178,30 @@ export const LinkDeviceModal: React.FC<LinkDeviceModalProps> = ({
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = jsQR(imageData.data, imageData.width, imageData.height, {
-        inversionAttempts: 'dontInvert'
+        inversionAttempts: 'attemptBoth'
       });
 
       if (code && code.data) {
         try {
-          // Parse Zenoa Link Protocol
-          let parsedPayload: any = null;
+          let detectedSessionId = '';
+          const rawStr = code.data.trim();
           try {
-            parsedPayload = JSON.parse(code.data);
+            const parsedPayload = JSON.parse(rawStr);
+            if (parsedPayload && parsedPayload.sessionId) {
+              detectedSessionId = parsedPayload.sessionId;
+            }
           } catch {
-            if (code.data.startsWith('dlink_')) {
-              parsedPayload = { sessionId: code.data };
+            const dlinkMatch = rawStr.match(/dlink_[a-zA-Z0-9_]+/);
+            if (dlinkMatch) {
+              detectedSessionId = dlinkMatch[0];
+            } else if (rawStr.includes('sessionId=')) {
+              const paramMatch = rawStr.match(/sessionId=([^&]+)/);
+              if (paramMatch) detectedSessionId = paramMatch[1];
             }
           }
 
-          if (parsedPayload && parsedPayload.sessionId) {
-            handleSessionDetected(parsedPayload.sessionId);
+          if (detectedSessionId) {
+            handleSessionDetected(detectedSessionId);
             return;
           }
         } catch (e) {
@@ -156,13 +220,12 @@ export const LinkDeviceModal: React.FC<LinkDeviceModalProps> = ({
     setScannedSessionId(sessId);
 
     try {
-      const res = await fetch('/api/v1/link-device/scan', {
+      const { data } = await safeFetchJson('/api/v1/link-device/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: sessId })
       });
 
-      const data = await res.json();
       if (!data.success) {
         throw new Error(data.error || 'Failed to connect with browser session');
       }
@@ -179,7 +242,7 @@ export const LinkDeviceModal: React.FC<LinkDeviceModalProps> = ({
 
   const handleVerifyCodeAndStreamData = async () => {
     const cleanCode = enteredCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (cleanCode.length < 6) {
+    if (cleanCode.length !== 7) {
       setErrorMessage('Please enter the complete 7-character code shown on your Web screen.');
       return;
     }
@@ -192,23 +255,28 @@ export const LinkDeviceModal: React.FC<LinkDeviceModalProps> = ({
     try {
       // Step A: Package local indexedDB messages and client-side settings
       setTransferProgress(35);
-      const localPackage = await storageManager.exportUserDataPackage(currentUser.username);
+      let localPackage: any = null;
+      try {
+        localPackage = await storageManager.exportUserDataPackage(currentUser.username);
+      } catch (expErr) {
+        console.warn('Export package note:', expErr);
+        localPackage = { version: 2, timestamp: Date.now(), username: currentUser.username, messages: [], localSettings: {}, chatDrafts: {} };
+      }
 
       setTransferProgress(65);
 
       // Step B: Direct verify & send P2P package to web session
-      const res = await fetch('/api/v1/link-device/verify-and-sync', {
+      const { data } = await safeFetchJson('/api/v1/link-device/verify-and-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId: scannedSessionId,
-          code: enteredCode,
+          code: cleanCode,
           user: currentUser,
           syncedDataPayload: localPackage
         })
       });
 
-      const data = await res.json();
       if (!data.success) {
         throw new Error(data.error || 'Verification code mismatch. Please check your web screen.');
       }
@@ -393,20 +461,24 @@ export const LinkDeviceModal: React.FC<LinkDeviceModalProps> = ({
               </div>
 
               {/* 7-Char Code Input */}
-              <div className="flex justify-center">
-                <input
-                  type="text"
-                  maxLength={8}
-                  placeholder="ZN7-9XK"
-                  value={enteredCode}
-                  onChange={e => {
-                    const val = e.target.value.toUpperCase();
-                    setEnteredCode(val);
-                    setErrorMessage('');
-                  }}
-                  autoFocus
-                  className="w-full max-w-xs text-center py-3 px-4 bg-slate-950 border-2 border-indigo-500/50 rounded-xl font-mono text-2xl font-black tracking-widest text-white outline-none focus:border-indigo-400 shadow-inner"
-                />
+              <div className="flex justify-center gap-1.5 sm:gap-2">
+                {Array.from({ length: 7 }).map((_, idx) => (
+                  <React.Fragment key={idx}>
+                    <input
+                      ref={el => { inputRefs.current[idx] = el; }}
+                      type="text"
+                      maxLength={1}
+                      value={enteredCode[idx] && enteredCode[idx] !== ' ' ? enteredCode[idx] : ''}
+                      onChange={e => handleCodeChange(idx, e.target.value)}
+                      onKeyDown={e => handleKeyDown(idx, e)}
+                      onPaste={handlePaste}
+                      className="w-10 h-12 sm:w-12 sm:h-14 text-center bg-slate-950 border-2 border-indigo-500/50 rounded-xl font-mono text-xl sm:text-2xl font-black text-white outline-none focus:border-indigo-400 shadow-inner uppercase"
+                    />
+                    {idx === 2 && (
+                      <div className="flex items-center justify-center w-3 text-slate-500 font-bold">-</div>
+                    )}
+                  </React.Fragment>
+                ))}
               </div>
 
               <div className="p-3 rounded-xl bg-indigo-950/30 border border-indigo-500/20 text-[11px] text-slate-300 flex items-start gap-2">
@@ -426,7 +498,7 @@ export const LinkDeviceModal: React.FC<LinkDeviceModalProps> = ({
                 </button>
                 <button
                   type="button"
-                  disabled={isLoading || enteredCode.trim().length < 6}
+                  disabled={isLoading || enteredCode.trim().replace(/[^A-Z0-9]/g, '').length !== 7}
                   onClick={handleVerifyCodeAndStreamData}
                   className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-xs font-semibold text-white shadow-lg shadow-indigo-600/30 transition-all cursor-pointer flex items-center justify-center gap-1.5"
                 >

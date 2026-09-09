@@ -494,19 +494,22 @@ class StorageManager {
     timestamp: number;
     username: string;
     messages: any[];
+    mediaCache: any[];
+    kvStore: Record<string, any>;
     localSettings: Record<string, any>;
     chatDrafts: Record<string, string>;
   }> {
     const clean = (usernameOrUid || '').trim().toLowerCase().replace(/^@/, '');
     const localSettings: Record<string, any> = {};
     const chatDrafts: Record<string, string> = {};
+    const kvStore: Record<string, any> = {};
 
-    // Collect relevant localStorage keys for this user
+    // Collect ALL localStorage items for complete state transfer
     if (typeof localStorage !== 'undefined') {
       try {
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
-          if (key && (key.startsWith('zenoa_') || key.startsWith('inolas_'))) {
+          if (key) {
             localSettings[key] = localStorage.getItem(key);
           }
         }
@@ -516,27 +519,68 @@ class StorageManager {
     }
 
     let messages: any[] = [];
+    let mediaCache: any[] = [];
+
     try {
       const db = await this.initDB();
-      const tx = db.transaction('messages', 'readonly');
-      const store = tx.objectStore('messages');
-      const allMsgs = await new Promise<any[]>((res) => {
-        const req = store.getAll();
-        req.onsuccess = () => res(req.result || []);
-        req.onerror = () => res([]);
-      });
 
-      // Filter to user messages if partitioned
-      messages = allMsgs.filter(m => !m.owner_user || m.owner_user === clean).slice(-500); // Last 500 local messages
+      // Export 100% of messages (Zero truncation)
+      try {
+        const txMsg = db.transaction('messages', 'readonly');
+        const storeMsg = txMsg.objectStore('messages');
+        const allMsgs = await new Promise<any[]>((res) => {
+          const req = storeMsg.getAll();
+          req.onsuccess = () => res(req.result || []);
+          req.onerror = () => res([]);
+        });
+        messages = allMsgs.filter(m => !m.owner_user || m.owner_user === clean || clean === '');
+      } catch (e) {
+        console.warn('Messages export notice:', e);
+      }
+
+      // Export 100% of cached media assets (photos, files, documents, audio)
+      try {
+        const txMedia = db.transaction('media_cache', 'readonly');
+        const storeMedia = txMedia.objectStore('media_cache');
+        const allMedia = await new Promise<any[]>((res) => {
+          const req = storeMedia.getAll();
+          req.onsuccess = () => res(req.result || []);
+          req.onerror = () => res([]);
+        });
+        mediaCache = allMedia.filter(m => !m.owner_user || m.owner_user === clean || clean === '');
+      } catch (e) {
+        console.warn('Media cache export notice:', e);
+      }
+
+      // Export KV store key-values
+      try {
+        const txKv = db.transaction('kv_store', 'readonly');
+        const storeKv = txKv.objectStore('kv_store');
+        const allKv = await new Promise<any[]>((res) => {
+          const req = storeKv.getAll();
+          req.onsuccess = () => res(req.result || []);
+          req.onerror = () => res([]);
+        });
+        for (const item of allKv) {
+          if (item && item.key) {
+            kvStore[item.key] = item.value;
+          }
+        }
+      } catch (e) {
+        console.warn('KV store export notice:', e);
+      }
+
     } catch (e) {
-      console.warn('IndexedDB message export notice:', e);
+      console.warn('IndexedDB full export notice:', e);
     }
 
     return {
-      version: 2,
+      version: 3,
       timestamp: Date.now(),
       username: clean,
       messages,
+      mediaCache,
+      kvStore,
       localSettings,
       chatDrafts
     };
@@ -547,10 +591,13 @@ class StorageManager {
    */
   async importUserDataPackage(pkg: {
     messages?: any[];
+    mediaCache?: any[];
+    kvStore?: Record<string, any>;
     localSettings?: Record<string, any>;
-  }): Promise<{ success: boolean; importedMessages: number; importedSettings: number }> {
+  }): Promise<{ success: boolean; importedMessages: number; importedMedia: number; importedSettings: number }> {
     let importedSettings = 0;
     let importedMessages = 0;
+    let importedMedia = 0;
 
     if (pkg.localSettings && typeof localStorage !== 'undefined') {
       try {
@@ -565,23 +612,59 @@ class StorageManager {
       }
     }
 
-    if (pkg.messages && Array.isArray(pkg.messages) && pkg.messages.length > 0) {
-      try {
-        const db = await this.initDB();
-        const tx = db.transaction('messages', 'readwrite');
-        const store = tx.objectStore('messages');
-        for (const msg of pkg.messages) {
-          if (msg && msg.id) {
-            store.put(msg);
-            importedMessages++;
+    try {
+      const db = await this.initDB();
+
+      // Import 100% of messages
+      if (pkg.messages && Array.isArray(pkg.messages) && pkg.messages.length > 0) {
+        try {
+          const tx = db.transaction('messages', 'readwrite');
+          const store = tx.objectStore('messages');
+          for (const msg of pkg.messages) {
+            if (msg && msg.id) {
+              store.put(msg);
+              importedMessages++;
+            }
           }
+        } catch (e) {
+          console.warn('IndexedDB message import notice:', e);
         }
-      } catch (e) {
-        console.warn('IndexedDB message import notice:', e);
       }
+
+      // Import 100% of cached media, documents, photos, audio
+      if (pkg.mediaCache && Array.isArray(pkg.mediaCache) && pkg.mediaCache.length > 0) {
+        try {
+          const tx = db.transaction('media_cache', 'readwrite');
+          const store = tx.objectStore('media_cache');
+          for (const mediaItem of pkg.mediaCache) {
+            if (mediaItem && mediaItem.id) {
+              store.put(mediaItem);
+              importedMedia++;
+            }
+          }
+        } catch (e) {
+          console.warn('IndexedDB media import notice:', e);
+        }
+      }
+
+      // Import KV store
+      if (pkg.kvStore && typeof pkg.kvStore === 'object') {
+        try {
+          const tx = db.transaction('kv_store', 'readwrite');
+          const store = tx.objectStore('kv_store');
+          for (const [k, v] of Object.entries(pkg.kvStore)) {
+            store.put({ key: k, value: v });
+          }
+        } catch (e) {
+          console.warn('IndexedDB KV import notice:', e);
+        }
+      }
+
+    } catch (e) {
+      console.warn('IndexedDB full import notice:', e);
     }
 
-    return { success: true, importedMessages, importedSettings };
+    return { success: true, importedMessages, importedMedia, importedSettings };
   }
 }
 

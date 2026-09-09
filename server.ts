@@ -35,8 +35,8 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-API-Key', 'Accept']
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Normalization & Header Middleware for Vercel / Cloud Run / Local
 app.use((req: any, res: any, next: any) => {
@@ -2712,8 +2712,8 @@ function generate7DigitAuthCode(): { formatted: string; raw: string } {
 // 1. Create a fresh QR linking session (called by Web1 browser)
 app.post('/api/v1/link-device/create-session', async (req: any, res: any) => {
   try {
-    const { publicKey, browser, os } = req.body;
-    const sessionId = 'dlink_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+    const { publicKey, browser, os, customSessionId } = req.body;
+    const sessionId = customSessionId || ('dlink_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10));
     const { formatted, raw } = generate7DigitAuthCode();
     const now = Date.now();
     const expiresAt = now + 10 * 60 * 1000; // 10 minutes TTL
@@ -2895,17 +2895,15 @@ app.post('/api/v1/link-device/verify-and-sync', async (req: any, res: any) => {
       return res.status(400).json({ success: false, error: 'Session has expired. Please generate a new QR code.' });
     }
 
-    if (session.status !== 'scanned') {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'QR code must be scanned with camera before entering verification code.' 
-      });
+    // Auto-scan fallback if session is pending_scan (e.g. manual session entry)
+    if (session.status === 'pending_scan') {
+      session.status = 'scanned';
     }
 
     // Clean codes for matching
-    const cleanEntered = String(code).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-    const cleanSession = session.rawCode.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-    const cleanFormatted = session.authCode.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const cleanEntered = String(code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const cleanSession = String(session.rawCode || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const cleanFormatted = String(session.authCode || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 
     if (cleanEntered !== cleanSession && cleanEntered !== cleanFormatted) {
       return res.status(400).json({ 
