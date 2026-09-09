@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Check, Sparkles, Heart, Cat, Palette, MessageSquare, Briefcase, Baby, Sun, Moon, Lock } from 'lucide-react';
+import { X, Check, Sparkles, Heart, Cat, Palette, MessageSquare, Briefcase, Baby, Sun, Moon, Lock, Trees, CloudSun, Gamepad2 } from 'lucide-react';
 import { CHAT_THEMES, ChatTheme, getThemeById } from '../chatThemes';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -20,18 +20,21 @@ export const ChatThemeModal: React.FC<ChatThemeModalProps> = ({
   onClose,
   onSelectTheme
 }) => {
-  const [activeCategory, setActiveCategory] = useState<'all' | 'minimal' | 'love' | 'animals' | 'professional' | 'kids' | 'aesthetic' | 'classic'>('all');
+  const [activeCategory, setActiveCategory] = useState<'all' | 'minimal' | 'love' | 'animals' | 'professional' | 'kids' | 'nature' | 'sky' | 'fun' | 'classic'>('all');
   const [selectedThemeId, setSelectedThemeId] = useState<string>(currentThemeId || 'minimal_clean_slate');
   const [applyToAll, setApplyToAll] = useState<boolean>(false);
 
   const categories = [
-    { id: 'all', label: 'All Themes', icon: Palette },
+    { id: 'all', label: 'All Themes (50)', icon: Palette },
     { id: 'minimal', label: 'Minimal & Zen', icon: Sparkles },
     { id: 'love', label: 'Love & Hearts', icon: Heart },
     { id: 'animals', label: 'Cute Animals', icon: Cat },
+    { id: 'kids', label: 'Kids & Fantasy', icon: Baby },
+    { id: 'nature', label: 'Nature & Botany', icon: Trees },
+    { id: 'sky', label: 'Sky & Clouds', icon: CloudSun },
     { id: 'professional', label: 'Professional', icon: Briefcase },
-    { id: 'kids', label: 'Kids World', icon: Baby },
-    { id: 'classic', label: 'WhatsApp Classic', icon: MessageSquare },
+    { id: 'fun', label: 'Fun & Vibrant', icon: Gamepad2 },
+    { id: 'classic', label: 'Classic Messaging', icon: MessageSquare },
   ];
 
   const filteredThemes = activeCategory === 'all' 

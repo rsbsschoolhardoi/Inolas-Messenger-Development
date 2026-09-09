@@ -26,3 +26,34 @@ export const STARS_PATTERN = `url("data:image/svg+xml,%3Csvg width='160' height=
 
 // Refined, soothing aesthetic micro-motif pattern for default chat wallpaper
 export const ZENOA_AESTHETIC_MICRO_PATTERN = `url("data:image/svg+xml,%3Csvg width='260' height='260' viewBox='0 0 260 260' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%236366f1' fill-opacity='0.045' fill-rule='evenodd'%3E%3Ccircle cx='20' cy='30' r='2'/%3E%3Ccircle cx='180' cy='190' r='2'/%3E%3Cpath d='M36 8l1.5 3 3 1.5-3 1.5-1.5 3-1.5-3-3-1.5 3-1.5z' transform='translate(100, 20)'/%3E%3Cpath d='M36 8l1.5 3 3 1.5-3 1.5-1.5 3-1.5-3-3-1.5 3-1.5z' transform='translate(40, 210)'/%3E%3Cpath d='M64 36l1 2 2 1-2 1-1 2-1-2-2-1 2-1z' transform='translate(180, 80)'/%3E%3Crect x='15' y='120' width='3.5' height='3.5' rx='1'/%3E%3Crect x='220' y='150' width='3' height='3' rx='1'/%3E%3Ccircle cx='140' cy='240' r='2'/%3E%3Cpath d='M28 26c0-1.7 1.3-3 3-3h4c1.7 0 3 1.3 3 3v2c0 1.7-1.3 3-3 3h-1l-2 2v-2h-1c-1.7 0-3-1.3-3-3v-2z' transform='translate(110, 110)' fill-opacity='0.035'/%3E%3C/g%3E%3C/svg%3E")`;
+
+// 8. SKY CLOUDS PATTERN
+export const SKY_CLOUDS_PATTERN = `url("data:image/svg+xml,%3Csvg width='240' height='240' viewBox='0 0 240 240' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%2338bdf8' fill-opacity='0.065' fill-rule='evenodd'%3E%3Cpath d='M10 20c0-1.8 1.5-3.2 3.2-3.2h1.3c1.4 0 2.6-1.1 2.6-2.6 0-2.6-2.1-4.8-4.8-4.8h-1.3C7.1 9.4 4.5 12 4.5 15.2c0 .5.1.9.2 1.3-1.5.3-2.7 1.6-2.7 3.3 0 1.8 1.5 3.2 3.2 3.2h9.6c1.8 0 3.2-1.5 3.2-3.2 0-1.8-1.5-3.2-3.2-3.2H10z' transform='translate(20, 20) scale(1.8)'/%3E%3Cpath d='M10 20c0-1.8 1.5-3.2 3.2-3.2h1.3c1.4 0 2.6-1.1 2.6-2.6 0-2.6-2.1-4.8-4.8-4.8h-1.3C7.1 9.4 4.5 12 4.5 15.2c0 .5.1.9.2 1.3-1.5.3-2.7 1.6-2.7 3.3 0 1.8 1.5 3.2 3.2 3.2h9.6c1.8 0 3.2-1.5 3.2-3.2 0-1.8-1.5-3.2-3.2-3.2H10z' transform='translate(130, 140) scale(1.3)'/%3E%3Cpath d='M0 0c5 5 15 5 20 0' stroke='%2338bdf8' stroke-width='1.2' stroke-opacity='0.06' fill='none' transform='translate(170, 40)'/%3E%3Cpath d='M0 0c4 4 12 4 16 0' stroke='%2338bdf8' stroke-width='1' stroke-opacity='0.06' fill='none' transform='translate(40, 180)'/%3E%3C/g%3E%3C/svg%3E")`;
+
+// 9. AURORA STARRY PATTERN
+export const AURORA_STARRY_PATTERN = `url("data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23a855f7' fill-opacity='0.05' fill-rule='evenodd'%3E%3Cpath d='M20 0l2.5 7.5 7.5 2.5-7.5 2.5-2.5 7.5-2.5-7.5-7.5-2.5 7.5-2.5z' transform='translate(30, 20)'/%3E%3Cpath d='M15 0l1.8 5.2 5.2 1.8-5.2 1.8-1.8 5.2-1.8-5.2-5.2-1.8 5.2-1.8z' transform='translate(140, 110)'/%3E%3Ccircle cx='80' cy='160' r='1.5'/%3E%3Ccircle cx='170' cy='30' r='2'/%3E%3Cpath d='M0 10q30-15 60 0t60 0' stroke='%23a855f7' stroke-width='1' stroke-opacity='0.04' fill='none' transform='translate(10, 80)'/%3E%3C/g%3E%3C/svg%3E")`;
+
+// 10. JUNGLE BOTANICAL PATTERN
+export const JUNGLE_BOTANICAL_PATTERN = `url("data:image/svg+xml,%3Csvg width='220' height='220' viewBox='0 0 220 220' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%2310b981' fill-opacity='0.05' fill-rule='evenodd'%3E%3Cpath d='M20 0c10 20-5 35-20 40 15-5 30-20 20-40z' transform='translate(20, 20) scale(1.2) rotate(20)'/%3E%3Cpath d='M20 0c10 20-5 35-20 40 15-5 30-20 20-40z' transform='translate(140, 120) scale(1.5) rotate(-35)'/%3E%3Cpath d='M10 0q8 12 0 24t-10-24z' transform='translate(160, 30) rotate(45)'/%3E%3C/g%3E%3C/svg%3E")`;
+
+// 11. CYBERPUNK GRID PATTERN
+export const CYBERPUNK_GRID_PATTERN = `url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h60v60H0z' fill='none'/%3E%3Cpath d='M60 0H0v60' stroke='%23f43f5e' stroke-width='0.8' stroke-opacity='0.06' fill='none'/%3E%3Ccircle cx='0' cy='0' r='1.5' fill='%2306b6d4' fill-opacity='0.1'/%3E%3C/svg%3E")`;
+
+// 12. CORPORATE EXECUTIVE PATTERN
+export const CORPORATE_EXECUTIVE_PATTERN = `url("data:image/svg+xml,%3Csvg width='40' height='40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M20 0l20 20-20 20L0 20z' stroke='%233b82f6' stroke-width='0.6' stroke-opacity='0.04' fill='none'/%3E%3C/svg%3E")`;
+
+// 13. OCEAN WAVES PATTERN
+export const OCEAN_WAVES_PATTERN = `url("data:image/svg+xml,%3Csvg width='180' height='180' viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 20q25-10 50 0t50 0t50 0' stroke='%230284c7' stroke-width='1.2' stroke-opacity='0.05' fill='none' transform='translate(0, 20)'/%3E%3Cpath d='M0 20q25-10 50 0t50 0t50 0' stroke='%230284c7' stroke-width='1.2' stroke-opacity='0.05' fill='none' transform='translate(15, 90)'/%3E%3Cpath d='M0 20q25-10 50 0t50 0t50 0' stroke='%230284c7' stroke-width='1.2' stroke-opacity='0.05' fill='none' transform='translate(0, 150)'/%3E%3C/svg%3E")`;
+
+// 14. SAKURA BLOSSOM PATTERN
+export const SAKURA_BLOSSOM_PATTERN = `url("data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23f472b6' fill-opacity='0.055' fill-rule='evenodd'%3E%3Cpath d='M10 0c5 10 2 15-5 18 8-2 12-8 10-15z' transform='translate(30, 40) rotate(25)'/%3E%3Cpath d='M10 0c5 10 2 15-5 18 8-2 12-8 10-15z' transform='translate(140, 130) rotate(-40)'/%3E%3Ccircle cx='100' cy='60' r='2'/%3E%3Ccircle cx='40' cy='150' r='1.5'/%3E%3C/g%3E%3C/svg%3E")`;
+
+// 15. PIXEL RETRO PATTERN
+export const PIXEL_RETRO_PATTERN = `url("data:image/svg+xml,%3Csvg width='32' height='32' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='4' y='4' width='4' height='4' fill='%23a855f7' fill-opacity='0.06'/%3E%3Crect x='20' y='18' width='4' height='4' fill='%23a855f7' fill-opacity='0.06'/%3E%3Crect x='12' y='24' width='2' height='2' fill='%2306b6d4' fill-opacity='0.06'/%3E%3C/svg%3E")`;
+
+// 16. GALAXY COSMOS PATTERN
+export const GALAXY_COSMOS_PATTERN = `url("data:image/svg+xml,%3Csvg width='240' height='240' viewBox='0 0 240 240' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23818cf8' fill-opacity='0.05' fill-rule='evenodd'%3E%3Ccircle cx='40' cy='50' r='8'/%3E%3Cellipse cx='40' cy='50' rx='14' ry='3' transform='rotate(-20 40 50)' stroke='%23818cf8' stroke-width='1' stroke-opacity='0.05' fill='none'/%3E%3Cpath d='M10 0l2 6 6 2-6 2-2 6-2-6-6-2 6-2z' transform='translate(180, 140)'/%3E%3Ccircle cx='150' cy='40' r='2'/%3E%3Ccircle cx='80' cy='190' r='1.5'/%3E%3C/g%3E%3C/svg%3E")`;
+
+// 17. SWEET CANDY PATTERN
+export const SWEET_CANDY_PATTERN = `url("data:image/svg+xml,%3Csvg width='220' height='220' viewBox='0 0 220 220' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ec4899' fill-opacity='0.05' fill-rule='evenodd'%3E%3Ccircle cx='30' cy='30' r='10'/%3E%3Cpath d='M30 40v12' stroke='%23ec4899' stroke-width='2' stroke-opacity='0.05' fill='none'/%3E%3Ccircle cx='150' cy='140' r='7'/%3E%3Cpath d='M150 147v10' stroke='%23ec4899' stroke-width='1.5' stroke-opacity='0.05' fill='none'/%3E%3C/g%3E%3C/svg%3E")`;
+

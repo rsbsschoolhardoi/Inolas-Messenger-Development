@@ -1,7 +1,8 @@
 /**
  * Production-ready SDK Generators for Zenoa Developer Console (Service Accounts & Bot APIs)
- * Service Account Credentials & Endpoints are embedded for Developer Console services.
- * Note: SSO / OAuth 2.0 Identity code is managed separately in the SSO Portal.
+ * Public Client IDs and Endpoints are pre-configured.
+ * Confidential Client Secrets are strictly loaded via Environment Variables (e.g. ZENOA_SA_CLIENT_SECRET)
+ * to prevent accidental Git commits and frontend credential leaks.
  */
 
 const resolveBotHandle = (app: any): string => {
@@ -13,7 +14,6 @@ const resolveBotHandle = (app: any): string => {
 export const generateTsSdk = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const sec = app.active_client_secret || app.client_secret || 'zen_sec_secret';
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
@@ -21,7 +21,10 @@ export const generateTsSdk = (app: any) => {
   return `/**
  * Zenoa Service Account TypeScript SDK
  * Service Account: ${botHandle} (${appName})
- * Pre-Configured with Encrypted Client Credentials
+ *
+ * SECURITY NOTICE:
+ * Never hardcode your Service Account Client Secret in client-side code or commit it to GitHub.
+ * Load your secret securely via process.env.ZENOA_SA_CLIENT_SECRET on your backend server.
  */
 
 export interface ZenoaConfig {
@@ -49,8 +52,9 @@ export class ZenoaSDK {
   private readonly baseUrl: string;
 
   constructor(config?: ZenoaConfig) {
-    this.clientId = config?.clientId || "${cid}";
-    this.clientSecret = config?.clientSecret || "${sec}";
+    this.clientId = config?.clientId || (typeof process !== 'undefined' && process.env?.ZENOA_SA_CLIENT_ID) || "${cid}";
+    // Confidential secret is loaded securely from environment variable on backend
+    this.clientSecret = config?.clientSecret || (typeof process !== 'undefined' && (process.env?.ZENOA_SA_CLIENT_SECRET || process.env?.ZENOA_CLIENT_SECRET)) || "";
     this.baseUrl = (config?.baseUrl || "${origin}").replace(/\\/$/, '');
   }
 
@@ -101,9 +105,12 @@ export class ZenoaSDK {
   }
 
   /**
-   * Sends an automated service account message or transaction notification
+   * Sends an automated service account message or transaction notification (Requires Server-Side Secret)
    */
   async sendMessage(recipient: string, message: string, mediaUrl?: string) {
+    if (!this.clientSecret) {
+      console.warn("[ZenoaSDK] Warning: ZENOA_SA_CLIENT_SECRET is not configured. Set process.env.ZENOA_SA_CLIENT_SECRET on your server.");
+    }
     const res = await fetch(\`\${this.baseUrl}/api/v1/bot/send\`, {
       method: "POST",
       headers: {
@@ -129,7 +136,6 @@ export default ZenoaSDK;
 export const generateNodeSdk = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const sec = app.active_client_secret || app.client_secret || 'zen_sec_secret';
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
@@ -137,12 +143,14 @@ export const generateNodeSdk = (app: any) => {
   return `/**
  * Zenoa Node.js SDK (CommonJS / ES Module)
  * Service Account: ${botHandle} (${appName})
+ *
+ * Load your secret securely via process.env.ZENOA_SA_CLIENT_SECRET.
  */
 
 class ZenoaSDK {
   constructor(config = {}) {
-    this.clientId = config.clientId || "${cid}";
-    this.clientSecret = config.clientSecret || "${sec}";
+    this.clientId = config.clientId || process.env.ZENOA_SA_CLIENT_ID || "${cid}";
+    this.clientSecret = config.clientSecret || process.env.ZENOA_SA_CLIENT_SECRET || process.env.ZENOA_CLIENT_SECRET || "";
     this.baseUrl = (config.baseUrl || "${origin}").replace(/\\/$/, '');
   }
 
@@ -173,6 +181,9 @@ class ZenoaSDK {
   }
 
   async sendMessage(recipient, message, mediaUrl = null) {
+    if (!this.clientSecret) {
+      console.warn("[ZenoaSDK] Warning: ZENOA_SA_CLIENT_SECRET is missing. Set process.env.ZENOA_SA_CLIENT_SECRET in your backend environment.");
+    }
     const res = await fetch(\`\${this.baseUrl}/api/v1/bot/send\`, {
       method: "POST",
       headers: {
@@ -192,7 +203,6 @@ module.exports = ZenoaSDK;
 export const generatePythonSdk = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const sec = app.active_client_secret || app.client_secret || 'zen_sec_secret';
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
@@ -200,16 +210,20 @@ export const generatePythonSdk = (app: any) => {
   return `"""
 Zenoa Python SDK for ${appName}
 Service Account: ${botHandle}
-Pre-configured with credentials
+
+Load ZENOA_SA_CLIENT_SECRET securely from your environment:
+export ZENOA_SA_CLIENT_SECRET="your_copied_secret_here"
 """
 
+import os
 import requests
 from typing import Optional, Dict, Any
 
 class ZenoaSDK:
-    def __init__(self, client_id: str = "${cid}", client_secret: str = "${sec}", base_url: str = "${origin}"):
-        self.client_id = client_id
-        self.client_secret = client_secret
+    def __init__(self, client_id: Optional[str] = None, client_secret: Optional[str] = None, base_url: str = "${origin}"):
+        self.client_id = client_id or os.environ.get("ZENOA_SA_CLIENT_ID", "${cid}")
+        # Secret is securely read from environment variable
+        self.client_secret = client_secret or os.environ.get("ZENOA_SA_CLIENT_SECRET") or os.environ.get("ZENOA_CLIENT_SECRET", "")
         self.base_url = base_url.rstrip("/")
 
     def send_otp(self, recipient: str, template_type: str = "standard_otp", expiry_mins: int = 10) -> Dict[str, Any]:
@@ -243,6 +257,8 @@ class ZenoaSDK:
 
     def send_message(self, recipient: str, message: str, media_url: Optional[str] = None) -> Dict[str, Any]:
         """Sends a notification or service account message."""
+        if not self.client_secret:
+            print("[ZenoaSDK] Warning: ZENOA_SA_CLIENT_SECRET is not set in environment.")
         url = f"{self.base_url}/api/v1/bot/send"
         headers = {
             "Authorization": f"Bearer {self.client_secret}",
@@ -262,7 +278,6 @@ class ZenoaSDK:
 export const generateGoSdk = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const sec = app.active_client_secret || app.client_secret || 'zen_sec_secret';
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
@@ -276,6 +291,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -287,9 +303,18 @@ type Client struct {
 }
 
 func NewClient() *Client {
+	clientID := os.Getenv("ZENOA_SA_CLIENT_ID")
+	if clientID == "" {
+		clientID = "${cid}"
+	}
+	clientSecret := os.Getenv("ZENOA_SA_CLIENT_SECRET")
+	if clientSecret == "" {
+		clientSecret = os.Getenv("ZENOA_CLIENT_SECRET")
+	}
+
 	return &Client{
-		ClientID:     "${cid}",
-		ClientSecret: "${sec}",
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
 		BaseURL:      "${origin}",
 		HTTPClient:   &http.Client{Timeout: 10 * time.Second},
 	}
@@ -329,7 +354,6 @@ func (c *Client) SendOTP(recipient, templateType string) (*OTPResponse, error) {
 export const generatePhpSdk = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const sec = app.active_client_secret || app.client_secret || 'zen_sec_secret';
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
@@ -345,9 +369,9 @@ class ZenoaSDK {
     private $clientSecret;
     private $baseUrl;
 
-    public function __construct($clientId = "${cid}", $clientSecret = "${sec}", $baseUrl = "${origin}") {
-        $this->clientId = $clientId;
-        $this->clientSecret = $clientSecret;
+    public function __construct($clientId = null, $clientSecret = null, $baseUrl = "${origin}") {
+        $this->clientId = $clientId ?? (getenv('ZENOA_SA_CLIENT_ID') ?: "${cid}");
+        $this->clientSecret = $clientSecret ?? (getenv('ZENOA_SA_CLIENT_SECRET') ?: (getenv('ZENOA_CLIENT_SECRET') ?: ''));
         $this->baseUrl = rtrim($baseUrl, '/');
     }
 
@@ -400,7 +424,6 @@ class ZenoaSDK {
 export const generateJavaSdk = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const sec = app.active_client_secret || app.client_secret || 'zen_sec_secret';
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
@@ -423,7 +446,11 @@ public class ZenoaSDK {
     private final HttpClient client;
 
     public ZenoaSDK() {
-        this("${cid}", "${sec}", "${origin}");
+        this(
+            System.getenv("ZENOA_SA_CLIENT_ID") != null ? System.getenv("ZENOA_SA_CLIENT_ID") : "${cid}",
+            System.getenv("ZENOA_SA_CLIENT_SECRET") != null ? System.getenv("ZENOA_SA_CLIENT_SECRET") : (System.getenv("ZENOA_CLIENT_SECRET") != null ? System.getenv("ZENOA_CLIENT_SECRET") : ""),
+            "${origin}"
+        );
     }
 
     public ZenoaSDK(String clientId, String clientSecret, String baseUrl) {
@@ -454,18 +481,23 @@ public class ZenoaSDK {
 export const generateEnvConfig = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const sec = app.active_client_secret || app.client_secret || 'zen_sec_secret';
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
 
-  return `# Service Account Configuration for ${appName}
+  return `# ==============================================================================
+# Zenoa Service Account (Developer Console) Configuration
 # Service Account Name: ${appName}
 # Service Account Handle: ${botHandle}
-ZENOA_SERVICE_ACCOUNT_NAME="${appName}"
-ZENOA_SERVICE_ACCOUNT_HANDLE="${botHandle}"
-ZENOA_CLIENT_ID="${cid}"
-ZENOA_CLIENT_SECRET="${sec}"
+# ==============================================================================
+ZENOA_SA_SERVICE_ACCOUNT_NAME="${appName}"
+ZENOA_SA_SERVICE_ACCOUNT_HANDLE="${botHandle}"
+ZENOA_SA_CLIENT_ID="${cid}"
+
+# Paste your copied Service Account Client Secret below (Keep this confidential & never commit to Git):
+ZENOA_SA_CLIENT_SECRET="YOUR_SA_CLIENT_SECRET_HERE"
+
+# Endpoints
 ZENOA_BASE_URL="${origin}"
 ZENOA_OTP_SEND_URL="${origin}/api/v1/otp/send"
 ZENOA_OTP_VERIFY_URL="${origin}/api/v1/otp/verify"
@@ -475,7 +507,6 @@ ZENOA_BOT_SEND_URL="${origin}/api/v1/bot/send"`;
 export const generateCurlSnippets = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const sec = app.active_client_secret || app.client_secret || 'zen_sec_secret';
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
   return `# 1. Send OTP Request
 curl -X POST "${origin}/api/v1/otp/send" \\
@@ -489,9 +520,10 @@ curl -X POST "${origin}/api/v1/otp/verify" \\
   -H "Content-Type: application/json" \\
   -d '{"recipient": "+919876543210", "code": "481920"}'
 
-# 3. Send Bot DM Message Request
+# 3. Send Bot DM Message Request (Run on backend server)
+# Ensure ZENOA_SA_CLIENT_SECRET is set in environment: export ZENOA_SA_CLIENT_SECRET="your_secret"
 curl -X POST "${origin}/api/v1/bot/send" \\
-  -H "Authorization: Bearer ${sec}" \\
+  -H "Authorization: Bearer $ZENOA_SA_CLIENT_SECRET" \\
   -H "Content-Type: application/json" \\
   -d '{"client_id": "${cid}", "recipient": "john_doe", "message": "Order confirmed!"}'`;
 };
@@ -503,3 +535,5 @@ export const generateHtmlSnippet = (app: any) => {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
   return `<a href="${origin}/@${botHandle.replace(/^@/, '')}" target="_blank" rel="noopener noreferrer">Contact ${appName} (${botHandle})</a>`;
 };
+
+

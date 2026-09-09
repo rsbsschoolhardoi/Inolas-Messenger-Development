@@ -167,7 +167,8 @@ const crypto = require('crypto');
 
 app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
   const signature = req.headers['x-zenoa-signature'];
-  const secret = process.env.ZENOA_CLIENT_SECRET || "${signingSecret}";
+  // Securely load webhook secret from backend environment variable
+  const secret = process.env.ZENOA_SA_CLIENT_SECRET || process.env.ZENOA_SA_WEBHOOK_SECRET || process.env.ZENOA_CLIENT_SECRET;
   
   const expectedSignature = crypto
     .createHmac('sha256', secret)
@@ -239,22 +240,16 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-700">Signing Secret</label>
                 <button
                   onClick={() => handleCopy(signingSecret, "Signing Secret")}
-                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
                 >
                   {copiedKey === "Signing Secret" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                  Copy Secret
+                  <span>{copiedKey === "Signing Secret" ? 'Copied' : 'Copy Secret'}</span>
                 </button>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-mono text-slate-800 flex items-center justify-between">
-                  <span>{showSecret ? signingSecret : '••••••••••••••••••••••••••••••••••••••••'}</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowSecret(!showSecret)}
-                    className="text-slate-400 hover:text-slate-600"
-                  >
-                    {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
+                <div className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-xs font-mono text-slate-400 select-all flex items-center justify-between tracking-widest">
+                  <span>zen_sec_••••••••••••••••••••••••••••••••</span>
+                  <span className="text-[10px] uppercase font-sans font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded tracking-normal">Protected</span>
                 </div>
               </div>
               <p className="text-xs text-slate-500 mt-1.5">

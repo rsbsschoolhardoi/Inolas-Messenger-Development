@@ -12,6 +12,7 @@ interface SecuritySettingsViewProps {
   showToast: (msg: string) => void;
   onUpdateApp: (updates: any) => Promise<void>;
   onRotateKey: () => Promise<void>;
+  onDeleteApp?: () => Promise<void>;
 }
 
 export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
@@ -20,7 +21,8 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
   onSetEnvironment,
   showToast,
   onUpdateApp,
-  onRotateKey
+  onRotateKey,
+  onDeleteApp
 }) => {
   const formatAllowedIps = (ips: any): string => {
     if (Array.isArray(ips)) return ips.join(', ');
@@ -34,6 +36,8 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
   const [allowedIps, setAllowedIps] = useState(formatAllowedIps(app?.allowed_ips));
   const [isSaving, setIsSaving] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     setAppName(app?.app_name || '');
@@ -385,6 +389,98 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
           Cycling credentials invalidates prior API secret tokens. Generated SDK files will immediately update with new cryptographic keys.
         </p>
       </div>
+
+      {/* Irreversible Danger Zone: Delete Service Account */}
+      {onDeleteApp && (
+        <div className="bg-red-950/10 border border-red-300 dark:border-red-900/60 rounded-xl p-4 shadow-2xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-xs font-extrabold text-red-900 dark:text-red-400 flex items-center gap-2 uppercase tracking-wider">
+                <Trash2 className="h-4 w-4 text-red-600 dark:text-red-500" />
+                Delete Service Account
+              </h3>
+              <p className="text-[11px] text-red-700 dark:text-red-400/90 mt-0.5">
+                Permanently destroy this service account, revoking API keys, webhook endpoints, and credentials.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(true)}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span>Delete Service Account</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Red Warning Confirmation Modal for Deleting Service Account */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-red-300 dark:border-red-800/80 w-full max-w-lg rounded-2xl p-6 sm:p-8 shadow-2xl animate-in zoom-in-95 space-y-6">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-red-100 dark:bg-red-950/80 text-red-600 dark:text-red-400 rounded-2xl border border-red-200 dark:border-red-800/80 shrink-0">
+                <AlertTriangle className="h-7 w-7" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">
+                  Delete Service Account
+                </h3>
+                <p className="text-xs font-bold text-red-600 dark:text-red-400 uppercase tracking-widest mt-0.5">
+                  ⚠️ Action Cannot Be Undone
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl space-y-2 text-xs text-red-900 dark:text-red-200 leading-relaxed">
+              <p className="font-bold">
+                DANGER: Are you sure you want to permanently delete this service account ({app?.app_name || 'Service Account'})?
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-[11px] text-red-800 dark:text-red-300">
+                <li>All active client IDs, client secrets, and API keys will be immediately revoked.</li>
+                <li>Webhook endpoints and automated messaging integrations will stop functioning.</li>
+                <li>This action is permanent and cannot be reversed from backend or database.</li>
+              </ul>
+              <p className="pt-1 text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                After deletion, you can freely create a new clean service account from your Developer Console.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setShowDeleteModal(false)}
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={async () => {
+                  setIsDeleting(true);
+                  try {
+                    if (onDeleteApp) {
+                      await onDeleteApp();
+                    }
+                  } catch (err: any) {
+                    showToast('Delete failed: ' + err.message);
+                  } finally {
+                    setIsDeleting(false);
+                    setShowDeleteModal(false);
+                  }
+                }}
+                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span>{isDeleting ? 'Deleting...' : 'Yes, Delete Service Account'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

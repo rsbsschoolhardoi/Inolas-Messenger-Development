@@ -102,6 +102,12 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
   // Modals
   const [secretRotateModalApp, setSecretRotateModalApp] = useState<SSOApp | null>(null);
   const [deleteConfirmApp, setDeleteConfirmApp] = useState<SSOApp | null>(null);
+  const [oneTimeSecretReveal, setOneTimeSecretReveal] = useState<{
+    appName: string;
+    clientId: string;
+    clientSecret: string;
+    actionType: 'created' | 'rotated';
+  } | null>(null);
 
   // Interactive Playground State
   const [selectedTesterAppId, setSelectedTesterAppId] = useState<string>('');
@@ -114,7 +120,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
   const [testerLog, setTesterLog] = useState<string[]>([]);
 
   // Code Snippets Tab
-  const [docsLanguage, setDocsLanguage] = useState<'react' | 'nodejs' | 'python' | 'go' | 'curl'>('react');
+  const [docsLanguage, setDocsLanguage] = useState<'react' | 'nodejs' | 'python' | 'go' | 'curl' | 'env'>('react');
 
   // SSO Button Customizer State
   const [buttonConfig, setButtonConfig] = useState<{
@@ -364,6 +370,14 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
 
         setApps(prev => [newApp, ...prev]);
         showNotification('success', 'OAuth 2.0 client registered successfully');
+        
+        // Show one-time secret revelation modal
+        setOneTimeSecretReveal({
+          appName: newApp.app_name,
+          clientId: newApp.client_id,
+          clientSecret: newApp.client_secret,
+          actionType: 'created'
+        });
       }
 
       resetForm();
@@ -389,6 +403,14 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       }
       setApps(prev => prev.map(a => a.id === secretRotateModalApp.id ? { ...a, client_secret: newSecret, updated_at: Date.now() } : a));
       showNotification('success', `Client Secret rotated for ${secretRotateModalApp.app_name}`);
+      
+      // Reveal new secret once
+      setOneTimeSecretReveal({
+        appName: secretRotateModalApp.app_name,
+        clientId: secretRotateModalApp.client_id,
+        clientSecret: newSecret,
+        actionType: 'rotated'
+      });
       setSecretRotateModalApp(null);
     } catch (err: any) {
       showNotification('error', err.message || 'Failed to rotate secret');
@@ -1194,17 +1216,10 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                                 </button>
                               </div>
                               <div className="flex items-center justify-between gap-2">
-                                <code className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 break-all select-all">
-                                  {isSecretVisible ? app.client_secret : '••••••••••••••••••••••••••••••••'}
+                                <code className="text-xs font-mono font-bold text-slate-400 tracking-widest break-all select-all">
+                                  ••••••••••••••••••••••••••••••••
                                 </code>
                                 <div className="flex items-center gap-1 shrink-0">
-                                  <button
-                                    onClick={() => setRevealedSecrets(prev => ({ ...prev, [app.id]: !prev[app.id] }))}
-                                    className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-                                    title={isSecretVisible ? "Hide Secret" : "Reveal Secret"}
-                                  >
-                                    {isSecretVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                  </button>
                                   <button
                                     onClick={() => handleCopy(app.client_secret, `sec_${app.id}`, 'Client Secret copied')}
                                     className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
@@ -1830,7 +1845,8 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                         { id: 'react', label: 'React / Next.js' },
                         { id: 'nodejs', label: 'Node.js Express' },
                         { id: 'python', label: 'Python FastAPI' },
-                        { id: 'curl', label: 'cURL / RFC 6749' }
+                        { id: 'curl', label: 'cURL / RFC 6749' },
+                        { id: 'env', label: '.env Config' }
                       ].map(lang => (
                         <button
                           key={lang.id}
@@ -1852,9 +1868,10 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                     <button
                       onClick={() => handleCopy(
                         docsLanguage === 'react' ? `// React Login Handler\nconst handleZenoaLogin = () => {\n  const authUrl = "${getAccountsAuthUrl()}?client_id=${activeSnippetApp.client_id}&redirect_uri=" + encodeURIComponent(window.location.origin + "/auth/callback");\n  window.location.href = authUrl;\n};`
-                        : docsLanguage === 'nodejs' ? `// Node.js Express Token Exchange\napp.get('/auth/callback', async (req, res) => {\n  const { code } = req.query;\n  const response = await fetch('${getApiTokenUrl()}', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      grant_type: 'authorization_code',\n      client_id: '${activeSnippetApp.client_id}',\n      client_secret: '${activeSnippetApp.client_secret}',\n      code,\n      redirect_uri: '${activeSnippetApp.redirect_uris[0]}'\n    })\n  });\n  const tokenData = await response.json();\n  res.json(tokenData);\n});`
-                        : docsLanguage === 'python' ? `# Python FastAPI OAuth Handler\nimport httpx\nfrom fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get("/auth/callback")\nasync def auth_callback(code: str):\n    async with httpx.AsyncClient() as client:\n        resp = await client.post("${getApiTokenUrl()}", json={\n            "grant_type": "authorization_code",\n            "client_id": "${activeSnippetApp.client_id}",\n            "client_secret": "${activeSnippetApp.client_secret}",\n            "code": code,\n            "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"\n        })\n        return resp.json()`
-                        : `curl -X POST ${getApiTokenUrl()} \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "grant_type": "authorization_code",\n    "client_id": "${activeSnippetApp.client_id}",\n    "client_secret": "${activeSnippetApp.client_secret}",\n    "code": "zen_code_YOUR_CODE",\n    "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"\n  }'`,
+                        : docsLanguage === 'nodejs' ? `// Node.js Express Token Exchange\napp.get('/auth/callback', async (req, res) => {\n  const { code } = req.query;\n  const response = await fetch('${getApiTokenUrl()}', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      grant_type: 'authorization_code',\n      client_id: '${activeSnippetApp.client_id}',\n      client_secret: process.env.ZENOA_CLIENT_SECRET,\n      code,\n      redirect_uri: '${activeSnippetApp.redirect_uris[0]}'\n    })\n  });\n  const tokenData = await response.json();\n  res.json(tokenData);\n});`
+                        : docsLanguage === 'python' ? `# Python FastAPI OAuth Handler\nimport os\nimport httpx\nfrom fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get("/auth/callback")\nasync def auth_callback(code: str):\n    async with httpx.AsyncClient() as client:\n        resp = await client.post("${getApiTokenUrl()}", json={\n            "grant_type": "authorization_code",\n            "client_id": "${activeSnippetApp.client_id}",\n            "client_secret": os.environ.get("ZENOA_CLIENT_SECRET"),\n            "code": code,\n            "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"\n        })\n        return resp.json()`
+                        : docsLanguage === 'env' ? `# ==============================================================================\n# Zenoa OAuth 2.0 & SSO Configuration (${activeSnippetApp.app_name})\n# ==============================================================================\nZENOA_CLIENT_ID="${activeSnippetApp.client_id}"\n\n# Paste your copied confidential client secret below:\nZENOA_CLIENT_SECRET="YOUR_COPIED_CLIENT_SECRET_HERE"\n\n# OAuth Endpoints\nZENOA_AUTH_URL="${getAccountsAuthUrl()}"\nZENOA_TOKEN_URL="${getApiTokenUrl()}"\nZENOA_USERINFO_URL="${window.location.origin}/api/oauth/userinfo"`
+                        : `curl -X POST ${getApiTokenUrl()} \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "grant_type": "authorization_code",\n    "client_id": "${activeSnippetApp.client_id}",\n    "client_secret": "'"$ZENOA_CLIENT_SECRET"'",\n    "code": "zen_code_YOUR_CODE",\n    "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"\n  }'`,
                         'code_snippet',
                         'Code snippet copied'
                       )}
@@ -1888,14 +1905,14 @@ const app = express();
 app.get('/auth/callback', async (req, res) => {
   const { code } = req.query;
   
-  // 1. Exchange auth code for Bearer Access Token
+  // 1. Exchange auth code for Bearer Access Token on secure backend
   const tokenRes = await fetch('${getApiTokenUrl()}', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       grant_type: 'authorization_code',
       client_id: '${activeSnippetApp.client_id}',
-      client_secret: process.env.ZENOA_CLIENT_SECRET || '${activeSnippetApp.client_secret}',
+      client_secret: process.env.ZENOA_CLIENT_SECRET, // Load from .env
       code,
       redirect_uri: '${activeSnippetApp.redirect_uris[0]}'
     })
@@ -1913,6 +1930,7 @@ app.get('/auth/callback', async (req, res) => {
 });`}
 
                       {docsLanguage === 'python' && `# Python FastAPI OAuth Route
+import os
 import httpx
 from fastapi import FastAPI, HTTPException
 
@@ -1921,13 +1939,13 @@ app = FastAPI()
 @app.get("/auth/callback")
 async def oauth_callback(code: str):
     async with httpx.AsyncClient() as client:
-        # Step 1: Exchange code for access token
+        # Step 1: Exchange code for access token using environment variable
         token_response = await client.post(
             "${window.location.origin}/api/oauth/token",
             json={
                 "grant_type": "authorization_code",
                 "client_id": "${activeSnippetApp.client_id}",
-                "client_secret": "${activeSnippetApp.client_secret}",
+                "client_secret": os.environ.get("ZENOA_CLIENT_SECRET"),
                 "code": code,
                 "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"
             }
@@ -1941,13 +1959,13 @@ async def oauth_callback(code: str):
         )
         return user_response.json()`}
 
-                      {docsLanguage === 'curl' && `# 1. POST Code for Token
+                      {docsLanguage === 'curl' && `# 1. POST Code for Token (backend server request)
 curl -X POST ${window.location.origin}/api/oauth/token \\
   -H "Content-Type: application/json" \\
   -d '{
     "grant_type": "authorization_code",
     "client_id": "${activeSnippetApp.client_id}",
-    "client_secret": "${activeSnippetApp.client_secret}",
+    "client_secret": "'"$ZENOA_CLIENT_SECRET"'",
     "code": "zen_code_sample_12345",
     "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"
   }'
@@ -1955,6 +1973,19 @@ curl -X POST ${window.location.origin}/api/oauth/token \\
 # 2. GET User Identity Claims
 curl -X GET ${window.location.origin}/api/oauth/userinfo \\
   -H "Authorization: Bearer zen_at_sample_token_xyz"`}
+
+                      {docsLanguage === 'env' && `# ==============================================================================
+# Zenoa OAuth 2.0 & SSO Configuration (${activeSnippetApp.app_name})
+# ==============================================================================
+ZENOA_CLIENT_ID="${activeSnippetApp.client_id}"
+
+# Paste your copied confidential client secret below:
+ZENOA_CLIENT_SECRET="YOUR_COPIED_CLIENT_SECRET_HERE"
+
+# OAuth Endpoints
+ZENOA_AUTH_URL="${getAccountsAuthUrl()}"
+ZENOA_TOKEN_URL="${getApiTokenUrl()}"
+ZENOA_USERINFO_URL="${window.location.origin}/api/oauth/userinfo"`}
                     </pre>
                   </div>
                 </div>
@@ -2097,6 +2128,86 @@ curl -X GET ${window.location.origin}/api/oauth/userinfo \\
                   className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl cursor-pointer"
                 >
                   Delete Client
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ========================================================================= */}
+      {/* MODAL: ONE-TIME CLIENT SECRET DISPLAY (FIRST REVEAL ONLY)                 */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {oneTimeSecretReveal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className={`max-w-lg w-full p-6 sm:p-7 rounded-2xl border shadow-2xl space-y-5 ${
+                isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                  <Key className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base sm:text-lg">
+                    {oneTimeSecretReveal.actionType === 'created' ? 'OAuth 2.0 Credentials Created' : 'New Client Secret Generated'}
+                  </h3>
+                  <p className="text-xs text-slate-400">{oneTimeSecretReveal.appName}</p>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs leading-relaxed flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Important Security Notice:</strong> This is the only time your full Client Secret is visible. Store it safely in your backend environment variables (`.env`). It cannot be retrieved again later.
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Client ID (Public)</label>
+                  <div className={`p-3 rounded-xl border font-mono text-xs flex items-center justify-between ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-800'
+                  }`}>
+                    <span className="truncate">{oneTimeSecretReveal.clientId}</span>
+                    <button
+                      onClick={() => handleCopy(oneTimeSecretReveal.clientId, 'modal_cid', 'Client ID copied')}
+                      className="text-indigo-500 hover:text-indigo-400 font-sans font-bold text-xs flex items-center gap-1 cursor-pointer shrink-0 ml-2"
+                    >
+                      {copiedKey === 'modal_cid' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>Copy</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-rose-500 uppercase tracking-wider block mb-1">Client Secret (Confidential)</label>
+                  <div className={`p-3 rounded-xl border font-mono text-xs flex items-center justify-between border-rose-300/40 ${
+                    isDark ? 'bg-slate-950 text-emerald-400' : 'bg-slate-50 text-emerald-700'
+                  }`}>
+                    <span className="break-all font-bold select-all">{oneTimeSecretReveal.clientSecret}</span>
+                    <button
+                      onClick={() => handleCopy(oneTimeSecretReveal.clientSecret, 'modal_sec', 'Client Secret copied to clipboard')}
+                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-sans font-bold text-xs rounded-lg flex items-center gap-1 cursor-pointer shrink-0 ml-2 shadow-xs"
+                    >
+                      {copiedKey === 'modal_sec' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>Copy Secret</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  onClick={() => setOneTimeSecretReveal(null)}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl cursor-pointer"
+                >
+                  I Have Stored My Secret Securely
                 </button>
               </div>
             </motion.div>

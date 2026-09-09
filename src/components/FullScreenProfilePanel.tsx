@@ -298,7 +298,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                                 className="p-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-750 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer text-center"
                               >
                                 <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 block pt-1">
-                                  Vault Protected
+                                  Official E2EE
                                 </span>
                                 <span className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">
                                   Security
@@ -438,7 +438,13 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                         {isServiceAccount(users[targetUsernameLower], targetUsername) && (
                           <div className="mt-1.5 flex justify-center">
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide bg-blue-500/10 text-blue-600 dark:text-blue-400 dark:bg-blue-400/10 border border-blue-200/50 dark:border-blue-500/20 shadow-xs">
-                              <span>{['zenoa', 'sa_zenoa', 'zenoa_official'].includes(targetUsername.toLowerCase()) ? 'Official Zenoa Account' : 'Business Account'}</span>
+                              <span>
+                                {['zenoa', 'sa_zenoa', 'zenoa_official'].includes(targetUsername.toLowerCase()) 
+                                  ? 'Official System Service' 
+                                  : users[targetUsernameLower]?.owner 
+                                  ? `Service Extension of @${users[targetUsernameLower]?.owner}` 
+                                  : 'Service Account Extension'}
+                              </span>
                             </span>
                           </div>
                         )}

@@ -25,6 +25,8 @@ export interface UserData {
   is_business_account?: boolean;
   is_official?: boolean;
   service_category?: string;
+  owner?: string;
+  owner_username?: string;
   is_banned?: boolean;
   ban_reason?: string;
   ban_timestamp?: number;

@@ -18,7 +18,7 @@ import { RunningMarqueeText } from './components/RunningMarqueeText';
 
 import {  
   MessageSquare, Search, LogOut, Pin, VolumeX, Check, CheckCheck, 
-  Send, Paperclip, Smile, Image as ImageIcon, Video, FileText, Mic, 
+  Send, Paperclip, Smile, Image as ImageIcon, Video, FileText, Mic, Music, 
   ChevronLeft, Info, AlertCircle, AlertTriangle, Plus, User, Moon, Sun, 
   CheckCircle2, X, Star, Forward, Trash2, SmileIcon, UserCheck, UserX, Flag, Edit2,
   Camera, Upload, Menu, Share2, Reply,
@@ -42,6 +42,7 @@ import {  VoiceNotePlayer } from './components/VoiceNotePlayer';
 import { SettingsPage } from './components/SettingsPage';
 import { PortalDashboard } from './components/developer/views/PortalDashboard';
 import {  MediaEditorModal, MediaEditorData } from './components/MediaEditorModal';
+import {  InbuiltMediaPicker, MediaPickerItem } from './components/InbuiltMediaPicker';
 import {  ImageCropperModal } from './components/ImageCropperModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import {  ChatThemeModal } from './components/ChatThemeModal';
@@ -1492,6 +1493,8 @@ export default function App() {
   // Custom Wallpaper, Archive & Lock State
   const localMediaCacheRef = useRef<Record<string, string>>({});
   const [showThemeModal, setShowThemeModal] = useState<boolean>(false);
+  const [showMediaPicker, setShowMediaPicker] = useState<boolean>(false);
+  const [mediaPickerInitialTab, setMediaPickerInitialTab] = useState<'all' | 'image' | 'video' | 'document' | 'audio'>('all');
   const [chatWallpapers, setChatWallpapers] = useState<Record<string, string>>(() => {
     try { return JSON.parse(localStorage.getItem('zenoa_chat_wallpapers') || '{}'); } catch { return {}; }
   });
@@ -5421,22 +5424,44 @@ export default function App() {
     setReplyToSender('');
   };
 
-  // Attach elements (Image, Video, Doc, Voice) mock or real picker trigger
-  const handleAttachMock = async (type: 'image' | 'video' | 'document' | 'voice' | 'location' | 'contact' | 'poll') => {
-    if (type === 'image') {
-      imageFileInputRef.current?.click();
+  // Attach elements (Gallery, Image, Video, Doc, Voice, Camera, Location, Contact, Poll)
+  const handleAttachMock = async (type: 'gallery' | 'image' | 'video' | 'document' | 'audio' | 'voice' | 'location' | 'contact' | 'poll' | 'camera') => {
+    if (type === 'gallery') {
+      setMediaPickerInitialTab('all');
+      setShowMediaPicker(true);
+      setShowAttachMenu(false);
+    } else if (type === 'image') {
+      setMediaPickerInitialTab('image');
+      setShowMediaPicker(true);
+      setShowAttachMenu(false);
     } else if (type === 'video') {
-      videoFileInputRef.current?.click();
+      setMediaPickerInitialTab('video');
+      setShowMediaPicker(true);
+      setShowAttachMenu(false);
     } else if (type === 'document') {
-      docFileInputRef.current?.click();
+      setMediaPickerInitialTab('document');
+      setShowMediaPicker(true);
+      setShowAttachMenu(false);
+    } else if (type === 'audio') {
+      setMediaPickerInitialTab('audio');
+      setShowMediaPicker(true);
+      setShowAttachMenu(false);
+    } else if (type === 'camera') {
+      setMediaPickerInitialTab('image');
+      setShowMediaPicker(true);
+      setShowAttachMenu(false);
     } else if (type === 'voice') {
       startVoiceRecording();
+      setShowAttachMenu(false);
     } else if (type === 'location') {
       setShowLocationModal(true);
+      setShowAttachMenu(false);
     } else if (type === 'contact') {
       setShowContactModal(true);
+      setShowAttachMenu(false);
     } else if (type === 'poll') {
       setShowPollModal(true);
+      setShowAttachMenu(false);
     }
   };
 
@@ -5689,6 +5714,160 @@ export default function App() {
     cancelVoiceRecording();
     setShowAttachMenu(false);
     showToast("Voice note sent");
+  };
+
+  // --- INBUILT MEDIA PICKER: EXTRACT PREVIOUS CHAT MEDIA ---
+  const existingChatMediaItems = useMemo<MediaPickerItem[]>(() => {
+    const list: MediaPickerItem[] = [];
+    const allMsgs = Object.values(messagesByChat).flat();
+    allMsgs.forEach(msg => {
+      if (msg.media_url || msg.audio_url) {
+        const type: 'image' | 'video' | 'document' | 'audio' = 
+          msg.type === 'video' ? 'video' : 
+          msg.type === 'voice' ? 'audio' : 
+          msg.type === 'document' ? 'document' : 'image';
+        const ext = msg.file_name?.split('.').pop()?.toUpperCase() || (type === 'image' ? 'IMG' : type === 'video' ? 'MP4' : type === 'audio' ? 'AUD' : 'DOC');
+        list.push({
+          id: 'chat_media_' + msg.id,
+          type,
+          url: msg.media_url || msg.audio_url || '',
+          thumbnailUrl: type === 'image' ? (msg.media_url || '') : undefined,
+          title: msg.file_name || `${type.toUpperCase()} file`,
+          sizeStr: msg.file_size || 'Shared',
+          extension: ext,
+          timestamp: msg.timestamp || 'Recent',
+        });
+      }
+    });
+    return list;
+  }, [messagesByChat]);
+
+  // --- INBUILT MEDIA PICKER: SEND HANDLER ---
+  const handleSendFromMediaPicker = async (
+    items: MediaPickerItem[],
+    caption: string,
+    quality: 'standard' | 'hd'
+  ) => {
+    if (!activeChatId || items.length === 0) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const newMsgId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+
+      const itemType = item.type === 'audio' ? 'voice' : item.type;
+      const itemText = (i === 0 && caption.trim()) ? caption.trim() : item.title;
+
+      const newMsg: Message = {
+        id: newMsgId,
+        chat_id: activeChatId,
+        created_at: Date.now() + i,
+        expires_at: getExpiresAt(activeChatId),
+        sender: userUsername || 'me',
+        text: itemText,
+        type: itemType,
+        media_url: itemType === 'voice' ? undefined : item.url,
+        audio_url: itemType === 'voice' ? item.url : undefined,
+        file_name: item.title,
+        file_size: item.sizeStr,
+        media_quality: quality,
+        timestamp: timeStr,
+        reactions: [],
+        read_by: [],
+        forwarded: false,
+        pinned: false,
+      };
+
+      // Cache media locally
+      if (item.url) {
+        localMediaCacheRef.current[newMsg.id] = item.url;
+        if (item.title) localMediaCacheRef.current[item.title] = item.url;
+        storageManager.saveMedia(newMsg.id, item.url, {
+          chat_id: activeChatId,
+          fileName: item.title,
+        }).catch(() => {});
+      }
+
+      // Persist to indexedDB
+      storageManager.saveMessages([newMsg]).catch(() => {});
+
+      // Firebase synchronization
+      if (isFirebaseConfigured && db && auth) {
+        try {
+          await setDoc(doc(db, 'messages', newMsgId), {
+            id: newMsgId,
+            chat_id: activeChatId,
+            created_at: newMsg.created_at,
+            expires_at: newMsg.expires_at,
+            sender: userUsername || 'me',
+            text: newMsg.text,
+            type: itemType,
+            media_url: newMsg.media_url || null,
+            audio_url: newMsg.audio_url || null,
+            file_name: item.title,
+            file_size: item.sizeStr,
+            media_quality: quality,
+            timestamp: timeStr,
+            reactions: [],
+            read_by: [],
+          });
+        } catch (err) {
+          console.warn("Firebase media send error:", err);
+        }
+      }
+
+      setMessagesByChat(prev => ({
+        ...prev,
+        [activeChatId]: dedupeMessages([...(prev[activeChatId] || []), newMsg])
+      }));
+    }
+
+    const previewSummary = items.length === 1 
+      ? `You: ${items[0].type === 'image' ? 'Photo' : items[0].type === 'video' ? 'Video' : items[0].type === 'audio' ? 'Audio' : 'Document'}`
+      : `You: ${items.length} attachments`;
+
+    setChats(prev => prev.map(c => c.id === activeChatId ? {
+      ...c,
+      last_message: previewSummary,
+      last_time: 'now',
+      updated_at: Date.now(),
+      last_message_sender: userUsername || 'me',
+      last_message_status: 'sent' as const
+    } : c));
+
+    // Update active chat in Firebase
+    if (isFirebaseConfigured && db && auth) {
+      const activeChat = chats.find(c => c.id === activeChatId);
+      if (activeChat) {
+        setDoc(doc(db, 'chats', activeChatId), {
+          last_message: previewSummary,
+          last_time: 'now',
+          updated_at: Date.now(),
+          last_message_sender: userUsername || 'me',
+          last_message_status: 'sent' as const
+        }, { merge: true }).catch(() => {});
+      }
+    }
+
+    setShowAttachMenu(false);
+    showToast(items.length === 1 ? 'Media sent' : `${items.length} media items sent`);
+  };
+
+  // --- INBUILT MEDIA PICKER: OPEN IN MEDIA EDITOR ---
+  const handleOpenMediaEditorFromPicker = (item: MediaPickerItem) => {
+    const activeChat = chats.find(c => c.id === activeChatId);
+    setPendingMediaEditorData({
+      file: item.file || new File([], item.title),
+      fileUrl: item.url,
+      mediaType: item.type === 'video' ? 'video' : item.type === 'audio' ? 'audio' : item.type === 'document' ? 'document' : 'image',
+      fileName: item.title,
+      fileSize: item.sizeStr,
+      recipientName: activeChat?.name || 'Contact',
+      recipientUsername: activeChat?.username || 'user',
+      recipientAvatarSeed: activeChat?.avatar_seed,
+      recipientAvatarUrl: activeChat?.avatar_url,
+    });
+    setShowMediaPicker(false);
   };
 
   // --- MEDIA EDITOR SEND HANDLER (WhatsApp-Style Photo/Video Editor) ---
@@ -9560,25 +9739,32 @@ export default function App() {
                       className={`absolute bottom-16 left-4 z-40 p-3 rounded-2xl border shadow-2xl w-72 backdrop-blur-xl ${themeMode === 'dark' ? 'bg-slate-900/95 border-slate-800' : 'bg-white/95 border-slate-200/90'}`}
                     >
                       <div className="grid grid-cols-4 gap-2">
-                        <button onClick={() => handleAttachMock('image')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
-                          <div className="p-2.5 rounded-2xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/40 mb-1">
+                        <button onClick={() => handleAttachMock('gallery')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
+                          <div className="p-2.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-800/40 mb-1">
                             <ImageIcon className="h-5 w-5" />
                           </div>
-                          <span className="text-[10px] font-semibold">Photo</span>
+                          <span className="text-[10px] font-semibold">Gallery</span>
                         </button>
 
-                        <button onClick={() => handleAttachMock('video')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
-                          <div className="p-2.5 rounded-2xl bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 border border-purple-200/50 dark:border-purple-800/40 mb-1">
-                            <Video className="h-5 w-5" />
+                        <button onClick={() => handleAttachMock('camera')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
+                          <div className="p-2.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200/50 dark:border-rose-800/40 mb-1">
+                            <Camera className="h-5 w-5" />
                           </div>
-                          <span className="text-[10px] font-semibold">Video</span>
+                          <span className="text-[10px] font-semibold">Camera</span>
                         </button>
 
                         <button onClick={() => handleAttachMock('document')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
-                          <div className="p-2.5 rounded-2xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 border border-amber-200/50 dark:border-amber-800/40 mb-1">
+                          <div className="p-2.5 rounded-2xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/40 mb-1">
                             <FileText className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Document</span>
+                        </button>
+
+                        <button onClick={() => handleAttachMock('audio')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
+                          <div className="p-2.5 rounded-2xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 border border-amber-200/50 dark:border-amber-800/40 mb-1">
+                            <Music className="h-5 w-5" />
+                          </div>
+                          <span className="text-[10px] font-semibold">Audio</span>
                         </button>
 
                         <button onClick={() => handleAttachMock('voice')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
@@ -9589,7 +9775,7 @@ export default function App() {
                         </button>
 
                         <button onClick={() => handleAttachMock('location')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
-                          <div className="p-2.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200/50 dark:border-rose-800/40 mb-1">
+                          <div className="p-2.5 rounded-2xl bg-teal-50 dark:bg-teal-950/50 text-teal-600 dark:text-teal-400 border border-teal-200/50 dark:border-teal-800/40 mb-1">
                             <MapPin className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Location</span>
@@ -9603,7 +9789,7 @@ export default function App() {
                         </button>
 
                         <button onClick={() => handleAttachMock('poll')} className="flex flex-col items-center p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-transform active:scale-95 text-slate-700 dark:text-slate-300">
-                          <div className="p-2.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-800/40 mb-1">
+                          <div className="p-2.5 rounded-2xl bg-violet-50 dark:bg-violet-950/50 text-violet-600 dark:text-violet-400 border border-violet-200/50 dark:border-violet-800/40 mb-1">
                             <BarChart2 className="h-5 w-5" />
                           </div>
                           <span className="text-[10px] font-semibold">Poll</span>
@@ -12379,6 +12565,18 @@ export default function App() {
           setShowNotificationsPanel(false);
           handleOpenUserProfile(targetUsername);
         }}
+      />
+
+      {/* WHATSAPP-STYLE INBUILT MEDIA PICKER MODAL (Non-clutter, fast, smooth thumbnails, multi-select, camera, device upload) */}
+      <InbuiltMediaPicker
+        isOpen={showMediaPicker}
+        onClose={() => setShowMediaPicker(false)}
+        onSend={handleSendFromMediaPicker}
+        onOpenEditor={handleOpenMediaEditorFromPicker}
+        recipientName={activeChat?.name || 'this contact'}
+        themeMode={themeMode}
+        initialTab={mediaPickerInitialTab}
+        existingChatMedia={existingChatMediaItems}
       />
 
       {/* WHATSAPP-STYLE MEDIA EDITOR MODAL (Crop, Customize, Brush, Text, HD Quality, Send to Recipient) */}

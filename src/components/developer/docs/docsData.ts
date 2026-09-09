@@ -898,7 +898,8 @@ const express = require('express');
 const crypto = require('crypto');
 
 const app = express();
-const CLIENT_SECRET = process.env.ZENOA_CLIENT_SECRET || '${secretKey}';
+// Load signing secret securely from environment variable
+const CLIENT_SECRET = process.env.ZENOA_SA_CLIENT_SECRET || process.env.ZENOA_SA_WEBHOOK_SECRET || process.env.ZENOA_CLIENT_SECRET || 'YOUR_SIGNING_SECRET';
 
 app.post('/api/zenoa-webhook', express.raw({ type: 'application/json' }), (req, res) => {
   const signature = req.headers['x-zenoa-signature'];
@@ -923,12 +924,14 @@ app.post('/api/zenoa-webhook', express.raw({ type: 'application/json' }), (req, 
 });
 
 app.listen(8080, () => console.log('Webhook server running on port 8080'));`,
-            python: `import hmac
+            python: `import os
+import hmac
 import hashlib
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
-CLIENT_SECRET = b"${secretKey}"
+# Load signing secret securely from environment variable
+CLIENT_SECRET = (os.environ.get("ZENOA_SA_CLIENT_SECRET") or os.environ.get("ZENOA_SA_WEBHOOK_SECRET") or os.environ.get("ZENOA_CLIENT_SECRET", "YOUR_SIGNING_SECRET")).encode('utf-8')
 
 @app.route('/api/zenoa-webhook', methods=['POST'])
 def handle_webhook():
@@ -944,7 +947,7 @@ def handle_webhook():
             php: `<?php
 $rawBody = file_get_contents('php://input');
 $signature = $_SERVER['HTTP_X_ZENOA_SIGNATURE'] ?? '';
-$clientSecret = '${secretKey}';
+$clientSecret = getenv('ZENOA_SA_CLIENT_SECRET') ?: (getenv('ZENOA_SA_WEBHOOK_SECRET') ?: (getenv('ZENOA_CLIENT_SECRET') ?: 'YOUR_SIGNING_SECRET'));
 
 $expectedSig = hash_hmac('sha256', $rawBody, $clientSecret);
 
@@ -965,13 +968,18 @@ import (
   "encoding/hex"
   "io/ioutil"
   "net/http"
+  "os"
 )
 
 func webhookHandler(w http.ResponseWriter, r *http.Request) {
   body, _ := ioutil.ReadAll(r.Body)
   sig := r.Header.Get("X-Zenoa-Signature")
 
-  mac := hmac.New(sha256.New, []byte("${secretKey}"))
+  secret := os.Getenv("ZENOA_SA_CLIENT_SECRET")
+  if secret == "" {
+    secret = os.Getenv("ZENOA_CLIENT_SECRET")
+  }
+  mac := hmac.New(sha256.New, []byte(secret))
   mac.Write(body)
   expected := hex.EncodeToString(mac.Sum(nil))
 
@@ -1032,7 +1040,7 @@ public class WebhookVerifier {
           ],
           requestBodyExample: `{
   "client_id": "${apiKey}",
-  "client_secret": "${secretKey}",
+  "client_secret": "YOUR_CLIENT_SECRET",
   "code": "zen_code_984719284712",
   "grant_type": "authorization_code"
 }`,
@@ -1051,20 +1059,23 @@ public class WebhookVerifier {
   }
 }`,
           snippets: {
-            curl: `curl -X POST "${baseUrl}/api/v1/sso/token" \\
+            curl: `# Backend Token Exchange Request
+# Note: Load client_secret securely from environment (e.g. $ZENOA_CLIENT_SECRET)
+curl -X POST "${baseUrl}/api/v1/sso/token" \\
   -H "Content-Type: application/json" \\
   -d '{
     "client_id": "${apiKey}",
-    "client_secret": "${secretKey}",
+    "client_secret": "'"$ZENOA_CLIENT_SECRET"'",
     "code": "AUTH_CODE_RECEIVED",
     "grant_type": "authorization_code"
   }'`,
             node: `const axios = require('axios');
 
 async function handleOAuthCallback(authCode) {
+  // Never expose client_secret in client-side code; exchange on backend server
   const res = await axios.post('${baseUrl}/api/v1/sso/token', {
     client_id: '${apiKey}',
-    client_secret: '${secretKey}',
+    client_secret: process.env.ZENOA_CLIENT_SECRET,
     code: authCode,
     grant_type: 'authorization_code'
   });
@@ -1072,11 +1083,12 @@ async function handleOAuthCallback(authCode) {
   console.log('Authenticated User Profile:', res.data.user);
   return res.data;
 }`,
-            python: `import requests
+            python: `import os
+import requests
 
 res = requests.post("${baseUrl}/api/v1/sso/token", json={
     "client_id": "${apiKey}",
-    "client_secret": "${secretKey}",
+    "client_secret": os.environ.get("ZENOA_CLIENT_SECRET"),
     "code": auth_code,
     "grant_type": "authorization_code"
 })
@@ -1085,7 +1097,7 @@ print("User profile:", res.json()["user"])`,
 $ch = curl_init("${baseUrl}/api/v1/sso/token");
 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
   "client_id" => "${apiKey}",
-  "client_secret" => "${secretKey}",
+  "client_secret" => getenv('ZENOA_CLIENT_SECRET'),
   "code" => $_GET['code'],
   "grant_type" => "authorization_code"
 ]));
@@ -1094,13 +1106,24 @@ curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 $data = curl_exec($ch);
 curl_close($ch);`,
             go: `// Go OAuth exchange example
-payload, _ := json.Marshal(map[string]string{
-  "client_id": "${apiKey}",
-  "client_secret": "${secretKey}",
-  "code": authCode,
-  "grant_type": "authorization_code",
-})
-http.Post("${baseUrl}/api/v1/sso/token", "application/json", bytes.NewBuffer(payload))`,
+package main
+
+import (
+  "bytes"
+  "encoding/json"
+  "net/http"
+  "os"
+)
+
+func exchangeToken(authCode string) (*http.Response, error) {
+  payload, _ := json.Marshal(map[string]string{
+    "client_id": "${apiKey}",
+    "client_secret": os.Getenv("ZENOA_CLIENT_SECRET"),
+    "code": authCode,
+    "grant_type": "authorization_code",
+  })
+  return http.Post("${baseUrl}/api/v1/sso/token", "application/json", bytes.NewBuffer(payload))
+}`,
             java: `// Java OAuth exchange example`
           },
           notes: [

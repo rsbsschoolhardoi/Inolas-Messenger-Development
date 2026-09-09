@@ -161,13 +161,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="max-w-4xl mx-auto text-center space-y-6">
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 text-xs font-semibold">
-              <ServerOff className="h-3.5 w-3.5 text-emerald-500" />
-              <span>Zero Database Retention • 100% Client-Side Device Vault</span>
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+              <span>Official End-to-End Encrypted Messenger</span>
             </div>
 
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-neutral-900 dark:text-white leading-[1.12]">
               Decentralized privacy, <br />
-              <span className="text-neutral-400 dark:text-neutral-500">engineered without a central vault.</span>
+              <span className="text-neutral-400 dark:text-neutral-500">engineered with client-side security.</span>
             </h1>
 
             <p className="text-base sm:text-lg text-neutral-600 dark:text-neutral-300 max-w-2xl mx-auto leading-relaxed font-normal">
@@ -745,7 +745,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 border-t border-neutral-100 dark:border-neutral-900 flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px] text-neutral-400">
           <span>© 2026 Zenoa Inc. All rights reserved. Zero-Retention System.</span>
           <div className="flex items-center gap-4">
-            <span>Protocol v3.4.0 (Vault Edition)</span>
+            <span>Protocol v3.4.0 (Official Release)</span>
             <button
               onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
               className="hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer"

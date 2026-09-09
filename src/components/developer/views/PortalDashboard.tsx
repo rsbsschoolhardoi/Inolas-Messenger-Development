@@ -5,7 +5,7 @@ import {
   Webhook, Terminal, ArrowLeft, FileCode, CreditCard, Users, Shield, Radio,
   LayoutDashboard, Eye, EyeOff
 } from 'lucide-react';
-import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../../firebaseClient';
 import { UserData } from '../../../types';
 import { useBranding } from '../../../brandingUtils';
@@ -75,6 +75,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
 
   // One time secret
   const [newlyGeneratedSecret, setNewlyGeneratedSecret] = useState<any>(null);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   useEffect(() => {
     fetchApps();
@@ -235,16 +236,15 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
         await setDoc(appRef, newAppData);
         (newAppData as any).id = appRef.id;
 
-        await setDoc(doc(db, 'users', finalBotUsername), {
-          username: finalBotUsername,
-          display_name: appName.trim(),
-          is_service_account: true,
-          is_business_account: true,
-          is_verified: false,
-          verified_type: null,
-          is_official: false,
-          owner_username: currentUser.username,
-          created_at: Date.now()
+        // Register service account metadata on the developer's user profile directly
+        const devUserDocRef = doc(db, 'users', currentUser.id || cleanDevUser);
+        await setDoc(devUserDocRef, {
+          has_service_account: true,
+          service_account_id: appRef.id,
+          service_account_app_name: appName.trim(),
+          service_account_bot_username: finalBotUsername,
+          service_account_client_id: clientId,
+          updated_at: Date.now()
         }, { merge: true });
       }
 
@@ -257,6 +257,41 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
       showToast('Error: ' + err.message);
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleDeleteApp = async () => {
+    if (!selectedApp) return;
+    try {
+      if (db) {
+        const cleanDevUser = currentUser.username.toLowerCase();
+        // Delete developer app document
+        await deleteDoc(doc(db, 'developer_apps', selectedApp.id)).catch(() => {});
+        await deleteDoc(doc(db, 'developer_apps', `sa_${cleanDevUser}`)).catch(() => {});
+
+        // Unlink service account on developer user profile
+        const devUserDocRef = doc(db, 'users', currentUser.id || cleanDevUser);
+        await setDoc(devUserDocRef, {
+          has_service_account: false,
+          service_account_id: null,
+          service_account_app_name: null,
+          service_account_bot_username: null,
+          updated_at: Date.now()
+        }, { merge: true }).catch(() => {});
+
+        // Clean up legacy service account entry if present
+        if (selectedApp.bot_username) {
+          const botU = selectedApp.bot_username.toLowerCase().replace(/^@/, '');
+          await deleteDoc(doc(db, 'service_accounts', botU)).catch(() => {});
+          await deleteDoc(doc(db, 'sso_applications', selectedApp.id)).catch(() => {});
+        }
+      }
+
+      setApps([]);
+      setSelectedAppId(null);
+      showToast('Service account permanently deleted. You can now create a new service account whenever required.');
+    } catch (err: any) {
+      showToast('Failed to delete service account: ' + err.message);
     }
   };
 
@@ -471,7 +506,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               <p className="text-[11px] text-slate-500 truncate">@{currentUser.username}</p>
             </div>
           </div>
-          <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold transition-colors border border-slate-200">
+          <button onClick={() => setShowLogoutConfirm(true)} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold transition-colors border border-slate-200 cursor-pointer">
             <LogOut className="h-3.5 w-3.5" /> Sign Out
           </button>
         </div>
@@ -678,7 +713,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                       <ul className="list-disc pl-4 space-y-1 text-slate-600">
                         <li>Each user can register only <strong>1 service account</strong>.</li>
                         <li>Service account identity is <strong>immutable</strong> and locked after creation.</li>
-                        <li>All credentials are cryptographically embedded directly into generated SDK files.</li>
+                        <li>Secrets are stored securely on backend servers via <code>ZENOA_SA_CLIENT_SECRET</code> environment variable.</li>
                       </ul>
                     </div>
 
@@ -714,14 +749,10 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                         </p>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => setRevealSecrets(!revealSecrets)}
-                        className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-700 flex items-center gap-2 shadow-2xs transition-all cursor-pointer self-start md:self-auto"
-                      >
-                        {revealSecrets ? <EyeOff className="h-4 w-4 text-slate-500" /> : <Eye className="h-4 w-4 text-slate-500" />}
-                        <span>{revealSecrets ? 'Hide Key Secrets' : 'Reveal Key Secrets'}</span>
-                      </button>
+                      <div className="flex items-center gap-2 text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200/80">
+                        <Lock className="h-3.5 w-3.5 text-amber-600" />
+                        <span>Secrets Encrypted &amp; Masked</span>
+                      </div>
                     </div>
 
                     <div className="p-6 space-y-6">
@@ -765,14 +796,10 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                             </button>
                           </div>
                           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 font-mono text-xs text-slate-800 select-all flex items-center justify-between">
-                            <span className="truncate">
-                              {revealSecrets ? selectedApp.active_client_secret : (
-                                <span className="text-slate-400 tracking-widest">
-                                  {environment === 'test' ? 'zen_test_sec_••••••••••••••••••••••••' : 'zen_sec_••••••••••••••••••••••••'}
-                                </span>
-                              )}
+                            <span className="truncate text-slate-400 tracking-widest font-mono">
+                              {environment === 'test' ? 'zen_test_sec_••••••••••••••••••••••••' : 'zen_sec_••••••••••••••••••••••••'}
                             </span>
-                            <span className="text-[10px] uppercase font-sans font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded ml-2 shrink-0">Private</span>
+                            <span className="text-[10px] uppercase font-sans font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded ml-2 shrink-0">Protected</span>
                           </div>
                         </div>
                       </div>
@@ -795,7 +822,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                         </div>
                         <div className="bg-slate-900 text-slate-200 p-3.5 rounded-xl font-mono text-xs flex items-center justify-between overflow-x-auto selection:bg-indigo-800">
                           <code className="text-indigo-300">
-                            Authorization: <span className="text-emerald-400">Bearer</span> {revealSecrets ? selectedApp.active_client_secret : `${environment === 'test' ? 'zen_test_sec_••••••••••••••••' : 'zen_sec_••••••••••••••••'}`}
+                            Authorization: <span className="text-emerald-400">Bearer</span> <span className="text-slate-400 tracking-wider font-mono">{environment === 'test' ? 'zen_test_sec_••••••••••••••••' : 'zen_sec_••••••••••••••••'}</span>
                           </code>
                         </div>
                       </div>
@@ -922,6 +949,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               showToast={showToast} 
               onUpdateApp={handleUpdateApp}
               onRotateKey={handleRotateKey}
+              onDeleteApp={handleDeleteApp}
             />
           )}
 
@@ -966,6 +994,51 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
             <button onClick={() => setNewlyGeneratedSecret(null)} className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-semibold transition-all shadow-sm">
               I have saved my secret key
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Developer Console Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 w-full max-w-md rounded-2xl p-6 shadow-2xl animate-in zoom-in-95 space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl border border-indigo-100">
+                <LogOut className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">Sign Out of Developer Console</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Confirm console session termination</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3.5 rounded-xl border border-slate-200/80">
+              Are you sure you want to sign out from the Zenoa Developer Console? You will need to re-authenticate to manage service accounts and API credentials.
+            </p>
+
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowLogoutConfirm(false)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    sessionStorage.setItem('zenoa_dev_console_logged_out', 'true');
+                    localStorage.removeItem('zenoa_dev_console_user');
+                  } catch (e) {}
+                  setShowLogoutConfirm(false);
+                  onLogout();
+                }}
+                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+              >
+                Yes, Sign Out
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -194,13 +194,62 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     let unsubscribeBroadcasts = () => {};
 
     if (db) {
-      // Users real-time feed
+      // Users real-time feed with canonical deduplication (prevents duplicate accounts on username change)
       unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-        const fetched: UserData[] = [];
+        const rawList: UserData[] = [];
         snapshot.forEach((docSnap) => {
-          fetched.push({ id: docSnap.id, ...docSnap.data() } as UserData);
+          rawList.push({ id: docSnap.id, ...docSnap.data() } as UserData);
         });
-        setDbUsers(fetched);
+
+        // Deduplicate users so duplicate account documents (old username, docId vs uid, etc.) merge into a single canonical record
+        const userMap = new Map<string, UserData>();
+        rawList.forEach((u) => {
+          if (!u) return;
+          const rawUid = (u.id || '').trim().toLowerCase();
+          const rawZenoa = (u.zenoa_id || '').trim().toLowerCase().replace(/^@+/, '');
+          const rawEmail = (u.email || '').trim().toLowerCase();
+          const rawUsername = (u.username || '').trim().toLowerCase();
+          const prevList = (u.previous_usernames || []).map(p => (p || '').trim().toLowerCase());
+
+          let matchedKey: string | null = null;
+          for (const [key, existing] of userMap.entries()) {
+            const exUid = (existing.id || '').trim().toLowerCase();
+            const exZenoa = (existing.zenoa_id || '').trim().toLowerCase().replace(/^@+/, '');
+            const exEmail = (existing.email || '').trim().toLowerCase();
+            const exUsername = (existing.username || '').trim().toLowerCase();
+            const exPrev = (existing.previous_usernames || []).map(p => (p || '').trim().toLowerCase());
+
+            const isSameUid = rawUid && exUid && rawUid === exUid;
+            const isSameZenoa = rawZenoa && exZenoa && rawZenoa === exZenoa;
+            const isSameEmail = rawEmail && exEmail && !rawEmail.includes('zenoa.auth') && rawEmail === exEmail;
+            const isSameUsername = rawUsername && exUsername && rawUsername === exUsername;
+            const isPrevMatch = (rawUsername && exPrev.includes(rawUsername)) || (exUsername && prevList.includes(exUsername));
+
+            if (isSameUid || isSameZenoa || isSameEmail || isSameUsername || isPrevMatch) {
+              matchedKey = key;
+              break;
+            }
+          }
+
+          if (matchedKey) {
+            const existing = userMap.get(matchedKey)!;
+            userMap.set(matchedKey, {
+              ...existing,
+              ...u,
+              id: existing.id || u.id,
+              username: u.username || existing.username,
+              display_name: u.display_name || existing.display_name,
+              is_verified: u.is_verified ?? existing.is_verified,
+              verified_type: u.verified_type || existing.verified_type,
+              previous_usernames: Array.from(new Set([...(existing.previous_usernames || []), ...(u.previous_usernames || [])].filter(Boolean)))
+            });
+          } else {
+            const key = rawUid || rawUsername || `u_${Math.random()}`;
+            userMap.set(key, u);
+          }
+        });
+
+        setDbUsers(Array.from(userMap.values()));
       }, (err) => console.log('Admin users snapshot note:', err));
 
       // Reports real-time feed
@@ -351,32 +400,67 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setDeveloperApps((prev) => prev.map((a) => (a.id === user.id || a.bot_username === user.username || a.client_id === user.id) ? { ...a, is_verified: updatedStatus, verified_type: verifiedType } : a));
     onUpdateUser(updatedUser);
 
-    // Persist to Firestore safely using setDoc with merge: true
+    // Persist to Firestore safely without spawning new documents
     if (db) {
       try {
-        if (user.id) {
-          await setDoc(doc(db, 'users', user.id), {
+        const cleanU = (user.username || '').toLowerCase();
+        const isServiceAcc = user.is_service_account || user.is_business_account || cleanU.startsWith('sa_') || developerApps.some(a => a.id === user.id || a.bot_username === user.username);
+
+        if (isServiceAcc) {
+          // 1. Update matching developer app document directly by its real app ID
+          const matchingApp = developerApps.find(a => 
+            a.id === user.id || 
+            a.id === `sa_${cleanU}` || 
+            (a.owner || '').toLowerCase() === cleanU || 
+            (a.bot_username || '').toLowerCase() === cleanU
+          );
+
+          if (matchingApp && matchingApp.id) {
+            await setDoc(doc(db, 'developer_apps', matchingApp.id), {
+              is_verified: updatedStatus,
+              verified_type: verifiedType,
+              updated_at: Date.now()
+            }, { merge: true }).catch(() => {});
+          }
+
+          // 2. Update service_accounts collection directly
+          await setDoc(doc(db, 'service_accounts', cleanU), {
             is_verified: updatedStatus,
-            verified_type: verifiedType
+            verified_type: verifiedType,
+            updated_at: Date.now()
           }, { merge: true }).catch(() => {});
-          await setDoc(doc(db, 'developer_apps', user.id), {
-            is_verified: updatedStatus,
-            verified_type: verifiedType
-          }, { merge: true }).catch(() => {});
-        }
-        if (user.username) {
-          await setDoc(doc(db, 'users', user.username), {
-            is_verified: updatedStatus,
-            verified_type: verifiedType
-          }, { merge: true }).catch(() => {});
-          await setDoc(doc(db, 'users', user.username.toLowerCase()), {
-            is_verified: updatedStatus,
-            verified_type: verifiedType
-          }, { merge: true }).catch(() => {});
-          await setDoc(doc(db, 'developer_apps', user.username), {
-            is_verified: updatedStatus,
-            verified_type: verifiedType
-          }, { merge: true }).catch(() => {});
+
+          // 3. Update the owner user record if present (service account is an extension of owner's identity)
+          const ownerName = (matchingApp?.owner || user.owner || user.owner_username || '').toLowerCase();
+          if (ownerName) {
+            const ownerDoc = dbUsers.find(u => (u.username || '').toLowerCase() === ownerName || (u.id || '').toLowerCase() === ownerName);
+            if (ownerDoc?.id) {
+              await setDoc(doc(db, 'users', ownerDoc.id), {
+                service_account_is_verified: updatedStatus,
+                updated_at: Date.now()
+              }, { merge: true }).catch(() => {});
+            }
+          }
+
+          // Only update existing doc in users IF it genuinely already exists (never spawn a new ghost user doc)
+          const existingInUsers = dbUsers.find(u => u.id === user.id);
+          if (existingInUsers && user.id) {
+            await setDoc(doc(db, 'users', user.id), {
+              is_verified: updatedStatus,
+              verified_type: verifiedType,
+              updated_at: Date.now()
+            }, { merge: true }).catch(() => {});
+          }
+        } else {
+          // Standard human user: Update existing user document
+          const targetUserId = user.id || cleanU;
+          if (targetUserId) {
+            await setDoc(doc(db, 'users', targetUserId), {
+              is_verified: updatedStatus,
+              verified_type: verifiedType,
+              updated_at: Date.now()
+            }, { merge: true }).catch(() => {});
+          }
         }
       } catch (err) {
         console.error('Error updating verification status in Firestore:', err);
