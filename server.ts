@@ -268,34 +268,7 @@ async function lookupOAuthAppInternal(keyOrId: string): Promise<{ id: string; da
     };
   }
 
-  // 1. Check in-memory cache directly by document ID
-  if (inMemorySsoApps.has(trimmed)) {
-    return {
-      id: trimmed,
-      data: inMemorySsoApps.get(trimmed),
-      collectionName: 'in_memory'
-    };
-  }
-
-  // 2. Check in-memory cache by client_id, api_key, client_secret, sandbox_api_key
-  for (const [id, appData] of inMemorySsoApps.entries()) {
-    if (
-      appData &&
-      (appData.client_id === trimmed ||
-        appData.api_key === trimmed ||
-        appData.client_secret === trimmed ||
-        appData.sandbox_api_key === trimmed ||
-        appData.id === trimmed)
-    ) {
-      return {
-        id,
-        data: appData,
-        collectionName: 'in_memory'
-      };
-    }
-  }
-
-  // 3. Query Firestore 'sso_applications' collection
+  // 1. Query Firestore 'sso_applications' collection FIRST for live, real-time sync
   if (db) {
     try {
       const ssoRef = collection(db, 'sso_applications');
@@ -339,7 +312,7 @@ async function lookupOAuthAppInternal(keyOrId: string): Promise<{ id: string; da
       console.warn('lookupOAuthApp sso_applications query error:', err);
     }
 
-    // 4. Query Firestore 'developer_apps' collection
+    // 2. Query Firestore 'developer_apps' collection for live, real-time sync
     try {
       const devAppsRef = collection(db, 'developer_apps');
       // Direct doc ID check
@@ -385,6 +358,33 @@ async function lookupOAuthAppInternal(keyOrId: string): Promise<{ id: string; da
       }
     } catch (err) {
       console.warn('lookupOAuthApp developer_apps query error:', err);
+    }
+  }
+
+  // 3. Fallback to in-memory cache directly by document ID (useful if Firestore is offline or for default in-memory apps)
+  if (inMemorySsoApps.has(trimmed)) {
+    return {
+      id: trimmed,
+      data: inMemorySsoApps.get(trimmed),
+      collectionName: 'in_memory'
+    };
+  }
+
+  // 4. Fallback to in-memory cache by properties
+  for (const [id, appData] of inMemorySsoApps.entries()) {
+    if (
+      appData &&
+      (appData.client_id === trimmed ||
+        appData.api_key === trimmed ||
+        appData.client_secret === trimmed ||
+        appData.sandbox_api_key === trimmed ||
+        appData.id === trimmed)
+    ) {
+      return {
+        id,
+        data: appData,
+        collectionName: 'in_memory'
+      };
     }
   }
 
@@ -1595,26 +1595,29 @@ app.get('/api/v1/sso/apps', async (req: any, res: any) => {
 
     let apps: any[] = [];
 
-    // Check in-memory store
-    for (const [id, a] of inMemorySsoApps.entries()) {
-      if (a.owner === owner || owner === 'developer_user' || owner === 'developer_guest') {
-        apps.push({ id, ...a });
-      }
-    }
-
+    // 1. Prioritize live Firestore registered apps to ensure real-time sync of redirect URIs
     if (db) {
       try {
         const ssoRef = collection(db, 'sso_applications');
         const q = query(ssoRef, where('owner', '==', owner));
         const snap = await getDocs(q);
-        const firestoreApps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        for (const fa of firestoreApps) {
-          if (!apps.some(x => x.client_id === (fa as any).client_id)) {
-            apps.push(fa);
-          }
-        }
+        apps = snap.docs.map(doc => {
+          const data = { id: doc.id, ...doc.data() };
+          // Keep the in-memory cache perfectly synchronized with the latest Firestore state
+          inMemorySsoApps.set(doc.id, data);
+          return data;
+        });
       } catch (err) {
         console.warn('Firestore query sso_applications fallback:', err);
+      }
+    }
+
+    // 2. Append in-memory store apps that are not already present (e.g. default_app or memory-only clients)
+    for (const [id, a] of inMemorySsoApps.entries()) {
+      if (a.owner === owner || owner === 'developer_user' || owner === 'developer_guest') {
+        if (!apps.some(x => x.client_id === a.client_id || x.id === id)) {
+          apps.push({ id, ...a });
+        }
       }
     }
 
