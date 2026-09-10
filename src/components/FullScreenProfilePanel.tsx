@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
 import { UserData, Message, FollowRequest } from '../types';
-import { isUserEffectivelyOnline, isServiceAccount } from '../presenceUtils';
+import { isUserEffectivelyOnline, isServiceAccount, isAccountVerified } from '../presenceUtils';
 
 interface FullScreenProfilePanelProps {
   showProfilePanel: boolean;
@@ -140,7 +140,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                       <span className="text-sm font-extrabold tracking-wide text-neutral-800 dark:text-neutral-200 truncate">
                         {selectedProfileUsername ? `@${selectedProfileUsername.replace(/^@/, '')}` : 'Details'}
                       </span>
-                      {selectedProfileUsername && !!users[selectedProfileUsername.toLowerCase()]?.is_verified && (
+                      {selectedProfileUsername && isAccountVerified(users[selectedProfileUsername.toLowerCase()], selectedProfileUsername) && (
                         <PurpleVerifiedBadge size="sm" />
                       )}
                     </div>
@@ -255,7 +255,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                             <div className="space-y-1.5">
                               <h2 className="text-2xl font-black tracking-tight text-neutral-900 dark:text-white flex items-center justify-center gap-2">
                                 <span>{userDisplayName || userUsername}</span>
-                                {!!users[userUsername]?.is_verified && (
+                                {isAccountVerified(users[userUsername], userUsername) && (
                                   <PurpleVerifiedBadge size="sm"  />
                                 )}
                               </h2>
@@ -430,7 +430,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                           ) : (
                             users[targetUsernameLower]?.display_name || targetUsername
                           )}
-                          {!!users[targetUsernameLower]?.is_verified && (
+                          {isAccountVerified(users[targetUsernameLower], targetUsername) && (
                             <PurpleVerifiedBadge size="sm"  />
                           )}
                         </h2>

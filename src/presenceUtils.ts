@@ -186,14 +186,10 @@ export const isServiceAccount = (user: PresenceUser | any | undefined | null, ex
 };
 
 export const isAccountVerified = (user: PresenceUser | any | undefined | null, explicitUsername?: string): boolean => {
-  // Official Zenoa Service Accounts created by admin are ALWAYS verified
+  // Official Zenoa Service Accounts are ALWAYS verified
   if (isOfficialAccount(user, explicitUsername)) {
     return true;
   }
-  // Developer Business Accounts are NEVER automatically verified - only if admin sets is_verified to true
-  if (isBusinessAccount(user, explicitUsername)) {
-    return !!(user?.is_verified);
-  }
   if (!user) return false;
-  return !!user.is_verified || user.verified_type === 'purple' || user.verified_type === 'official';
+  return !!(user.is_verified || user.verified_type === 'purple' || user.verified_type === 'official');
 };

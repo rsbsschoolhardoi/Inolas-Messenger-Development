@@ -323,6 +323,21 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
           service_account_environment: selectedEnvOnCreate,
           updated_at: Date.now()
         }, { merge: true });
+
+        // Record Audit Log event for Admin tracking
+        const createAuditId = `log_sa_create_${Date.now()}`;
+        await setDoc(doc(db, 'audit_logs', createAuditId), {
+          id: createAuditId,
+          action: 'CREATE_SERVICE_ACCOUNT',
+          actor: currentUser.username,
+          actor_uid: currentUser.id || cleanDevUser,
+          zenoa_id: currentUser.zenoa_id || currentUser.id || currentUser.username,
+          bot_name: finalAppName,
+          bot_username: finalBotUsername,
+          client_id: clientId,
+          timestamp: Date.now(),
+          details: `Developer @${currentUser.username} created Business Service Account @${finalBotUsername} (${finalAppName})`
+        }).catch(() => {});
       }
 
       try {
@@ -367,6 +382,21 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
           await deleteDoc(doc(db, 'service_accounts', botU)).catch(() => {});
           await deleteDoc(doc(db, 'sso_applications', selectedApp.id)).catch(() => {});
         }
+
+        // Record Audit Log event for Admin tracking
+        const deleteAuditId = `log_sa_delete_${Date.now()}`;
+        await setDoc(doc(db, 'audit_logs', deleteAuditId), {
+          id: deleteAuditId,
+          action: 'DELETE_SERVICE_ACCOUNT',
+          actor: currentUser.username,
+          actor_uid: currentUser.id || cleanDevUser,
+          zenoa_id: currentUser.zenoa_id || currentUser.id || currentUser.username,
+          bot_name: selectedApp.app_name || selectedApp.name || selectedApp.bot_username || 'Business Service Account',
+          bot_username: selectedApp.bot_username || selectedApp.id,
+          client_id: selectedApp.client_id || selectedApp.id,
+          timestamp: Date.now(),
+          details: `Developer @${currentUser.username} deleted Business Service Account @${selectedApp.bot_username || selectedApp.id}`
+        }).catch(() => {});
       }
 
       setApps([]);

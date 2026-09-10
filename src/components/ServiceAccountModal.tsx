@@ -117,29 +117,24 @@ export const ServiceAccountModal: React.FC<ServiceAccountModalProps> = ({
                 <button
                   type="button"
                   onClick={() => avatarUrl && setShowFullImage(true)}
-                  className={`h-24 w-24 rounded-2xl overflow-hidden border-2 border-slate-200 dark:border-slate-700/80 shadow-md bg-slate-100 dark:bg-slate-800 flex items-center justify-center transition-all ${
+                  className={`h-24 w-24 rounded-full overflow-hidden border-2 border-slate-200 dark:border-slate-700/80 shadow-md bg-slate-100 dark:bg-slate-800 flex items-center justify-center transition-all ${
                     avatarUrl ? 'cursor-pointer hover:ring-4 hover:ring-indigo-500/20 active:scale-95' : ''
                   }`}
                   title={avatarUrl ? 'Click to view high resolution logo' : displayName}
                 >
                   {avatarUrl ? (
-                    <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover rounded-2xl" />
+                    <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover rounded-full" />
                   ) : isOfficial ? (
                     <ShieldCheck className="h-12 w-12 text-indigo-600" />
                   ) : (
                     <Bot className="h-12 w-12 text-indigo-500" />
                   )}
                   {avatarUrl && (
-                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white rounded-2xl">
+                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white rounded-full">
                       <Maximize2 className="h-5 w-5" />
                     </div>
                   )}
                 </button>
-                {isVerified && (
-                  <div className="absolute -bottom-1 -right-1 bg-white dark:bg-slate-900 rounded-full p-1 shadow-md">
-                    <PurpleVerifiedBadge size="sm" />
-                  </div>
-                )}
               </div>
 
               {/* Name & Clean Handle */}
@@ -310,7 +305,7 @@ export const ServiceAccountModal: React.FC<ServiceAccountModalProps> = ({
             <img 
               src={avatarUrl} 
               alt={displayName} 
-              className="w-full h-auto rounded-2xl shadow-2xl border-2 border-white/10 object-contain max-h-[70vh]"
+              className="w-56 h-56 rounded-full shadow-2xl border-4 border-white/20 object-cover"
             />
             <p className="mt-3 text-xs text-slate-300 font-medium">{displayName} Logo</p>
           </div>

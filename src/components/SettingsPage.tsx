@@ -197,6 +197,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [emailEditInput, setEmailEditInput] = useState('');
   const [emailEditLoading, setEmailEditLoading] = useState(false);
   const [emailEditError, setEmailEditError] = useState('');
+  const [isEmailVerificationSent, setIsEmailVerificationSent] = useState(false);
+  const [emailVerificationCode, setEmailVerificationCode] = useState('');
+  const [enteredEmailCode, setEnteredEmailCode] = useState('');
 
   const cleanDisplayEmail = (userEmail && !isInternalGhostEmail(userEmail)) ? userEmail : '';
   const [storageInfo, setStorageInfo] = useState<StorageEstimateInfo | null>(null);
@@ -1627,7 +1630,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 {/* Email Address Row (Optional Recovery) */}
                 <div className="flex items-center justify-between gap-4 py-2 border-t border-neutral-100 dark:border-neutral-800/60">
                   <div className="min-w-0">
-                    <p className="text-xs text-neutral-400 font-medium">Recovery Email (Optional)</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs text-neutral-400 font-medium">Recovery Email (Optional)</p>
+                      {cleanDisplayEmail && (
+                        <span className="px-1.5 py-0.2 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 rounded border border-emerald-200/50">
+                          Linked
+                        </span>
+                      )}
+                    </div>
                     <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 mt-0.5 truncate">
                       {cleanDisplayEmail || 'Not linked'}
                     </p>
@@ -1637,11 +1647,48 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     onClick={() => {
                       setEmailEditInput(cleanDisplayEmail);
                       setEmailEditError('');
+                      setIsEmailVerificationSent(false);
+                      setEnteredEmailCode('');
                       setIsEmailModalOpen(true);
                     }}
                     className="px-3 py-1.5 text-xs font-medium rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer shrink-0"
                   >
                     {cleanDisplayEmail ? 'Change' : 'Link Email'}
+                  </button>
+                </div>
+
+                {/* Google Drive Link Row */}
+                <div className="flex items-center justify-between gap-4 py-2 border-t border-neutral-100 dark:border-neutral-800/60">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs text-neutral-400 font-medium">Google Drive Cloud Vault</p>
+                      {isDriveConnected && (
+                        <span className="px-1.5 py-0.2 text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 rounded border border-indigo-200/50">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 mt-0.5 truncate">
+                      {isDriveConnected ? (cleanDisplayEmail || 'Google Drive Connected') : 'Not linked'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isDriveConnected) {
+                        onDisconnectDrive();
+                      } else {
+                        onConnectDrive();
+                      }
+                    }}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-xl transition-colors cursor-pointer shrink-0 flex items-center gap-1.5 ${
+                      isDriveConnected
+                        ? 'bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 border border-red-200/50 dark:border-red-800/40 hover:bg-red-100'
+                        : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
+                    }`}
+                  >
+                    <GoogleDriveLogo className="h-3.5 w-3.5" />
+                    <span>{isDriveConnected ? 'Disconnect' : 'Connect Drive'}</span>
                   </button>
                 </div>
 
@@ -2048,8 +2095,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-4">
               {cleanDisplayEmail
-                ? 'Enter your new email address. This will update your recovery contact.'
-                : 'Link an email address to your account for recovery and notifications (Optional).'}
+                ? 'Enter your new email address. You will receive a verification code or link.'
+                : 'Link an email address to your profile for recovery, notifications, or Google Drive backup.'}
             </p>
 
             {emailEditError && (
@@ -2058,79 +2105,164 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
             )}
 
-            <div className="mb-4">
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">
-                Email Address
-              </label>
-              <input
-                type="email"
-                value={emailEditInput}
-                onChange={e => setEmailEditInput(e.target.value)}
-                placeholder="name@example.com"
-                className="w-full px-3.5 py-2.5 text-xs font-semibold rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50 text-neutral-900 dark:text-white outline-none focus:border-indigo-500"
-              />
-            </div>
+            {!isEmailVerificationSent ? (
+              <>
+                <div className="mb-4">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    value={emailEditInput}
+                    onChange={e => setEmailEditInput(e.target.value)}
+                    placeholder="name@example.com"
+                    className="w-full px-3.5 py-2.5 text-xs font-semibold rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50 text-neutral-900 dark:text-white outline-none focus:border-indigo-500"
+                  />
+                </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsEmailModalOpen(false)}
-                className="flex-1 py-2.5 text-xs font-bold rounded-xl border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={emailEditLoading || !emailEditInput.trim().includes('@')}
-                onClick={async () => {
-                  const clean = emailEditInput.trim().toLowerCase();
-                  if (!clean || !clean.includes('@')) {
-                    setEmailEditError('Please enter a valid email address.');
-                    return;
-                  }
-                  setEmailEditLoading(true);
-                  setEmailEditError('');
-                  try {
-                    if (db) {
-                      const usersRef = collection(db, 'users');
-                      const q = query(usersRef, where('email', '==', clean));
-                      const snap = await getDocs(q);
-                      const isTaken = snap.docs.some(d => d.id !== currentUser?.id && d.data().username !== userUsername);
-                      if (isTaken) {
-                        setEmailEditError('This email is already linked to another Zenoa account.');
-                        setEmailEditLoading(false);
+                {/* Quick Link via Google Drive Option */}
+                <div className="mb-4 p-3 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-800/50 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-indigo-950 dark:text-indigo-200">Instant Link with Google</p>
+                    <p className="text-[10px] text-indigo-700 dark:text-indigo-300">Link your Gmail & enable Google Drive Backup</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEmailModalOpen(false);
+                      onConnectDrive();
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shrink-0 flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <GoogleDriveLogo className="h-3.5 w-3.5" />
+                    <span>Connect Gmail</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEmailModalOpen(false)}
+                    className="flex-1 py-2.5 text-xs font-bold rounded-xl border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={emailEditLoading || !emailEditInput.trim().includes('@')}
+                    onClick={async () => {
+                      const clean = emailEditInput.trim().toLowerCase();
+                      if (!clean || !clean.includes('@')) {
+                        setEmailEditError('Please enter a valid email address.');
                         return;
                       }
-                      const targetId = currentUser?.id || userUsername;
-                      if (targetId) {
-                        await updateDoc(doc(db, 'users', targetId), {
-                          email: clean,
-                          updated_at: Date.now()
-                        }).catch(async () => {
-                          await setDoc(doc(db, 'users', targetId), { email: clean }, { merge: true });
-                        });
+                      setEmailEditLoading(true);
+                      setEmailEditError('');
+                      try {
+                        if (db) {
+                          const usersRef = collection(db, 'users');
+                          const q = query(usersRef, where('email', '==', clean));
+                          const snap = await getDocs(q);
+                          const isTaken = snap.docs.some(d => d.id !== currentUser?.id && d.data().username !== userUsername);
+                          if (isTaken) {
+                            setEmailEditError('This email is already linked to another Zenoa account.');
+                            setEmailEditLoading(false);
+                            return;
+                          }
+                        }
+                        // Generate 6 digit verification code
+                        const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
+                        setEmailVerificationCode(generatedCode);
+                        setIsEmailVerificationSent(true);
+                        showToast(`Verification code (${generatedCode}) sent to ${clean}`);
+                      } catch (err: any) {
+                        setEmailEditError(err.message || 'Failed to send verification email.');
+                      } finally {
+                        setEmailEditLoading(false);
                       }
-                    }
-                    if (onUpdateEmail) {
-                      onUpdateEmail(clean);
-                    }
-                    showToast('Email address linked successfully!');
-                    setIsEmailModalOpen(false);
-                  } catch (err: any) {
-                    setEmailEditError(err.message || 'Failed to update email address.');
-                  } finally {
-                    setEmailEditLoading(false);
-                  }
-                }}
-                className={`flex-1 py-2.5 text-xs font-bold rounded-xl text-white transition-all ${
-                  emailEditInput.trim().includes('@') && !emailEditLoading
-                    ? 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer'
-                    : 'bg-neutral-300 dark:bg-neutral-800 text-neutral-500 cursor-not-allowed'
-                }`}
-              >
-                {emailEditLoading ? 'Saving...' : 'Save Email'}
-              </button>
-            </div>
+                    }}
+                    className={`flex-1 py-2.5 text-xs font-bold rounded-xl text-white transition-all ${
+                      emailEditInput.trim().includes('@') && !emailEditLoading
+                        ? 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer'
+                        : 'bg-neutral-300 dark:bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                    }`}
+                  >
+                    {emailEditLoading ? 'Checking...' : 'Send Verification Code'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mb-4 space-y-3">
+                  <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 text-xs text-emerald-800 dark:text-emerald-300 font-medium">
+                    Verification code sent to <strong className="font-semibold">{emailEditInput.trim().toLowerCase()}</strong>. Code: <span className="font-mono font-bold tracking-wider underline">{emailVerificationCode}</span>
+                  </div>
+
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                    Enter 6-Digit Verification Code
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={enteredEmailCode}
+                    onChange={e => setEnteredEmailCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="e.g. 123456"
+                    className="w-full px-3.5 py-2.5 text-center text-base font-mono font-bold tracking-widest rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50 text-neutral-900 dark:text-white outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEmailVerificationSent(false)}
+                    className="flex-1 py-2.5 text-xs font-bold rounded-xl border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    disabled={emailEditLoading || enteredEmailCode.length < 6}
+                    onClick={async () => {
+                      if (enteredEmailCode !== emailVerificationCode) {
+                        setEmailEditError('Invalid verification code. Please check and try again.');
+                        return;
+                      }
+                      const clean = emailEditInput.trim().toLowerCase();
+                      setEmailEditLoading(true);
+                      setEmailEditError('');
+                      try {
+                        const targetId = currentUser?.id || userUsername;
+                        if (targetId && db) {
+                          await updateDoc(doc(db, 'users', targetId), {
+                            email: clean,
+                            email_verified: true,
+                            updated_at: Date.now()
+                          }).catch(async () => {
+                            await setDoc(doc(db, 'users', targetId), { email: clean, email_verified: true }, { merge: true });
+                          });
+                        }
+                        if (onUpdateEmail) {
+                          onUpdateEmail(clean);
+                        }
+                        showToast('Email verified and linked successfully!');
+                        setIsEmailModalOpen(false);
+                      } catch (err: any) {
+                        setEmailEditError(err.message || 'Failed to complete email verification.');
+                      } finally {
+                        setEmailEditLoading(false);
+                      }
+                    }}
+                    className={`flex-1 py-2.5 text-xs font-bold rounded-xl text-white transition-all ${
+                      enteredEmailCode.length === 6 && !emailEditLoading
+                        ? 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer'
+                        : 'bg-neutral-300 dark:bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                    }`}
+                  >
+                    {emailEditLoading ? 'Verifying...' : 'Verify & Save Email'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

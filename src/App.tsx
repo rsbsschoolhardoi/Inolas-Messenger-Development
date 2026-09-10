@@ -420,6 +420,7 @@ export default function App() {
   const [isBackingUp, setIsBackingUp] = useState<boolean>(false);
   const [isRestoring, setIsRestoring] = useState<boolean>(false);
   const [lastBackupInfo, setLastBackupInfo] = useState<DriveFileInfo | null>(null);
+  const isConnectingDriveRef = useRef(false);
   
   
   const [hasSavedPassword, setHasSavedPassword] = useState<boolean>(() => {
@@ -1873,7 +1874,7 @@ export default function App() {
                 following: Array.isArray(p.following) ? p.following : [],
                 is_private: !!p.is_private,
                 is_official: isOfficial,
-                is_verified: isOfficial || (!!p.is_verified && !p.is_business_account),
+                is_verified: isOfficial || !!p.is_verified || p.verified_type === 'purple' || p.verified_type === 'official',
                 verified_type: isOfficial ? 'purple' : (p.verified_type || (p.is_verified ? 'purple' : null)),
                 is_service_account: isOfficial || !!p.is_service_account,
                 is_business_account: !isOfficial && !!p.is_business_account
@@ -1894,7 +1895,25 @@ export default function App() {
         // 2. Live auth listener
         unsubscribeAuth = onAuthStateChanged(auth, async (userObj) => {
           try {
+            // If Google Drive or OAuth popup sign in was triggered for an existing active session, preserve Zenoa profile
+            if (isConnectingDriveRef.current) {
+              console.log("Skipping auth session reset while linking Google Drive.");
+              return;
+            }
+
             if (userObj) {
+              // Preserve existing logged in Zenoa session if a secondary OAuth popup fires
+              if (isAuthenticated && userId && userObj.uid !== userId) {
+                console.log("Preserving existing Zenoa session for UID:", userId);
+                if (userObj.email) {
+                  const cleanDriveMail = isInternalGhostEmail(userObj.email) ? '' : userObj.email;
+                  if (cleanDriveMail) {
+                    setUserEmail(cleanDriveMail);
+                  }
+                }
+                return;
+              }
+
               const rawAuthEmail = userObj.email || '';
               const cleanAuthEmail = isInternalGhostEmail(rawAuthEmail) ? '' : rawAuthEmail;
 
@@ -3643,14 +3662,55 @@ export default function App() {
     
     if (isFirebaseConfigured && db && auth) {
       try {
+        const wasAuthenticated = isAuthenticated;
+        const currentUid = userId;
+        const currentUname = userUsername;
+
+        if (wasAuthenticated) {
+          isConnectingDriveRef.current = true;
+        }
+
         let authProvider;
         if (provider === 'google') {
           authProvider = new GoogleAuthProvider();
+          authProvider.addScope('https://www.googleapis.com/auth/drive.appdata');
+          authProvider.addScope('https://www.googleapis.com/auth/drive.file');
         } else {
           authProvider = new FacebookAuthProvider();
         }
         const userCredential = await signInWithPopup(auth, authProvider);
         const userObj = userCredential.user;
+        const cleanOAuthEmail = isInternalGhostEmail(userObj.email) ? '' : (userObj.email || '');
+
+        if (wasAuthenticated && (currentUid || currentUname)) {
+          // USER IS ALREADY LOGGED IN: Link Google/Facebook Email directly to existing Zenoa ID profile!
+          if (cleanOAuthEmail) {
+            setUserEmail(cleanOAuthEmail);
+            const targetId = currentUid || currentUname;
+            if (targetId && db) {
+              await setDoc(doc(db, 'users', targetId), {
+                email: cleanOAuthEmail,
+                drive_email: cleanOAuthEmail,
+                is_drive_linked: provider === 'google',
+                updated_at: Date.now()
+              }, { merge: true }).catch(() => {});
+            }
+          }
+
+          if (provider === 'google') {
+            const credential = GoogleAuthProvider.credentialFromResult(userCredential);
+            if (credential?.accessToken) {
+              setDriveAccessToken(credential.accessToken);
+              setIsDriveConnected(true);
+              localStorage.setItem('zenoa_drive_connected', 'true');
+            }
+          }
+
+          showToast(`${provider === 'google' ? 'Google' : 'Facebook'} account (${cleanOAuthEmail || 'Connected'}) linked successfully to your Zenoa profile!`);
+          setIsLoading(false);
+          setTimeout(() => { isConnectingDriveRef.current = false; }, 1500);
+          return;
+        }
 
         // Retrieve profile from Firestore
         const userDocRef = doc(db, 'users', userObj.uid);
@@ -4674,6 +4734,7 @@ export default function App() {
   const handleConnectDrive = async () => {
     if (isFirebaseConfigured && auth) {
       try {
+        isConnectingDriveRef.current = true;
         console.log("Starting Google Drive connection for project:", auth.app.options.projectId);
         const provider = new GoogleAuthProvider();
         provider.addScope('https://www.googleapis.com/auth/drive.appdata');
@@ -4681,12 +4742,30 @@ export default function App() {
         
         const result = await signInWithPopup(auth, provider);
         const credential = GoogleAuthProvider.credentialFromResult(result);
+        const driveEmail = result.user?.email || '';
         
         if (credential?.accessToken) {
           setDriveAccessToken(credential.accessToken);
           setIsDriveConnected(true);
           localStorage.setItem('zenoa_drive_connected', 'true');
-          showToast('Google Drive connected successfully');
+
+          if (driveEmail) {
+            const cleanDriveEmail = isInternalGhostEmail(driveEmail) ? '' : driveEmail;
+            if (cleanDriveEmail) {
+              setUserEmail(cleanDriveEmail);
+              localStorage.setItem('zenoa_linked_drive_email', cleanDriveEmail);
+              const targetId = userId || userUsername;
+              if (targetId && db) {
+                await setDoc(doc(db, 'users', targetId), {
+                  email: cleanDriveEmail,
+                  drive_email: cleanDriveEmail,
+                  is_drive_linked: true,
+                  updated_at: Date.now()
+                }, { merge: true }).catch(() => {});
+              }
+            }
+          }
+          showToast(`Google Drive (${driveEmail || 'Connected'}) linked to your Zenoa profile!`);
         } else {
           showToast('Failed to obtain Google Drive access token');
         }
@@ -4706,6 +4785,10 @@ export default function App() {
           console.error('Drive connection error:', err);
           showToast(`Connection failed: ${err.message || 'Unknown error'}`);
         }
+      } finally {
+        setTimeout(() => {
+          isConnectingDriveRef.current = false;
+        }, 1500);
       }
     } else {
       showToast('Firebase Auth not configured. Drive connection unavailable.');

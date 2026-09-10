@@ -6,7 +6,7 @@ import {
   Check, X, Search, RefreshCw, AlertTriangle, Eye, Edit3,
   LogOut, ArrowRight, Activity, Terminal, CheckCircle2,
   Trash2, Upload, Send, Download, Layers, CornerDownRight, Zap, ChevronRight,
-  Palette, Globe, Image as ImageIcon, Sparkles, FileCode, Clock, XCircle, FileText
+  Palette, Globe, Image as ImageIcon, Sparkles, FileCode, Clock, XCircle, FileText, Building2, Bot, History, ListFilter, Calendar, Code
 } from 'lucide-react';
 import { UserData, ReportItem, AuditLogItem, ServiceAccountData, SystemBroadcast, Chat } from '../types';
 import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
@@ -64,8 +64,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   });
 
   // Active Tab Management
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'verified_management' | 'sessions' | 'service_accounts' | 'developer_service_accounts' | 'templates' | 'reports' | 'groups' | 'audit' | 'settings' | 'branding'>('overview');
-  const [serviceSubTab, setServiceSubTab] = useState<'official' | 'developer'>('official');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'verified_management' | 'sessions' | 'service_accounts' | 'official_service_accounts' | 'business_service_accounts' | 'templates' | 'reports' | 'groups' | 'audit' | 'settings' | 'branding'>('overview');
+  const [auditDevModal, setAuditDevModal] = useState<{
+    ownerUsername: string;
+    ownerUid: string;
+    ownerZenoaId: string;
+    apps: any[];
+  } | null>(null);
 
   // App Branding Management
   const branding = useBranding();
@@ -375,13 +380,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  const handleOpenDevAudit = (ownerUsername: string) => {
+    if (!ownerUsername) return;
+    const cleanOwner = ownerUsername.toLowerCase().replace(/^@/, '');
+    const ownerUser = dbUsers.find(u => (u.username || '').toLowerCase() === cleanOwner || (u.id || '').toLowerCase() === cleanOwner);
+    const ownerUid = ownerUser?.id || ownerUser?.uid || cleanOwner;
+    const ownerZenoaId = ownerUser?.zenoa_id || ownerUser?.username || cleanOwner;
+
+    // Find all developer apps owned by this user
+    const ownerApps = developerApps.filter(a =>
+      (a.owner || a.owner_username || '').toLowerCase() === cleanOwner ||
+      (a.owner_uid || '').toLowerCase() === ownerUid.toLowerCase()
+    );
+
+    setAuditDevModal({
+      ownerUsername: cleanOwner,
+      ownerUid,
+      ownerZenoaId,
+      apps: ownerApps
+    });
+  };
+
   // Toggle Purple Verification Badge Action
   const handleTogglePurpleVerification = async (user: UserData) => {
-    // Official system service accounts are always verified
-    if (user.is_service_account && !user.is_business_account) {
-      return;
-    }
-
     const isCurrentlyVerified = !!user.is_verified;
     const updatedStatus = !isCurrentlyVerified;
     const verifiedType = updatedStatus ? 'purple' : null;
@@ -1451,19 +1472,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('service_accounts')}
+              onClick={() => setActiveTab('official_service_accounts')}
               className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-bold text-left flex items-center justify-between transition-colors cursor-pointer ${
-                activeTab === 'service_accounts'
+                activeTab === 'official_service_accounts' || activeTab === 'service_accounts'
                   ? 'bg-neutral-800 text-white border border-neutral-700'
                   : 'text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200'
               }`}
             >
               <div className="flex items-center gap-3">
-                <Radio className="h-4 w-4 text-neutral-400" />
-                <span>Service Accounts & Broadcast</span>
+                <ShieldCheck className="h-4 w-4 text-purple-400" />
+                <span>Official Service Accounts</span>
               </div>
-              <span className="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 text-[10px] font-mono">
-                {metrics.officialServiceAccs + metrics.developerServiceAccs}
+              <span className="px-1.5 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/80 text-[10px] font-mono font-bold">
+                {metrics.officialServiceAccs}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('business_service_accounts')}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-bold text-left flex items-center justify-between transition-colors cursor-pointer ${
+                activeTab === 'business_service_accounts'
+                  ? 'bg-neutral-800 text-white border border-neutral-700'
+                  : 'text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Building2 className="h-4 w-4 text-indigo-400" />
+                <span>Business Service Accounts</span>
+              </div>
+              <span className="px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/80 text-[10px] font-mono font-bold">
+                {metrics.developerServiceAccs}
               </span>
             </button>
 
@@ -1612,14 +1650,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             Sessions ({metrics.activeOnline})
           </button>
           <button
-            onClick={() => setActiveTab('service_accounts')}
+            onClick={() => setActiveTab('official_service_accounts')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer ${
-              activeTab === 'service_accounts'
-                ? 'bg-neutral-800 text-neutral-200 border border-neutral-700'
+              activeTab === 'official_service_accounts' || activeTab === 'service_accounts'
+                ? 'bg-neutral-800 text-purple-300 border border-neutral-700'
                 : 'bg-neutral-800 text-neutral-400'
             }`}
           >
-            Service Accounts
+            Official SA ({metrics.officialServiceAccs})
+          </button>
+          <button
+            onClick={() => setActiveTab('business_service_accounts')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer ${
+              activeTab === 'business_service_accounts'
+                ? 'bg-neutral-800 text-indigo-300 border border-neutral-700'
+                : 'bg-neutral-800 text-neutral-400'
+            }`}
+          >
+            Business SA ({metrics.developerServiceAccs})
           </button>
           <button
             onClick={() => setActiveTab('reports')}
@@ -2122,30 +2170,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </td>
 
                              <td className="p-4 text-right">
-                              {user.is_service_account && !user.is_business_account ? (
-                                <span className="px-4 py-1.5 rounded-xl text-xs font-bold border bg-purple-950/40 text-purple-400 border-purple-800/50 inline-flex items-center gap-1.5 justify-center min-w-[155px]">
-                                  Always Verified
-                                </span>
-                              ) : (
-                                <button
-                                  disabled={processingActions[`verify_${user.username}`]}
-                                  onClick={() => handleTogglePurpleVerification(user)}
-                                  className={`px-4 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all inline-flex items-center gap-1.5 justify-center min-w-[155px] ${
-                                    isVerified
-                                      ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-300 border-neutral-700 hover:text-white'
-                                      : 'bg-purple-900 hover:bg-purple-850 text-white border-purple-700 hover:shadow-[0_0_12px_rgba(139,92,246,0.3)]'
-                                  }`}
-                                >
-                                  {processingActions[`verify_${user.username}`] ? (
-                                    <>
-                                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                      <span>Updating...</span>
-                                    </>
-                                  ) : (
-                                    <span>{isVerified ? 'Revoke Verified Badge' : 'Grant Verified Badge'}</span>
-                                  )}
-                                </button>
-                              )}
+                              <button
+                                disabled={processingActions[`verify_${user.username}`]}
+                                onClick={() => handleTogglePurpleVerification(user)}
+                                className={`px-4 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all inline-flex items-center gap-1.5 justify-center min-w-[155px] ${
+                                  isVerified
+                                    ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-300 border-neutral-700 hover:text-white'
+                                    : 'bg-purple-900 hover:bg-purple-850 text-white border-purple-700 hover:shadow-[0_0_12px_rgba(139,92,246,0.3)]'
+                                }`}
+                              >
+                                {processingActions[`verify_${user.username}`] ? (
+                                  <>
+                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                    <span>Updating...</span>
+                                  </>
+                                ) : (
+                                  <span>{isVerified ? 'Revoke Verified Badge' : 'Grant Verified Badge'}</span>
+                                )}
+                              </button>
                             </td>
                           </tr>
                         );
@@ -2257,13 +2299,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           )}
 
-{activeTab === 'service_accounts' && (
+          {/* TAB 1: OFFICIAL SERVICE ACCOUNTS & GLOBAL BROADCAST */}
+          {(activeTab === 'official_service_accounts' || activeTab === 'service_accounts') && (
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-xl font-black text-white uppercase tracking-tight">Zenoa Service Accounts & Broadcast</h2>
+                  <h2 className="text-xl font-black text-white uppercase tracking-tight flex items-center gap-2">
+                    <ShieldCheck className="h-5 w-5 text-purple-400" />
+                    <span>Official Zenoa Service Accounts & Global Broadcast</span>
+                  </h2>
                   <p className="text-xs text-neutral-400 font-mono mt-0.5">
-                    Manage official verified admin service accounts, review developer service accounts, and dispatch global broadcasts.
+                    Manage official verified system accounts and dispatch global broadcasts.
                   </p>
                 </div>
 
@@ -2273,208 +2319,62 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     className="px-4 py-2.5 rounded-xl bg-purple-900 hover:bg-purple-800 text-white font-bold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 border border-purple-700 shadow-md"
                   >
                     <Radio className="h-4 w-4" />
-                    <span>Create Service Account</span>
+                    <span>Create Official Service Account</span>
                   </button>
                 </div>
               </div>
 
-              {/* Sub-Tab Selector for Service Accounts */}
-              <div className="flex rounded-xl bg-neutral-900 border border-neutral-800 p-1 w-full max-w-md">
-                <button
-                  onClick={() => setServiceSubTab('official')}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 ${
-                    serviceSubTab === 'official'
-                      ? 'bg-neutral-800 text-purple-300 border border-neutral-700 shadow-sm'
-                      : 'text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  <ShieldCheck className="h-4 w-4 text-purple-400" />
-                  <span>Official Service Accounts ({combinedOfficialServiceAccounts.length})</span>
-                </button>
-                <button
-                  onClick={() => setServiceSubTab('developer')}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 ${
-                    serviceSubTab === 'developer'
-                      ? 'bg-neutral-800 text-indigo-300 border border-neutral-700 shadow-sm'
-                      : 'text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  <Radio className="h-4 w-4 text-indigo-400" />
-                  <span>Developer Service Accounts ({metrics.developerServiceAccs})</span>
-                </button>
-              </div>
-
-              {/* SUB-TAB 1: OFFICIAL SERVICE ACCOUNTS */}
-              {serviceSubTab === 'official' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {combinedOfficialServiceAccounts.length === 0 ? (
-                    <div className="col-span-full p-8 rounded-2xl bg-neutral-900 border border-neutral-800 text-center font-mono text-neutral-500 text-xs">
-                      No official service accounts created yet. Click 'Create Service Account' above.
-                    </div>
-                  ) : (
-                    combinedOfficialServiceAccounts.map((sa, idx) => (
-                      <div key={`sa_${sa.id || sa.username || "sa"}_${idx}`} className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-3 relative group">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2.5">
-                            <div className="h-10 w-10 rounded-xl bg-purple-950 border border-purple-800 flex items-center justify-center font-bold text-purple-300 text-sm">
+              {/* OFFICIAL SERVICE ACCOUNTS GRID */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {combinedOfficialServiceAccounts.length === 0 ? (
+                  <div className="col-span-full p-8 rounded-2xl bg-neutral-900 border border-neutral-800 text-center font-mono text-neutral-500 text-xs">
+                    No official service accounts created yet. Click 'Create Official Service Account' above.
+                  </div>
+                ) : (
+                  combinedOfficialServiceAccounts.map((sa, idx) => (
+                    <div key={`sa_${sa.id || sa.username || "sa"}_${idx}`} className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-3 relative group">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="h-10 w-10 rounded-full bg-purple-950 border border-purple-800 flex items-center justify-center font-bold text-purple-300 text-sm overflow-hidden shrink-0">
+                            {sa.avatar_url ? (
+                              <img src={sa.avatar_url} alt={sa.display_name} className="w-full h-full object-cover rounded-full" />
+                            ) : (
                               <ShieldCheck className="h-5 w-5 text-purple-400" />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-white text-sm">{sa.display_name}</span>
-                                <PurpleVerifiedBadge size="sm" />
-                              </div>
-                              <span className="text-xs font-mono text-neutral-400">@{sa.username}</span>
-                            </div>
+                            )}
                           </div>
-
-                          <span className="px-2 py-0.5 rounded bg-purple-950 border border-purple-800 text-purple-300 text-[10px] font-mono font-bold">
-                            {sa.service_category || 'Official Bot'}
-                          </span>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-white text-sm">{sa.display_name}</span>
+                              <PurpleVerifiedBadge size="sm" />
+                            </div>
+                            <span className="text-xs font-mono text-neutral-400">@{sa.username}</span>
+                          </div>
                         </div>
 
-                        <p className="text-xs text-neutral-400 line-clamp-2 font-normal">
-                          {sa.bio || 'Official Zenoa System Service Account'}
-                        </p>
-
-                        <div className="pt-3 border-t border-neutral-800 flex items-center justify-between text-[11px] font-mono text-neutral-500">
-                          <span>Dispatches: {sa.broadcast_count || 0}</span>
-                          <button
-                            onClick={() => handleDeleteServiceAccount(sa.id || sa.username, sa.username, false)}
-                            className="px-2.5 py-1 rounded bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/80 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                            title="Delete Service Account"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                            <span>Delete</span>
-                          </button>
-                        </div>
+                        <span className="px-2 py-0.5 rounded bg-purple-950 border border-purple-800 text-purple-300 text-[10px] font-mono font-bold">
+                          {sa.service_category || 'Official Bot'}
+                        </span>
                       </div>
-                    ))
-                  )}
-                </div>
-              )}
 
-              {/* SUB-TAB 2: DEVELOPER SERVICE ACCOUNTS */}
-              {serviceSubTab === 'developer' && (
-                <div className="space-y-4">
-                  <div className="p-4 rounded-xl bg-indigo-950/40 border border-indigo-800/60 text-xs text-indigo-200 flex items-start gap-3">
-                    <Radio className="h-5 w-5 text-indigo-400 shrink-0 mt-0.5" />
-                    <div>
-                      <span className="font-bold text-white block">Developer Service Accounts & Bots</span>
-                      <span className="text-indigo-300 font-mono text-[11px] block mt-0.5">
-                        These are service accounts and application bots created by registered users via Developer Console. By default, Developer accounts are marked as Business Accounts and are unverified.
-                      </span>
+                      <p className="text-xs text-neutral-400 line-clamp-2 font-normal">
+                        {sa.bio || 'Official Zenoa System Service Account'}
+                      </p>
+
+                      <div className="pt-3 border-t border-neutral-800 flex items-center justify-between text-[11px] font-mono text-neutral-500">
+                        <span>Dispatches: {sa.broadcast_count || 0}</span>
+                        <button
+                          onClick={() => handleDeleteServiceAccount(sa.id || sa.username, sa.username, false)}
+                          className="px-2.5 py-1 rounded bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/80 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                          title="Delete Official Service Account"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          <span>Delete</span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {developerApps.length === 0 && dbUsers.filter(u => u.is_service_account && u.is_business_account).length === 0 ? (
-                      <div className="col-span-full p-8 rounded-2xl bg-neutral-900 border border-neutral-800 text-center font-mono text-neutral-500 text-xs">
-                        No developer service accounts created yet via Developer Console.
-                      </div>
-                    ) : (
-                      <>
-                        {developerApps.map((app, idx) => (
-                          <div key={`dev_app_${app.id || app.client_id || idx}`} className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2.5">
-                                <div className="h-10 w-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-indigo-400 text-sm">
-                                  <Radio className="h-5 w-5" />
-                                </div>
-                                <div>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-bold text-white text-sm">{app.name}</span>
-                                    {app.is_verified ? (
-                                      <PurpleVerifiedBadge size="sm" />
-                                    ) : (
-                                      <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700 text-[9px] font-mono">
-                                        Business Bot
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="text-xs font-mono text-neutral-400">@{app.bot_username || app.client_id || 'dev_bot'}</span>
-                                </div>
-                              </div>
-                              <span className="px-2 py-0.5 rounded bg-slate-800 text-indigo-300 border border-slate-700 text-[10px] font-mono">
-                                Developer App
-                              </span>
-                            </div>
-
-                            <div className="space-y-1 text-xs font-mono text-neutral-400">
-                              <div>Owner: <span className="text-neutral-200">@{app.owner_username || 'developer'}</span></div>
-                              <div>Client ID: <span className="text-neutral-300">{app.client_id ? app.client_id.slice(0, 16) + '...' : 'dev_client_id'}</span></div>
-                            </div>
-
-                            <div className="pt-3 border-t border-neutral-800 flex items-center justify-between">
-                              <button
-                                onClick={() => handleTogglePurpleVerification({ id: app.id || app.bot_username, username: app.bot_username || app.id, is_verified: app.is_verified } as UserData)}
-                                className={`px-2.5 py-1 rounded text-[10px] font-bold font-mono transition-colors cursor-pointer border ${
-                                  app.is_verified
-                                    ? 'bg-purple-950 text-purple-300 border-purple-800 hover:bg-purple-900'
-                                    : 'bg-neutral-800 text-neutral-300 border-neutral-700 hover:bg-neutral-750'
-                                }`}
-                              >
-                                {app.is_verified ? 'Revoke Verified Badge' : 'Grant Purple Badge'}
-                              </button>
-
-                              <button
-                                onClick={() => handleDeleteServiceAccount(app.id || app.client_id, app.bot_username || app.client_id, true)}
-                                className="px-2.5 py-1 rounded bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/80 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                                <span>Delete</span>
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-
-                        {dbUsers.filter(u => u.is_service_account && u.is_business_account && !developerApps.some(a => a.bot_username === u.username || a.id === u.id)).map((u, idx) => (
-                          <div key={`dev_user_sa_${u.id || u.username}_${idx}`} className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2.5">
-                                <div className="h-10 w-10 rounded-xl bg-indigo-950 border border-indigo-800 flex items-center justify-center font-bold text-indigo-300 text-sm">
-                                  <Radio className="h-5 w-5 text-indigo-400" />
-                                </div>
-                                <div>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-bold text-white text-sm">{u.display_name}</span>
-                                    {u.is_verified ? (
-                                      <PurpleVerifiedBadge size="sm" />
-                                    ) : (
-                                      <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700 text-[9px] font-mono">
-                                        Business Account
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="text-xs font-mono text-neutral-400">@{u.username}</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            <p className="text-xs text-neutral-400 line-clamp-2">{u.bio || 'Developer Service Account'}</p>
-
-                            <div className="pt-3 border-t border-neutral-800 flex items-center justify-between">
-                              <button
-                                onClick={() => handleTogglePurpleVerification(u)}
-                                className="px-2 py-1 rounded bg-neutral-800 text-neutral-300 border border-neutral-700 text-[10px] font-mono font-bold hover:bg-neutral-700 cursor-pointer"
-                              >
-                                {u.is_verified ? 'Revoke Verified Badge' : 'Grant Purple Badge'}
-                              </button>
-                              <button
-                                onClick={() => handleDeleteServiceAccount(u.id || u.username, u.username, true)}
-                                className="px-2.5 py-1 rounded bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/80 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                                <span>Delete</span>
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
+                  ))
+                )}
+              </div>
 
               {/* Broadcast Dispatch Form Card */}
               <div className="p-6 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-4">
@@ -2635,6 +2535,218 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <span>Dispatch Official Broadcast</span>
                   </button>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: BUSINESS SERVICE ACCOUNTS (DEVELOPER CONSOLE) */}
+          {activeTab === 'business_service_accounts' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-black text-white uppercase tracking-tight flex items-center gap-2">
+                    <Building2 className="h-5 w-5 text-indigo-400" />
+                    <span>Business Service Accounts (Developer Console)</span>
+                  </h2>
+                  <p className="text-xs text-neutral-400 font-mono mt-0.5">
+                    Directory of service accounts created by developers via Developer Console. Verification badges are strictly managed in the Verified Management tab.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1.5 rounded-xl bg-indigo-950/60 border border-indigo-800/80 text-xs font-mono font-bold text-indigo-300">
+                    Total Business Accounts: {metrics.developerServiceAccs}
+                  </span>
+                </div>
+              </div>
+
+              {/* Info Notice Banner */}
+              <div className="p-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-xs text-neutral-300 flex items-start gap-3">
+                <Bot className="h-5 w-5 text-indigo-400 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-bold text-white block">Developer Service Account Directory & Audit Tracking</span>
+                  <p className="text-neutral-400 font-mono text-[11px]">
+                    These service accounts were registered via Developer Console. Click <strong className="text-indigo-300">"View Audit & Logs"</strong> on any account to view the developer's full deletion and creation audit trail. To assign or revoke a Purple Verified Badge, use the <strong className="text-purple-300">Verified Management</strong> tab.
+                  </p>
+                </div>
+              </div>
+
+              {/* BUSINESS SERVICE ACCOUNTS GRID */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {developerApps.length === 0 && dbUsers.filter(u => u.is_service_account && u.is_business_account).length === 0 ? (
+                  <div className="col-span-full p-8 rounded-2xl bg-neutral-900 border border-neutral-800 text-center font-mono text-neutral-500 text-xs">
+                    No Business Service Accounts registered yet via Developer Console.
+                  </div>
+                ) : (
+                  <>
+                    {developerApps.map((app, idx) => {
+                      const ownerName = app.owner || app.owner_username || 'developer';
+                      const ownerUser = dbUsers.find(u => (u.username || '').toLowerCase() === ownerName.toLowerCase() || (u.id || '').toLowerCase() === ownerName.toLowerCase());
+                      const ownerZenoaId = ownerUser?.zenoa_id || ownerUser?.id || app.owner_uid || ownerName;
+                      const botName = app.app_name || app.name || 'Business Bot';
+                      const botUsername = app.bot_username || app.client_id || 'dev_bot';
+                      const registeredDateStr = app.created_at ? new Date(app.created_at).toLocaleString('en-US', {
+                        month: 'short',
+                        day: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      }) : 'Registered via Developer Portal';
+
+                      return (
+                        <div key={`dev_app_card_${app.id || app.client_id || idx}`} className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="h-12 w-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-indigo-400 overflow-hidden shrink-0">
+                                {app.avatar_url ? (
+                                  <img src={app.avatar_url} alt={botName} className="w-full h-full object-cover rounded-full" />
+                                ) : (
+                                  <Bot className="h-6 w-6 text-indigo-400" />
+                                )}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <h3 className="font-bold text-white text-sm">{botName}</h3>
+                                  {app.is_verified && <PurpleVerifiedBadge size="sm" />}
+                                </div>
+                                <span className="text-xs font-mono text-indigo-300 block">@{botUsername.replace(/^@/, '')}</span>
+                              </div>
+                            </div>
+
+                            <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-mono shrink-0">
+                              Developer Console
+                            </span>
+                          </div>
+
+                          {/* Details Metadata Grid */}
+                          <div className="p-3 rounded-xl bg-neutral-950 border border-neutral-800 space-y-1.5 text-xs font-mono">
+                            <div className="flex items-center justify-between">
+                              <span className="text-neutral-500">Owner Username:</span>
+                              <span className="text-white font-bold">@{ownerName.replace(/^@/, '')}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-neutral-500">Zenoa ID:</span>
+                              <span className="text-neutral-300 font-bold">{ownerZenoaId}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-neutral-500">Registered Date:</span>
+                              <span className="text-neutral-400 text-[11px]">{registeredDateStr}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-neutral-500">Client ID:</span>
+                              <span className="text-neutral-400 text-[11px]">{app.client_id ? app.client_id.slice(0, 18) + '...' : app.id}</span>
+                            </div>
+                          </div>
+
+                          {/* Actions & Verification Info */}
+                          <div className="pt-3 border-t border-neutral-800 flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-mono text-neutral-500">
+                              Badge: Managed in Verified Tab
+                            </span>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleOpenDevAudit(ownerName)}
+                                className="px-3 py-1.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-800 text-xs font-bold font-mono flex items-center gap-1.5 transition-colors cursor-pointer"
+                              >
+                                <History className="h-3.5 w-3.5" />
+                                <span>View Audit & Logs</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleDeleteServiceAccount(app.id || app.client_id, app.bot_username || app.client_id, true)}
+                                className="px-2.5 py-1.5 rounded-xl bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/80 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                                title="Delete Service Account"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {dbUsers.filter(u => u.is_service_account && u.is_business_account && !developerApps.some(a => a.bot_username === u.username || a.id === u.id)).map((u, idx) => {
+                      const ownerName = u.owner || u.username;
+                      const ownerUser = dbUsers.find(dev => (dev.username || '').toLowerCase() === ownerName.toLowerCase());
+                      const ownerZenoaId = ownerUser?.zenoa_id || u.zenoa_id || u.id;
+                      const registeredDateStr = u.created_at ? new Date(u.created_at).toLocaleString('en-US', {
+                        month: 'short',
+                        day: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      }) : 'Registered Account';
+
+                      return (
+                        <div key={`dev_user_sa_card_${u.id || u.username}_${idx}`} className="p-5 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="h-12 w-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-indigo-400 overflow-hidden shrink-0">
+                                {u.avatar_url ? (
+                                  <img src={u.avatar_url} alt={u.display_name} className="w-full h-full object-cover rounded-full" />
+                                ) : (
+                                  <Bot className="h-6 w-6 text-indigo-400" />
+                                )}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <h3 className="font-bold text-white text-sm">{u.display_name}</h3>
+                                  {u.is_verified && <PurpleVerifiedBadge size="sm" />}
+                                </div>
+                                <span className="text-xs font-mono text-indigo-300 block">@{u.username.replace(/^@/, '')}</span>
+                              </div>
+                            </div>
+
+                            <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-mono shrink-0">
+                              Business SA
+                            </span>
+                          </div>
+
+                          <div className="p-3 rounded-xl bg-neutral-950 border border-neutral-800 space-y-1.5 text-xs font-mono">
+                            <div className="flex items-center justify-between">
+                              <span className="text-neutral-500">Owner Username:</span>
+                              <span className="text-white font-bold">@{ownerName.replace(/^@/, '')}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-neutral-500">Zenoa ID:</span>
+                              <span className="text-neutral-300 font-bold">{ownerZenoaId}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-neutral-500">Registered Date:</span>
+                              <span className="text-neutral-400 text-[11px]">{registeredDateStr}</span>
+                            </div>
+                          </div>
+
+                          <div className="pt-3 border-t border-neutral-800 flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-mono text-neutral-500">
+                              Badge: Managed in Verified Tab
+                            </span>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleOpenDevAudit(ownerName)}
+                                className="px-3 py-1.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-800 text-xs font-bold font-mono flex items-center gap-1.5 transition-colors cursor-pointer"
+                              >
+                                <History className="h-3.5 w-3.5" />
+                                <span>View Audit & Logs</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleDeleteServiceAccount(u.id || u.username, u.username, true)}
+                                className="px-2.5 py-1.5 rounded-xl bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/80 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -3843,6 +3955,185 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* DEVELOPER AUDIT LOG & SERVICE ACCOUNT HISTORY MODAL */}
+      <AnimatePresence>
+        {auditDevModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="w-full max-w-4xl max-h-[85vh] bg-neutral-900 border border-neutral-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden"
+            >
+              {/* Modal Header */}
+              <div className="p-6 border-b border-neutral-800 flex items-center justify-between bg-neutral-950/60">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-2xl bg-indigo-950 border border-indigo-800 flex items-center justify-center font-bold text-indigo-400">
+                    <History className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-bold text-white">Developer Audit & History</h3>
+                      <span className="px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800 text-[10px] font-mono font-bold">
+                        @{auditDevModal.ownerUsername}
+                      </span>
+                    </div>
+                    <p className="text-xs text-neutral-400 font-mono mt-0.5">
+                      Zenoa ID: <span className="text-neutral-200">{auditDevModal.ownerZenoaId || auditDevModal.ownerUid}</span> • UID: <span className="text-neutral-300">{auditDevModal.ownerUid}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setAuditDevModal(null)}
+                  className="p-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-6 overflow-y-auto space-y-6 flex-1">
+                {/* Developer Stats Grid */}
+                {(() => {
+                  const devOwnerLogs = auditLogs.filter(l => 
+                    (l.actor || l.actor_username || '').toLowerCase() === auditDevModal.ownerUsername.toLowerCase() ||
+                    (l.actor_uid || '').toLowerCase() === auditDevModal.ownerUid.toLowerCase() ||
+                    (auditDevModal.apps.some(a => (a.bot_username || '').toLowerCase() === (l.bot_username || l.target || '').toLowerCase()))
+                  );
+
+                  const createCount = devOwnerLogs.filter(l => (l.action || '').includes('CREATE')).length + (auditDevModal.apps.length > devOwnerLogs.filter(l => (l.action || '').includes('CREATE')).length ? auditDevModal.apps.length - devOwnerLogs.filter(l => (l.action || '').includes('CREATE')).length : 0);
+                  const deleteCount = devOwnerLogs.filter(l => (l.action || '').includes('DELETE')).length;
+                  const activeCount = auditDevModal.apps.length;
+
+                  // Combine explicit audit logs + synthesized creation logs for current apps if missing from audit_logs
+                  const combinedDevLogs = [...devOwnerLogs];
+                  auditDevModal.apps.forEach(app => {
+                    const hasCreateLog = devOwnerLogs.some(l => 
+                      (l.action || '').includes('CREATE') && 
+                      (l.bot_username || '').toLowerCase() === (app.bot_username || '').toLowerCase()
+                    );
+                    if (!hasCreateLog && app.created_at) {
+                      combinedDevLogs.push({
+                        id: `syn_${app.id}`,
+                        action: 'CREATE_SERVICE_ACCOUNT',
+                        actor: auditDevModal.ownerUsername,
+                        actor_uid: auditDevModal.ownerUid,
+                        bot_name: app.name || app.app_name,
+                        bot_username: app.bot_username,
+                        timestamp: app.created_at,
+                        details: `Created Business Service Account @${app.bot_username || app.id} via Developer Console`
+                      } as AuditLogItem);
+                    }
+                  });
+
+                  combinedDevLogs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+                  return (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-1">
+                          <span className="text-[11px] font-mono text-neutral-400 font-bold block uppercase tracking-wider">Total Created Bots</span>
+                          <div className="text-2xl font-black text-emerald-400 font-mono">{createCount}</div>
+                          <span className="text-[10px] text-neutral-500 font-mono block">Registered via Developer Portal</span>
+                        </div>
+
+                        <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-1">
+                          <span className="text-[11px] font-mono text-neutral-400 font-bold block uppercase tracking-wider">Total Deleted Bots</span>
+                          <div className="text-2xl font-black text-rose-400 font-mono">{deleteCount}</div>
+                          <span className="text-[10px] text-neutral-500 font-mono block">Permanently Purged</span>
+                        </div>
+
+                        <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-1">
+                          <span className="text-[11px] font-mono text-neutral-400 font-bold block uppercase tracking-wider">Active Service Accounts</span>
+                          <div className="text-2xl font-black text-indigo-400 font-mono">{activeCount}</div>
+                          <span className="text-[10px] text-neutral-500 font-mono block">Currently Live in Production</span>
+                        </div>
+                      </div>
+
+                      {/* Audit Trail Timeline / Log Table */}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                            <ListFilter className="h-4 w-4 text-indigo-400" />
+                            <span>Service Account Activity & Audit Trail</span>
+                          </h4>
+                          <span className="text-xs font-mono text-neutral-500">{combinedDevLogs.length} events logged</span>
+                        </div>
+
+                        {combinedDevLogs.length === 0 ? (
+                          <div className="p-8 rounded-2xl bg-neutral-950 border border-neutral-800 text-center font-mono text-neutral-500 text-xs">
+                            No audit logs or historical activity recorded for this developer account yet.
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-neutral-800/60 rounded-2xl border border-neutral-800 bg-neutral-950 overflow-hidden">
+                            {combinedDevLogs.map((log, lIdx) => {
+                              const isDelete = (log.action || '').includes('DELETE');
+                              const isCreate = (log.action || '').includes('CREATE');
+
+                              return (
+                                <div key={`dev_audit_log_${log.id || lIdx}`} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-neutral-900/50 transition-colors">
+                                  <div className="flex items-start gap-3">
+                                    <div className={`mt-0.5 px-2 py-1 rounded text-[10px] font-mono font-bold uppercase tracking-wider shrink-0 border ${
+                                      isCreate
+                                        ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
+                                        : isDelete
+                                        ? 'bg-rose-950/80 text-rose-300 border-rose-800'
+                                        : 'bg-amber-950/80 text-amber-300 border-amber-800'
+                                    }`}>
+                                      {isCreate ? 'CREATED' : isDelete ? 'DELETED' : log.action || 'ACTIVITY'}
+                                    </div>
+
+                                    <div>
+                                      <div className="text-xs font-bold text-white flex items-center gap-2">
+                                        <span>{log.bot_name || log.bot_username || 'Service Account'}</span>
+                                        {log.bot_username && (
+                                          <span className="text-[11px] font-mono text-neutral-400">@{log.bot_username.replace(/^@/, '')}</span>
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-neutral-400 font-mono mt-0.5">
+                                        {log.details || log.details_message || `Service account action performed by @${auditDevModal.ownerUsername}`}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="text-right shrink-0">
+                                    <span className="text-[11px] font-mono text-neutral-500 block">
+                                      {log.timestamp ? new Date(log.timestamp).toLocaleString('en-US', {
+                                        month: 'short',
+                                        day: '2-digit',
+                                        year: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      }) : 'Timestamp N/A'}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-4 border-t border-neutral-800 bg-neutral-950/60 flex items-center justify-between text-xs font-mono text-neutral-500">
+                <span>Developer Account Verification Managed via Verified Management Tab</span>
+                <button
+                  onClick={() => setAuditDevModal(null)}
+                  className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white font-bold cursor-pointer transition-colors"
+                >
+                  Close Audit
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
