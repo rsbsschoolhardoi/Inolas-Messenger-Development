@@ -428,15 +428,6 @@ export default function App() {
   });
 
 
-  useEffect(() => {
-    if (isDriveConnected && driveAccessToken) {
-      // Check for existing backup on connect
-      findVaultFile(driveAccessToken).then(info => {
-        setLastBackupInfo(info);
-      }).catch(() => {});
-    }
-  }, [isDriveConnected, driveAccessToken]);
-
   const handleStartCallWithUser = (targetUsername: string, type: 'voice' | 'video') => {
     if (!targetUsername) return;
     const cleanTarget = targetUsername.toLowerCase().replace(/^@/, '');
@@ -1095,6 +1086,16 @@ export default function App() {
       }
     }
   }, [isAuthenticated, userUsername, savedAccounts]);
+
+  useEffect(() => {
+    if (isDriveConnected && driveAccessToken) {
+      // Check for existing backup on connect using user-specific filename
+      const mainVaultName = userUsername ? `zenoa_vault_${userUsername.toLowerCase().trim()}.bin` : 'zenoa_vault.bin';
+      findVaultFile(driveAccessToken, mainVaultName).then(info => {
+        setLastBackupInfo(info);
+      }).catch(() => {});
+    }
+  }, [isDriveConnected, driveAccessToken, userUsername]);
 
   const [kickoutData, setKickoutData] = useState<{ username: string; countdown: number } | null>(null);
   const tabSessionIdRef = useRef('sess_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now());
@@ -4580,8 +4581,11 @@ export default function App() {
 
     setIsBackingUp(true);
     try {
+      const mainVaultName = userUsername ? `zenoa_vault_${userUsername.toLowerCase().trim()}.bin` : 'zenoa_vault.bin';
+      const recVaultName = userUsername ? `zenoa_vault_recovery_${userUsername.toLowerCase().trim()}.bin` : 'zenoa_vault_recovery.bin';
+
       // 1. Verification: Try to download and decrypt first to ensure password is correct
-      const vaultFile = await findVaultFile(driveAccessToken);
+      const vaultFile = await findVaultFile(driveAccessToken, mainVaultName);
       if (vaultFile) {
         const encrypted = await downloadVaultFile(driveAccessToken, vaultFile.id);
         try {
@@ -4592,8 +4596,22 @@ export default function App() {
         }
       }
 
-      // 2. Proceed with deletion
-      await deleteVaultFile(driveAccessToken);
+      // 2. Proceed with deletion of both standard and recovery files
+      await deleteVaultFile(driveAccessToken, mainVaultName);
+      await deleteVaultFile(driveAccessToken, recVaultName).catch(() => {});
+
+      // 3. Clean up Firestore 1:1 drive account linkage mapping
+      if (userEmail && db) {
+        try {
+          const enc = new TextEncoder().encode(userEmail.toLowerCase().trim());
+          const hashBuf = await window.crypto.subtle.digest('SHA-256', enc);
+          const emailHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+          await deleteDoc(doc(db, 'linked_google_vaults', emailHash)).catch(() => {});
+        } catch (delHashErr) {
+          console.warn('Notice removing linked_google_vaults index:', delHashErr);
+        }
+      }
+
       showToast('Backup permanently deleted from Google Drive.');
     } catch (err: any) {
       console.error('Delete backup failed:', err);
@@ -4778,6 +4796,39 @@ export default function App() {
         const driveEmail = result?.user?.email || '';
         
         if (credential?.accessToken) {
+          // 1:1 Security Mapping Check: Ensure this Google account is not already linked to another Zenoa account
+          if (driveEmail && db) {
+            try {
+              const enc = new TextEncoder().encode(driveEmail.toLowerCase().trim());
+              const hashBuf = await window.crypto.subtle.digest('SHA-256', enc);
+              const emailHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+              
+              const vaultLinkRef = doc(db, 'linked_google_vaults', emailHash);
+              const linkSnap = await getDoc(vaultLinkRef);
+              const currentOwner = userUsername?.replace(/^@/, '').toLowerCase().trim();
+
+              if (linkSnap.exists()) {
+                const linkData = linkSnap.data();
+                if (linkData?.owner_username && linkData.owner_username !== currentOwner) {
+                  showToast(`Security Restriction: This Google account is already linked to @${linkData.owner_username}. Each user requires a unique Google Drive.`);
+                  setIsDriveConnected(false);
+                  setDriveAccessToken(null);
+                  localStorage.removeItem('zenoa_drive_connected');
+                  return;
+                }
+              }
+
+              // Register this 1:1 association
+              await setDoc(vaultLinkRef, {
+                owner_username: currentOwner,
+                owner_user_id: userId || currentOwner,
+                linked_at: Date.now()
+              }, { merge: true });
+            } catch (hashErr) {
+              console.warn("Notice checking 1:1 drive account mapping:", hashErr);
+            }
+          }
+
           setDriveAccessToken(credential.accessToken);
           setIsDriveConnected(true);
           localStorage.setItem('zenoa_drive_connected', 'true');
@@ -4846,10 +4897,64 @@ export default function App() {
     try {
       // 1. Collect data from local IndexedDB and current state
       const allMessages = await storageManager.getAllMessages();
+      let mergedMessages = allMessages;
+      let mergedChats = chats;
+      let mergedCallLogs = firestoreCalls;
+
+      const mainVaultName = userUsername ? `zenoa_vault_${userUsername.toLowerCase().trim()}.bin` : 'zenoa_vault.bin';
+      const recVaultName = userUsername ? `zenoa_vault_recovery_${userUsername.toLowerCase().trim()}.bin` : 'zenoa_vault_recovery.bin';
+
+      // 1b. Cloud Read-Merge Cycle: If vault exists on Drive, download & merge to prevent historical data loss
+      try {
+        const existingVault = await findVaultFile(driveAccessToken, mainVaultName);
+        if (existingVault) {
+          const cloudBlob = await downloadVaultFile(driveAccessToken, existingVault.id);
+          const decryptedCloud = await decryptVault(cloudBlob, password);
+          const cloudData = JSON.parse(decryptedCloud);
+
+          if (cloudData && Array.isArray(cloudData.messages)) {
+            const msgMap = new Map<string, any>();
+            // Add cloud messages first
+            for (const msg of cloudData.messages) {
+              if (msg && msg.id) msgMap.set(msg.id, msg);
+            }
+            // Overwrite/merge with current local messages
+            for (const msg of allMessages) {
+              if (msg && msg.id) msgMap.set(msg.id, msg);
+            }
+            mergedMessages = Array.from(msgMap.values());
+          }
+
+          if (cloudData && Array.isArray(cloudData.chats)) {
+            const chatMap = new Map<string, any>();
+            for (const c of cloudData.chats) {
+              if (c && c.id) chatMap.set(c.id, c);
+            }
+            for (const c of chats) {
+              if (c && c.id) chatMap.set(c.id, c);
+            }
+            mergedChats = Array.from(chatMap.values());
+          }
+
+          if (cloudData && Array.isArray(cloudData.callLogs)) {
+            const callMap = new Map<string, any>();
+            for (const cl of cloudData.callLogs) {
+              if (cl && cl.id) callMap.set(cl.id, cl);
+            }
+            for (const cl of firestoreCalls) {
+              if (cl && cl.id) callMap.set(cl.id, cl);
+            }
+            mergedCallLogs = Array.from(callMap.values());
+          }
+        }
+      } catch (mergeErr) {
+        console.warn("Notice: Cloud merge cycle skipped (fresh vault or different password):", mergeErr);
+      }
+
       const backupData = {
-        messages: allMessages,
-        chats: chats,
-        callLogs: firestoreCalls,
+        messages: mergedMessages,
+        chats: mergedChats,
+        callLogs: mergedCallLogs,
         settings: {
           themeMode,
           soundEffects,
@@ -4883,9 +4988,9 @@ export default function App() {
       const encrypted = await encryptVault(JSON.stringify(backupData), password);
 
       // 3. Upload to Google Drive (overwrite if exists)
-      const fileId = await uploadVaultFile(driveAccessToken, encrypted, lastBackupInfo?.id);
+      const fileId = await uploadVaultFile(driveAccessToken, encrypted, lastBackupInfo?.id, mainVaultName);
       
-      const info = await findVaultFile(driveAccessToken);
+      const info = await findVaultFile(driveAccessToken, mainVaultName);
       setLastBackupInfo(info);
 
       // 4. Also backup with 24-char Recovery Key if locally configured
@@ -4894,8 +4999,8 @@ export default function App() {
       if (savedRecoveryKey) {
         try {
           const encryptedWithRecovery = await encryptVault(JSON.stringify(backupData), savedRecoveryKey);
-          const existingRecFileInfo = await findVaultFile(driveAccessToken, 'zenoa_vault_recovery.bin');
-          await uploadVaultFile(driveAccessToken, encryptedWithRecovery, existingRecFileInfo?.id, 'zenoa_vault_recovery.bin');
+          const existingRecFileInfo = await findVaultFile(driveAccessToken, recVaultName);
+          await uploadVaultFile(driveAccessToken, encryptedWithRecovery, existingRecFileInfo?.id, recVaultName);
           console.log('Recovery-key backup updated on Google Drive successfully.');
         } catch (recErr) {
           console.warn('Could not update recovery-key backup:', recErr);
@@ -4923,9 +5028,12 @@ export default function App() {
       const cleanKey = passwordOrKey.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
       const isRecoveryKeyInput = cleanKey.length === 24;
 
+      const mainVaultName = userUsername ? `zenoa_vault_${userUsername.toLowerCase().trim()}.bin` : 'zenoa_vault.bin';
+      const recVaultName = userUsername ? `zenoa_vault_recovery_${userUsername.toLowerCase().trim()}.bin` : 'zenoa_vault_recovery.bin';
+
       if (isRecoveryKeyInput) {
         // Find recovery file zenoa_vault_recovery.bin
-        const recInfo = await findVaultFile(driveAccessToken, 'zenoa_vault_recovery.bin');
+        const recInfo = await findVaultFile(driveAccessToken, recVaultName);
         if (!recInfo) {
           throw new Error('No recovery-key backup found on your Google Drive. Please use your standard Master Password.');
         }
@@ -4935,7 +5043,7 @@ export default function App() {
         localStorage.setItem(`zenoa_recovery_key_${userEmail}`, passwordOrKey);
       } else {
         // 1. Find the standard vault file
-        const info = await findVaultFile(driveAccessToken);
+        const info = await findVaultFile(driveAccessToken, mainVaultName);
         if (!info) {
           throw new Error('No backup found on your Google Drive');
         }
@@ -11218,6 +11326,7 @@ export default function App() {
             renderAvatar={renderAvatar}
             onOpenEditProfile={handleOpenEditProfile}
             isDriveConnected={isDriveConnected}
+            driveAccessToken={driveAccessToken}
             isBackingUp={isBackingUp}
             isRestoring={isRestoring}
             lastBackupDate={lastBackupInfo ? new Date(lastBackupInfo.modifiedTime).toLocaleString() : null}

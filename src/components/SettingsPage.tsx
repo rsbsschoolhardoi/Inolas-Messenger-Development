@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { GoogleDriveLogo } from './GoogleDriveLogo';
 import { VaultPasswordModal } from './VaultPasswordModal';
+import { GoogleDriveConnectConsentModal } from './GoogleDriveConnectConsentModal';
+import { DeleteCloudBackupModal } from './DeleteCloudBackupModal';
+import { getDriveStorageQuota, DriveStorageQuota } from '../lib/googleDrive';
 import { isInternalGhostEmail } from '../chatUtils';
 import { APP_BUILD_INFO } from '../version';
 import { db } from '../firebaseClient';
@@ -122,6 +125,7 @@ interface SettingsPageProps {
   onBackupToDrive: (password: string) => void;
   onRestoreFromDrive: (password: string) => void;
   onDeleteBackupFromDrive: (password: string) => void;
+  driveAccessToken?: string | null;
 }
 
 type SettingsSection = 'main' | 'appearance' | 'notifications' | 'privacy' | 'chats' | 'storage' | 'account' | 'calls' | 'private_account' | 'developer' | 'linked_devices';
@@ -191,8 +195,37 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onBackupToDrive,
   onRestoreFromDrive,
   onDeleteBackupFromDrive,
+  driveAccessToken,
 }) => {
   const [section, setSection] = useState<SettingsSection>('main');
+  const [showDriveConsentModal, setShowDriveConsentModal] = useState<boolean>(false);
+  const [showDeleteBackupModal, setShowDeleteBackupModal] = useState<boolean>(false);
+  const [driveStorageQuota, setDriveStorageQuota] = useState<DriveStorageQuota | null>(null);
+  const [isLoadingDriveQuota, setIsLoadingDriveQuota] = useState<boolean>(false);
+
+  const fetchDriveQuota = async () => {
+    if (!driveAccessToken) return;
+    setIsLoadingDriveQuota(true);
+    try {
+      const quota = await getDriveStorageQuota(driveAccessToken);
+      if (quota) {
+        setDriveStorageQuota(quota);
+      }
+    } catch (e) {
+      console.warn('Error fetching Drive storage quota:', e);
+    } finally {
+      setIsLoadingDriveQuota(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isDriveConnected && driveAccessToken) {
+      fetchDriveQuota();
+    } else {
+      setDriveStorageQuota(null);
+    }
+  }, [isDriveConnected, driveAccessToken]);
+
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [emailEditInput, setEmailEditInput] = useState('');
   const [emailEditLoading, setEmailEditLoading] = useState(false);
@@ -1245,56 +1278,115 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {section === 'storage' && (
           <div className="space-y-6 animate-fade-in">
             {/* Google Drive Vault & Cloud Backup Card */}
-            <div className="p-6 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-6">
+            <div className="p-6 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-5">
               {/* Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-neutral-100 dark:border-neutral-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-neutral-100 dark:border-neutral-800/80">
                 <div className="flex items-center gap-3.5">
-                  <div className="p-3 rounded-2xl bg-neutral-100 dark:bg-neutral-800/90 border border-neutral-200/60 dark:border-neutral-700/60 shrink-0">
+                  <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800/90 border border-neutral-200/60 dark:border-neutral-700/60 shrink-0">
                     <GoogleDriveLogo className="h-6 w-6" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-base text-neutral-900 dark:text-white">Google Drive Backup</h3>
-                      <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                      <h3 className="font-bold text-base text-neutral-900 dark:text-white tracking-tight">Google Drive Backup</h3>
+                      <span className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full ${
                         isDriveConnected 
-                          ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60' 
-                          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 border border-neutral-200/60 dark:border-neutral-700/60'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200/70 dark:border-emerald-800/50' 
+                          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 border border-neutral-200/60 dark:border-neutral-700/60'
                       }`}>
                         {isDriveConnected ? 'Connected' : 'Disconnected'}
                       </span>
                     </div>
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                      Argon2id memory-hard client-side encrypted backup vault stored in your personal Google Drive
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">
+                      End-to-end client encrypted backup stored exclusively in your Google Drive isolated app folder
                     </p>
                   </div>
                 </div>
               </div>
 
               {/* Status & Metadata Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-800/80 space-y-1">
-                  <p className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Last Cloud Sync</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="p-4 rounded-2xl bg-neutral-50/80 dark:bg-neutral-800/40 border border-neutral-200/60 dark:border-neutral-800/80 space-y-1">
+                  <p className="text-[11px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">Last Cloud Sync</p>
                   <p className="text-sm font-bold text-neutral-900 dark:text-white">
                     {lastBackupDate || 'No backups created yet'}
                   </p>
                 </div>
-                <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-800/80 space-y-1">
-                  <p className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Master Password Security</p>
+                <div className="p-4 rounded-2xl bg-neutral-50/80 dark:bg-neutral-800/40 border border-neutral-200/60 dark:border-neutral-800/80 space-y-1">
+                  <p className="text-[11px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">Encryption Key Security</p>
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-1.5">
                       <Lock className="h-3.5 w-3.5 text-emerald-500" />
-                      <span>{hasSavedPassword ? 'Configured & Active' : 'Not Set (Set During Backup)'}</span>
+                      <span>{hasSavedPassword ? 'Master Password Active' : 'Set During First Backup'}</span>
                     </p>
                   </div>
                 </div>
               </div>
 
+              {/* Real-time Google Drive Storage Quota Indicator */}
+              {isDriveConnected && (
+                <div className="p-4 rounded-2xl bg-neutral-50/80 dark:bg-neutral-800/40 border border-neutral-200/60 dark:border-neutral-800/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <HardDrive className="h-4 w-4 text-neutral-600 dark:text-neutral-300" />
+                      <span className="text-xs font-bold text-neutral-900 dark:text-white">Google Drive Capacity</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={fetchDriveQuota}
+                      disabled={isLoadingDriveQuota}
+                      className="p-1 rounded-lg hover:bg-neutral-200/60 dark:hover:bg-neutral-700/60 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors cursor-pointer"
+                      title="Refresh Drive Quota"
+                    >
+                      <RefreshCw className={`h-3 w-3 ${isLoadingDriveQuota ? 'animate-spin' : ''}`} />
+                    </button>
+                  </div>
+
+                  {driveStorageQuota ? (
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-baseline text-xs">
+                        <span className="font-bold text-neutral-900 dark:text-white">
+                          {(driveStorageQuota.usage / (1024 * 1024 * 1024)).toFixed(2)} GB used
+                        </span>
+                        <span className="text-neutral-500 dark:text-neutral-400 text-[11px]">
+                          {Math.max(0, (driveStorageQuota.limit - driveStorageQuota.usage) / (1024 * 1024 * 1024)).toFixed(1)} GB free of {(driveStorageQuota.limit / (1024 * 1024 * 1024)).toFixed(0)} GB total
+                        </span>
+                      </div>
+                      <div className="w-full bg-neutral-200/80 dark:bg-neutral-700/60 rounded-full h-2 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            (driveStorageQuota.usage / (driveStorageQuota.limit || 1)) > 0.9
+                              ? 'bg-rose-500'
+                              : (driveStorageQuota.usage / (driveStorageQuota.limit || 1)) > 0.75
+                              ? 'bg-amber-500'
+                              : 'bg-neutral-800 dark:bg-neutral-200'
+                          }`}
+                          style={{
+                            width: `${Math.min(100, Math.max(1, (driveStorageQuota.usage / (driveStorageQuota.limit || 1)) * 100))}%`
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between text-xs text-neutral-500">
+                      <span>{isLoadingDriveQuota ? 'Retrieving storage metrics...' : 'Connected with unencumbered cloud access'}</span>
+                      <button
+                        type="button"
+                        onClick={fetchDriveQuota}
+                        className="text-neutral-800 dark:text-neutral-200 font-semibold hover:underline cursor-pointer"
+                      >
+                        Check Quota
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-3 pt-1">
                 {!isDriveConnected ? (
                   <button
-                    onClick={onConnectDrive}
-                    className="px-6 py-3 rounded-2xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer shadow-sm active:scale-98"
+                    onClick={() => setShowDriveConsentModal(true)}
+                    className="px-5 py-2.5 rounded-2xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer shadow-sm active:scale-98"
                   >
                     <GoogleDriveLogo className="h-4 w-4" />
                     <span>Connect Google Drive</span>
@@ -1336,7 +1428,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     <button
                       onClick={onDisconnectDrive}
                       disabled={isBackingUp || isRestoring}
-                      className="px-4 py-2.5 rounded-2xl border border-neutral-200 dark:border-neutral-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 hover:border-rose-300 dark:hover:border-rose-800 text-neutral-600 dark:text-neutral-400 hover:text-rose-600 dark:hover:text-rose-400 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer ml-auto"
+                      className="px-4 py-2.5 rounded-2xl border border-neutral-200/80 dark:border-neutral-700/80 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer ml-auto"
                       title="Disconnect Google Drive account"
                     >
                       <span>Disconnect</span>
@@ -1549,6 +1641,29 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Cloud Vault Permanent Deletion - With minimal subtle red border as requested */}
+            {isDriveConnected && (
+              <div className="pt-2 pb-1 px-1 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
+                    Cloud Backup Management
+                  </p>
+                  <p className="text-[11px] text-neutral-400 dark:text-neutral-500 leading-normal">
+                    Permanently remove your encrypted backup vault from Google Drive.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteBackupModal(true)}
+                  disabled={isBackingUp || isRestoring}
+                  className="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 px-3.5 py-2 rounded-xl border border-rose-300/80 dark:border-rose-900/60 hover:border-rose-400/80 dark:hover:border-rose-800/80 hover:bg-rose-50/70 dark:hover:bg-rose-950/30 transition-all cursor-pointer self-start sm:self-center disabled:opacity-40 flex items-center gap-1.5 shadow-sm active:scale-98"
+                >
+                  <Trash2 className="h-3.5 w-3.5 text-rose-500 dark:text-rose-400 shrink-0" />
+                  <span>Delete Cloud Backup</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -2002,6 +2117,29 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         onPasswordResetComplete={(newPwd) => {
           handlePasswordModalSubmit(newPwd);
         }}
+      />
+
+      {/* Google Drive Connection Consent Modal */}
+      <GoogleDriveConnectConsentModal
+        isOpen={showDriveConsentModal}
+        onClose={() => setShowDriveConsentModal(false)}
+        onConfirm={() => {
+          setShowDriveConsentModal(false);
+          onConnectDrive();
+        }}
+      />
+
+      {/* Bank-Grade Permanent Cloud Backup Deletion Modal */}
+      <DeleteCloudBackupModal
+        isOpen={showDeleteBackupModal}
+        onClose={() => setShowDeleteBackupModal(false)}
+        driveAccessToken={driveAccessToken || null}
+        username={userUsername}
+        onDeletionFinished={() => {
+          setShowDeleteBackupModal(false);
+          onDisconnectDrive();
+        }}
+        showToast={showToast}
       />
 
       {/* Privacy Change Confirmation Modal */}

@@ -109,6 +109,16 @@
         "owner": { "type": "string" },
         "created_at": { "type": "number" }
       }
+    },
+    "LinkedGoogleVault": {
+      "title": "Linked Google Vault",
+      "description": "Enforces 1:1 mapping between a Google Drive account hash and a Zenoa user",
+      "type": "object",
+      "properties": {
+        "owner_username": { "type": "string" },
+        "owner_user_id": { "type": "string" },
+        "linked_at": { "type": "number" }
+      }
     }
   },
   "firestore": {
@@ -143,6 +153,10 @@
     "sso_applications/{appId}": {
       "schema": "SSOApplication",
       "description": "SSO and OAuth client applications"
+    },
+    "linked_google_vaults/{vaultHash}": {
+      "schema": "LinkedGoogleVault",
+      "description": "Unique Google Drive account linking index"
     }
   }
 }

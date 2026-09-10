@@ -135,12 +135,12 @@ export async function getMediaUrlFromDrive(accessToken: string, fileId: string):
 }
 
 /**
- * Permanently deletes the vault file from Google Drive appDataFolder
+ * Permanently deletes a vault file from Google Drive appDataFolder
  */
-export async function deleteVaultFile(accessToken: string): Promise<void> {
+export async function deleteVaultFile(accessToken: string, fileName: string = 'zenoa_vault.bin'): Promise<void> {
   // 1. Find the file
   const response = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q=name='zenoa_vault.enc'&spaces=appDataFolder`,
+    `https://www.googleapis.com/drive/v3/files?q=name='${fileName}'&spaces=appDataFolder`,
     {
       headers: { Authorization: `Bearer ${accessToken}` },
     }
@@ -207,4 +207,43 @@ export async function uploadPublicMediaToDrive(accessToken: string, file: File |
   
   const linkData = await linkResponse.json();
   return linkData.webContentLink;
+}
+
+export interface DriveStorageQuota {
+  limit: number;
+  usage: number;
+  usageInDrive: number;
+  usageInDriveTrash: number;
+}
+
+/**
+ * Retrieves the user's storage quota from Google Drive API v3
+ */
+export async function getDriveStorageQuota(accessToken: string): Promise<DriveStorageQuota | null> {
+  try {
+    const response = await fetch('https://www.googleapis.com/drive/v3/about?fields=storageQuota', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      console.warn('Google Drive quota request returned non-OK status:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    if (data.storageQuota) {
+      return {
+        limit: parseInt(data.storageQuota.limit || '0', 10),
+        usage: parseInt(data.storageQuota.usage || '0', 10),
+        usageInDrive: parseInt(data.storageQuota.usageInDrive || '0', 10),
+        usageInDriveTrash: parseInt(data.storageQuota.usageInDriveTrash || '0', 10),
+      };
+    }
+    return null;
+  } catch (err) {
+    console.error('Failed to get Drive storage quota:', err);
+    return null;
+  }
 }
