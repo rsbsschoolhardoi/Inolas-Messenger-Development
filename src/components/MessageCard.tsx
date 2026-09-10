@@ -233,6 +233,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
 
   const isSentDark = activeTheme.bubble.isSentDark ?? true;
   const isReceivedDark = activeTheme.bubble.isReceivedDark ?? false;
+  const isCallMsg = msg.type === 'call' || Boolean(msg.call_data);
 
   const cardBgClass = isMe
     ? (activeTheme.bubble.cardBgSent || (isSentDark ? 'bg-black/25 border-white/20 text-white' : 'bg-black/5 border-black/15 text-slate-900'))
@@ -303,7 +304,11 @@ export const MessageCard: React.FC<MessageCardProps> = ({
         {/* Message Bubble Card */}
         <div
           className={`font-chat text-left min-w-[80px] break-words [overflow-wrap:anywhere] transition-all relative ${
-            isCleanTransparent ? 'p-1 bg-transparent border-0 shadow-none' : 'p-3 shadow-xs'
+            isCleanTransparent 
+              ? 'p-1 bg-transparent border-0 shadow-none' 
+              : isCallMsg 
+                ? 'px-3 py-2 sm:px-3.5 sm:py-2.5 min-w-[190px] sm:min-w-[215px] max-w-[290px] shadow-xs' 
+                : 'p-3 shadow-xs'
           } ${
             msg.reply_to ? 'rounded-b-2xl' : 'rounded-2xl'
           } ${
@@ -434,7 +439,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                 <div 
                   className={`p-3 rounded-xl flex items-center gap-3 mb-1 text-xs border transition-colors ${cardBgClass}`}
                 >
-                  <div className={`p-2.5 rounded-xl shrink-0 ${isSentDark && isMe ? 'bg-white/20 text-white' : 'bg-neutral-800 dark:bg-neutral-200/20 text-neutral-900 dark:text-neutral-100 dark:text-neutral-400 dark:text-neutral-600'}`}>
+                  <div className={`p-2.5 rounded-xl shrink-0 ${isMe ? 'bg-white/20 text-white' : 'bg-neutral-200/80 dark:bg-neutral-700/80 text-neutral-800 dark:text-neutral-200'}`}>
                     <FileText className="h-5 w-5" />
                   </div>
                   <div className="text-left min-w-0 flex-1">
@@ -519,14 +524,19 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                           }}
                           className={`w-full p-2.5 rounded-xl relative overflow-hidden border text-left transition-all cursor-pointer ${
                             hasVoted 
-
-                              ? 'border-neutral-700 dark:border-neutral-300 dark:border-neutral-400 bg-neutral-800 dark:bg-neutral-200/30 font-bold shadow-xs' 
-                              : 'border-black/10 dark:border-white/10 hover:border-neutral-400 bg-black/5 dark:bg-white/5'
+                              ? isMe 
+                                ? 'border-white/40 bg-white/15 font-bold shadow-xs' 
+                                : 'border-neutral-400 dark:border-neutral-600 bg-neutral-200/60 dark:bg-neutral-800/80 font-bold shadow-xs' 
+                              : isMe 
+                                ? 'border-white/15 hover:border-white/30 bg-black/10' 
+                                : 'border-black/10 dark:border-white/10 hover:border-neutral-400 bg-black/5 dark:bg-white/5'
                           }`}
                         >
                           {/* Animated Progress bar */}
                           <div 
-                            className="absolute left-0 top-0 bottom-0 bg-neutral-800 dark:bg-neutral-200/30 dark:bg-neutral-800 dark:bg-neutral-200/40 transition-all duration-500" 
+                            className={`absolute left-0 top-0 bottom-0 transition-all duration-500 ${
+                              isMe ? 'bg-white/20' : 'bg-neutral-300/60 dark:bg-neutral-700/60'
+                            }`} 
                             style={{ width: `${percentage}%` }}
                           />
                           <div className="relative z-10 flex justify-between items-center text-xs">
@@ -733,15 +743,15 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                         return <Clock className="h-3 w-3 text-neutral-400 animate-pulse" />;
                       }
                       if (!privacyReadReceipts) {
-                        return <Check className="h-3.5 w-3.5 stroke-[2] text-neutral-400/90" />;
+                        return <Check className={`h-3.5 w-3.5 stroke-[2] ${isSentDark ? 'text-white/70' : 'text-neutral-500'}`} />;
                       }
                       if (isRead) {
                         return <CheckCheck className="h-3.5 w-3.5 stroke-[2.5] text-sky-400 dark:text-sky-300 drop-shadow-[0_0_2px_rgba(56,189,248,0.4)]" />;
                       }
                       if (isDelivered) {
-                        return <CheckCheck className="h-3.5 w-3.5 stroke-[2] text-neutral-400 dark:text-neutral-500" />;
+                        return <CheckCheck className={`h-3.5 w-3.5 stroke-[2] ${isSentDark ? 'text-white/75' : 'text-neutral-500'}`} />;
                       }
-                      return <Check className="h-3.5 w-3.5 stroke-[2] text-neutral-400 dark:text-neutral-500" />;
+                      return <Check className={`h-3.5 w-3.5 stroke-[2] ${isSentDark ? 'text-white/65' : 'text-neutral-500'}`} />;
                     })()}
                   </span>
                 )}

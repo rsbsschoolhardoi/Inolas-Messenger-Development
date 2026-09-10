@@ -193,3 +193,285 @@ export const isAccountVerified = (user: PresenceUser | any | undefined | null, e
   if (!user) return false;
   return !!(user.is_verified || user.verified_type === 'purple' || user.verified_type === 'official');
 };
+
+/**
+ * Resolves a user object from the users map by username, ID, or handle case-insensitively.
+ */
+export const findUserInMap = (
+  identifier: string | undefined | null,
+  usersMap?: Record<string, any> | null
+): any | null => {
+  if (!identifier || !usersMap) return null;
+  const clean = identifier.replace(/^@/, '').trim().toLowerCase();
+  if (!clean) return null;
+
+  if (usersMap[clean]) return usersMap[clean];
+  if (usersMap[identifier]) return usersMap[identifier];
+
+  for (const user of Object.values(usersMap)) {
+    if (!user) continue;
+    if (user.username && user.username.toLowerCase() === clean) return user;
+    if (user.id && user.id.toLowerCase() === clean) return user;
+    if (user.zenoa_id && user.zenoa_id.toLowerCase().replace(/^@/, '') === clean) return user;
+    if (user.email && user.email.toLowerCase() === clean) return user;
+  }
+  return null;
+};
+
+/**
+ * Resolves all followers for a user with bidirectional reconciliation and deduplication.
+ */
+export const getResolvedFollowers = (
+  usernameOrId: string | undefined | null,
+  usersMap?: Record<string, any> | null,
+  currentLoggedInUsername?: string | null
+): string[] => {
+  if (!usernameOrId) return [];
+  const clean = usernameOrId.replace(/^@/, '').trim().toLowerCase();
+  if (!clean) return [];
+
+  const followerSet = new Set<string>();
+  const targetUser = findUserInMap(clean, usersMap);
+  const targetUserNames = [
+    clean,
+    targetUser?.username?.toLowerCase(),
+    targetUser?.id?.toLowerCase(),
+    targetUser?.zenoa_id?.toLowerCase().replace(/^@/, '')
+  ].filter(Boolean) as string[];
+
+  // 1. Check target user's explicit followers array
+  if (targetUser?.followers && Array.isArray(targetUser.followers)) {
+    targetUser.followers.forEach((f: string) => {
+      const cleanF = (f || '').replace(/^@/, '').trim();
+      if (cleanF && cleanF.toLowerCase() !== clean) {
+        followerSet.add(cleanF);
+      }
+    });
+  }
+
+  // 2. Check all other users in usersMap whose `following` contains this user
+  if (usersMap) {
+    Object.values(usersMap).forEach((other: any) => {
+      if (!other || !other.username) return;
+      const otherUsername = other.username.replace(/^@/, '').trim();
+      if (!otherUsername || otherUsername.toLowerCase() === clean) return;
+
+      if (other.following && Array.isArray(other.following)) {
+        const isFollowingTarget = other.following.some((f: string) => {
+          const cleanF = (f || '').replace(/^@/, '').trim().toLowerCase();
+          return targetUserNames.includes(cleanF);
+        });
+        if (isFollowingTarget) {
+          followerSet.add(otherUsername);
+        }
+      }
+    });
+  }
+
+  // 3. If current logged in user is following this target (stored in inolas_followed_users)
+  const cleanCurrent = (currentLoggedInUsername || '').replace(/^@/, '').trim().toLowerCase();
+  try {
+    const stored = JSON.parse(localStorage.getItem('inolas_followed_users') || '[]');
+    if (Array.isArray(stored)) {
+      const isCurrentFollowing = stored.some((u: string) => {
+        const cleanStored = (u || '').replace(/^@/, '').trim().toLowerCase();
+        return targetUserNames.includes(cleanStored);
+      });
+      if (isCurrentFollowing && cleanCurrent && cleanCurrent !== clean) {
+        followerSet.add(cleanCurrent);
+      }
+    }
+  } catch (e) {}
+
+  // 4. Check persistent target followers map cache
+  try {
+    const targetFollowersMap: Record<string, string[]> = JSON.parse(localStorage.getItem('inolas_target_followers_cache') || '{}');
+    for (const name of targetUserNames) {
+      if (Array.isArray(targetFollowersMap[name])) {
+        targetFollowersMap[name].forEach((f: string) => {
+          const cleanF = (f || '').replace(/^@/, '').trim();
+          if (cleanF && cleanF.toLowerCase() !== clean) {
+            followerSet.add(cleanF);
+          }
+        });
+      }
+    }
+  } catch (e) {}
+
+  return Array.from(followerSet);
+};
+
+/**
+ * Resolves all users that a user is following with bidirectional reconciliation and deduplication.
+ */
+export const getResolvedFollowing = (
+  usernameOrId: string | undefined | null,
+  usersMap?: Record<string, any> | null,
+  currentLoggedInUsername?: string | null
+): string[] => {
+  if (!usernameOrId) return [];
+  const clean = usernameOrId.replace(/^@/, '').trim().toLowerCase();
+  if (!clean) return [];
+
+  const followingSet = new Set<string>();
+  const user = findUserInMap(clean, usersMap);
+  const userIdentifiers = [
+    clean,
+    user?.username?.toLowerCase(),
+    user?.id?.toLowerCase(),
+    user?.zenoa_id?.toLowerCase().replace(/^@/, '')
+  ].filter(Boolean) as string[];
+
+  // 1. Check user's explicit following array
+  if (user?.following && Array.isArray(user.following)) {
+    user.following.forEach((f: string) => {
+      const cleanF = (f || '').replace(/^@/, '').trim();
+      if (cleanF && cleanF.toLowerCase() !== clean) {
+        followingSet.add(cleanF);
+      }
+    });
+  }
+
+  // 2. Check all other users in usersMap whose `followers` contains this user
+  if (usersMap) {
+    Object.values(usersMap).forEach((other: any) => {
+      if (!other || !other.username) return;
+      const otherUsername = other.username.replace(/^@/, '').trim();
+      if (!otherUsername || otherUsername.toLowerCase() === clean) return;
+
+      if (other.followers && Array.isArray(other.followers)) {
+        const isTargetFollower = other.followers.some((f: string) => {
+          const cleanF = (f || '').replace(/^@/, '').trim().toLowerCase();
+          return userIdentifiers.includes(cleanF);
+        });
+        if (isTargetFollower) {
+          followingSet.add(otherUsername);
+        }
+      }
+    });
+  }
+
+  // 3. For current user, also check local storage cache
+  const cleanCurrent = (currentLoggedInUsername || '').replace(/^@/, '').trim().toLowerCase();
+  if (!cleanCurrent || clean === cleanCurrent) {
+    try {
+      const stored = JSON.parse(localStorage.getItem('inolas_followed_users') || '[]');
+      if (Array.isArray(stored)) {
+        stored.forEach((u: string) => {
+          const cleanStored = (u || '').replace(/^@/, '').trim();
+          if (cleanStored && cleanStored.toLowerCase() !== clean) {
+            followingSet.add(cleanStored);
+          }
+        });
+      }
+    } catch (e) {}
+  }
+
+  // 4. Check persistent user following map cache
+  try {
+    const userFollowingMap: Record<string, string[]> = JSON.parse(localStorage.getItem('inolas_target_following_cache') || '{}');
+    for (const name of userIdentifiers) {
+      if (Array.isArray(userFollowingMap[name])) {
+        userFollowingMap[name].forEach((f: string) => {
+          const cleanF = (f || '').replace(/^@/, '').trim();
+          if (cleanF && cleanF.toLowerCase() !== clean) {
+            followingSet.add(cleanF);
+          }
+        });
+      }
+    }
+  } catch (e) {}
+
+  return Array.from(followingSet);
+};
+
+export const getFollowersCount = (
+  usernameOrId: string | undefined | null,
+  usersMap?: Record<string, any> | null,
+  currentLoggedInUsername?: string | null
+): number => {
+  return getResolvedFollowers(usernameOrId, usersMap, currentLoggedInUsername).length;
+};
+
+export const getFollowingCount = (
+  usernameOrId: string | undefined | null,
+  usersMap?: Record<string, any> | null,
+  currentLoggedInUsername?: string | null
+): number => {
+  return getResolvedFollowing(usernameOrId, usersMap, currentLoggedInUsername).length;
+};
+
+/**
+ * Saves follow change locally in persistent cache maps.
+ */
+export const persistFollowActionLocally = (
+  myUsername: string,
+  targetUsername: string,
+  isNowFollowing: boolean
+) => {
+  const cleanMy = (myUsername || '').replace(/^@/, '').trim().toLowerCase();
+  const cleanTarget = (targetUsername || '').replace(/^@/, '').trim().toLowerCase();
+  if (!cleanMy || !cleanTarget || cleanMy === cleanTarget) return;
+
+  try {
+    // 1. inolas_followed_users
+    const currentFollowed: string[] = JSON.parse(localStorage.getItem('inolas_followed_users') || '[]');
+    const updatedFollowed = isNowFollowing
+      ? Array.from(new Set([...currentFollowed, cleanTarget, targetUsername]))
+      : currentFollowed.filter(u => (u || '').replace(/^@/, '').trim().toLowerCase() !== cleanTarget);
+    localStorage.setItem('inolas_followed_users', JSON.stringify(updatedFollowed));
+
+    // 2. inolas_target_followers_cache
+    const followersCache: Record<string, string[]> = JSON.parse(localStorage.getItem('inolas_target_followers_cache') || '{}');
+    const targetFollowers = followersCache[cleanTarget] || [];
+    followersCache[cleanTarget] = isNowFollowing
+      ? Array.from(new Set([...targetFollowers, cleanMy, myUsername]))
+      : targetFollowers.filter(u => (u || '').replace(/^@/, '').trim().toLowerCase() !== cleanMy);
+    localStorage.setItem('inolas_target_followers_cache', JSON.stringify(followersCache));
+
+    // 3. inolas_target_following_cache
+    const followingCache: Record<string, string[]> = JSON.parse(localStorage.getItem('inolas_target_following_cache') || '{}');
+    const myFollowing = followingCache[cleanMy] || [];
+    followingCache[cleanMy] = isNowFollowing
+      ? Array.from(new Set([...myFollowing, cleanTarget, targetUsername]))
+      : myFollowing.filter(u => (u || '').replace(/^@/, '').trim().toLowerCase() !== cleanTarget);
+    localStorage.setItem('inolas_target_following_cache', JSON.stringify(followingCache));
+  } catch (e) {}
+};
+
+/**
+ * Checks whether user A is currently following user B.
+ * Checks bidirectional following/followers lists and local fallback storage.
+ */
+export const isFollowingUser = (
+  myUsername: string | undefined | null,
+  targetUsername: string | undefined | null,
+  usersMap?: Record<string, any> | null
+): boolean => {
+  if (!myUsername || !targetUsername) return false;
+  const cleanMy = myUsername.replace(/^@/, '').trim().toLowerCase();
+  const cleanTarget = targetUsername.replace(/^@/, '').trim().toLowerCase();
+  if (!cleanMy || !cleanTarget || cleanMy === cleanTarget) return false;
+
+  if (usersMap) {
+    const following = getResolvedFollowing(cleanMy, usersMap, cleanMy);
+    if (following.some(u => u.toLowerCase() === cleanTarget)) {
+      return true;
+    }
+    const followers = getResolvedFollowers(cleanTarget, usersMap, cleanMy);
+    if (followers.some(u => u.toLowerCase() === cleanMy)) {
+      return true;
+    }
+  }
+
+  // Local storage cache fallback
+  try {
+    const stored = JSON.parse(localStorage.getItem('inolas_followed_users') || '[]');
+    if (Array.isArray(stored) && stored.some((u: string) => (u || '').replace(/^@/, '').trim().toLowerCase() === cleanTarget)) {
+      return true;
+    }
+  } catch (e) {}
+
+  return false;
+};
+

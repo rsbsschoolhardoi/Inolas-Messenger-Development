@@ -183,9 +183,9 @@ export const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
         className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 shadow-xs transition-all active:scale-95 cursor-pointer ${
           isMe
             ? isSentDark
-              ? 'bg-white text-indigo-600 hover:bg-neutral-100'
-              : 'bg-emerald-700 text-white hover:bg-emerald-800'
-            : 'bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600'
+              ? 'bg-white text-neutral-900 hover:bg-neutral-100'
+              : 'bg-neutral-900 text-white hover:bg-black'
+            : 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-100'
         }`}
         title={isPlaying ? 'Pause Voice Note' : 'Play Voice Note'}
       >
@@ -213,12 +213,12 @@ export const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
                     ? isMe
                       ? isSentDark
                         ? 'bg-white shadow-2xs scale-y-105'
-                        : 'bg-emerald-700 dark:bg-emerald-800 scale-y-105'
-                      : 'bg-indigo-600 dark:bg-indigo-400 scale-y-105'
+                        : 'bg-neutral-900 dark:bg-white scale-y-105'
+                      : 'bg-neutral-900 dark:bg-neutral-200 scale-y-105'
                     : isMe
                     ? isSentDark
                       ? 'bg-white/40'
-                      : 'bg-emerald-950/20'
+                      : 'bg-neutral-900/20'
                     : 'bg-neutral-300 dark:bg-neutral-700'
                 }`}
                 style={{

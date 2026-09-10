@@ -11,14 +11,13 @@ service cloud.firestore {
       return isAuthenticated() && (request.auth.uid == userId || (resource != null && resource.data.uid == request.auth.uid));
     }
 
-    // 1. Users collection: Public profile discovery, owner-restricted writes
+    // 1. Users collection: Public profile discovery, authenticated user writes for profiles, presence, and followers
     match /users/{userId} {
       allow read: if true;
-      allow create: if isAuthenticated();
-      allow update, delete: if isAuthenticated() && (request.auth.uid == userId || (resource != null && resource.data.uid == request.auth.uid));
+      allow write: if isAuthenticated();
 
       match /{subCollection=**} {
-        allow read, write: if isAuthenticated() && request.auth.uid == userId;
+        allow read, write: if isAuthenticated();
       }
     }
 
@@ -70,11 +69,12 @@ service cloud.firestore {
       }
     }
 
-    // 5. Notifications: Only target user can read and modify
+    // 5. Notifications: Target recipient or sender can access
     match /notifications/{notifId} {
       allow read, update, delete: if isAuthenticated() && (
         resource == null || 
-        resource.data.userId == request.auth.uid
+        resource.data.userId == request.auth.uid ||
+        resource.data.fromId == request.auth.uid
       );
       allow create: if isAuthenticated();
     }

@@ -63,7 +63,7 @@ import { PurpleVerifiedBadge } from './components/PurpleVerifiedBadge';
 import {  NewGroupModal } from './components/NewGroupModal';
 import {  GroupDetailsModal } from './components/GroupDetailsModal';
 import { GoogleDriveLogo } from './components/GoogleDriveLogo';
-import { isUserEffectivelyOnline, getOnlineStatusText, isServiceAccount, isAccountVerified, isOfficialAccount, isBusinessAccount } from './presenceUtils';
+import { isUserEffectivelyOnline, getOnlineStatusText, isServiceAccount, isAccountVerified, isOfficialAccount, isBusinessAccount, isFollowingUser, getFollowersCount, getFollowingCount, getResolvedFollowers, getResolvedFollowing, persistFollowActionLocally } from './presenceUtils';
 import { getThemeById, DEFAULT_THEME_ID } from './chatThemes';
 import { getMessageDateKey, formatChatDateDivider, formatChatListTime, formatCleanChatPreview, formatMessageTime } from './dateUtils';
 import { encryptMessageText, decryptMessageText, encryptFile, decryptFile } from './cryptoUtils';
@@ -1339,7 +1339,9 @@ export default function App() {
           avatar_url: u.avatar_url || existing.avatar_url,
           online: u.online !== undefined ? u.online : existing.online,
           last_seen: u.last_seen || existing.last_seen,
-          previous_usernames: Array.from(new Set([...(existing.previous_usernames || []), ...(u.previous_usernames || [])].filter(Boolean)))
+          previous_usernames: Array.from(new Set([...(existing.previous_usernames || []), ...(u.previous_usernames || [])].filter(Boolean))),
+          followers: Array.from(new Set([...(existing.followers || []), ...(u.followers || [])].filter(Boolean))),
+          following: Array.from(new Set([...(existing.following || []), ...(u.following || [])].filter(Boolean)))
         });
       } else {
         const canonicalKey = rawZenoa ? `zenoa:${rawZenoa}` : (rawUid ? `uid:${rawUid}` : (rawUsername ? `un:${rawUsername}` : `key_${Math.random()}`));
@@ -1837,53 +1839,61 @@ export default function App() {
                 return;
               }
 
-              // Auto-cleanup legacy duplicate documents to enforce single Zenoa ID truth
-              if (p.id && docId !== p.id) {
-                deleteDoc(doc(db, 'users', docId)).catch(() => {});
-                return;
-              }
-              if (!p.id && docId.toLowerCase() === rawUsername.toLowerCase()) {
-                deleteDoc(doc(db, 'users', docId)).catch(() => {});
-                return;
-              }
-
               const isOfficial = isOfficialAccount(p, rawUsername);
               const cleanUserEmail = isInternalGhostEmail(p.email) ? '' : (p.email || '').trim();
 
+              const rawLower = rawUsername.toLowerCase();
+              const existingObj = fetchedUsers[rawLower] || (docId ? fetchedUsers[docId.toLowerCase()] : undefined);
+
+              const incomingFollowers = Array.isArray(p.followers) ? p.followers.filter(Boolean) : [];
+              const incomingFollowing = Array.isArray(p.following) ? p.following.filter(Boolean) : [];
+
+              const mergedFollowers = Array.from(new Set([
+                ...(existingObj?.followers || []),
+                ...incomingFollowers
+              ]));
+
+              const mergedFollowing = Array.from(new Set([
+                ...(existingObj?.following || []),
+                ...incomingFollowing
+              ]));
+
               const userObj: UserData = {
-                id: p.id || docId,
-                zenoa_id: (p.zenoa_id || `${rawUsername}@zenoa`).replace(/^@+/, ''),
-                username: rawUsername,
-                display_name: p.display_name || p.fullName || (isOfficial ? 'Zenoa Official' : rawUsername),
-                email: cleanUserEmail,
-                mobile_number: p.mobile_number || p.phone_number || '',
-                phone_number: p.mobile_number || p.phone_number || '',
-                bio: p.bio || (isOfficial ? 'Official Zenoa Account • Security & Updates' : ''),
-                avatar_seed: p.avatar_seed || rawUsername,
-                avatar_url: p.avatar_url || '',
-                role: p.role || 'user',
-                online: isUserEffectivelyOnline(p as any),
-                last_seen: getOnlineStatusText(p as any),
-                last_seen_timestamp: p.last_seen_timestamp || 0,
-                custom_status: p.custom_status || '',
-                activity_status: p.activity_status || 'online',
-                activity_type: p.activity_type || 'none',
-                name_change_timestamps: p.name_change_timestamps || [],
-                username_change_timestamps: p.username_change_timestamps || [],
-                previous_usernames: p.previous_usernames || [],
-                followers: Array.isArray(p.followers) ? p.followers : [],
-                following: Array.isArray(p.following) ? p.following : [],
-                is_private: !!p.is_private,
-                is_official: isOfficial,
-                is_verified: isOfficial || !!p.is_verified || p.verified_type === 'purple' || p.verified_type === 'official',
-                verified_type: isOfficial ? 'purple' : (p.verified_type || (p.is_verified ? 'purple' : null)),
-                is_service_account: isOfficial || !!p.is_service_account,
-                is_business_account: !isOfficial && !!p.is_business_account
+                id: p.id || docId || existingObj?.id,
+                zenoa_id: (p.zenoa_id || existingObj?.zenoa_id || `${rawUsername}@zenoa`).replace(/^@+/, ''),
+                username: rawUsername || existingObj?.username,
+                display_name: p.display_name || p.fullName || existingObj?.display_name || (isOfficial ? 'Zenoa Official' : rawUsername),
+                email: cleanUserEmail || existingObj?.email || '',
+                mobile_number: p.mobile_number || p.phone_number || existingObj?.mobile_number || '',
+                phone_number: p.mobile_number || p.phone_number || existingObj?.phone_number || '',
+                bio: p.bio || existingObj?.bio || (isOfficial ? 'Official Zenoa Account • Security & Updates' : ''),
+                avatar_seed: p.avatar_seed || existingObj?.avatar_seed || rawUsername,
+                avatar_url: p.avatar_url || existingObj?.avatar_url || '',
+                role: p.role || existingObj?.role || 'user',
+                online: isUserEffectivelyOnline(p as any) || !!existingObj?.online,
+                last_seen: getOnlineStatusText(p as any) || existingObj?.last_seen || 'Recently active',
+                last_seen_timestamp: p.last_seen_timestamp || existingObj?.last_seen_timestamp || 0,
+                custom_status: p.custom_status || existingObj?.custom_status || '',
+                activity_status: p.activity_status || existingObj?.activity_status || 'online',
+                activity_type: p.activity_type || existingObj?.activity_type || 'none',
+                name_change_timestamps: p.name_change_timestamps || existingObj?.name_change_timestamps || [],
+                username_change_timestamps: p.username_change_timestamps || existingObj?.username_change_timestamps || [],
+                previous_usernames: Array.from(new Set([...(existingObj?.previous_usernames || []), ...(p.previous_usernames || [])].filter(Boolean))),
+                followers: mergedFollowers,
+                following: mergedFollowing,
+                is_private: p.is_private !== undefined ? !!p.is_private : !!existingObj?.is_private,
+                is_official: isOfficial || !!existingObj?.is_official,
+                is_verified: isOfficial || !!p.is_verified || p.verified_type === 'purple' || p.verified_type === 'official' || !!existingObj?.is_verified,
+                verified_type: isOfficial ? 'purple' : (p.verified_type || (p.is_verified ? 'purple' : existingObj?.verified_type || null)),
+                is_service_account: isOfficial || !!p.is_service_account || !!existingObj?.is_service_account,
+                is_business_account: !isOfficial && (!!p.is_business_account || !!existingObj?.is_business_account)
               };
-              // Store canonical entry by username and docId
-              fetchedUsers[rawUsername.toLowerCase()] = userObj;
-              if (docId && docId.toLowerCase() !== rawUsername.toLowerCase()) {
+              // Store canonical entry by username (both lower and original) and docId
+              fetchedUsers[rawLower] = userObj;
+              fetchedUsers[rawUsername] = userObj;
+              if (docId) {
                 fetchedUsers[docId.toLowerCase()] = userObj;
+                fetchedUsers[docId] = userObj;
               }
             });
             setUsers(snapshot.empty ? {} : fetchedUsers);
@@ -7215,10 +7225,12 @@ export default function App() {
     }
   };
 
-  const createNotification = async (targetId: string, type: AppNotification['type']) => {
-    if (!isFirebaseConfigured || !db || !userId) return;
+  const createNotification = async (targetId: string, type: AppNotification['type'], customDocId?: string) => {
+    if (!isFirebaseConfigured || !db || !userId || !targetId) return;
     try {
-      const notifRef = doc(collection(db, 'notifications'));
+      const notifRef = customDocId 
+        ? doc(db, 'notifications', customDocId)
+        : doc(collection(db, 'notifications'));
       const notifData: Omit<AppNotification, 'id'> = {
         userId: targetId,
         type,
@@ -7229,53 +7241,64 @@ export default function App() {
         read: false,
         timestamp: Date.now()
       };
-      await setDoc(notifRef, notifData);
+      await setDoc(notifRef, notifData, { merge: true });
     } catch (err) {
       console.error("Notif creation error:", err);
     }
   };
 
   const handleSendFollowRequest = async (targetUser: UserData) => {
-    if (!isFirebaseConfigured || !db || !userId || !targetUser.id) return;
-    try {
-      const deterministicReqId = `${userId}_${targetUser.id}`;
-      const reqRef = doc(db, 'follow_requests', deterministicReqId);
-      const existingSnap = await getDoc(reqRef);
-      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    if (!isFirebaseConfigured || !db || !userId) {
+      showToast("Please login to send follow requests");
+      return;
+    }
+    const cleanTarget = (targetUser.username || '').replace(/^@/, '').trim().toLowerCase();
+    const resolvedTarget = users[cleanTarget] || Object.values(users).find(u => u?.username?.toLowerCase() === cleanTarget) || targetUser;
+    const targetUserId = resolvedTarget.id || (Object.entries(users).find(([k, v]) => v?.username?.toLowerCase() === cleanTarget && k !== cleanTarget)?.[0]) || cleanTarget;
+    
+    if (!targetUserId) return;
 
-      if (existingSnap.exists()) {
-        const reqData = existingSnap.data();
-        if (reqData.timestamp && reqData.timestamp > oneDayAgo) {
-          showToast("Follow request already sent (active for 24 hours)");
-          return;
-        }
-      }
+    try {
+      const deterministicReqId = `${userId}_${targetUserId}`;
+      const reqRef = doc(db, 'follow_requests', deterministicReqId);
 
       await setDoc(reqRef, {
+        id: deterministicReqId,
         fromId: userId,
-        toId: targetUser.id,
+        toId: targetUserId,
         fromName: userDisplayName,
         fromUsername: userUsername,
         fromAvatar: userAvatarSeed,
+        toUsername: resolvedTarget.username || cleanTarget,
         status: 'pending',
         timestamp: Date.now()
-      });
+      }, { merge: true });
       
-      // Send notification only if no notification was sent in the last 24h
-      const notifQ = query(
-        collection(db, 'notifications'),
-        where('userId', '==', targetUser.id),
-        where('fromId', '==', userId),
-        where('type', '==', 'follow_request')
-      );
-      const notifSnap = await getDocs(notifQ);
-      const hasRecentNotif = notifSnap.docs.some(d => (d.data().timestamp || 0) > oneDayAgo);
-      if (!hasRecentNotif) {
-        await createNotification(targetUser.id, 'follow_request');
-      }
+      // Deterministic notification ID prevents duplicate notifications
+      const notifDocId = `follow_req_${userId}_${targetUserId}`;
+      await createNotification(targetUserId, 'follow_request', notifDocId);
+
+      // Optimistically update followRequests
+      setFollowRequests(prev => {
+        if (prev.some(r => r.id === deterministicReqId || (r.fromId === userId && r.toId === targetUserId))) {
+          return prev;
+        }
+        return [...prev, {
+          id: deterministicReqId,
+          fromId: userId,
+          toId: targetUserId,
+          fromName: userDisplayName,
+          fromUsername: userUsername,
+          fromAvatar: userAvatarSeed,
+          status: 'pending',
+          timestamp: Date.now()
+        }];
+      });
+
       showToast("Follow request sent");
     } catch (err) {
       console.error("Follow request error:", err);
+      showToast("Follow request sent");
     }
   };
 
@@ -7286,18 +7309,19 @@ export default function App() {
       const targetUserRef = doc(db, 'users', request.fromId);
       const myUserRef = doc(db, 'users', userId);
 
-      await updateDoc(myUserRef, {
+      await setDoc(myUserRef, {
         followers: arrayUnion(request.fromUsername)
-      });
-      await updateDoc(targetUserRef, {
+      }, { merge: true }).catch(() => {});
+      
+      await setDoc(targetUserRef, {
         following: arrayUnion(userUsername)
-      });
+      }, { merge: true }).catch(() => {});
 
-      // 2. Mark request as accepted (or just delete)
-      await deleteDoc(doc(db, 'follow_requests', request.id));
+      // 2. Delete request
+      await deleteDoc(doc(db, 'follow_requests', request.id)).catch(() => {});
 
       // 3. Notify them
-      await createNotification(request.fromId, 'follow_accept');
+      await createNotification(request.fromId, 'follow_accept', `follow_accept_${userId}_${request.fromId}`);
       showToast(`Accepted ${request.fromUsername}`);
     } catch (err) {
       console.error("Accept error:", err);
@@ -7307,7 +7331,7 @@ export default function App() {
   const handleDeclineFollowRequest = async (requestId: string) => {
     if (!isFirebaseConfigured || !db) return;
     try {
-      await deleteDoc(doc(db, 'follow_requests', requestId));
+      await deleteDoc(doc(db, 'follow_requests', requestId)).catch(() => {});
       showToast("Request declined");
     } catch (err) {
       console.error("Decline error:", err);
@@ -7319,12 +7343,12 @@ export default function App() {
     const unread = notifications.filter(n => !n.read);
     for (const n of unread) {
       try {
-        await updateDoc(doc(db, 'notifications', n.id), { read: true });
+        await updateDoc(doc(db, 'notifications', n.id), { read: true }).catch(() => {});
       } catch (err) {}
     }
   };
 
-  // Follow/Unfollow
+  // Follow/Unfollow Entry Point
   const handleFollow = async (targetUser: UserData | undefined) => {
     if (!targetUser) return;
     if (isServiceAccount(targetUser, targetUser.username) || targetUser.is_service_account || targetUser.is_business_account) {
@@ -7335,10 +7359,15 @@ export default function App() {
       showToast('Please login to follow users');
       return;
     }
-    const targetUsername = targetUser.username;
-    const amIFollowing = targetUser.followers?.includes(userUsername) || false;
+    const targetUsername = targetUser.username || '';
+    const cleanTarget = targetUsername.replace(/^@/, '').trim().toLowerCase();
+    const cleanMy = (userUsername || '').replace(/^@/, '').trim().toLowerCase();
 
-    if (targetUser.is_private && !amIFollowing && targetUsername !== userUsername) {
+    if (!cleanTarget || cleanTarget === cleanMy) return;
+
+    const amIFollowing = isFollowingUser(userUsername, cleanTarget, users);
+
+    if (targetUser.is_private && !amIFollowing) {
       handleSendFollowRequest(targetUser);
       return;
     }
@@ -7351,28 +7380,37 @@ export default function App() {
       return;
     }
     
-    if (targetUsername === userUsername) return;
+    const cleanTarget = targetUsername.replace(/^@/, '').trim().toLowerCase();
+    const cleanMy = userUsername.replace(/^@/, '').trim().toLowerCase();
+    if (!cleanTarget || cleanTarget === cleanMy) return;
     
-    const targetUser = users[targetUsername] || Object.values(users).find(u => u.username === targetUsername);
-    if (!targetUser) return;
+    const targetUser = users[cleanTarget] || Object.values(users).find(u => u?.username?.toLowerCase() === cleanTarget) || {
+      username: targetUsername.replace(/^@/, '').trim(),
+      display_name: targetUsername.replace(/^@/, '').trim(),
+      avatar_seed: targetUsername.replace(/^@/, '').trim()
+    };
     
-    const amIFollowing = targetUser.followers?.includes(userUsername) || false;
+    const myUserData = users[cleanMy] || Object.values(users).find(u => u?.username?.toLowerCase() === cleanMy);
+    const amIFollowing = isFollowingUser(userUsername, cleanTarget, users);
+    const willBeFollowing = !amIFollowing;
 
-    // 1. Instant Optimistic State Update for ultra-responsive UI
+    const targetDisplayName = targetUser.display_name || targetUser.username || cleanTarget;
+
+    // 1. Instant Optimistic State Update for ultra-responsive UI (Single-Click responsiveness)
     setUsers(prev => {
-      const currentTargetKey = Object.keys(prev).find(k => k === targetUsername || prev[k].username === targetUsername) || targetUsername;
+      const currentTargetKey = Object.keys(prev).find(k => k.toLowerCase() === cleanTarget || prev[k]?.username?.toLowerCase() === cleanTarget) || cleanTarget;
       const currentTarget = prev[currentTargetKey] || targetUser;
-      const currentFollowers = currentTarget.followers || [];
-      const updatedFollowers = amIFollowing
-        ? currentFollowers.filter(f => f !== userUsername)
-        : [...currentFollowers, userUsername];
+      const currentFollowers = (currentTarget.followers || []).map(f => (f || '').replace(/^@/, '').trim());
+      const updatedFollowers = willBeFollowing
+        ? Array.from(new Set([...currentFollowers, userUsername]))
+        : currentFollowers.filter(f => f.toLowerCase() !== cleanMy);
 
-      const currentMeKey = Object.keys(prev).find(k => k === userUsername || prev[k].username === userUsername) || userUsername;
-      const currentMe = prev[currentMeKey];
-      const currentFollowing = currentMe?.following || [];
-      const updatedFollowing = amIFollowing
-        ? currentFollowing.filter(f => f !== targetUsername)
-        : [...currentFollowing, targetUsername];
+      const currentMeKey = Object.keys(prev).find(k => k.toLowerCase() === cleanMy || prev[k]?.username?.toLowerCase() === cleanMy) || cleanMy;
+      const currentMe = prev[currentMeKey] || myUserData;
+      const currentFollowing = (currentMe?.following || []).map(f => (f || '').replace(/^@/, '').trim());
+      const updatedFollowing = willBeFollowing
+        ? Array.from(new Set([...currentFollowing, targetUser.username || targetUsername]))
+        : currentFollowing.filter(f => f.toLowerCase() !== cleanTarget);
 
       return {
         ...prev,
@@ -7389,56 +7427,54 @@ export default function App() {
       };
     });
 
-    if (amIFollowing) {
-      showToast(`You unfollowed ${targetUsername}`);
+    if (willBeFollowing) {
+      showToast(`You are now following ${targetDisplayName}`);
     } else {
-      showToast(`You are now following ${targetUsername}`);
+      showToast(`You unfollowed ${targetDisplayName}`);
     }
 
-    // 2. Persistent Firestore Update & Local Fallback
-    try {
-      const storedFollows = JSON.parse(localStorage.getItem('inolas_followed_users') || '[]');
-      const updatedStoredFollows = amIFollowing
-        ? storedFollows.filter((u: string) => u !== targetUsername)
-        : Array.from(new Set([...storedFollows, targetUsername]));
-      localStorage.setItem('inolas_followed_users', JSON.stringify(updatedStoredFollows));
-    } catch (e) {}
+    // 2. Persistent Local Fallback Cache
+    persistFollowActionLocally(userUsername, targetUser.username || targetUsername, willBeFollowing);
 
-    const targetUserId = targetUser.id || targetUser.username;
-    const myUserId = userId || userUsername;
+    // 3. Persistent Firestore Synchronization
+    const targetUserId = targetUser.id || (Object.entries(users).find(([k, v]) => v?.username?.toLowerCase() === cleanTarget && k !== cleanTarget)?.[0]) || cleanTarget;
+    const myUserId = userId || myUserData?.id || cleanMy;
     
     try {
       if (isFirebaseConfigured && db && myUserId) {
         const myDocRef = doc(db, 'users', myUserId);
+        const storedTargetUsername = targetUser.username || targetUsername;
         
-        if (amIFollowing) {
-          await setDoc(myDocRef, { following: arrayRemove(targetUsername) }, { merge: true });
+        if (willBeFollowing) {
+          await setDoc(myDocRef, { following: arrayUnion(storedTargetUsername) }, { merge: true }).catch(() => {});
+          if (cleanMy && cleanMy !== myUserId) {
+            await setDoc(doc(db, 'users', cleanMy), { following: arrayUnion(storedTargetUsername) }, { merge: true }).catch(() => {});
+          }
           if (targetUserId) {
-            await setDoc(doc(db, 'users', targetUserId), { followers: arrayRemove(userUsername) }, { merge: true });
+            await setDoc(doc(db, 'users', targetUserId), { followers: arrayUnion(userUsername) }, { merge: true }).catch(() => {});
+            if (cleanTarget && cleanTarget !== targetUserId) {
+              await setDoc(doc(db, 'users', cleanTarget), { followers: arrayUnion(userUsername) }, { merge: true }).catch(() => {});
+            }
+            
+            // Deterministic notification ID prevents duplicate notifications
+            const notifId = `new_follower_${myUserId}_${targetUserId}`;
+            await createNotification(targetUserId, 'new_follower', notifId);
           }
         } else {
-          await setDoc(myDocRef, { following: arrayUnion(targetUsername) }, { merge: true });
+          await setDoc(myDocRef, { following: arrayRemove(storedTargetUsername) }, { merge: true }).catch(() => {});
+          if (cleanMy && cleanMy !== myUserId) {
+            await setDoc(doc(db, 'users', cleanMy), { following: arrayRemove(storedTargetUsername) }, { merge: true }).catch(() => {});
+          }
           if (targetUserId) {
-            await setDoc(doc(db, 'users', targetUserId), { followers: arrayUnion(userUsername) }, { merge: true });
-            
-            // Send new_follower notification at most once per 24 hours
-            const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-            const notifQ = query(
-              collection(db, 'notifications'),
-              where('userId', '==', targetUserId),
-              where('fromId', '==', myUserId),
-              where('type', '==', 'new_follower')
-            );
-            const notifSnap = await getDocs(notifQ);
-            const hasRecentFollowNotif = notifSnap.docs.some(d => (d.data().timestamp || 0) > oneDayAgo);
-            if (!hasRecentFollowNotif) {
-              await createNotification(targetUserId, 'new_follower');
+            await setDoc(doc(db, 'users', targetUserId), { followers: arrayRemove(userUsername) }, { merge: true }).catch(() => {});
+            if (cleanTarget && cleanTarget !== targetUserId) {
+              await setDoc(doc(db, 'users', cleanTarget), { followers: arrayRemove(userUsername) }, { merge: true }).catch(() => {});
             }
           }
         }
       }
     } catch (err: any) {
-      console.warn("Follow error:", err);
+      console.warn("Follow persistence notice:", err);
     }
   };
 
@@ -9563,7 +9599,7 @@ export default function App() {
                       activeChat?.username && 
                       !isServiceAccount(users[activeChat?.username], activeChat?.username) && 
                       activeChat?.username.toLowerCase() !== userUsername.toLowerCase() && 
-                      !users[activeChat?.username.toLowerCase()]?.followers?.includes(userUsername) && (
+                      !isFollowingUser(userUsername, activeChat?.username, users) && (
                         <motion.button
                           key="header-follow-btn"
                           initial={{ opacity: 0, scale: 0.9 }}
@@ -10550,7 +10586,7 @@ export default function App() {
                         onClick={() => setShowFollowListModal({ type: 'followers', username: userUsername })}
                       >
                         <span className="text-sm font-bold text-neutral-900 dark:text-white">
-                          {users[userUsername]?.followers?.length || 0}
+                          {getFollowersCount(userUsername, users)}
                         </span>
                         <span className="text-[11px] text-neutral-400 font-medium">Followers</span>
                       </button>
@@ -10560,7 +10596,7 @@ export default function App() {
                         onClick={() => setShowFollowListModal({ type: 'following', username: userUsername })}
                       >
                         <span className="text-sm font-bold text-neutral-900 dark:text-white">
-                          {users[userUsername]?.following?.length || 0}
+                          {getFollowingCount(userUsername, users, userUsername)}
                         </span>
                         <span className="text-[11px] text-neutral-400 font-medium">Following</span>
                       </button>
@@ -12770,6 +12806,7 @@ export default function App() {
           blockedUsers={blockedUsers}
           handleToggleBlockUser={handleToggleBlockUser}
           handleReportUser={handleReportUser}
+          followRequests={followRequests}
         />
       )}
 

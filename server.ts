@@ -2698,6 +2698,7 @@ interface EphemeralLinkSession {
 }
 
 const activeLinkSessions = new Map<string, EphemeralLinkSession>();
+const userPrimaryDevices = new Map<string, any>();
 
 // Helper to generate cryptographically random 7-character human-readable code
 function generate7DigitAuthCode(): { formatted: string; raw: string } {
@@ -2712,10 +2713,47 @@ function generate7DigitAuthCode(): { formatted: string; raw: string } {
   return { formatted, raw };
 }
 
+// 0. Register / Heartbeat for Primary Master Device (Mobile Phone or Direct Login)
+app.post('/api/v1/link-device/register-primary', async (req: any, res: any) => {
+  try {
+    const { username, deviceId, deviceName, deviceType, os, browser, location } = req.body;
+    if (!username) {
+      return res.status(400).json({ success: false, error: 'Username is required' });
+    }
+    const cleanUsername = String(username).toLowerCase().trim();
+    const primaryInfo = {
+      id: 'primary_' + cleanUsername,
+      deviceId: deviceId || ('dev_prim_' + cleanUsername),
+      deviceName: deviceName || (deviceType === 'mobile' ? 'Primary Smartphone' : 'Primary Device'),
+      deviceType: deviceType || 'mobile',
+      os: os || 'Mobile OS',
+      browser: browser || 'Zenoa App',
+      location: location || 'Current Location',
+      ip: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+      isPrimary: true,
+      lastActive: Date.now()
+    };
+
+    userPrimaryDevices.set(cleanUsername, primaryInfo);
+
+    if (db) {
+      try {
+        await setDoc(doc(db, 'user_primary_devices', cleanUsername), sanitizeFirestoreData(primaryInfo), { merge: true });
+      } catch (fErr) {
+        console.warn('Firestore primary device save notice:', fErr);
+      }
+    }
+
+    res.json({ success: true, primaryDevice: primaryInfo });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 1. Create a fresh QR linking session (called by Web1 browser)
 app.post('/api/v1/link-device/create-session', async (req: any, res: any) => {
   try {
-    const { publicKey, browser, os, customSessionId } = req.body;
+    const { publicKey, browser, os, customSessionId, location, deviceName, deviceId, deviceType } = req.body;
     const sessionId = customSessionId || ('dlink_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10));
     const { formatted, raw } = generate7DigitAuthCode();
     const now = Date.now();
@@ -2732,7 +2770,11 @@ app.post('/api/v1/link-device/create-session', async (req: any, res: any) => {
       deviceInfo: {
         browser: browser || req.headers['user-agent'] || 'Web Browser',
         os: os || 'Desktop',
-        ip: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1'
+        ip: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+        location: location || 'Local Desktop Network',
+        deviceName: deviceName || `${os || 'Desktop'} Browser`,
+        deviceId: deviceId || sessionId,
+        deviceType: deviceType || 'desktop'
       }
     };
 
@@ -2867,7 +2909,7 @@ app.post('/api/v1/link-device/scan', async (req: any, res: any) => {
 // 4. Verify 7-digit code entered on phone and stream encrypted P2P local data payload
 app.post('/api/v1/link-device/verify-and-sync', async (req: any, res: any) => {
   try {
-    const { sessionId, code, user, syncedDataPayload } = req.body;
+    const { sessionId, code, user, syncedDataPayload, primaryDeviceInfo } = req.body;
     if (!sessionId || !code || !user) {
       return res.status(400).json({ success: false, error: 'sessionId, verification code, and user profile are required' });
     }
@@ -2913,6 +2955,26 @@ app.post('/api/v1/link-device/verify-and-sync', async (req: any, res: any) => {
         success: false, 
         error: 'Invalid 7-character code. Check the code displayed on your Web browser screen.' 
       });
+    }
+
+    // If primary device info was passed along during authorization, store it
+    const cleanUsername = String(user.username || '').toLowerCase().trim();
+    if (primaryDeviceInfo && cleanUsername) {
+      const primRec = {
+        id: 'primary_' + cleanUsername,
+        deviceId: primaryDeviceInfo.deviceId || ('dev_prim_' + cleanUsername),
+        deviceName: primaryDeviceInfo.deviceName || 'Primary Smartphone',
+        deviceType: primaryDeviceInfo.deviceType || 'mobile',
+        os: primaryDeviceInfo.os || 'Mobile OS',
+        browser: primaryDeviceInfo.browser || 'Zenoa App',
+        location: primaryDeviceInfo.location || 'Mobile Location',
+        isPrimary: true,
+        lastActive: Date.now()
+      };
+      userPrimaryDevices.set(cleanUsername, primRec);
+      if (db) {
+        setDoc(doc(db, 'user_primary_devices', cleanUsername), sanitizeFirestoreData(primRec), { merge: true }).catch(() => {});
+      }
     }
 
     // Handshake verified! Upgrade status to authenticated and burn code to prevent reuse
@@ -2973,7 +3035,7 @@ app.post('/api/v1/link-device/reject', async (req: any, res: any) => {
   }
 });
 
-// 6. Get all active linked devices for a user
+// 6. Get all active linked devices for a user (including Primary device metadata)
 app.get('/api/v1/link-device/list/:username', async (req: any, res: any) => {
   try {
     const { username } = req.params;
@@ -2998,10 +3060,13 @@ app.get('/api/v1/link-device/list/:username', async (req: any, res: any) => {
           sessionToken: session.linkedUser.sessionToken,
           browser: session.deviceInfo?.browser || 'Web Browser',
           os: session.deviceInfo?.os || 'Desktop',
+          deviceName: session.deviceInfo?.deviceName || `${session.deviceInfo?.os || 'Desktop'} Browser`,
+          deviceType: session.deviceInfo?.deviceType || 'desktop',
           ip: session.deviceInfo?.ip || 'Unknown',
-          location: session.deviceInfo?.location || 'Desktop Client',
+          location: session.deviceInfo?.location || 'Local Desktop Network',
           linkedAt: session.createdAt || now,
           lastActive: now,
+          isPrimary: false,
           status: 'active'
         });
       }
@@ -3032,10 +3097,13 @@ app.get('/api/v1/link-device/list/:username', async (req: any, res: any) => {
                 sessionToken: data.linkedUser?.sessionToken,
                 browser: data.deviceInfo?.browser || 'Web Browser',
                 os: data.deviceInfo?.os || 'Desktop',
+                deviceName: data.deviceInfo?.deviceName || `${data.deviceInfo?.os || 'Desktop'} Browser`,
+                deviceType: data.deviceInfo?.deviceType || 'desktop',
                 ip: data.deviceInfo?.ip || 'Unknown',
-                location: data.deviceInfo?.location || 'Desktop Client',
+                location: data.deviceInfo?.location || 'Local Desktop Network',
                 linkedAt: data.createdAt || data.authenticatedAt || now,
                 lastActive: data.lastActive || now,
+                isPrimary: false,
                 status: 'active'
               });
             }
@@ -3046,8 +3114,38 @@ app.get('/api/v1/link-device/list/:username', async (req: any, res: any) => {
       }
     }
 
+    // Resolve Primary Master Device for this user
+    let primaryDevice = userPrimaryDevices.get(cleanUsername);
+    if (!primaryDevice && db) {
+      try {
+        const primDoc = await getDoc(doc(db, 'user_primary_devices', cleanUsername));
+        if (primDoc.exists()) {
+          primaryDevice = primDoc.data();
+          userPrimaryDevices.set(cleanUsername, primaryDevice);
+        }
+      } catch (pErr) {
+        console.warn('Firestore fetch primary device error:', pErr);
+      }
+    }
+
+    if (!primaryDevice) {
+      primaryDevice = {
+        id: 'primary_' + cleanUsername,
+        deviceId: 'dev_prim_' + cleanUsername,
+        deviceName: 'Primary Mobile Device',
+        deviceType: 'mobile',
+        os: 'Mobile Device',
+        browser: 'Zenoa Messenger',
+        location: 'Primary Location',
+        isPrimary: true,
+        lastActive: now,
+        status: 'active'
+      };
+    }
+
     res.json({
       success: true,
+      primaryDevice,
       devices: activeDevices
     });
   } catch (err: any) {
@@ -3056,11 +3154,21 @@ app.get('/api/v1/link-device/list/:username', async (req: any, res: any) => {
 });
 
 // 7. Revoke / Logout specific linked device
+// STRICT RESTRICTION: No secondary/desktop device can log out the Primary Mobile Device
 app.post('/api/v1/link-device/revoke', async (req: any, res: any) => {
   try {
-    const { sessionId, username } = req.body;
+    const { sessionId, username, requesterIsLinked } = req.body;
     if (!sessionId) {
       return res.status(400).json({ success: false, error: 'sessionId is required' });
+    }
+
+    // CRITICAL SECURITY ENFORCEMENT:
+    // Primary mobile device CANNOT be logged out from linked desktop sessions
+    if (sessionId.startsWith('primary_') || sessionId === 'primary' || sessionId.startsWith('dev_prim_')) {
+      return res.status(403).json({
+        success: false,
+        error: 'Primary device cannot be logged out from linked desktop sessions. The primary mobile device can only be managed directly on the physical phone.'
+      });
     }
 
     const session = activeLinkSessions.get(sessionId);

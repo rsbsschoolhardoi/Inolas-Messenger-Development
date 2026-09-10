@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { 
   ChevronLeft, Shield, Lock, MessageSquare, 
-  UserPlus, UserCheck, Share2, Check, ShieldCheck
+  UserPlus, UserCheck, Share2, Check, ShieldCheck, Clock
 } from 'lucide-react';
 import { UserData } from '../types';
 import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
-import { isUserEffectivelyOnline, isServiceAccount } from '../presenceUtils';
+import { isUserEffectivelyOnline, isServiceAccount, isFollowingUser, getResolvedFollowers, getResolvedFollowing } from '../presenceUtils';
 
 interface DetailedProfilePageProps {
   targetUsername: string | null;
@@ -22,6 +22,7 @@ interface DetailedProfilePageProps {
   blockedUsers?: string[];
   handleToggleBlockUser?: (username: string) => void;
   handleReportUser?: (username: string) => void;
+  followRequests?: any[];
 }
 
 export const DetailedProfilePage: React.FC<DetailedProfilePageProps> = ({
@@ -39,6 +40,7 @@ export const DetailedProfilePage: React.FC<DetailedProfilePageProps> = ({
   blockedUsers = [],
   handleToggleBlockUser,
   handleReportUser,
+  followRequests = []
 }) => {
   const [copiedLink, setCopiedLink] = useState(false);
 
@@ -46,16 +48,27 @@ export const DetailedProfilePage: React.FC<DetailedProfilePageProps> = ({
 
   const cleanTargetUsername = targetUsername.replace(/^@/, '').trim();
   const targetUsernameLower = cleanTargetUsername.toLowerCase();
-  const targetUser = (users[targetUsernameLower] || {
+  const cleanUserUsername = (userUsername || '').replace(/^@/, '').trim().toLowerCase();
+  
+  const targetUser = (users[targetUsernameLower] || Object.values(users).find(u => u?.username?.toLowerCase() === targetUsernameLower) || {
     username: cleanTargetUsername,
     display_name: cleanTargetUsername,
     avatar_seed: cleanTargetUsername,
   }) as UserData;
 
-  const isMe = targetUsernameLower === userUsername.toLowerCase();
-  const followersList = targetUser.followers || [];
-  const followingList = targetUser.following || [];
-  const amIFollowing = followersList.includes(userUsername);
+  const isMe = targetUsernameLower === cleanUserUsername;
+  const followersList = getResolvedFollowers(targetUsernameLower, users, userUsername);
+  const followingList = getResolvedFollowing(targetUsernameLower, users, userUsername);
+  
+  const amIFollowing = isFollowingUser(cleanUserUsername, targetUsernameLower, users);
+  
+  const targetUserId = targetUser.id || (Object.entries(users).find(([k, v]) => v?.username?.toLowerCase() === targetUsernameLower && k !== targetUsernameLower)?.[0]) || targetUsernameLower;
+  const isPendingRequest = followRequests.some(r => 
+    (r.toId === targetUserId || r.toUsername?.toLowerCase() === targetUsernameLower) && 
+    (r.fromUsername?.toLowerCase() === cleanUserUsername || r.fromId === users[cleanUserUsername]?.id) &&
+    r.status === 'pending'
+  );
+
   const isPrivate = !!targetUser.is_private;
   const isLocked = isPrivate && !amIFollowing && !isMe;
   const isBot = isServiceAccount(targetUser, cleanTargetUsername);
@@ -206,10 +219,22 @@ export const DetailedProfilePage: React.FC<DetailedProfilePageProps> = ({
             {!isMe && (
               <button
                 id="detailed-profile-private-follow-btn"
-                onClick={() => handleFollow(targetUser)}
-                className="px-8 py-3 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs tracking-wider uppercase shadow-md hover:shadow-indigo-600/25 transition-all cursor-pointer"
+                onClick={() => !isPendingRequest && handleFollow(targetUser)}
+                disabled={isPendingRequest}
+                className={`px-8 py-3 rounded-full font-extrabold text-xs tracking-wider uppercase transition-all flex items-center justify-center gap-2 ${
+                  isPendingRequest
+                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-default shadow-none'
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md hover:shadow-indigo-600/25 active:scale-95 cursor-pointer'
+                }`}
               >
-                Follow to Connect
+                {isPendingRequest ? (
+                  <>
+                    <Clock className="h-4 w-4 shrink-0" />
+                    <span>Requested</span>
+                  </>
+                ) : (
+                  <span>Follow to Connect</span>
+                )}
               </button>
             )}
           </div>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Users } from 'lucide-react';
 import { UserData } from '../types';
+import { isFollowingUser, getResolvedFollowers, getResolvedFollowing } from '../presenceUtils';
 
 interface FollowListModalProps {
   showFollowListModal: { type: 'followers' | 'following'; username: string } | null;
@@ -29,10 +30,10 @@ export const FollowListModal: React.FC<FollowListModalProps> = ({
 }) => {
   if (!showFollowListModal) return null;
 
-  const rawList = showFollowListModal.type === 'followers' 
-    ? (users[showFollowListModal.username]?.followers || [])
-    : (users[showFollowListModal.username]?.following || []);
-  const list = Array.from(new Set(rawList)).filter(Boolean) as string[];
+  const targetProfile = showFollowListModal.username;
+  const list = showFollowListModal.type === 'followers' 
+    ? getResolvedFollowers(targetProfile, users, userUsername)
+    : getResolvedFollowing(targetProfile, users, userUsername);
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
@@ -62,9 +63,15 @@ export const FollowListModal: React.FC<FollowListModalProps> = ({
             </div>
           ) : (
             list.map((uname: string, idx: number) => {
-              const u = users[uname] || Object.values(users).find(item => item && item.username === uname);
-              const isMe = uname === userUsername;
-              const amIFollowing = u?.followers?.includes(userUsername) || false;
+              const cleanUName = (uname || '').replace(/^@/, '').trim();
+              const u = users[cleanUName.toLowerCase()] || Object.values(users).find(item => item && item.username?.toLowerCase() === cleanUName.toLowerCase());
+              const isMe = cleanUName.toLowerCase() === (userUsername || '').toLowerCase();
+              const amIFollowing = isFollowingUser(userUsername, cleanUName, users);
+              const targetUserObj: UserData = u || {
+                username: cleanUName,
+                display_name: cleanUName,
+                avatar_seed: cleanUName
+              };
 
               return (
                 <div 
@@ -73,27 +80,27 @@ export const FollowListModal: React.FC<FollowListModalProps> = ({
                 >
                   <div 
                     className="flex items-center gap-3 min-w-0 cursor-pointer flex-1"
-                    onClick={() => onSelectUser(uname)}
+                    onClick={() => onSelectUser(cleanUName)}
                   >
                     <div className="relative shrink-0">
-                      {renderAvatar(u?.avatar_seed || uname, u?.display_name || uname, u?.avatar_url, 'h-10 w-10 text-sm')}
+                      {renderAvatar(u?.avatar_seed || cleanUName, u?.display_name || cleanUName, u?.avatar_url, 'h-10 w-10 text-sm')}
                       {u && isUserEffectivelyOnline(u) && (
                         <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-neutral-800 dark:bg-neutral-200 border-2 border-white dark:border-neutral-950"></span>
                       )}
                     </div>
                     <div className="min-w-0">
                       <p className="font-bold text-sm truncate text-neutral-900 dark:text-white">
-                        {u?.display_name || uname}
+                        {u?.display_name || cleanUName}
                       </p>
                       <p className="text-xs text-neutral-400 truncate">
-                        {uname}
+                        @{cleanUName}
                       </p>
                     </div>
                   </div>
 
-                  {!isMe && uname && !isServiceAccount(users[uname], uname) && (
+                  {!isMe && cleanUName && !isServiceAccount(users[cleanUName.toLowerCase()], cleanUName) && (
                     <button
-                      onClick={() => uname && onFollow(users[uname.toLowerCase()])}
+                      onClick={() => onFollow(targetUserObj)}
                       className={`ml-2 px-3 py-1.5 rounded-xl font-bold text-xs transition-all shadow-xs shrink-0 cursor-pointer ${
                         amIFollowing
                           ? 'bg-neutral-100 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 dark:bg-neutral-800 dark:hover:bg-rose-950/30 dark:hover:text-rose-400 text-neutral-800 dark:text-neutral-200 border border-neutral-200 dark:border-neutral-700'

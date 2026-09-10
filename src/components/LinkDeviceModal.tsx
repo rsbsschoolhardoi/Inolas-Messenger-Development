@@ -17,6 +17,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import jsQR from 'jsqr';
 import { storageManager } from '../storageManager';
+import { getCurrentClientIdentity } from '../utils/deviceIdentity';
 
 interface LinkDeviceModalProps {
   isOpen: boolean;
@@ -266,6 +267,7 @@ export const LinkDeviceModal: React.FC<LinkDeviceModalProps> = ({
       setTransferProgress(65);
 
       // Step B: Direct verify & send P2P package to web session
+      const primaryInfo = getCurrentClientIdentity();
       const { data } = await safeFetchJson('/api/v1/link-device/verify-and-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -273,7 +275,8 @@ export const LinkDeviceModal: React.FC<LinkDeviceModalProps> = ({
           sessionId: scannedSessionId,
           code: cleanCode,
           user: currentUser,
-          syncedDataPayload: localPackage
+          syncedDataPayload: localPackage,
+          primaryDeviceInfo: primaryInfo
         })
       });
 
@@ -354,7 +357,7 @@ export const LinkDeviceModal: React.FC<LinkDeviceModalProps> = ({
                   Scan QR code on your Web Browser
                 </p>
                 <p className="text-[11px] text-slate-400">
-                  Visit <strong className="text-indigo-400">web1.zenoa.sbs</strong> or click "Zenoa Web" on desktop
+                  Open <span className="text-indigo-300 font-medium">Zenoa Web</span> on your computer to display your linking QR code
                 </p>
               </div>
 

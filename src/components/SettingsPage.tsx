@@ -55,10 +55,14 @@ import {
   Clock,
   MapPin,
   CheckCircle,
-  AlertTriangle
+  AlertTriangle,
+  Monitor,
+  Tablet,
+  Cpu
 } from 'lucide-react';
 import { storageManager, StorageEstimateInfo } from '../storageManager';
 import { UserData, LinkedDeviceItem } from '../types';
+import { getCurrentClientIdentity, registerPrimaryDevice, ClientDeviceIdentity } from '../utils/deviceIdentity';
 
 interface SettingsPageProps {
   currentUser?: UserData;
@@ -251,6 +255,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   // Linked Devices Real-Time State
   const [linkedDevicesList, setLinkedDevicesList] = useState<LinkedDeviceItem[]>([]);
+  const [primaryDevice, setPrimaryDevice] = useState<any>(null);
+  const [currentClientIdentity, setCurrentClientIdentity] = useState<ClientDeviceIdentity>(() => getCurrentClientIdentity());
   const [isLoadingDevices, setIsLoadingDevices] = useState<boolean>(false);
   const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null);
 
@@ -258,10 +264,21 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     if (!userUsername) return;
     setIsLoadingDevices(true);
     try {
+      const identity = getCurrentClientIdentity();
+      setCurrentClientIdentity(identity);
+      if (identity.isPrimary) {
+        registerPrimaryDevice(userUsername).catch(() => {});
+      }
+
       const res = await fetch(`/api/v1/link-device/list/${encodeURIComponent(userUsername)}`);
       const data = await res.json();
-      if (data.success && Array.isArray(data.devices)) {
-        setLinkedDevicesList(data.devices);
+      if (data.success) {
+        if (data.primaryDevice) {
+          setPrimaryDevice(data.primaryDevice);
+        }
+        if (Array.isArray(data.devices)) {
+          setLinkedDevicesList(data.devices);
+        }
       }
     } catch (e) {
       console.warn('Failed to fetch linked devices:', e);
@@ -284,20 +301,38 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   }, [section, userUsername]);
 
-  const handleRevokeDevice = async (sessionId: string, deviceLabel: string) => {
+  const handleRevokeDevice = async (sessionId: string, deviceLabel: string, isTargetPrimary?: boolean) => {
+    // ENFORCE SECURITY RESTRICTION: No desktop session can log out the primary mobile device
+    if (isTargetPrimary || sessionId.startsWith('primary_') || sessionId === 'primary' || sessionId.startsWith('dev_prim_')) {
+      showToast('Protected: Primary mobile device cannot be logged out from desktop sessions.');
+      return;
+    }
+
     setRevokingDeviceId(sessionId);
     try {
       const res = await fetch('/api/v1/link-device/revoke', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, username: userUsername })
+        body: JSON.stringify({
+          sessionId,
+          username: userUsername,
+          requesterIsLinked: currentClientIdentity.isLinkedClient
+        })
       });
       const data = await res.json();
       if (data.success) {
         showToast(`Logged out of ${deviceLabel}`);
         setLinkedDevicesList(prev => prev.filter(d => (d as any).sessionId !== sessionId && d.id !== sessionId));
+        // If current session was revoked:
+        if (currentClientIdentity.sessionId === sessionId) {
+          sessionStorage.removeItem('zenoa_is_linked_client');
+          sessionStorage.removeItem('zenoa_linked_session_id');
+          localStorage.removeItem('zenoa_is_linked_client');
+          localStorage.removeItem('zenoa_linked_session_id');
+          window.location.reload();
+        }
       } else {
-        showToast('Failed to revoke device session');
+        showToast(data.error || 'Failed to revoke device session');
       }
     } catch (e) {
       showToast('Error revoking device session');
@@ -1831,172 +1866,267 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         )}
 
-        {/* SECTION: LINKED DEVICES (Zenoa Web Real-Time Management) */}
+        {/* SECTION: LINKED DEVICES (Zero-Cloud Real-Time Session Management) */}
         {section === 'linked_devices' && (
           <div className="space-y-6 animate-fade-in text-left">
-            {/* Top Action Card */}
-            <div className="p-6 rounded-3xl bg-gradient-to-br from-indigo-900/90 via-indigo-950 to-slate-950 border border-indigo-500/30 text-white shadow-xl relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
-                <Laptop className="w-36 h-36" />
-              </div>
-              
-              <div className="relative z-10 space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300 shadow-inner">
-                    <QrCode className="w-6 h-6" />
+            {/* Top Clean Action Card */}
+            <div className="p-6 rounded-2xl bg-neutral-900 dark:bg-neutral-950 border border-neutral-800 text-white shadow-sm relative overflow-hidden">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 relative z-10">
+                <div className="space-y-2 max-w-lg">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-neutral-800 border border-neutral-700 flex items-center justify-center text-neutral-300">
+                      <QrCode className="w-4 h-4" />
+                    </div>
+                    <h3 className="text-base font-semibold tracking-tight text-white">Link a New Device</h3>
                   </div>
-                  <div>
-                    <h3 className="text-base font-bold tracking-tight text-white">Link a New Device</h3>
-                    <p className="text-xs text-indigo-200/80">Use Zenoa on Web, Tablet or Desktop without passwords</p>
-                  </div>
+                  <p className="text-xs text-neutral-400 leading-relaxed">
+                    Connect a secondary computer, tablet, or web browser. Session authentication and cryptographic keys are synchronized directly through encrypted peer-to-peer tunnels without storing private keys in the cloud.
+                  </p>
                 </div>
 
-                <p className="text-xs text-slate-300 leading-relaxed max-w-md">
-                  Open <strong className="text-white font-mono bg-indigo-950/60 px-1.5 py-0.5 rounded border border-indigo-700/50">web1.zenoa.sbs</strong> or <strong className="text-white font-mono bg-indigo-950/60 px-1.5 py-0.5 rounded border border-indigo-700/50">web.zenoa.sbs</strong> on your computer browser and scan the QR code to sync your chats instantly via Zero-Cloud P2P.
-                </p>
-
-                <div className="pt-1 flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-3 shrink-0">
                   <button
                     type="button"
                     onClick={() => {
                       if (onOpenLinkDevice) onOpenLinkDevice();
                     }}
-                    className="px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                    className="px-4 py-2.5 rounded-xl bg-white text-neutral-950 hover:bg-neutral-100 dark:bg-neutral-100 dark:text-neutral-950 dark:hover:bg-white text-xs font-semibold tracking-wide transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-98"
                   >
-                    <QrCode className="w-4 h-4" />
-                    <span>Link a Device (Scan QR)</span>
+                    <QrCode className="w-4 h-4 text-neutral-900" />
+                    <span>Scan QR Code</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={fetchLinkedDevices}
                     disabled={isLoadingDevices}
-                    className="p-2.5 rounded-2xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/60 cursor-pointer"
-                    title="Refresh devices"
+                    className="p-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors border border-neutral-700 cursor-pointer"
+                    title="Refresh active sessions"
                   >
-                    <RefreshCw className={`w-4 h-4 ${isLoadingDevices ? 'animate-spin text-indigo-400' : ''}`} />
+                    <RefreshCw className={`w-4 h-4 ${isLoadingDevices ? 'animate-spin text-neutral-300' : ''}`} />
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Current Device Indicator */}
-            <div className="p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-3">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-neutral-400">Current Device</p>
+            {/* Current Device Card (Accurately Reflects This Machine's Real System Identity) */}
+            <div className="p-5 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+                  Current Device (This Session)
+                </p>
+                <span className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Active Now
+                </span>
+              </div>
               
-              <div className="flex items-center justify-between p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200/50 dark:border-neutral-700/50">
-                <div className="flex items-center gap-3.5">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-200 dark:border-emerald-800/50">
-                    <Smartphone className="w-5 h-5" />
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-700/60">
+                <div className="flex items-start sm:items-center gap-3.5">
+                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border ${
+                    currentClientIdentity.isLinkedClient
+                      ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border-indigo-200/70 dark:border-indigo-800/60'
+                      : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border-emerald-200/70 dark:border-emerald-800/60'
+                  }`}>
+                    {currentClientIdentity.deviceType === 'desktop' ? (
+                      <Monitor className="w-5 h-5" />
+                    ) : currentClientIdentity.deviceType === 'tablet' ? (
+                      <Tablet className="w-5 h-5" />
+                    ) : (
+                      <Smartphone className="w-5 h-5" />
+                    )}
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-bold text-neutral-900 dark:text-white">This Device</p>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                        Active Now
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-sm font-semibold text-neutral-900 dark:text-white">
+                        {currentClientIdentity.deviceName}
+                      </h4>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                        currentClientIdentity.isLinkedClient
+                          ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                          : 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                      }`}>
+                        {currentClientIdentity.isLinkedClient ? 'Linked Web Session' : 'Primary Master Device'}
                       </span>
                     </div>
-                    <p className="text-xs text-neutral-400 mt-0.5">Primary Session · End-to-End Encrypted Key Store</p>
+                    <div className="flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400 flex-wrap">
+                      <span className="flex items-center gap-1">
+                        <MapPin className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                        {currentClientIdentity.location}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Cpu className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                        {currentClientIdentity.os} · {currentClientIdentity.browser}
+                      </span>
+                    </div>
                   </div>
                 </div>
+
+                {/* If this is a linked secondary web session, allow logging out of this machine */}
+                {currentClientIdentity.isLinkedClient && currentClientIdentity.sessionId && (
+                  <button
+                    type="button"
+                    onClick={() => handleRevokeDevice(currentClientIdentity.sessionId || '', currentClientIdentity.deviceName)}
+                    className="self-end sm:self-center px-3.5 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Log Out This Machine</span>
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Remote Linked Web Sessions */}
-            <div className="p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4">
+            {/* Other Connected Devices & Sessions */}
+            <div className="p-5 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-bold text-sm text-neutral-900 dark:text-white">Linked Web & Desktop Sessions</h3>
-                  <p className="text-xs text-neutral-400">Manage real-time browser logins linked to this account</p>
+                  <h3 className="text-sm font-semibold text-neutral-900 dark:text-white">Other Connected Devices</h3>
+                  <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                    Active sessions authorized to decrypt messages and synchronize data
+                  </p>
                 </div>
-                <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-1 rounded-full border border-indigo-200 dark:border-indigo-800">
-                  {linkedDevicesList.length} Connected
+                <span className="text-xs font-mono font-medium text-neutral-600 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 rounded-full border border-neutral-200 dark:border-neutral-700">
+                  {currentClientIdentity.isLinkedClient
+                    ? (linkedDevicesList.filter(d => (d as any).sessionId !== currentClientIdentity.sessionId).length + (primaryDevice ? 1 : 0))
+                    : linkedDevicesList.length} Active
                 </span>
               </div>
 
-              {linkedDevicesList.length === 0 ? (
-                <div className="py-8 px-4 text-center rounded-2xl bg-neutral-50 dark:bg-neutral-800/30 border border-neutral-200/40 dark:border-neutral-800/60 space-y-2">
-                  <Laptop className="w-8 h-8 text-neutral-400 mx-auto stroke-[1.5]" />
-                  <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">No Web Sessions Linked</p>
-                  <p className="text-[11px] text-neutral-400 max-w-xs mx-auto">
-                    You haven't linked any web browser or desktop yet. Click "Link a Device" above to connect Zenoa Web.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {linkedDevicesList.map((dev: any) => {
-                    const isRevoking = revokingDeviceId === (dev.sessionId || dev.id);
-                    const formattedDate = new Date(dev.linkedAt || dev.lastActive || Date.now()).toLocaleDateString([], {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    });
-
-                    return (
-                      <div
-                        key={dev.sessionId || dev.id}
-                        className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/70 dark:border-neutral-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all hover:border-indigo-500/40"
-                      >
-                        <div className="flex items-start sm:items-center gap-3.5">
-                          <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-                            <Laptop className="w-5 h-5" />
-                          </div>
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-bold text-neutral-900 dark:text-white">
-                                {dev.os || 'Desktop'} · {dev.browser?.substring(0, 24) || 'Web Browser'}
-                              </p>
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                                Online
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-3 text-[11px] text-neutral-400 flex-wrap">
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                Linked {formattedDate}
-                              </span>
-                              {dev.ip && dev.ip !== 'Unknown' && (
-                                <span className="flex items-center gap-1 font-mono">
-                                  <Globe className="w-3 h-3" />
-                                  {dev.ip}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          disabled={isRevoking}
-                          onClick={() => handleRevokeDevice(dev.sessionId || dev.id, `${dev.os || 'Desktop'} Web`)}
-                          className="self-end sm:self-center px-3.5 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40 hover:bg-rose-600 hover:text-white dark:hover:bg-rose-600 dark:hover:text-white transition-all text-xs font-bold cursor-pointer flex items-center gap-1.5 shrink-0"
-                        >
-                          {isRevoking ? (
-                            <>
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              <span>Logging out...</span>
-                            </>
-                          ) : (
-                            <>
-                              <LogOut className="w-3.5 h-3.5" />
-                              <span>Log Out</span>
-                            </>
-                          )}
-                        </button>
+              {/* Case 1: When user is viewing from a Linked Desktop Session, show the Primary Mobile Device prominently as Protected */}
+              {currentClientIdentity.isLinkedClient && primaryDevice && (
+                <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/40 border border-neutral-200/60 dark:border-neutral-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start sm:items-center gap-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                      <Smartphone className="w-5 h-5" />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold text-neutral-900 dark:text-white">
+                          {primaryDevice.deviceName || 'Primary Mobile Device'}
+                        </p>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                          Master Controller
+                        </span>
                       </div>
-                    );
-                  })}
+                      <div className="flex items-center gap-3 text-xs text-neutral-400 flex-wrap">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-neutral-400 shrink-0" />
+                          {primaryDevice.location || 'Mobile Location'}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Cpu className="w-3 h-3 text-neutral-400 shrink-0" />
+                          {primaryDevice.os || 'Android / iOS'} · {primaryDevice.browser || 'Primary Client'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Strictly Protected: Primary device cannot be revoked by secondary desktop */}
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200/80 dark:border-neutral-700/80 text-xs font-semibold text-neutral-500 dark:text-neutral-400 select-none self-end sm:self-center">
+                    <Lock className="w-3.5 h-3.5 text-neutral-400" />
+                    <span>Protected (Master Device)</span>
+                  </div>
                 </div>
               )}
 
-              {/* Multi-Device Login Protocol Info */}
-              <div className="p-3.5 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/50 dark:border-indigo-800/40 text-[11px] text-neutral-600 dark:text-neutral-300 flex items-start gap-2.5">
-                <ShieldCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
-                <span>
-                  <strong>Multi-Session Zero-Cloud Support:</strong> You can stay logged into your mobile phone, <strong>web.zenoa.sbs</strong>, and <strong>web1.zenoa.sbs</strong> simultaneously without being kicked out. Revoking a session will immediately disconnect that browser.
+              {/* List other linked sessions */}
+              {(() => {
+                const sessionsToShow = currentClientIdentity.isLinkedClient
+                  ? linkedDevicesList.filter(d => (d as any).sessionId !== currentClientIdentity.sessionId)
+                  : linkedDevicesList;
+
+                if (sessionsToShow.length === 0 && (!currentClientIdentity.isLinkedClient || !primaryDevice)) {
+                  return (
+                    <div className="py-8 px-4 text-center rounded-xl bg-neutral-50 dark:bg-neutral-800/30 border border-neutral-200/50 dark:border-neutral-800/60 space-y-2">
+                      <Monitor className="w-8 h-8 text-neutral-400 mx-auto stroke-[1.5]" />
+                      <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">No Other Linked Sessions</p>
+                      <p className="text-[11px] text-neutral-400 max-w-sm mx-auto leading-relaxed">
+                        You currently do not have other computers or web browsers authorized on this account.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-3">
+                    {sessionsToShow.map((dev: any) => {
+                      const sessionId = dev.sessionId || dev.id;
+                      const isRevoking = revokingDeviceId === sessionId;
+                      const formattedDate = new Date(dev.linkedAt || dev.lastActive || Date.now()).toLocaleDateString([], {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      });
+
+                      return (
+                        <div
+                          key={sessionId}
+                          className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/40 border border-neutral-200/60 dark:border-neutral-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all hover:border-neutral-300 dark:hover:border-neutral-700"
+                        >
+                          <div className="flex items-start sm:items-center gap-3.5">
+                            <div className="w-10 h-10 rounded-xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 flex items-center justify-center shrink-0">
+                              <Laptop className="w-5 h-5" />
+                            </div>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-semibold text-neutral-900 dark:text-white">
+                                  {dev.deviceName || `${dev.os || 'Desktop'} Browser`}
+                                </p>
+                                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-200/60 dark:bg-neutral-700/60 text-neutral-700 dark:text-neutral-300">
+                                  {dev.browser ? dev.browser.substring(0, 24) : 'Web Client'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-neutral-400 flex-wrap">
+                                <span className="flex items-center gap-1">
+                                  <MapPin className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                                  {dev.location || 'Local Desktop Network'}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                                  Linked {formattedDate}
+                                </span>
+                                {dev.ip && dev.ip !== 'Unknown' && (
+                                  <span className="flex items-center gap-1 font-mono">
+                                    <Globe className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                                    {dev.ip}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={isRevoking}
+                            onClick={() => handleRevokeDevice(sessionId, dev.deviceName || `${dev.os || 'Desktop'} Session`)}
+                            className="self-end sm:self-center px-3.5 py-1.5 rounded-xl border border-rose-200/80 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                          >
+                            {isRevoking ? (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                <span>Revoking...</span>
+                              </>
+                            ) : (
+                              <>
+                                <LogOut className="w-3.5 h-3.5" />
+                                <span>Log Out</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+              {/* Zero-Cloud Cryptographic Protocol Footer */}
+              <div className="p-3.5 rounded-xl bg-neutral-50 dark:bg-neutral-800/30 border border-neutral-200/60 dark:border-neutral-700/60 text-xs text-neutral-600 dark:text-neutral-400 flex items-start gap-2.5">
+                <ShieldCheck className="w-4 h-4 text-neutral-700 dark:text-neutral-300 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">
+                  <strong className="font-semibold text-neutral-800 dark:text-neutral-200">Zero-Cloud Peer Encryption:</strong> Connected sessions communicate through end-to-end encrypted direct channels. Revoking a session destroys its local decryption keys immediately.
                 </span>
               </div>
             </div>

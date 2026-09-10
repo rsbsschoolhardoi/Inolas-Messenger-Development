@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
 import { UserData, Message, FollowRequest } from '../types';
-import { isUserEffectivelyOnline, isServiceAccount, isAccountVerified } from '../presenceUtils';
+import { isUserEffectivelyOnline, isServiceAccount, isAccountVerified, isFollowingUser, getFollowersCount, getFollowingCount } from '../presenceUtils';
 
 interface FullScreenProfilePanelProps {
   showProfilePanel: boolean;
@@ -100,9 +100,9 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
 
   const targetUsername = selectedProfileUsername || '';
   const targetUsernameLower = targetUsername.toLowerCase();
-  const selectedUser = (users[targetUsernameLower] || {}) as any;
+  const selectedUser = (users[targetUsernameLower] || Object.values(users).find(u => u?.username?.toLowerCase() === targetUsernameLower) || {}) as any;
   const isMe = targetUsernameLower === userUsername.toLowerCase();
-  const amIFollowing = selectedUser?.followers?.includes(userUsername) || false;
+  const amIFollowing = isFollowingUser(userUsername, targetUsernameLower, users);
   const isPrivateAndLocked = selectedUser?.is_private && !amIFollowing && !isMe;
 
   return (
@@ -171,11 +171,11 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
 
                           <div className="grid grid-cols-3 gap-3 border-y border-neutral-100 dark:border-neutral-800 py-6">
                             <div className="text-center">
-                              <span className="text-lg font-black text-neutral-900 dark:text-white block">{selectedUser?.followers?.length || 0}</span>
+                              <span className="text-lg font-black text-neutral-900 dark:text-white block">{getFollowersCount(targetUsername, users, userUsername)}</span>
                               <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Followers</span>
                             </div>
                             <div className="text-center">
-                              <span className="text-lg font-black text-neutral-900 dark:text-white block">{selectedUser?.following?.length || 0}</span>
+                              <span className="text-lg font-black text-neutral-900 dark:text-white block">{getFollowingCount(targetUsername, users, userUsername)}</span>
                               <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Following</span>
                             </div>
                             <div className="text-center">
@@ -274,7 +274,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                                 className="p-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-750 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer text-center"
                               >
                                 <span className="text-lg font-black text-neutral-900 dark:text-white block">
-                                  {users[userUsername]?.followers?.length || 0}
+                                  {getFollowersCount(userUsername, users, userUsername)}
                                 </span>
                                 <span className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">
                                   Followers
@@ -286,7 +286,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                                 className="p-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-750 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer text-center"
                               >
                                 <span className="text-lg font-black text-neutral-900 dark:text-white block">
-                                  {users[userUsername]?.following?.length || 0}
+                                  {getFollowingCount(userUsername, users, userUsername)}
                                 </span>
                                 <span className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">
                                   Following

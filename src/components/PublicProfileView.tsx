@@ -76,7 +76,9 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
                 bio: data.bio || data.about || 'Hey there! I am using Zenoa for end-to-end encrypted messaging.',
                 online: data.online ?? true,
                 last_seen: data.last_seen || 'Recently active',
-                last_seen_timestamp: data.last_seen_timestamp
+                last_seen_timestamp: data.last_seen_timestamp,
+                followers: Array.isArray(data.followers) ? data.followers : [],
+                following: Array.isArray(data.following) ? data.following : []
               });
               setLoading(false);
               return;
@@ -97,7 +99,9 @@ export const PublicProfileView: React.FC<PublicProfileViewProps> = ({
                 bio: data.bio || data.about || 'Hey there! I am using Zenoa for end-to-end encrypted messaging.',
                 online: data.online ?? true,
                 last_seen: data.last_seen || 'Recently active',
-                last_seen_timestamp: data.last_seen_timestamp
+                last_seen_timestamp: data.last_seen_timestamp,
+                followers: Array.isArray(data.followers) ? data.followers : [],
+                following: Array.isArray(data.following) ? data.following : []
               });
               setLoading(false);
               return;

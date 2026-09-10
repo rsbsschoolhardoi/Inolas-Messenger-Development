@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import QRCode from 'qrcode';
+import { getDeviceDetails, getDeviceLocation, getDeviceId } from '../utils/deviceIdentity';
 
 interface Web1LinkingPageProps {
   onSuccessfulLogin?: (userData: any) => void;
@@ -117,13 +118,21 @@ export const Web1LinkingPage: React.FC<Web1LinkingPageProps> = ({
     await renderQRCode(optimisticPayload);
 
     try {
+      const devDetails = getDeviceDetails();
+      const devLocation = getDeviceLocation();
+      const devId = getDeviceId();
+
       const res = await fetch('/api/v1/link-device/create-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customSessionId: fallbackId,
-          browser: typeof navigator !== 'undefined' ? navigator.userAgent : 'Web Browser',
-          os: typeof navigator !== 'undefined' ? navigator.platform : 'Desktop'
+          browser: devDetails.browser,
+          os: devDetails.os,
+          deviceType: devDetails.deviceType,
+          deviceName: devDetails.deviceName,
+          location: devLocation,
+          deviceId: devId
         })
       });
 
