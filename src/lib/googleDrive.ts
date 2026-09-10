@@ -14,9 +14,9 @@ export interface DriveFileInfo {
 /**
  * Searches for the vault file in the appDataFolder
  */
-export async function findVaultFile(accessToken: string): Promise<DriveFileInfo | null> {
+export async function findVaultFile(accessToken: string, fileName: string = VAULT_FILE_NAME): Promise<DriveFileInfo | null> {
   const response = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q=name='${VAULT_FILE_NAME}' and trashed=false&spaces=appDataFolder&fields=files(id, name, modifiedTime)`,
+    `https://www.googleapis.com/drive/v3/files?q=name='${fileName}' and trashed=false&spaces=appDataFolder&fields=files(id, name, modifiedTime)`,
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -37,9 +37,9 @@ export async function findVaultFile(accessToken: string): Promise<DriveFileInfo 
 /**
  * Uploads (or updates) the vault file to appDataFolder
  */
-export async function uploadVaultFile(accessToken: string, encryptedData: string, existingFileId?: string): Promise<string> {
+export async function uploadVaultFile(accessToken: string, encryptedData: string, existingFileId?: string, fileName: string = VAULT_FILE_NAME): Promise<string> {
   const metadata: any = {
-    name: VAULT_FILE_NAME,
+    name: fileName,
     mimeType: 'application/octet-stream',
   };
   

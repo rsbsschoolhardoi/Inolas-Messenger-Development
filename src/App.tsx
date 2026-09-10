@@ -4887,6 +4887,21 @@ export default function App() {
       
       const info = await findVaultFile(driveAccessToken);
       setLastBackupInfo(info);
+
+      // 4. Also backup with 24-char Recovery Key if locally configured
+      const storageKey = `zenoa_recovery_key_${userEmail}`;
+      const savedRecoveryKey = localStorage.getItem(storageKey);
+      if (savedRecoveryKey) {
+        try {
+          const encryptedWithRecovery = await encryptVault(JSON.stringify(backupData), savedRecoveryKey);
+          const existingRecFileInfo = await findVaultFile(driveAccessToken, 'zenoa_vault_recovery.bin');
+          await uploadVaultFile(driveAccessToken, encryptedWithRecovery, existingRecFileInfo?.id, 'zenoa_vault_recovery.bin');
+          console.log('Recovery-key backup updated on Google Drive successfully.');
+        } catch (recErr) {
+          console.warn('Could not update recovery-key backup:', recErr);
+        }
+      }
+
       showToast('Vault backed up to Cloud successfully');
     } catch (err: any) {
       console.error('Backup error:', err);
@@ -4896,7 +4911,7 @@ export default function App() {
     }
   };
 
-  const handleRestoreFromDrive = async (password: string) => {
+  const handleRestoreFromDrive = async (passwordOrKey: string) => {
     if (!driveAccessToken) {
       handleConnectDrive();
       return;
@@ -4904,17 +4919,34 @@ export default function App() {
 
     setIsRestoring(true);
     try {
-      // 1. Find the vault file
-      const info = await findVaultFile(driveAccessToken);
-      if (!info) {
-        throw new Error('No backup found on your Google Drive');
+      let decryptedJson = '';
+      const cleanKey = passwordOrKey.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const isRecoveryKeyInput = cleanKey.length === 24;
+
+      if (isRecoveryKeyInput) {
+        // Find recovery file zenoa_vault_recovery.bin
+        const recInfo = await findVaultFile(driveAccessToken, 'zenoa_vault_recovery.bin');
+        if (!recInfo) {
+          throw new Error('No recovery-key backup found on your Google Drive. Please use your standard Master Password.');
+        }
+        const encrypted = await downloadVaultFile(driveAccessToken, recInfo.id);
+        decryptedJson = await decryptVault(encrypted, passwordOrKey);
+        // Save recovery key locally so future backups can continue to use it
+        localStorage.setItem(`zenoa_recovery_key_${userEmail}`, passwordOrKey);
+      } else {
+        // 1. Find the standard vault file
+        const info = await findVaultFile(driveAccessToken);
+        if (!info) {
+          throw new Error('No backup found on your Google Drive');
+        }
+
+        // 2. Download the encrypted blob
+        const encrypted = await downloadVaultFile(driveAccessToken, info.id);
+
+        // 3. Decrypt with Master Password
+        decryptedJson = await decryptVault(encrypted, passwordOrKey);
       }
 
-      // 2. Download the encrypted blob
-      const encrypted = await downloadVaultFile(driveAccessToken, info.id);
-
-      // 3. Decrypt with Master Password
-      const decryptedJson = await decryptVault(encrypted, password);
       const backupData = JSON.parse(decryptedJson);
       
       // 4. Identity Check: Ensure backup belongs to current user
