@@ -209,10 +209,22 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         const officialSnap = await getDoc(officialRef);
         if (!officialSnap.exists()) {
           await setDoc(officialRef, officialApp).catch(() => {});
+          if (!firestoreApps.some(a => a.id === 'sso_official_default' || a.client_id === 'zenoa_official_app')) {
+            firestoreApps.unshift(officialApp);
+          }
+        } else {
+          // If it exists in Firestore, load the official document directly!
+          const officialDocData = { id: officialSnap.id, ...officialSnap.data() } as SSOApp;
+          if (!firestoreApps.some(a => a.id === 'sso_official_default' || a.client_id === 'zenoa_official_app')) {
+            firestoreApps.unshift(officialDocData);
+          } else {
+            // Replace queried official app with the exact firestore snapshot to make sure the latest redirect_uris are shown
+            firestoreApps = firestoreApps.map(a => (a.id === 'sso_official_default' || a.client_id === 'zenoa_official_app') ? officialDocData : a);
+          }
         }
       }
 
-      if (!firestoreApps.some(a => a.client_id === 'zenoa_official_app')) {
+      if (!firestoreApps.some(a => a.client_id === 'zenoa_official_app' || a.id === 'sso_official_default')) {
         firestoreApps.unshift(officialApp);
       }
 

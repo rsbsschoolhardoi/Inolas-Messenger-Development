@@ -198,8 +198,8 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
       try {
         if (!db) throw new Error("Database not initialized");
 
-        // Special handling for local demo / official sandbox client
-        if (effectiveClientId === 'demo_app' || effectiveClientId === 'zenoa_official_app') {
+        // Special handling for local demo client
+        if (effectiveClientId === 'demo_app') {
           const validUris = [window.location.origin + '/auth/sso', 'http://localhost:3000/auth/sso'];
           const attemptedNormalized = normalizeRedirectUri(effectiveRedirectUri);
           const isMatch = validUris.some(u => normalizeRedirectUri(u) === attemptedNormalized);
@@ -218,11 +218,11 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
           }
 
           setAppConfig({
-            app_name: effectiveClientId === 'zenoa_official_app' ? 'Zenoa Official OAuth Client' : 'Zenoa Developer Demo',
+            app_name: 'Zenoa Developer Demo',
             bot_username: 'zenoabot',
             app_description: 'Interactive OAuth 2.0 & Single Sign-On testing application',
             website_url: window.location.origin,
-            client_secret: effectiveClientId === 'zenoa_official_app' ? 'zen_sec_official_9999' : 'demo_secret',
+            client_secret: 'demo_secret',
             redirect_uris: validUris
           });
           setIsLoading(false);
