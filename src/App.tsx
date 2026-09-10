@@ -100,7 +100,7 @@ import { sendRelayMessage } from './services/messageService';
 import {  
   signInWithEmailAndPassword, createUserWithEmailAndPassword, 
   signOut as firebaseSignOut, onAuthStateChanged, 
-  GoogleAuthProvider, FacebookAuthProvider, signInWithPopup, sendEmailVerification, sendPasswordResetEmail 
+  GoogleAuthProvider, FacebookAuthProvider, signInWithPopup, linkWithPopup, sendEmailVerification, sendPasswordResetEmail 
 } from 'firebase/auth';
 
 export enum OperationType {
@@ -1895,8 +1895,10 @@ export default function App() {
         // 2. Live auth listener
         unsubscribeAuth = onAuthStateChanged(auth, async (userObj) => {
           try {
+            const isConnectingDrive = isConnectingDriveRef.current || sessionStorage.getItem('zenoa_connecting_drive') === 'true';
+
             // If Google Drive or OAuth popup sign in was triggered for an existing active session, preserve Zenoa profile
-            if (isConnectingDriveRef.current) {
+            if (isConnectingDrive) {
               console.log("Skipping auth session reset while linking Google Drive.");
               return;
             }
@@ -1998,6 +2000,11 @@ export default function App() {
         }
 
                 } else {
+                  // If Drive link is in progress or user is already logged in, do NOT trigger Account Setup
+                  if (isConnectingDrive || (isAuthenticated && userUsername)) {
+                    console.log("Preserving active user session during OAuth link - skipping setup modal.");
+                    return;
+                  }
                   setAuthMethod(userObj.providerData[0]?.providerId || 'email');
                   setPendingUserAuth(userObj);
                   if (userSnap.exists()) {
@@ -2314,6 +2321,16 @@ export default function App() {
           const msgId = 'msg_' + bc.id + '_' + userUsername;
           const now = Date.now();
 
+          const isDirectMsg = !bc.title || bc.title === 'Direct Message' || bc.title.trim().toLowerCase() === 'direct message' || bc.urgency === 'normal';
+
+          const lastMsgText = isDirectMsg
+            ? (bc.photo_url ? `[Photo] ${bc.content}` : bc.content)
+            : (bc.photo_url ? `[${bc.title}] ${bc.content}` : `[${bc.title}] ${bc.content}`);
+
+          const msgText = isDirectMsg
+            ? bc.content
+            : `**[${bc.title}]**\n\n${bc.content}`;
+
           setDoc(doc(db, 'chats', chatId), {
             id: chatId,
             type: 'dm',
@@ -2321,7 +2338,7 @@ export default function App() {
             name: senderName,
             participants: [userUsername, senderUsername],
             participant_ids: [userId || userUsername, senderUsername],
-            last_message: '     [' + bc.title + '] ' + bc.content,
+            last_message: lastMsgText,
             last_message_time: bc.created_at || now,
             last_message_sender: senderUsername,
             last_message_status: 'sent',
@@ -2333,7 +2350,7 @@ export default function App() {
             id: msgId,
             chat_id: chatId,
             sender: senderUsername,
-            text: `     **[${bc.title}]**\n\n${bc.content}`,
+            text: msgText,
             timestamp: bc.created_at || now,
             status: 'sent',
             read_by: JSON.stringify([senderUsername]),
@@ -4735,14 +4752,30 @@ export default function App() {
     if (isFirebaseConfigured && auth) {
       try {
         isConnectingDriveRef.current = true;
+        sessionStorage.setItem('zenoa_connecting_drive', 'true');
         console.log("Starting Google Drive connection for project:", auth.app.options.projectId);
         const provider = new GoogleAuthProvider();
         provider.addScope('https://www.googleapis.com/auth/drive.appdata');
         provider.addScope('https://www.googleapis.com/auth/drive.file');
         
-        const result = await signInWithPopup(auth, provider);
-        const credential = GoogleAuthProvider.credentialFromResult(result);
-        const driveEmail = result.user?.email || '';
+        let result: any = null;
+        let credential: any = null;
+
+        if (auth.currentUser) {
+          try {
+            result = await linkWithPopup(auth.currentUser, provider);
+            credential = GoogleAuthProvider.credentialFromResult(result);
+          } catch (linkErr: any) {
+            console.warn("linkWithPopup notice, using secondary popup for Drive token:", linkErr?.code || linkErr?.message);
+            result = await signInWithPopup(auth, provider);
+            credential = GoogleAuthProvider.credentialFromResult(result);
+          }
+        } else {
+          result = await signInWithPopup(auth, provider);
+          credential = GoogleAuthProvider.credentialFromResult(result);
+        }
+
+        const driveEmail = result?.user?.email || '';
         
         if (credential?.accessToken) {
           setDriveAccessToken(credential.accessToken);
@@ -4788,7 +4821,8 @@ export default function App() {
       } finally {
         setTimeout(() => {
           isConnectingDriveRef.current = false;
-        }, 1500);
+          sessionStorage.removeItem('zenoa_connecting_drive');
+        }, 3500);
       }
     } else {
       showToast('Firebase Auth not configured. Drive connection unavailable.');

@@ -1264,7 +1264,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       </span>
                     </div>
                     <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                      Client-side encrypted backup vault stored in your personal Google Drive application storage
+                      Argon2id memory-hard client-side encrypted backup vault stored in your personal Google Drive
                     </p>
                   </div>
                 </div>

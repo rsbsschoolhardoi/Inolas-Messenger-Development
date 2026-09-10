@@ -193,8 +193,11 @@ export function formatChatListTime(updatedAt?: number | any, fallbackStr?: strin
 export function formatCleanChatPreview(rawText?: string, maxLen = 42): string {
   if (!rawText) return '';
   
-  // Clean markdown tokens
+  // Clean Direct Message tag prefixes completely
   let clean = rawText
+    .replace(/^(📢\s*)?\*?\*?\[\s*Direct Message\s*\]\*?\*?:?\s*/gi, '')
+    .replace(/📢\s*\*?\[\s*Direct Message\s*\]\*?\s*/gi, '')
+    .replace(/\*?\[\s*Direct Message\s*\]\*?\s*/gi, '')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
     .replace(/~~([^~]+)~~/g, '$1')

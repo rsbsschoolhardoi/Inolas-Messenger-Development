@@ -182,35 +182,15 @@ export const MessageCard: React.FC<MessageCardProps> = ({
     (!isMe || (u !== senderUsername && u !== 'me'))
   );
   const activeTheme = getThemeById(themeId);
-  // Fix service account text formatting
+  // Fix service account text formatting - strip any Direct Message prefix
   let displayMsgText = decodeMessage(msg.text || '');
-  if (isSenderServiceAccount) {
-    if (displayMsgText.startsWith('📢 **[Direct Message]**\n\n')) {
-      displayMsgText = displayMsgText.replace('📢 **[Direct Message]**\n\n', '');
-    } else if (displayMsgText.startsWith('**[Direct Message]**\n\n')) {
-      displayMsgText = displayMsgText.replace('**[Direct Message]**\n\n', '');
-    } else if (displayMsgText.startsWith('📢 [Direct Message] ')) {
-      displayMsgText = displayMsgText.replace('📢 [Direct Message] ', '');
-    } else if (displayMsgText.startsWith('[Direct Message] ')) {
-      displayMsgText = displayMsgText.replace('[Direct Message] ', '');
-    }
-  }
+  displayMsgText = displayMsgText
+    .replace(/^(📢\s*)?\*?\*?\[\s*Direct Message\s*\]\*?\*?:?\s*\n*/gi, '')
+    .trim();
 
   const isMediaOnly = (msg.type === 'image' || msg.type === 'video') && !displayMsgText;
   const isEmojiOnlyMsg = msg.type === 'text' && isEmojiOnly(displayMsgText);
   const isCleanTransparent = isMediaOnly || isEmojiOnlyMsg;
-
-  if (isSenderServiceAccount) {
-    if (displayMsgText.startsWith('📢 **[Direct Message]**\n\n')) {
-      displayMsgText = displayMsgText.replace('📢 **[Direct Message]**\n\n', '');
-    } else if (displayMsgText.startsWith('**[Direct Message]**\n\n')) {
-      displayMsgText = displayMsgText.replace('**[Direct Message]**\n\n', '');
-    } else if (displayMsgText.startsWith('📢 [Direct Message] ')) {
-      displayMsgText = displayMsgText.replace('📢 [Direct Message] ', '');
-    } else if (displayMsgText.startsWith('[Direct Message] ')) {
-      displayMsgText = displayMsgText.replace('[Direct Message] ', '');
-    }
-  }
 
 
   useEffect(() => {

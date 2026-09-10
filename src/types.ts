@@ -1,5 +1,7 @@
 export interface UserData {
   id?: string;
+  uid?: string;
+  created_at?: number;
   zenoa_id?: string;
   email?: string;
   username: string;
@@ -74,14 +76,21 @@ export interface ReportItem {
 
 export interface AuditLogItem {
   id: string;
-  adminEmail: string;
-  adminUsername: string;
-  action: 'verify_user' | 'revoke_verification' | 'ban_user' | 'unban_user' | 'create_service_account' | 'send_broadcast' | 'dismiss_report' | 'update_user' | 'delete_group' | 'config_change';
+  adminEmail?: string;
+  adminUsername?: string;
+  action: string;
   targetId?: string;
   targetUsername?: string;
-  details: string;
+  details?: string;
   timestamp: number;
   ip_address?: string;
+  actor?: string;
+  actor_username?: string;
+  actor_uid?: string;
+  bot_name?: string;
+  bot_username?: string;
+  target?: string;
+  details_message?: string;
 }
 
 export interface ServiceAccountData {

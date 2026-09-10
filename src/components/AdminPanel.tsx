@@ -1783,8 +1783,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <span className="text-white font-bold">IndexedDB Local Keystore</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Encryption Protocol:</span>
-                      <span className="text-purple-400 font-bold">AES-256-GCM hardware key</span>
+                      <span>Encryption Key KDF:</span>
+                      <span className="text-purple-400 font-bold">Argon2id (64MB WASM) + AES-256-GCM</span>
                     </div>
                   </div>
                 </div>
