@@ -53,6 +53,11 @@ app.use((req: any, res: any, next: any) => {
   next();
 });
 
+// Google Site Verification Endpoint
+app.get('/google47f3905eac1338b5.html', (req, res) => {
+  res.type('text/html').send('google-site-verification: google47f3905eac1338b5.html');
+});
+
 // Health check
 app.get(['/api/health', '/health'], (req, res) => {
   res.json({ status: 'ok', service: 'zenoa-developer-api', timestamp: new Date().toISOString() });

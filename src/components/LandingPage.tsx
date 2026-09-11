@@ -2,11 +2,39 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LegalModal, LegalDocType } from './LegalModal';
 import { useBranding } from '../brandingUtils';
+import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
+import { WaveArcs } from './originkit/ui/wave-arcs';
 import {
-  ShieldCheck, ArrowRight, Sun, Moon, ChevronDown,
-  ChevronUp, Send, Check,
-  ShieldAlert, Video,
-  HardDrive, ServerOff, CheckCircle2, Database
+  ShieldCheck,
+  ArrowRight,
+  Sun,
+  Moon,
+  ChevronDown,
+  ChevronUp,
+  Send,
+  Check,
+  ShieldAlert,
+  Video,
+  HardDrive,
+  CheckCircle2,
+  Database,
+  Lock,
+  Key,
+  Cpu,
+  Zap,
+  Radio,
+  Activity,
+  Sparkles,
+  Copy,
+  Shield,
+  Cloud,
+  Clock,
+  Smartphone,
+  MessageSquare,
+  Eye,
+  EyeOff,
+  Terminal,
+  ExternalLink
 } from 'lucide-react';
 
 interface LandingPageProps {
@@ -23,388 +51,778 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenAdmin
 }) => {
   const branding = useBranding();
-  const publicLogo = branding.public_logo || branding.oauth_logo;
+  const publicLogo = branding.public_logo;
+  const [selectedTimer, setSelectedTimer] = useState<'5s' | '1h' | '24h' | '7d'>('24h');
+  const [demoText, setDemoText] = useState<string>(
+    'Project Mercury: Treasury smart-contract keys relocated to offline cold storage.'
+  );
+  const [cipherAlgorithm, setCipherAlgorithm] = useState<'AES-256-GCM' | 'X25519-Ratchet'>('AES-256-GCM');
+  const [isDemoEncrypted, setIsDemoEncrypted] = useState<boolean>(true);
+  const [copiedCipher, setCopiedCipher] = useState<boolean>(false);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
+
+  // Legal modal state
   const [showLegalModal, setShowLegalModal] = useState<boolean>(false);
   const [legalModalTab, setLegalModalTab] = useState<LegalDocType>('privacy');
 
-  // Contact Form State
-  const [contactName, setContactName] = useState<string>('');
-  const [contactEmail, setContactEmail] = useState<string>('');
-  const [contactMessage, setContactMessage] = useState<string>('');
-  const [contactSent, setContactSent] = useState<boolean>(false);
+  // Contact form state
+  const [contactName, setContactName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactMessage, setContactMessage] = useState('');
+  const [contactSent, setContactSent] = useState(false);
 
   const handleContactSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (contactName && contactEmail && contactMessage) {
-      setContactSent(true);
-      setTimeout(() => {
-        setContactSent(false);
-        setContactName('');
-        setContactEmail('');
-        setContactMessage('');
-      }, 4000);
-    }
+    setContactSent(true);
+    setTimeout(() => {
+      setContactSent(false);
+      setContactName('');
+      setContactEmail('');
+      setContactMessage('');
+    }, 4000);
   };
 
-  // Interactive Live Cryptographic Engine Simulator State
-  const [demoText, setDemoText] = useState<string>('Protocol specification payload & ephemeral handshake key.');
-  const [isDemoEncrypted, setIsDemoEncrypted] = useState<boolean>(true);
-  const [cipherAlgorithm, setCipherAlgorithm] = useState<'AES-256-GCM' | 'X25519-Ratchet'>('AES-256-GCM');
+  const getSimulatedCipher = (input: string) => {
+    const text = input || 'No payload entered';
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+      hash = (hash << 5) - hash + text.charCodeAt(i);
+      hash |= 0;
+    }
+    const hex = Math.abs(hash).toString(16).padStart(8, '0');
+    return JSON.stringify(
+      {
+        kdf: cipherAlgorithm === 'AES-256-GCM' ? 'PBKDF2-SHA256' : 'HKDF-X25519',
+        iv: '0x' + hex.substring(0, 4) + 'b49f28a9c1e0',
+        cipher: 'U2FsdGVkX19' + btoa(text).slice(0, 24) + '==' + hex,
+        tag: '0x7e2b9c' + hex.substring(2, 6),
+        ttl_ms: 0,
+        relay_action: 'PURGE_ON_RECEIPT',
+      },
+      null,
+      2
+    );
+  };
 
-  const getSimulatedCipher = (text: string) => {
-    if (!text) return '';
-    const charCodesSum = text.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const mockIv = 'f4a2c9' + (charCodesSum % 9999).toString(16).padStart(4, '0') + 'e1b3d7';
-    const mockTag = 'c8b7' + (charCodesSum * 3 % 99).toString(16).padStart(2, '0') + 'a1d5';
-    const b64 = btoa(text.substring(0, 24) + '...zenoa_vault_ephemeral_payload...');
-    const mockCipherText = b64.replace(/[^a-zA-Z0-9]/g, '').substring(0, 36);
-    
-    return JSON.stringify({
-      protocol_version: '3.4.0-VaultEngine',
-      algorithm: cipherAlgorithm,
-      ephemeral_relay_id: 'rel_' + (charCodesSum * 7).toString(36).substring(0, 8),
-      cloud_storage_bytes: 0,
-      cloud_retention_ttl: '0ms (immediate purge upon delivery)',
-      destination: 'IndexedDB (Local Device Vault Only)',
-      initialization_vector: mockIv,
-      ciphertext: mockCipherText,
-      auth_tag: mockTag,
-      zero_knowledge_proof: 'VALIDATED_HARDWARE_KEYSTORE'
-    }, null, 2);
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedCipher(true);
+    setTimeout(() => setCopiedCipher(false), 2000);
   };
 
   const faqs = [
     {
-      q: 'Does Zenoa store my messages or media on cloud servers?',
-      a: 'No. Cloud infrastructure acts purely as a transient zero-retention pass-through relay. The millisecond a payload is delivered to the recipient device, it is permanently wiped from the relay queue. Your conversations and files reside strictly inside your device IndexedDB local vault.'
+      q: 'How does Zenoa guarantee zero server-side message persistence?',
+      a: 'Zenoa operates an ephemeral routing mesh. When you send a message, it is encrypted on your client hardware with AES-256-GCM. The relay server routes the encrypted payload directly to the recipient socket. The millisecond the recipient confirms receipt, the message is permanently deleted from server memory. No database write ever occurs.',
     },
     {
-      q: 'How long do my messages and media remain on my device?',
-      a: 'Your chat histories, attachments, voice notes, polls, and media stay encrypted in your local browser vault indefinitely until you explicitly delete a message, clear a thread, or wipe your client storage.'
+      q: 'Where are my messages and voice recordings stored?',
+      a: 'All messages, audio recordings, poll records, and media attachments exist exclusively inside your device browser IndexedDB vault. If you close your tab or reboot your machine, your local keys decrypt the local IndexedDB partition. If an adversary seizes our servers, they find zero chat history.',
     },
     {
-      q: 'What happens if someone accesses my account on a new device?',
-      a: 'They receive a completely clean slate with zero past message history. Because no historical database exists on cloud servers, unauthorized sign-ins from new devices can never access your prior conversations.'
+      q: 'What happens if I sign in on a new device?',
+      a: 'Because zero historical chat logs exist on the cloud, a newly registered device session begins with an empty message state. This cryptographic guarantee ensures that compromised credentials or stolen cloud accounts cannot expose past conversation threads.',
     },
     {
-      q: 'Are video and voice calls routed through central media recording servers?',
-      a: 'Never. Direct 1-on-1 audio and video calls utilize peer-to-peer WebRTC connections with DTLS-SRTP encryption, streaming media packets directly device-to-device without centralized media server inspection.'
+      q: 'How are voice and video calls encrypted?',
+      a: 'All audio and video calls operate over peer-to-peer WebRTC channels with SRTP-DTLS encryption. Streams flow directly between participant IP endpoints without intermediate recording or media-gateway transcoding.',
     },
     {
-      q: 'How does group messaging work under the zero-cloud model?',
-      a: 'Group chats utilize multi-recipient cryptographic fan-out. Each message is dispatched to group participants simultaneously through the ephemeral relay and stored locally in each participant device vault.'
-    }
+      q: 'Can I back up my media to my own personal cloud?',
+      a: 'Yes. Zenoa integrates optional Google Drive media syncing under a Bring-Your-Own-Storage (BYOS) model. Your backups are client-side encrypted before uploading directly into your personal Google Drive, giving you sovereignty without third-party vendor custody.',
+    },
   ];
 
   return (
-    <div className="min-h-screen h-full w-full overflow-y-auto overflow-x-hidden flex flex-col font-sans transition-colors duration-200 bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100">
+    <div
+      id="zenoa_landing_root"
+      className="min-h-screen w-full relative flex flex-col font-sans transition-colors duration-200 bg-[#ffffff] dark:bg-[#090d16] text-[#0d253d] dark:text-[#f6f9fc] selection:bg-[#533afd]/20 selection:text-[#533afd]"
+    >
+      {/* ATMOSPHERIC GRADIENT MESH BACKDROP (Upper third of the marketing page) */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-x-0 top-0 h-[640px] stripi-gradient-mesh pointer-events-none opacity-90 dark:opacity-40 z-0"
+      />
 
-      {/* Navigation Header */}
-      <header className="sticky top-0 z-40 w-full backdrop-blur-md border-b border-neutral-200/80 dark:border-neutral-800/80 bg-white/90 dark:bg-neutral-950/90 transition-colors">
+      {/* TOP NAVIGATION BAR OVER MESH (nav-bar-on-mesh) */}
+      <header className="sticky top-0 z-40 w-full backdrop-blur-md border-b border-[#e3e8ee]/80 dark:border-[#273951]/80 bg-[#ffffff]/80 dark:bg-[#0d253d]/80 transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          {/* Logo */}
-          <div className="flex items-center gap-3 cursor-pointer select-none" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-            <div className="h-9 w-9 rounded-xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-black text-lg flex items-center justify-center shadow-xs overflow-hidden p-1">
+          {/* Logo Wordmark: Name only in Bold SF Pro ZENOA */}
+          <div
+            id="landing_brand_logo"
+            className="flex items-center gap-2.5 cursor-pointer select-none group"
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          >
+            <div className="h-8 w-8 rounded-full bg-[#533afd] text-white font-bold text-sm flex items-center justify-center shadow-[0_1px_3px_rgba(0,55,112,0.2)] overflow-hidden transition-transform group-hover:scale-105">
               {publicLogo ? (
                 <img src={publicLogo} alt="Logo" className="h-full w-full object-contain" />
               ) : (
-                <span>Z</span>
+                <span className="font-bold text-xs tracking-tight">Z</span>
               )}
             </div>
-            <div className="flex flex-col">
-              <span className="text-base font-black tracking-widest uppercase text-neutral-900 dark:text-white">
-                ZENOA
-              </span>
-            </div>
+            <span className="font-sf-pro font-black text-[21px] sm:text-[22px] tracking-[0.06em] uppercase text-[#0d253d] dark:text-white leading-none">
+              ZENOA
+            </span>
           </div>
 
-          {/* Navigation Links */}
-          <nav className="hidden lg:flex items-center gap-7 text-xs font-semibold text-neutral-600 dark:text-neutral-300">
-            <a href="#architecture" className="hover:text-neutral-900 dark:hover:text-white transition-colors">Architecture</a>
-            <a href="#cryptography" className="hover:text-neutral-900 dark:hover:text-white transition-colors">Cryptographic Proof</a>
-            <a href="#relay" className="hover:text-neutral-900 dark:hover:text-white transition-colors">Zero-Cloud Relay</a>
-            <a href="#features" className="hover:text-neutral-900 dark:hover:text-white transition-colors">System Capabilities</a>
-            <a href="#faq" className="hover:text-neutral-900 dark:hover:text-white transition-colors">FAQ</a>
-
+          {/* Primary Navigation Center */}
+          <nav className="hidden md:flex items-center gap-7 text-[15px] font-normal text-[#273951] dark:text-[#cbd5e1]">
+            <a href="#architecture" className="hover:text-[#533afd] dark:hover:text-white transition-colors">
+              Architecture
+            </a>
+            <a href="#capabilities" className="hover:text-[#533afd] dark:hover:text-white transition-colors">
+              Platform
+            </a>
+            <a href="#inspector" className="hover:text-[#533afd] dark:hover:text-white transition-colors">
+              Telemetry
+            </a>
+            <a href="#comparison" className="hover:text-[#533afd] dark:hover:text-white transition-colors">
+              Comparison
+            </a>
+            <a href="#faq" className="hover:text-[#533afd] dark:hover:text-white transition-colors">
+              FAQ
+            </a>
           </nav>
 
-          {/* Action Controls */}
-          <div className="flex items-center gap-2.5">
+          {/* Sign in & Pill CTA Button */}
+          <div className="flex items-center gap-3">
             <button
+              id="landing_theme_toggle"
               onClick={onToggleTheme}
-              className="p-2 rounded-xl border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors cursor-pointer"
+              className="p-2 rounded-full border border-[#e3e8ee] dark:border-[#273951] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] text-[#273951] dark:text-[#cbd5e1] transition-colors cursor-pointer"
               title="Toggle Theme"
               aria-label="Toggle theme"
             >
               {themeMode === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-amber-400" />}
             </button>
+
             <button
+              id="landing_signin_btn"
               onClick={() => onStartAuth('login')}
-              className="px-3.5 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer"
+              className="text-[15px] font-normal text-[#273951] dark:text-[#cbd5e1] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer px-3 py-1.5"
             >
-              Sign In
+              Sign in
             </button>
+
             <button
+              id="landing_get_started_btn"
               onClick={() => onStartAuth('register')}
-              className="px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-950 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+              className="rounded-full px-4 py-2 bg-[#533afd] hover:bg-[#4434d4] active:bg-[#2e2b8c] text-white text-[14px] font-normal transition-all shadow-[0_1px_3px_rgba(0,55,112,0.15)] cursor-pointer flex items-center gap-1.5 active:scale-[0.98]"
             >
-              <span>Get Started</span>
+              <span>Launch App</span>
               <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
       </header>
 
-      {/* HERO SECTION */}
-      <section className="relative pt-12 pb-16 md:pt-20 md:pb-24 border-b border-neutral-200/80 dark:border-neutral-800/80">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="max-w-4xl mx-auto text-center space-y-6">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 text-xs font-semibold">
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
-              <span>Official End-to-End Encrypted Messenger</span>
+      {/* HERO SECTION WITH ATMOSPHERIC GRADIENT MESH & ORIGINKIT WAVE ARCS */}
+      <section className="relative pt-16 pb-24 md:pt-24 md:pb-32 overflow-hidden z-10">
+        {/* Originkit Wave Arcs Canvas Interactive Layer (-z-10 to never occlude content) */}
+        <div className="absolute inset-0 pointer-events-none opacity-20 dark:opacity-15 -z-10">
+          <WaveArcs
+            backgroundColor="transparent"
+            lineColor={themeMode === 'dark' ? 'rgb(129, 140, 248)' : 'rgb(83, 58, 253)'}
+            lineWidth={1.2}
+            lineCount={64}
+            speed={4.5}
+            glow={12}
+            interactive={false}
+          />
+        </div>
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-20">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
+            {/* Left Column: Bold Display Headlines & Editorial Density (Guaranteed 100% visible, no motion opacity:0 delay) */}
+            <div className="lg:col-span-7 space-y-6 text-left relative z-30">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/95 dark:bg-[#1c1e54]/95 border border-[#e3e8ee] dark:border-[#273951] text-[#273951] dark:text-[#cbd5e1] text-[13px] shadow-[0_1px_3px_rgba(0,55,112,0.06)]">
+                <span className="h-2 w-2 rounded-full bg-[#533afd] animate-pulse" />
+                <span className="font-semibold text-[#0d253d] dark:text-white">Zero-Cloud Retention</span>
+                <span className="text-[#a8c3de] dark:text-[#64748d]">•</span>
+                <span className="font-tabular text-[#533afd] dark:text-[#b9b9f9] text-[12px] font-semibold">0ms TTL Relay Mesh</span>
+              </div>
+
+              {/* Display Heading: Bold, High-Contrast, No Overlap, 100% Crisp Visibility */}
+              <h1 className="text-[34px] sm:text-[46px] lg:text-[54px] font-bold tracking-tight text-[#0d253d] dark:text-white leading-[1.18] sm:leading-[1.14]">
+                <span className="block text-[#0d253d] dark:text-white">
+                  Decentralized privacy,
+                </span>
+                <span className="block mt-2 sm:mt-2.5 text-[#533afd] dark:text-[#818cf8]">
+                  sealed in your device vault.
+                </span>
+              </h1>
+
+              {/* Body Text: High-contrast ink text and comfortable reading line-height */}
+              <p className="text-[16px] sm:text-[18px] font-normal text-[#273951] dark:text-[#cbd5e1] max-w-xl leading-[1.6]">
+                Conventional messengers retain your private chats on central cloud databases. Zenoa operates an ephemeral relay: messages exist in-flight for milliseconds, deliver directly into your device's encrypted IndexedDB storage, and vanish forever from the cloud.
+              </p>
+
+              {/* Action Buttons: Restrained Single Primary Indigo Pill */}
+              <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                <button
+                  id="hero_start_btn"
+                  onClick={() => onStartAuth('register')}
+                  className="rounded-full px-5 py-2.5 bg-[#533afd] hover:bg-[#4434d4] active:bg-[#2e2b8c] text-white text-[15px] font-normal transition-all shadow-[0_1px_3px_rgba(0,55,112,0.2)] cursor-pointer flex items-center justify-center gap-2 active:scale-[0.98]"
+                >
+                  <span>Get Started Free</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+
+                <button
+                  id="hero_audit_btn"
+                  onClick={() => {
+                    setLegalModalTab('privacy');
+                    setShowLegalModal(true);
+                  }}
+                  className="rounded-full px-5 py-2.5 bg-white dark:bg-[#1c1e54] text-[#0d253d] dark:text-white border border-[#e3e8ee] dark:border-[#273951] hover:border-[#533afd] text-[15px] font-normal transition-all shadow-[0_1px_2px_rgba(0,55,112,0.05)] cursor-pointer flex items-center justify-center gap-2 active:scale-[0.98]"
+                >
+                  <Shield className="h-4 w-4 text-[#64748d]" />
+                  <span>Zero-Retention Audit</span>
+                </button>
+              </div>
+
+              {/* Financial/Security Trust Badges */}
+              <div className="pt-4 flex flex-wrap items-center gap-y-2 gap-x-6 text-[13px] text-[#64748d] dark:text-[#94a3b8] font-light">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-[#533afd] shrink-0" />
+                  <span>256-bit WebCrypto AES-GCM</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-[#533afd] shrink-0" />
+                  <span>Peer-to-Peer WebRTC Calls</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-[#533afd] shrink-0" />
+                  <span>Zero Subpoena Footprint</span>
+                </div>
+              </div>
             </div>
 
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-neutral-900 dark:text-white leading-[1.12]">
-              Decentralized privacy, <br />
-              <span className="text-neutral-400 dark:text-neutral-500">engineered with client-side security.</span>
-            </h1>
+            {/* Right Column: Composited Dashboard Mockup (Faux IDE + Terminal + Chat Shell) */}
+            <div className="lg:col-span-5 relative z-20">
+              {/* Card Dashboard Mockup with Level 2 Shadow and Dark-App Shell */}
+              <div className="relative mx-auto w-full max-w-md rounded-[16px] p-4 bg-[#1c1e54] border border-[#273951] shadow-[0_20px_50px_rgba(0,55,112,0.25)] text-white">
+                {/* Mockup Header Chrome */}
+                <div className="flex items-center justify-between pb-3 border-b border-[#273951]/80">
+                  <div className="flex items-center gap-2">
+                    <div className="h-3 w-3 rounded-full bg-[#ea2261]" />
+                    <div className="h-3 w-3 rounded-full bg-[#f96bee]" />
+                    <div className="h-3 w-3 rounded-full bg-[#533afd]" />
+                    <span className="ml-2 text-[12px] font-mono text-[#a8c3de]">zenoa-vault.app</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px] font-mono text-[#b9b9f9]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#533afd] animate-ping" />
+                    <span>RELAY CONNECTED</span>
+                  </div>
+                </div>
 
-            <p className="text-base sm:text-lg text-neutral-600 dark:text-neutral-300 max-w-2xl mx-auto leading-relaxed font-normal">
-              Traditional platforms retain message archives on cloud databases. Zenoa utilizes an ephemeral delivery pipeline: messages exist in-flight for milliseconds, deliver directly into your device encrypted IndexedDB storage, and are permanently wiped from the relay.
-            </p>
+                {/* Inner Preview Surface */}
+                <div className="mt-3.5 rounded-[12px] bg-[#ffffff] dark:bg-[#0d253d] p-4 border border-[#e3e8ee] dark:border-[#273951] text-[#0d253d] dark:text-white space-y-3.5 shadow-sm">
+                  {/* Chat Header in Mockup */}
+                  <div className="flex items-center justify-between pb-3 border-b border-[#e3e8ee] dark:border-[#273951]">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-8 w-8 rounded-full bg-[#533afd] text-white font-medium text-xs flex items-center justify-center">
+                        EV
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[14px] font-normal text-[#0d253d] dark:text-white">Elena Vance</span>
+                          <PurpleVerifiedBadge size="xs" />
+                        </div>
+                        <div className="flex items-center gap-1 text-[11px] text-[#533afd] dark:text-[#b9b9f9] font-light">
+                          <span className="h-1.5 w-1.5 rounded-full bg-[#533afd]" />
+                          <span>Direct P2P • Zero Cloud Log</span>
+                        </div>
+                      </div>
+                    </div>
+                    <span className="p-1.5 rounded-full bg-[#f6f9fc] dark:bg-[#1c1e54] text-[#533afd]">
+                      <Lock className="h-3.5 w-3.5" />
+                    </span>
+                  </div>
 
-            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
-              <button
-                onClick={() => onStartAuth('register')}
-                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-950 text-sm font-bold shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
-              >
-                <span>Launch Messenger</span>
-                <ArrowRight className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => {
-                  setLegalModalTab('privacy');
-                  setShowLegalModal(true);
-                }}
-                className="w-full sm:w-auto px-6 py-3.5 rounded-xl border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200 text-sm font-semibold transition-all cursor-pointer flex items-center justify-center gap-2"
-              >
-                <ShieldCheck className="h-4 w-4" />
-                <span>Zero-Retention Audit</span>
-              </button>
+                  {/* Message Stream with Stripi Precision */}
+                  <div className="space-y-2.5 py-1 text-[13px] font-light">
+                    {/* Received Message */}
+                    <div className="flex items-start gap-2 max-w-[85%]">
+                      <div className="p-3 rounded-[12px] bg-[#f6f9fc] dark:bg-[#1c1e54] text-[#0d253d] dark:text-[#f6f9fc] border border-[#e3e8ee] dark:border-[#273951]">
+                        <p className="leading-[1.4]">
+                          Did the treasury contract payload arrive via the 0ms relay queue?
+                        </p>
+                        <span className="text-[10px] text-[#64748d] dark:text-[#94a3b8] mt-1 block font-tabular">10:42:01 AM</span>
+                      </div>
+                    </div>
+
+                    {/* Sent Message */}
+                    <div className="flex items-end justify-end">
+                      <div className="p-3 rounded-[12px] bg-[#533afd] text-white max-w-[85%] shadow-[0_1px_3px_rgba(0,55,112,0.15)]">
+                        <p className="leading-[1.4]">
+                          Confirmed. Ingested directly into local device IndexedDB with 0 bytes recorded on cloud servers.
+                        </p>
+                        <div className="flex items-center justify-end gap-1 text-[10px] text-white/80 mt-1 font-tabular">
+                          <span>10:42:15 AM</span>
+                          <Check className="h-3 w-3 text-white" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Tabular Telemetry Banner */}
+                    <div className="p-2.5 rounded-[8px] bg-[#b9b9f9]/25 dark:bg-[#1c1e54] border border-[#b9b9f9]/50 dark:border-[#533afd]/40 flex items-center justify-between text-[11px] text-[#273951] dark:text-[#b9b9f9]">
+                      <div className="flex items-center gap-1.5">
+                        <ShieldCheck className="h-3.5 w-3.5 text-[#533afd] shrink-0" />
+                        <span className="font-mono">WebCrypto IV: 0x9e12... sealed</span>
+                      </div>
+                      <span className="font-tabular font-medium text-[#533afd] dark:text-white">TTL: 0.00ms</span>
+                    </div>
+                  </div>
+
+                  {/* Simulated Input Field (text-input standard: 6px radius, hairline input) */}
+                  <div className="pt-2 border-t border-[#e3e8ee] dark:border-[#273951] flex items-center gap-2">
+                    <div className="flex-1 px-3 py-1.5 rounded-[6px] bg-[#f6f9fc] dark:bg-[#1c1e54] border border-[#a8c3de]/60 dark:border-[#273951] text-[12px] text-[#64748d] dark:text-[#94a3b8] font-light">
+                      Write encrypted payload...
+                    </div>
+                    <div className="h-7 w-7 rounded-full bg-[#533afd] text-white flex items-center justify-center cursor-pointer shadow-xs">
+                      <Send className="h-3 w-3" />
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Metrics Grid */}
-          <div className="mt-14 max-w-5xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="p-4 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800">
-              <div className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Cloud Message Retention</div>
-              <div className="text-2xl font-black text-emerald-500 mt-1">0 Bytes</div>
-              <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">Purged on receipt</div>
+          {/* Quick Metrics Row: Tabular Figure Body Type on Near-White Surfaces */}
+          <div className="mt-16 grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="p-6 rounded-[12px] bg-[#ffffff] dark:bg-[#1c1e54]/50 border border-[#e3e8ee] dark:border-[#273951] shadow-[0_1px_3px_rgba(0,55,112,0.06)]">
+              <div className="text-[11px] font-normal uppercase tracking-[0.1px] text-[#64748d] dark:text-[#94a3b8]">
+                Cloud Message Logs
+              </div>
+              <div className="text-[32px] font-light leading-[1.1] tracking-[-0.64px] text-[#533afd] dark:text-[#b9b9f9] mt-1 font-tabular">
+                0 Bytes
+              </div>
+              <div className="text-[13px] text-[#64748d] dark:text-[#94a3b8] mt-1 font-light">
+                Purged instantaneously upon receipt
+              </div>
             </div>
-            <div className="p-4 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800">
-              <div className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Storage Engine</div>
-              <div className="text-2xl font-black text-neutral-900 dark:text-white mt-1">IndexedDB</div>
-              <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">Hardware sandbox</div>
+
+            <div className="p-6 rounded-[12px] bg-[#ffffff] dark:bg-[#1c1e54]/50 border border-[#e3e8ee] dark:border-[#273951] shadow-[0_1px_3px_rgba(0,55,112,0.06)]">
+              <div className="text-[11px] font-normal uppercase tracking-[0.1px] text-[#64748d] dark:text-[#94a3b8]">
+                Storage Partition
+              </div>
+              <div className="text-[32px] font-light leading-[1.1] tracking-[-0.64px] text-[#0d253d] dark:text-white mt-1 font-tabular">
+                IndexedDB
+              </div>
+              <div className="text-[13px] text-[#64748d] dark:text-[#94a3b8] mt-1 font-light">
+                Isolated hardware-backed vault
+              </div>
             </div>
-            <div className="p-4 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800">
-              <div className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Cipher Standard</div>
-              <div className="text-2xl font-black text-neutral-900 dark:text-white mt-1">AES-256-GCM</div>
-              <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">WebCrypto Standard</div>
+
+            <div className="p-6 rounded-[12px] bg-[#ffffff] dark:bg-[#1c1e54]/50 border border-[#e3e8ee] dark:border-[#273951] shadow-[0_1px_3px_rgba(0,55,112,0.06)]">
+              <div className="text-[11px] font-normal uppercase tracking-[0.1px] text-[#64748d] dark:text-[#94a3b8]">
+                Cipher Standard
+              </div>
+              <div className="text-[32px] font-light leading-[1.1] tracking-[-0.64px] text-[#0d253d] dark:text-white mt-1 font-tabular">
+                AES-256
+              </div>
+              <div className="text-[13px] text-[#64748d] dark:text-[#94a3b8] mt-1 font-light">
+                Native WebCrypto key derivation
+              </div>
             </div>
-            <div className="p-4 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800">
-              <div className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Calling Protocol</div>
-              <div className="text-2xl font-black text-neutral-900 dark:text-white mt-1">P2P WebRTC</div>
-              <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">Zero central media relay</div>
+
+            <div className="p-6 rounded-[12px] bg-[#ffffff] dark:bg-[#1c1e54]/50 border border-[#e3e8ee] dark:border-[#273951] shadow-[0_1px_3px_rgba(0,55,112,0.06)]">
+              <div className="text-[11px] font-normal uppercase tracking-[0.1px] text-[#64748d] dark:text-[#94a3b8]">
+                Calling Layer
+              </div>
+              <div className="text-[32px] font-light leading-[1.1] tracking-[-0.64px] text-[#0d253d] dark:text-white mt-1 font-tabular">
+                P2P WebRTC
+              </div>
+              <div className="text-[13px] text-[#64748d] dark:text-[#94a3b8] mt-1 font-light">
+                Direct SRTP device-to-device stream
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ARCHITECTURAL BREAKDOWN SECTION */}
-      <section id="architecture" className="py-16 md:py-24 border-b border-neutral-200/80 dark:border-neutral-800/80 bg-white dark:bg-neutral-900/50">
+      {/* ZERO-CLOUD ARCHITECTURE PIPELINE on canvas-soft (#f6f9fc) */}
+      <section id="architecture" className="py-20 md:py-28 border-b border-[#e3e8ee] dark:border-[#273951] bg-[#f6f9fc] dark:bg-[#0d253d]/40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="max-w-3xl mb-12">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-neutral-400 mb-2">Technical Paradigm</h2>
-            <p className="text-3xl sm:text-4xl font-black tracking-tight text-neutral-900 dark:text-white">
-              Why Zero-Cloud Architecture changes everything.
-            </p>
-            <p className="mt-3 text-sm sm:text-base text-neutral-600 dark:text-neutral-300 leading-relaxed">
-              Every system vulnerability stems from data centralization. By removing central message persistence, subpoena surface areas and credential breach exposure drop to zero.
+          <div className="max-w-3xl mb-14">
+            <div className="pill-tag-soft inline-block mb-3">
+              ZERO-PERSISTENCE ARCHITECTURE
+            </div>
+            <h2 className="text-[32px] sm:text-[48px] font-light leading-[1.15] tracking-[-0.96px] text-[#0d253d] dark:text-white">
+              How data travels without leaving a trace on the cloud.
+            </h2>
+            <p className="mt-3 text-[16px] font-light text-[#273951] dark:text-[#cbd5e1] leading-[1.5]">
+              Every major data breach occurs because servers store persistent history. By eliminating centralized databases from the messaging lifecycle, subpoena exposure and server-side compromise become structurally impossible.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Step 1 */}
-            <div className="p-6 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900 flex flex-col justify-between">
+            {/* Step 1 Card: card-feature-light */}
+            <div className="p-8 rounded-[12px] border border-[#e3e8ee] dark:border-[#273951] bg-white dark:bg-[#1c1e54]/50 flex flex-col justify-between shadow-[0_1px_3px_rgba(0,55,112,0.06)] hover:border-[#533afd]/60 transition-colors">
               <div className="space-y-4">
-                <div className="h-10 w-10 rounded-xl bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 flex items-center justify-center font-bold text-sm">
-                  01
+                <div className="flex items-center justify-between">
+                  <span className="font-tabular text-[22px] font-light text-[#533afd] dark:text-[#b9b9f9]">
+                    01
+                  </span>
+                  <Smartphone className="h-5 w-5 text-[#64748d]" />
                 </div>
-                <h3 className="text-lg font-bold text-neutral-900 dark:text-white">Client-Side Cipher Seal</h3>
-                <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed">
-                  Before a single byte leaves your browser or device, it is encrypted via 256-bit AES-GCM with a dynamic initialization vector. Plaintext never traverses your network interface.
+                <h3 className="text-[20px] font-light leading-[1.2] tracking-[-0.2px] text-[#0d253d] dark:text-white">
+                  Client-Side WebCrypto Seal
+                </h3>
+                <p className="text-[14px] font-light text-[#273951] dark:text-[#cbd5e1] leading-[1.5]">
+                  Before a single byte touches the network, it is encrypted locally using 256-bit AES-GCM with a dynamic initialization vector. Plaintext never leaves your physical device memory.
                 </p>
               </div>
-              <div className="mt-6 pt-4 border-t border-neutral-200 dark:border-neutral-800 text-[11px] font-mono text-neutral-500">
-                Native WebCrypto API • SHA-256 KDF
+              <div className="mt-8 pt-4 border-t border-[#e3e8ee] dark:border-[#273951] text-[12px] font-tabular text-[#64748d] dark:text-[#94a3b8] flex items-center gap-1.5">
+                <Key className="h-3.5 w-3.5 text-[#533afd] shrink-0" />
+                <span>SHA-256 Key Derivation Function</span>
               </div>
             </div>
 
-            {/* Step 2 */}
-            <div className="p-6 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900 flex flex-col justify-between">
+            {/* Step 2 Card: card-feature-light */}
+            <div className="p-8 rounded-[12px] border border-[#e3e8ee] dark:border-[#273951] bg-white dark:bg-[#1c1e54]/50 flex flex-col justify-between shadow-[0_1px_3px_rgba(0,55,112,0.06)] hover:border-[#533afd]/60 transition-colors">
               <div className="space-y-4">
-                <div className="h-10 w-10 rounded-xl bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 flex items-center justify-center font-bold text-sm">
-                  02
+                <div className="flex items-center justify-between">
+                  <span className="font-tabular text-[22px] font-light text-[#533afd] dark:text-[#b9b9f9]">
+                    02
+                  </span>
+                  <Radio className="h-5 w-5 text-[#533afd] animate-pulse" />
                 </div>
-                <h3 className="text-lg font-bold text-neutral-900 dark:text-white">Zero-Retention Ingestion</h3>
-                <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed">
-                  The relay coordinates presence and routes the encrypted packet directly to the recipient socket. As soon as delivery confirmation fires, the relay document is deleted immediately.
+                <h3 className="text-[20px] font-light leading-[1.2] tracking-[-0.2px] text-[#0d253d] dark:text-white">
+                  Ephemeral In-Flight Delivery
+                </h3>
+                <p className="text-[14px] font-light text-[#273951] dark:text-[#cbd5e1] leading-[1.5]">
+                  The zero-retention relay routes cipher payloads directly to recipient device sockets. The moment delivery is acknowledged by the recipient, the message payload is expunged from memory.
                 </p>
               </div>
-              <div className="mt-6 pt-4 border-t border-neutral-200 dark:border-neutral-800 text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
-                TTL: 0ms • Ephemeral Delivery State
+              <div className="mt-8 pt-4 border-t border-[#e3e8ee] dark:border-[#273951] text-[12px] font-tabular text-[#533afd] dark:text-[#b9b9f9] flex items-center gap-1.5">
+                <Zap className="h-3.5 w-3.5 text-[#533afd] shrink-0" />
+                <span>TTL: 0ms • Zero Server Retention</span>
               </div>
             </div>
 
-            {/* Step 3 */}
-            <div className="p-6 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900 flex flex-col justify-between">
+            {/* Step 3 Card: card-feature-light */}
+            <div className="p-8 rounded-[12px] border border-[#e3e8ee] dark:border-[#273951] bg-white dark:bg-[#1c1e54]/50 flex flex-col justify-between shadow-[0_1px_3px_rgba(0,55,112,0.06)] hover:border-[#533afd]/60 transition-colors">
               <div className="space-y-4">
-                <div className="h-10 w-10 rounded-xl bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 flex items-center justify-center font-bold text-sm">
-                  03
+                <div className="flex items-center justify-between">
+                  <span className="font-tabular text-[22px] font-light text-[#533afd] dark:text-[#b9b9f9]">
+                    03
+                  </span>
+                  <HardDrive className="h-5 w-5 text-[#64748d]" />
                 </div>
-                <h3 className="text-lg font-bold text-neutral-900 dark:text-white">Local Device Vault Storage</h3>
-                <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed">
-                  The recipient device decrypts the payload and stores it exclusively in its persistent IndexedDB partition. Your device remains the sole repository of your conversations.
+                <h3 className="text-[20px] font-light leading-[1.2] tracking-[-0.2px] text-[#0d253d] dark:text-white">
+                  Local Hardware Keystore Vault
+                </h3>
+                <p className="text-[14px] font-light text-[#273951] dark:text-[#cbd5e1] leading-[1.5]">
+                  The recipient decrypts the payload locally and commits it into their isolated IndexedDB storage partition. Only your physical device holds the decryption keys and data records.
                 </p>
               </div>
-              <div className="mt-6 pt-4 border-t border-neutral-200 dark:border-neutral-800 text-[11px] font-mono text-neutral-500">
-                Enterprise REST API • Service Account Dispatches
+              <div className="mt-8 pt-4 border-t border-[#e3e8ee] dark:border-[#273951] text-[12px] font-tabular text-[#64748d] dark:text-[#94a3b8] flex items-center gap-1.5">
+                <Lock className="h-3.5 w-3.5 text-[#533afd] shrink-0" />
+                <span>Hardware Keystore Isolation</span>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* INTERACTIVE CRYPTOGRAPHIC INSPECTOR */}
-      <section id="cryptography" className="py-16 md:py-24 border-b border-neutral-200/80 dark:border-neutral-800/80">
+      {/* PLATFORM CAPABILITIES with card-cream-band and card-pricing-featured */}
+      <section id="capabilities" className="py-20 md:py-28 border-b border-[#e3e8ee] dark:border-[#273951] bg-white dark:bg-[#090d16]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="max-w-3xl mb-10">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-neutral-400 mb-2">Live Cryptographic Inspector</h2>
-            <p className="text-3xl sm:text-4xl font-black tracking-tight text-neutral-900 dark:text-white">
+          <div className="max-w-3xl mb-14">
+            <div className="pill-tag-soft inline-block mb-3">
+              PLATFORM CAPABILITIES
+            </div>
+            <h2 className="text-[32px] sm:text-[48px] font-light leading-[1.15] tracking-[-0.96px] text-[#0d253d] dark:text-white">
+              Engineered for absolute privacy and transactional speed.
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Bento Card 1: Large Span 2 on White */}
+            <div className="md:col-span-2 p-8 rounded-[12px] border border-[#e3e8ee] dark:border-[#273951] bg-white dark:bg-[#1c1e54]/40 flex flex-col justify-between space-y-6 shadow-[0_1px_3px_rgba(0,55,112,0.06)]">
+              <div className="space-y-3">
+                <div className="h-10 w-10 rounded-full bg-[#b9b9f9]/40 dark:bg-[#533afd]/20 text-[#533afd] dark:text-[#b9b9f9] flex items-center justify-center">
+                  <Database className="h-5 w-5" />
+                </div>
+                <h3 className="text-[22px] font-light leading-[1.1] tracking-[-0.22px] text-[#0d253d] dark:text-white">
+                  Client-Side IndexedDB Vault Storage
+                </h3>
+                <p className="text-[15px] font-light text-[#273951] dark:text-[#cbd5e1] max-w-xl leading-[1.5]">
+                  Your chat logs, attachments, voice notes, and search indexes live in an isolated browser storage partition. If you sign in on another computer, you get a clean slate with 0 records exposed.
+                </p>
+              </div>
+
+              {/* Tabular figure telemetry */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-[#e3e8ee] dark:border-[#273951]">
+                <div className="p-3.5 rounded-[8px] bg-[#f6f9fc] dark:bg-[#1c1e54] border border-[#e3e8ee] dark:border-[#273951]">
+                  <span className="text-[10px] uppercase font-normal text-[#64748d] dark:text-[#94a3b8] block">Relay Queue</span>
+                  <span className="text-[16px] font-light text-[#533afd] dark:text-[#b9b9f9] font-tabular">0ms Purge</span>
+                </div>
+                <div className="p-3.5 rounded-[8px] bg-[#f6f9fc] dark:bg-[#1c1e54] border border-[#e3e8ee] dark:border-[#273951]">
+                  <span className="text-[10px] uppercase font-normal text-[#64748d] dark:text-[#94a3b8] block">Local Cipher</span>
+                  <span className="text-[16px] font-light text-[#0d253d] dark:text-white font-tabular">AES-256-GCM</span>
+                </div>
+                <div className="p-3.5 rounded-[8px] bg-[#f6f9fc] dark:bg-[#1c1e54] border border-[#e3e8ee] dark:border-[#273951]">
+                  <span className="text-[10px] uppercase font-normal text-[#64748d] dark:text-[#94a3b8] block">Multi-Tab Sync</span>
+                  <span className="text-[16px] font-light text-[#533afd] dark:text-[#b9b9f9] font-tabular">BroadcastCh</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Bento Card 2: card-cream-band (Stripi's chromatic interlude on canvas-cream #f5e9d4) */}
+            <div className="p-8 rounded-[12px] border border-[#e8dac0] dark:border-[#273951] bg-[#f5e9d4] dark:bg-[#1c1e54]/60 text-[#0d253d] dark:text-[#f6f9fc] flex flex-col justify-between space-y-6 shadow-[0_1px_3px_rgba(0,55,112,0.06)]">
+              <div className="space-y-3">
+                <div className="h-10 w-10 rounded-full bg-[#9b6829]/20 text-[#9b6829] dark:text-amber-300 flex items-center justify-center">
+                  <Video className="h-5 w-5" />
+                </div>
+                <h3 className="text-[22px] font-light leading-[1.1] tracking-[-0.22px] text-[#0d253d] dark:text-white">
+                  Direct P2P HD Calling
+                </h3>
+                <p className="text-[14px] font-light leading-[1.5] text-[#273951] dark:text-[#cbd5e1]">
+                  Crystal clear audio and 1080p video streams travel strictly device-to-device via WebRTC with DTLS-SRTP encryption without recording servers.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-[8px] bg-white/80 dark:bg-[#0d253d] border border-[#e8dac0] dark:border-[#273951] flex items-center justify-between text-[12px] font-tabular">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-[#533afd] animate-ping" />
+                  <span className="font-normal text-[#0d253d] dark:text-white">SRTP Encrypted</span>
+                </div>
+                <span className="text-[#64748d] dark:text-[#94a3b8]">0 Relay Lag</span>
+              </div>
+            </div>
+
+            {/* Bento Card 3: card-pricing-featured (Inverted dark navy #1c1e54) */}
+            <div className="p-8 rounded-[12px] border border-[#273951] bg-[#1c1e54] text-white flex flex-col justify-between space-y-6 shadow-[0_8px_24px_rgba(0,55,112,0.18)]">
+              <div className="space-y-3">
+                <div className="h-10 w-10 rounded-full bg-[#533afd] text-white flex items-center justify-center">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-[22px] font-light leading-[1.1] tracking-[-0.22px] text-white">
+                    Verified Identity
+                  </h3>
+                  <PurpleVerifiedBadge size="sm" />
+                </div>
+                <p className="text-[14px] font-light text-[#cbd5e1] leading-[1.5]">
+                  Cryptographically signed public handles and verified badges prevent spoofing and ensure authentic peer verification.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-[8px] bg-[#0d253d] border border-[#273951] flex items-center gap-2 text-[12px] font-tabular text-[#b9b9f9]">
+                <PurpleVerifiedBadge size="xs" />
+                <span>Ed25519 Identity Signature</span>
+              </div>
+            </div>
+
+            {/* Bento Card 4: Disappearing Timers with tight pill chips */}
+            <div className="p-8 rounded-[12px] border border-[#e3e8ee] dark:border-[#273951] bg-white dark:bg-[#1c1e54]/40 flex flex-col justify-between space-y-6 shadow-[0_1px_3px_rgba(0,55,112,0.06)]">
+              <div className="space-y-3">
+                <div className="h-10 w-10 rounded-full bg-[#b9b9f9]/40 dark:bg-[#533afd]/20 text-[#533afd] dark:text-[#b9b9f9] flex items-center justify-center">
+                  <Clock className="h-5 w-5" />
+                </div>
+                <h3 className="text-[22px] font-light leading-[1.1] tracking-[-0.22px] text-[#0d253d] dark:text-white">
+                  Ephemeral Timers
+                </h3>
+                <p className="text-[14px] font-light text-[#273951] dark:text-[#cbd5e1] leading-[1.5]">
+                  Configure auto-destruct timers for sensitive conversations to expunge messages simultaneously from all participant device vaults.
+                </p>
+              </div>
+
+              {/* Tight Pill Chips */}
+              <div className="flex items-center gap-1.5 bg-[#f6f9fc] dark:bg-[#0d253d] p-1.5 rounded-full border border-[#e3e8ee] dark:border-[#273951]">
+                {(['5s', '1h', '24h', '7d'] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setSelectedTimer(t)}
+                    className={`flex-1 py-1 rounded-full text-[12px] font-normal transition-all cursor-pointer font-tabular ${
+                      selectedTimer === t
+                        ? 'bg-[#533afd] text-white shadow-xs'
+                        : 'text-[#64748d] hover:text-[#0d253d] dark:hover:text-white'
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Bento Card 5: Google Drive BYOS */}
+            <div className="p-8 rounded-[12px] border border-[#e3e8ee] dark:border-[#273951] bg-white dark:bg-[#1c1e54]/40 flex flex-col justify-between space-y-6 shadow-[0_1px_3px_rgba(0,55,112,0.06)]">
+              <div className="space-y-3">
+                <div className="h-10 w-10 rounded-full bg-[#b9b9f9]/40 dark:bg-[#533afd]/20 text-[#533afd] dark:text-[#b9b9f9] flex items-center justify-center">
+                  <Cloud className="h-5 w-5" />
+                </div>
+                <h3 className="text-[22px] font-light leading-[1.1] tracking-[-0.22px] text-[#0d253d] dark:text-white">
+                  Google Drive BYOS
+                </h3>
+                <p className="text-[14px] font-light text-[#273951] dark:text-[#cbd5e1] leading-[1.5]">
+                  Bring your own storage. Securely back up encrypted media vaults directly to your personal Google Drive without vendor custody.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-[8px] bg-[#f6f9fc] dark:bg-[#0d253d] border border-[#e3e8ee] dark:border-[#273951] flex items-center justify-between text-[12px] font-tabular text-[#273951] dark:text-[#cbd5e1]">
+                <span>Personal Drive Sync</span>
+                <span className="text-[#533afd] dark:text-[#b9b9f9] font-medium">BYOS Active</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* INTERACTIVE TELEMETRY & CRYPTOGRAPHIC PROOF (Dark Console Panel) */}
+      <section id="inspector" className="py-20 md:py-28 border-b border-[#e3e8ee] dark:border-[#273951] bg-[#f6f9fc] dark:bg-[#0d253d]/40">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="max-w-3xl mb-12">
+            <div className="pill-tag-soft inline-block mb-3">
+              LIVE CRYPTOGRAPHIC TELEMETRY
+            </div>
+            <h2 className="text-[32px] sm:text-[48px] font-light leading-[1.15] tracking-[-0.96px] text-[#0d253d] dark:text-white">
               Inspect how data is sealed before relay.
-            </p>
-            <p className="mt-3 text-sm sm:text-base text-neutral-600 dark:text-neutral-300">
-              Type any sample payload below to inspect the real-time encrypted structure transmitted across our ephemeral relay.
+            </h2>
+            <p className="mt-3 text-[16px] font-light text-[#273951] dark:text-[#cbd5e1]">
+              Enter sample text below to observe the real-time encrypted packet structure routed across the zero-retention relay.
             </p>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Input & Controller Column */}
+            {/* Form Input Column: text-input standards */}
             <div className="lg:col-span-5 space-y-4">
-              <div className="p-5 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 space-y-4">
+              <div className="p-6 rounded-[12px] bg-white dark:bg-[#1c1e54]/50 border border-[#e3e8ee] dark:border-[#273951] space-y-4 shadow-[0_1px_3px_rgba(0,55,112,0.06)]">
                 <div>
-                  <label className="text-xs font-bold text-neutral-900 dark:text-white block mb-1.5">
+                  <label className="text-[13px] font-normal text-[#0d253d] dark:text-white block mb-2">
                     Plaintext Message Input
                   </label>
                   <textarea
+                    id="crypto_demo_input"
                     rows={3}
                     value={demoText}
                     onChange={(e) => setDemoText(e.target.value)}
-                    placeholder="Type sensitive message or payload..."
-                    className="w-full p-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-xs text-neutral-900 dark:text-white outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white resize-none"
+                    placeholder="Enter payload string..."
+                    className="w-full p-3 rounded-[6px] border border-[#a8c3de] dark:border-[#273951] bg-white dark:bg-[#0d253d] text-[14px] text-[#0d253d] dark:text-white outline-none focus:border-[#533afd] transition-colors resize-none"
                   />
                 </div>
 
-                <div className="flex items-center justify-between pt-2 border-t border-neutral-100 dark:border-neutral-800">
-                  <div className="flex items-center gap-2">
+                <div className="space-y-2 pt-2 border-t border-[#e3e8ee] dark:border-[#273951]">
+                  <span className="text-[11px] font-normal uppercase tracking-[0.1px] text-[#64748d] dark:text-[#94a3b8] block">
+                    Cipher Algorithm
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       onClick={() => setCipherAlgorithm('AES-256-GCM')}
-                      className={cipherAlgorithm === "AES-256-GCM" ? "px-2.5 py-1 rounded-lg text-xs font-bold bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 cursor-pointer" : "px-2.5 py-1 rounded-lg text-xs font-medium text-neutral-500 hover:text-neutral-900 dark:hover:text-white cursor-pointer"}
+                      className={`py-2 px-3 rounded-full text-[13px] font-normal transition-all cursor-pointer ${
+                        cipherAlgorithm === 'AES-256-GCM'
+                          ? 'bg-[#533afd] text-white shadow-xs'
+                          : 'bg-white dark:bg-[#0d253d] text-[#273951] dark:text-[#cbd5e1] border border-[#e3e8ee] dark:border-[#273951]'
+                      }`}
                     >
                       AES-256-GCM
                     </button>
                     <button
                       onClick={() => setCipherAlgorithm('X25519-Ratchet')}
-                      className={cipherAlgorithm === "X25519-Ratchet" ? "px-2.5 py-1 rounded-lg text-xs font-bold bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 cursor-pointer" : "px-2.5 py-1 rounded-lg text-xs font-medium text-neutral-500 hover:text-neutral-900 dark:hover:text-white cursor-pointer"}
+                      className={`py-2 px-3 rounded-full text-[13px] font-normal transition-all cursor-pointer ${
+                        cipherAlgorithm === 'X25519-Ratchet'
+                          ? 'bg-[#533afd] text-white shadow-xs'
+                          : 'bg-white dark:bg-[#0d253d] text-[#273951] dark:text-[#cbd5e1] border border-[#e3e8ee] dark:border-[#273951]'
+                      }`}
                     >
                       X25519 Ratchet
                     </button>
                   </div>
-
-                  <button
-                    onClick={() => setIsDemoEncrypted(!isDemoEncrypted)}
-                    className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-xs font-semibold text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-                  >
-                    {isDemoEncrypted ? 'Show Plaintext Payload' : 'Show Encrypted Cipher'}
-                  </button>
                 </div>
+
+                <button
+                  onClick={() => setIsDemoEncrypted(!isDemoEncrypted)}
+                  className="w-full py-2.5 rounded-full border border-[#e3e8ee] dark:border-[#273951] text-[14px] font-normal text-[#273951] dark:text-[#cbd5e1] hover:border-[#533afd] transition-colors cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {isDemoEncrypted ? (
+                    <>
+                      <Eye className="h-4 w-4 text-[#533afd]" />
+                      <span>Inspect Raw Memory String</span>
+                    </>
+                  ) : (
+                    <>
+                      <EyeOff className="h-4 w-4 text-[#533afd]" />
+                      <span>Show Sealed Encrypted Cipher</span>
+                    </>
+                  )}
+                </button>
               </div>
 
-              {/* Protocol Characteristics */}
-              <div className="p-5 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 space-y-3">
-                <div className="text-xs font-bold text-neutral-900 dark:text-white">Security Checklist</div>
-                <div className="space-y-2 text-xs text-neutral-600 dark:text-neutral-300">
+              {/* Guarantees Box */}
+              <div className="p-6 rounded-[12px] bg-white dark:bg-[#1c1e54]/50 border border-[#e3e8ee] dark:border-[#273951] space-y-3 shadow-[0_1px_3px_rgba(0,55,112,0.06)]">
+                <div className="text-[12px] font-normal uppercase tracking-[0.1px] text-[#64748d] dark:text-[#94a3b8]">
+                  Cryptographic Specifications
+                </div>
+                <div className="space-y-2.5 text-[13px] font-light text-[#273951] dark:text-[#cbd5e1]">
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                    <span>No message logs stored in central relational or NoSQL tables</span>
+                    <CheckCircle2 className="h-4 w-4 text-[#533afd] shrink-0" />
+                    <span>Zero records committed to central databases</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                    <span>Hardware Keystore bound client-side token derivation</span>
+                    <CheckCircle2 className="h-4 w-4 text-[#533afd] shrink-0" />
+                    <span>Hardware Keystore local token derivation</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                    <span>Multi-tab real-time state synchronization via BroadcastChannel</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                    <span>End-to-End encrypted voice notes, attachments, and polls</span>
+                    <CheckCircle2 className="h-4 w-4 text-[#533afd] shrink-0" />
+                    <span>Client-side encrypted voice notes, attachments, polls</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Simulated Raw Cipher */}
+            {/* Dark Console Terminal (card-dashboard-mockup with brand-dark-900 fill #1c1e54) */}
             <div className="lg:col-span-7">
-              <div className="rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-300 font-mono text-xs shadow-xl overflow-hidden">
-                {/* Terminal Header */}
-                <div className="px-4 py-3 bg-neutral-900 border-b border-neutral-800 flex items-center justify-between">
+              <div className="rounded-[16px] border border-[#273951] bg-[#0d253d] text-[#cbd5e1] font-mono text-[13px] shadow-[0_20px_50px_rgba(0,55,112,0.25)] overflow-hidden">
+                {/* Header */}
+                <div className="px-5 py-3.5 bg-[#1c1e54] border-b border-[#273951] flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="h-2.5 w-2.5 rounded-full bg-rose-500/80" />
-                    <div className="h-2.5 w-2.5 rounded-full bg-amber-500/80" />
-                    <div className="h-2.5 w-2.5 rounded-full bg-emerald-500/80" />
-                    <span className="ml-2 text-[11px] text-neutral-400 font-sans font-medium">
-                      relay-network-telemetry.raw
+                    <Terminal className="h-4 w-4 text-[#533afd]" />
+                    <span className="text-[12px] font-mono text-[#a8c3de]">
+                      relay.telemetry.outbound.json
                     </span>
                   </div>
-                  <span className="text-[10px] text-emerald-400 bg-emerald-950/60 border border-emerald-800/80 px-2 py-0.5 rounded">
-                    ENCRYPTION: ACTIVE
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-[#b9b9f9] bg-[#533afd]/20 border border-[#533afd]/40 px-2.5 py-0.5 rounded-full font-tabular">
+                      ENCRYPTION ACTIVE
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(getSimulatedCipher(demoText))}
+                      className="p-1.5 rounded-full hover:bg-[#273951] text-[#a8c3de] hover:text-white transition-colors cursor-pointer"
+                      title="Copy Cipher"
+                    >
+                      {copiedCipher ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
 
-                {/* Terminal Body */}
-                <div className="p-5 space-y-4 overflow-x-auto max-h-[380px] select-text">
-                  <div className="text-neutral-500 text-[11px]">
+                {/* Body */}
+                <div className="p-6 space-y-4 overflow-x-auto max-h-[380px] select-text">
+                  <div className="text-[#64748d] text-[11px]">
                     // Outbound Relay Packet Structure (Transmitted via Zero-Retention Queue)
                   </div>
                   {isDemoEncrypted ? (
-                    <pre className="text-emerald-400 text-xs leading-relaxed font-mono">
+                    <pre className="text-[#b9b9f9] text-[12px] leading-relaxed font-tabular">
                       {getSimulatedCipher(demoText)}
                     </pre>
                   ) : (
-                    <div className="space-y-2 text-neutral-200">
-                      <div className="text-rose-400 font-bold">// WARNING: Plaintext representation only exists locally inside device RAM</div>
-                      <div className="p-3 rounded-lg bg-neutral-900 border border-neutral-800 text-neutral-100">
+                    <div className="space-y-3">
+                      <div className="text-[#ea2261] text-[12px]">
+                        // Notice: Plaintext representation exists exclusively in client RAM
+                      </div>
+                      <div className="p-4 rounded-[8px] bg-[#1c1e54] border border-[#273951] text-white font-mono text-[13px]">
                         {demoText || '<Empty payload>'}
                       </div>
                     </div>
                   )}
                 </div>
 
-                <div className="px-4 py-2.5 bg-neutral-900/70 border-t border-neutral-800 text-[11px] text-neutral-400 flex items-center justify-between font-sans">
-                  <span>Client Storage: IndexedDB Partition</span>
-                  <span>Payload State: Ephemeral Zero-Footprint</span>
+                {/* Footer */}
+                <div className="px-5 py-3 bg-[#1c1e54]/80 border-t border-[#273951] text-[12px] text-[#64748d] flex items-center justify-between font-tabular">
+                  <span>Storage: Isolated IndexedDB</span>
+                  <span className="text-[#533afd] font-medium">Relay State: Ephemeral</span>
                 </div>
               </div>
             </div>
@@ -412,118 +830,68 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* CORE CAPABILITIES */}
-      <section id="features" className="py-16 md:py-24 border-b border-neutral-200/80 dark:border-neutral-800/80 bg-white dark:bg-neutral-900/50">
+      {/* ARCHITECTURAL COMPARISON MATRIX */}
+      <section id="comparison" className="py-20 md:py-28 border-b border-[#e3e8ee] dark:border-[#273951] bg-white dark:bg-[#090d16]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="max-w-3xl mb-12">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-neutral-400 mb-2">Core Capabilities</h2>
-            <p className="text-3xl sm:text-4xl font-black tracking-tight text-neutral-900 dark:text-white">
-              Enterprise-grade messaging without corporate telemetry.
-            </p>
+          <div className="max-w-3xl mb-14">
+            <div className="pill-tag-soft inline-block mb-3">
+              ARCHITECTURAL AUDIT
+            </div>
+            <h2 className="text-[32px] sm:text-[48px] font-light leading-[1.15] tracking-[-0.96px] text-[#0d253d] dark:text-white">
+              Why Zenoa outperforms conventional cloud messaging.
+            </h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-            {/* Feature 1 */}
-            <div className="p-5 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900">
-              <div className="h-9 w-9 rounded-xl bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 flex items-center justify-center mb-4 shadow-xs">
-                <Video className="h-4.5 w-4.5" />
-              </div>
-              <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-1.5">Direct P2P Calling</h3>
-              <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-                Crystal clear voice and HD video streams travel strictly device-to-device via WebRTC without intermediary video relay loggers.
-              </p>
-            </div>
-
-            {/* Feature 2 */}
-            <div className="p-5 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900">
-              <div className="h-9 w-9 rounded-xl bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 flex items-center justify-center mb-4 shadow-xs">
-                <ShieldAlert className="h-4.5 w-4.5" />
-              </div>
-              <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-1.5">Disappearing Transmissions</h3>
-              <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-                Configurable self-destruct timers (24 hours, 7 days, 90 days) purge local vault entries automatically across devices.
-              </p>
-            </div>
-
-            {/* Feature 3 */}
-            <div className="p-5 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900">
-              <div className="h-9 w-9 rounded-xl bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 flex items-center justify-center mb-4 shadow-xs">
-                <Database className="h-4.5 w-4.5" />
-              </div>
-              <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-1.5">Encrypted Groups</h3>
-              <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-                Seamless multi-participant conversations with granular administrator controls, member moderation, and zero server logging.
-              </p>
-            </div>
-
-            {/* Feature 4 */}
-            <div className="p-5 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900">
-              <div className="h-9 w-9 rounded-xl bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 flex items-center justify-center mb-4 shadow-xs">
-                <HardDrive className="h-4.5 w-4.5" />
-              </div>
-              <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-1.5">Encrypted Media & Vault</h3>
-              <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-                Send HD photos, audio recordings, documents, polls, and location pins encrypted at rest inside your client database.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* SYSTEM COMPARISON MATRIX */}
-      <section id="relay" className="py-16 md:py-24 border-b border-neutral-200/80 dark:border-neutral-800/80">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="max-w-3xl mb-12">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-neutral-400 mb-2">Architectural Comparison</h2>
-            <p className="text-3xl sm:text-4xl font-black tracking-tight text-neutral-900 dark:text-white">
-              How Zenoa differs from conventional cloud messengers.
-            </p>
-          </div>
-
-          <div className="overflow-x-auto rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xs">
-            <table className="w-full text-left text-xs border-collapse">
+          <div className="overflow-x-auto rounded-[12px] border border-[#e3e8ee] dark:border-[#273951] bg-white dark:bg-[#1c1e54]/40 shadow-[0_1px_3px_rgba(0,55,112,0.06)]">
+            <table className="w-full text-left text-[14px] border-collapse">
               <thead>
-                <tr className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-950/70">
-                  <th className="p-4 font-bold text-neutral-900 dark:text-white">Security Property</th>
-                  <th className="p-4 font-bold text-neutral-900 dark:text-white">Zenoa Vault v3.4</th>
-                  <th className="p-4 font-bold text-neutral-400">Traditional Cloud Messengers</th>
+                <tr className="border-b border-[#e3e8ee] dark:border-[#273951] bg-[#f6f9fc] dark:bg-[#1c1e54]">
+                  <th className="p-5 font-normal text-[#0d253d] dark:text-white uppercase tracking-[0.1px] text-[11px]">
+                    Security Property
+                  </th>
+                  <th className="p-5 font-normal text-[#533afd] dark:text-[#b9b9f9] uppercase tracking-[0.1px] text-[11px]">
+                    Zenoa Protocol v3.4
+                  </th>
+                  <th className="p-5 font-normal text-[#64748d] uppercase tracking-[0.1px] text-[11px]">
+                    Traditional Cloud Messengers
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800 text-neutral-600 dark:text-neutral-300">
+              <tbody className="divide-y divide-[#e3e8ee] dark:divide-[#273951] text-[#273951] dark:text-[#cbd5e1] font-light">
                 <tr>
-                  <td className="p-4 font-medium text-neutral-900 dark:text-white">Cloud Message History</td>
-                  <td className="p-4 text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1.5">
-                    <Check className="h-4 w-4" /> 0 Bytes (Auto-Purged upon receipt)
+                  <td className="p-5 font-normal text-[#0d253d] dark:text-white">Cloud Message Retention</td>
+                  <td className="p-5 text-[#533afd] dark:text-[#b9b9f9] font-normal flex items-center gap-1.5 font-tabular">
+                    <Check className="h-4 w-4 shrink-0 text-[#533afd]" /> 0 Bytes (Purged upon receipt)
                   </td>
-                  <td className="p-4 text-neutral-500">Stored indefinitely on cloud servers</td>
+                  <td className="p-5 text-[#64748d]">Retained indefinitely in cloud databases</td>
                 </tr>
                 <tr>
-                  <td className="p-4 font-medium text-neutral-900 dark:text-white">New Device Login Exposure</td>
-                  <td className="p-4 text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1.5">
-                    <Check className="h-4 w-4" /> 100% Blank Canvas (Zero past history)
+                  <td className="p-5 font-normal text-[#0d253d] dark:text-white">New Device Login Exposure</td>
+                  <td className="p-5 text-[#533afd] dark:text-[#b9b9f9] font-normal flex items-center gap-1.5 font-tabular">
+                    <Check className="h-4 w-4 shrink-0 text-[#533afd]" /> 100% Blank Canvas (Zero past history)
                   </td>
-                  <td className="p-4 text-neutral-500">Downloads entire conversation history</td>
+                  <td className="p-5 text-[#64748d]">Downloads complete past message history</td>
                 </tr>
                 <tr>
-                  <td className="p-4 font-medium text-neutral-900 dark:text-white">Cryptographic Keystore</td>
-                  <td className="p-4 text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1.5">
-                    <Check className="h-4 w-4" /> Client-Side WebCrypto (User Device)
+                  <td className="p-5 font-normal text-[#0d253d] dark:text-white">Cryptographic Keystore</td>
+                  <td className="p-5 text-[#533afd] dark:text-[#b9b9f9] font-normal flex items-center gap-1.5 font-tabular">
+                    <Check className="h-4 w-4 shrink-0 text-[#533afd]" /> Client-Side WebCrypto (Device Vault)
                   </td>
-                  <td className="p-4 text-neutral-500">Often managed on vendor servers</td>
+                  <td className="p-5 text-[#64748d]">Often centralized on vendor server clusters</td>
                 </tr>
                 <tr>
-                  <td className="p-4 font-medium text-neutral-900 dark:text-white">Audio / Video Call Streams</td>
-                  <td className="p-4 text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1.5">
-                    <Check className="h-4 w-4" /> Peer-to-Peer WebRTC Direct
+                  <td className="p-5 font-normal text-[#0d253d] dark:text-white">Audio / Video Call Streams</td>
+                  <td className="p-5 text-[#533afd] dark:text-[#b9b9f9] font-normal flex items-center gap-1.5 font-tabular">
+                    <Check className="h-4 w-4 shrink-0 text-[#533afd]" /> Peer-to-Peer WebRTC Direct
                   </td>
-                  <td className="p-4 text-neutral-500">Proxied via centralized recording servers</td>
+                  <td className="p-5 text-[#64748d]">Transcoded via central recording servers</td>
                 </tr>
                 <tr>
-                  <td className="p-4 font-medium text-neutral-900 dark:text-white">Subpoena & Data Breach Risk</td>
-                  <td className="p-4 text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1.5">
-                    <Check className="h-4 w-4" /> Zero centralized data to seize or leak
+                  <td className="p-5 font-normal text-[#0d253d] dark:text-white">Subpoena & Data Breach Risk</td>
+                  <td className="p-5 text-[#533afd] dark:text-[#b9b9f9] font-normal flex items-center gap-1.5 font-tabular">
+                    <Check className="h-4 w-4 shrink-0 text-[#533afd]" /> Zero centralized data to seize or leak
                   </td>
-                  <td className="p-4 text-neutral-500">Central databases vulnerable to breaches</td>
+                  <td className="p-5 text-[#64748d]">Central databases vulnerable to breaches</td>
                 </tr>
               </tbody>
             </table>
@@ -532,13 +900,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* FREQUENTLY ASKED QUESTIONS */}
-      <section id="faq" className="py-16 md:py-24 border-b border-neutral-200/80 dark:border-neutral-800/80 bg-white dark:bg-neutral-900/50">
+      <section id="faq" className="py-20 md:py-28 border-b border-[#e3e8ee] dark:border-[#273951] bg-[#f6f9fc] dark:bg-[#0d253d]/40">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12 space-y-2">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-neutral-400">Knowledge Base</h2>
-            <p className="text-3xl font-black tracking-tight text-neutral-900 dark:text-white">
-              Frequently Asked Questions
-            </p>
+          <div className="text-center mb-14 space-y-2">
+            <div className="pill-tag-soft inline-block mb-2">
+              FREQUENTLY ASKED QUESTIONS
+            </div>
+            <h2 className="text-[32px] sm:text-[40px] font-light leading-[1.15] tracking-[-0.64px] text-[#0d253d] dark:text-white">
+              Common Questions & Inquiries
+            </h2>
           </div>
 
           <div className="space-y-3">
@@ -547,27 +917,35 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               return (
                 <div
                   key={'faq_item_' + index}
-                  className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900 overflow-hidden"
+                  className="rounded-[12px] border border-[#e3e8ee] dark:border-[#273951] bg-white dark:bg-[#1c1e54]/50 overflow-hidden shadow-[0_1px_2px_rgba(0,55,112,0.04)]"
                 >
                   <button
                     type="button"
                     onClick={() => setOpenFaqIndex(isOpen ? null : index)}
-                    className="w-full p-5 text-left flex items-center justify-between gap-4 cursor-pointer hover:bg-neutral-100/50 dark:hover:bg-neutral-800/50 transition-colors"
+                    className="w-full p-6 text-left flex items-center justify-between gap-4 cursor-pointer hover:bg-[#f6f9fc]/80 dark:hover:bg-[#1c1e54] transition-colors"
                   >
-                    <span className="text-sm font-bold text-neutral-900 dark:text-white">
+                    <span className="text-[16px] font-normal text-[#0d253d] dark:text-white">
                       {faq.q}
                     </span>
                     {isOpen ? (
-                      <ChevronUp className="h-4 w-4 text-neutral-500 shrink-0" />
+                      <ChevronUp className="h-4 w-4 text-[#533afd] shrink-0" />
                     ) : (
-                      <ChevronDown className="h-4 w-4 text-neutral-500 shrink-0" />
+                      <ChevronDown className="h-4 w-4 text-[#64748d] shrink-0" />
                     )}
                   </button>
-                  {isOpen && (
-                    <div className="px-5 pb-5 text-xs sm:text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed border-t border-neutral-200/60 dark:border-neutral-800/60 pt-3">
-                      {faq.a}
-                    </div>
-                  )}
+                  <AnimatePresence>
+                    {isOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeOut' }}
+                        className="px-6 pb-6 text-[15px] font-light text-[#273951] dark:text-[#cbd5e1] leading-[1.5] border-t border-[#e3e8ee] dark:border-[#273951] pt-4"
+                      >
+                        {faq.a}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               );
             })}
@@ -575,23 +953,29 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* CONTACT & SECURITY INQUIRY FORM */}
-      <section id="contact" className="py-16 md:py-24 border-b border-neutral-200/80 dark:border-neutral-800/80">
+      {/* ENGINEERING DISCLOSURE FORM */}
+      <section id="contact" className="py-20 md:py-28 border-b border-[#e3e8ee] dark:border-[#273951] bg-white dark:bg-[#090d16]">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-10 space-y-2">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-neutral-400">Security & Engineering</h2>
-            <p className="text-3xl font-black tracking-tight text-neutral-900 dark:text-white">
-              Get in Touch with Engineering
-            </p>
-            <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 max-w-md mx-auto">
-              Questions regarding security audits, protocol verification, or compliance disclosures.
+          <div className="text-center mb-12 space-y-2">
+            <div className="pill-tag-soft inline-block mb-2">
+              ENGINEERING CONTACT
+            </div>
+            <h2 className="text-[32px] sm:text-[40px] font-light leading-[1.15] tracking-[-0.64px] text-[#0d253d] dark:text-white">
+              Connect with Protocol Engineering
+            </h2>
+            <p className="text-[15px] font-light text-[#64748d] dark:text-[#94a3b8] max-w-md mx-auto">
+              Inquiries regarding security audits, protocol verification, or cryptographic disclosures.
             </p>
           </div>
 
-          <form onSubmit={handleContactSubmit} className="p-6 sm:p-8 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm space-y-4">
+          <form
+            id="landing_contact_form"
+            onSubmit={handleContactSubmit}
+            className="p-8 rounded-[12px] border border-[#e3e8ee] dark:border-[#273951] bg-[#f6f9fc] dark:bg-[#1c1e54]/50 shadow-[0_1px_3px_rgba(0,55,112,0.06)] space-y-4"
+          >
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-bold text-neutral-700 dark:text-neutral-300 block mb-1.5">
+                <label className="text-[13px] font-normal text-[#273951] dark:text-[#cbd5e1] block mb-1.5">
                   Your Name
                 </label>
                 <input
@@ -599,12 +983,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   required
                   value={contactName}
                   onChange={(e) => setContactName(e.target.value)}
-                  placeholder="Security Lead or Researcher"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-xs text-neutral-900 dark:text-white outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white"
+                  placeholder="Researcher or Engineer"
+                  className="w-full px-3.5 py-2.5 rounded-[6px] border border-[#a8c3de] dark:border-[#273951] bg-white dark:bg-[#0d253d] text-[14px] text-[#0d253d] dark:text-white outline-none focus:border-[#533afd] transition-colors"
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-neutral-700 dark:text-neutral-300 block mb-1.5">
+                <label className="text-[13px] font-normal text-[#273951] dark:text-[#cbd5e1] block mb-1.5">
                   Email Address
                 </label>
                 <input
@@ -612,14 +996,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   required
                   value={contactEmail}
                   onChange={(e) => setContactEmail(e.target.value)}
-                  placeholder="name@organization.com"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-xs text-neutral-900 dark:text-white outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white"
+                  placeholder="engineer@organization.com"
+                  className="w-full px-3.5 py-2.5 rounded-[6px] border border-[#a8c3de] dark:border-[#273951] bg-white dark:bg-[#0d253d] text-[14px] text-[#0d253d] dark:text-white outline-none focus:border-[#533afd] transition-colors"
                 />
               </div>
             </div>
 
             <div>
-              <label className="text-xs font-bold text-neutral-700 dark:text-neutral-300 block mb-1.5">
+              <label className="text-[13px] font-normal text-[#273951] dark:text-[#cbd5e1] block mb-1.5">
                 Inquiry or Disclosure Details
               </label>
               <textarea
@@ -627,20 +1011,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 required
                 value={contactMessage}
                 onChange={(e) => setContactMessage(e.target.value)}
-                placeholder="Describe your question or security finding..."
-                className="w-full p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-xs text-neutral-900 dark:text-white outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white resize-none"
+                placeholder="Describe your question or security inquiry..."
+                className="w-full p-3.5 rounded-[6px] border border-[#a8c3de] dark:border-[#273951] bg-white dark:bg-[#0d253d] text-[14px] text-[#0d253d] dark:text-white outline-none focus:border-[#533afd] transition-colors resize-none"
               />
             </div>
 
             <button
+              id="landing_contact_submit_btn"
               type="submit"
               disabled={contactSent}
-              className="w-full py-3 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-950 text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xs"
+              className="rounded-full px-5 py-2.5 bg-[#533afd] hover:bg-[#4434d4] active:bg-[#2e2b8c] text-white text-[15px] font-normal transition-all cursor-pointer flex items-center justify-center gap-2 shadow-[0_1px_3px_rgba(0,55,112,0.15)] active:scale-[0.98] w-full"
             >
               {contactSent ? (
                 <>
-                  <Check className="h-4 w-4 text-emerald-500" />
-                  <span>Message Sent to Engineering Team</span>
+                  <Check className="h-4 w-4" />
+                  <span>Inquiry Dispatched to Engineering</span>
                 </>
               ) : (
                 <>
@@ -653,30 +1038,30 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* FOOTER */}
-      <footer className="mt-auto py-12 bg-white dark:bg-neutral-950 border-t border-neutral-200 dark:border-neutral-900">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8 mb-8 text-xs">
+      {/* FOOTER-LIGHT on canvas (#ffffff) with caption typography and ink-mute */}
+      <footer className="mt-auto py-16 bg-white dark:bg-[#090d16] border-t border-[#e3e8ee] dark:border-[#273951]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8 mb-8 text-[13px] font-light text-[#64748d] dark:text-[#94a3b8]">
           {/* Brand Col */}
           <div className="space-y-3 md:col-span-2">
             <div className="flex items-center gap-2.5">
-              <div className="h-7 w-7 rounded-lg bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-black text-sm flex items-center justify-center">
+              <div className="h-7 w-7 rounded-full bg-[#533afd] text-white text-xs font-bold flex items-center justify-center">
                 Z
               </div>
-              <span className="text-sm font-black tracking-wider uppercase text-neutral-900 dark:text-white">
-                ZENOA MESSENGER
+              <span className="font-sf-pro font-black text-[18px] tracking-[0.06em] uppercase text-[#0d253d] dark:text-white leading-none">
+                ZENOA
               </span>
             </div>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-sm leading-relaxed">
-              Zero-Cloud Persistent Storage Messenger. Client-side encrypted with AES-256-GCM and stored exclusively inside device hardware vaults.
+            <p className="text-[13px] max-w-sm leading-[1.5]">
+              Zero-Cloud Message Retention Protocol. Client-side encrypted with AES-256-GCM and stored exclusively within physical device hardware vaults.
             </p>
           </div>
 
           {/* Legal Disclosures */}
           <div className="space-y-2.5">
-            <div className="font-bold text-neutral-900 dark:text-white uppercase text-[10px] tracking-wider">
+            <div className="font-normal text-[#0d253d] dark:text-white uppercase text-[11px] tracking-[0.1px]">
               Legal & Disclosures
             </div>
-            <ul className="space-y-1.5 text-neutral-500 dark:text-neutral-400 text-xs">
+            <ul className="space-y-2 text-[13px]">
               <li>
                 <button
                   type="button"
@@ -684,7 +1069,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     setLegalModalTab('privacy');
                     setShowLegalModal(true);
                   }}
-                  className="hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer text-left"
+                  className="hover:text-[#533afd] transition-colors cursor-pointer text-left"
                 >
                   Privacy Policy
                 </button>
@@ -696,9 +1081,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     setLegalModalTab('terms');
                     setShowLegalModal(true);
                   }}
-                  className="hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer text-left"
+                  className="hover:text-[#533afd] transition-colors cursor-pointer text-left"
                 >
-                  Terms & Conditions
+                  Terms of Service
                 </button>
               </li>
               <li>
@@ -708,9 +1093,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     setLegalModalTab('disclaimer');
                     setShowLegalModal(true);
                   }}
-                  className="hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer text-left"
+                  className="hover:text-[#533afd] transition-colors cursor-pointer text-left"
                 >
-                  Risk & Legal Disclaimer
+                  Security Audit Report
                 </button>
               </li>
               <li>
@@ -720,7 +1105,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     setLegalModalTab('acceptable_use');
                     setShowLegalModal(true);
                   }}
-                  className="hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer text-left"
+                  className="hover:text-[#533afd] transition-colors cursor-pointer text-left"
                 >
                   Acceptable Use Policy
                 </button>
@@ -728,27 +1113,28 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </ul>
           </div>
 
-          {/* Engine Specs */}
+          {/* System Specs */}
           <div className="space-y-2.5">
-            <div className="font-bold text-neutral-900 dark:text-white uppercase text-[10px] tracking-wider">
-              Architecture Specs
+            <div className="font-normal text-[#0d253d] dark:text-white uppercase text-[11px] tracking-[0.1px]">
+              Protocol Specifications
             </div>
-            <ul className="space-y-1.5 text-neutral-500 dark:text-neutral-400 text-xs font-mono">
-              <li>• IndexedDB Device Vault</li>
-              <li>• Zero-Retention Relay</li>
-              <li>• Peer-to-Peer WebRTC</li>
-              <li>• AES-256-GCM WebCrypto</li>
+            <ul className="space-y-1.5 text-[12px] font-tabular">
+              <li>• IndexedDB Isolated Vault</li>
+              <li>• Zero-Retention Relay (0ms TTL)</li>
+              <li>• Peer-to-Peer WebRTC Calls</li>
+              <li>• AES-256-GCM WebCrypto KDF</li>
+              <li>• Google Drive BYOS Storage</li>
             </ul>
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 border-t border-neutral-100 dark:border-neutral-900 flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px] text-neutral-400">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 border-t border-[#e3e8ee] dark:border-[#273951] flex flex-col sm:flex-row items-center justify-between gap-4 text-[12px] font-tabular text-[#64748d] dark:text-[#94a3b8]">
           <span>© 2026 Zenoa Inc. All rights reserved. Zero-Retention System.</span>
           <div className="flex items-center gap-4">
-            <span>Protocol v3.4.0 (Official Release)</span>
+            <span>Protocol v3.4.0 (Production Release)</span>
             <button
               onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-              className="hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer"
+              className="hover:text-[#533afd] transition-colors cursor-pointer"
             >
               Back to Top ↑
             </button>

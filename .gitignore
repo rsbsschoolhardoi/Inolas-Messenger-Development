@@ -13,3 +13,4 @@ node_modules/
 dist/
 /app/__pycache__/
 
+.originkit/

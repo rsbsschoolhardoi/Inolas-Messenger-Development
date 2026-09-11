@@ -3,30 +3,114 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --stripi-primary: #533afd;
+  --stripi-primary-deep: #4434d4;
+  --stripi-primary-press: #2e2b8c;
+  --stripi-primary-soft: #665efd;
+  --stripi-primary-subdued: #b9b9f9;
+  --stripi-dark-900: #1c1e54;
+  --stripi-ink: #0d253d;
+  --stripi-ink-secondary: #273951;
+  --stripi-ink-mute: #64748d;
+  --stripi-ink-mute-2: #61718a;
+  --stripi-canvas: #ffffff;
+  --stripi-canvas-soft: #f6f9fc;
+  --stripi-canvas-cream: #f5e9d4;
+  --stripi-hairline: #e3e8ee;
+  --stripi-hairline-input: #a8c3de;
+  --stripi-ruby: #ea2261;
+  --stripi-magenta: #f96bee;
+  --stripi-lemon: #9b6829;
+  --stripi-shadow-blue: #003770;
+
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-feature-settings: "ss01" on;
   line-height: 1.5;
-  font-weight: 460;
-  letter-spacing: -0.014em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
 
 body, button, input, textarea, select {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-feature-settings: "ss01" on;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-h1, h2, h3, h4, h5, h6, .font-zenoa, .font-zenoa-modern, .font-zenoa-serif {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  letter-spacing: -0.025em;
+/* Stripi Thin Display Headlines */
+.stripi-display-xxl {
+  font-family: 'Inter', "SF Pro Display", system-ui, -apple-system, sans-serif;
+  font-size: 56px;
+  font-weight: 300;
+  line-height: 1.03;
+  letter-spacing: -1.4px;
+  font-feature-settings: "ss01" on;
+}
+
+.stripi-display-xl {
+  font-family: 'Inter', "SF Pro Display", system-ui, -apple-system, sans-serif;
+  font-size: 48px;
+  font-weight: 300;
+  line-height: 1.15;
+  letter-spacing: -0.96px;
+  font-feature-settings: "ss01" on;
+}
+
+.stripi-display-lg {
+  font-family: 'Inter', "SF Pro Display", system-ui, -apple-system, sans-serif;
+  font-size: 32px;
+  font-weight: 300;
+  line-height: 1.1;
+  letter-spacing: -0.64px;
+  font-feature-settings: "ss01" on;
+}
+
+.stripi-display-md {
+  font-family: 'Inter', "SF Pro Display", system-ui, -apple-system, sans-serif;
+  font-size: 26px;
+  font-weight: 300;
+  line-height: 1.12;
+  letter-spacing: -0.26px;
+  font-feature-settings: "ss01" on;
+}
+
+/* Stripi Tabular Numbers for Data & Telemetry */
+.font-tabular, .tnum {
+  font-feature-settings: "tnum" 1, "ss01" 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.42px;
+}
+
+/* Atmospheric Gradient Mesh (Cream -> Sherbet Orange -> Lavender -> Electric Indigo -> Ruby Pink) */
+.stripi-gradient-mesh {
+  background: 
+    radial-gradient(ellipse at 15% 20%, rgba(245, 233, 212, 0.95) 0%, rgba(245, 233, 212, 0) 55%),
+    radial-gradient(ellipse at 40% 15%, rgba(254, 215, 170, 0.85) 0%, rgba(254, 215, 170, 0) 50%),
+    radial-gradient(ellipse at 65% 30%, rgba(185, 185, 249, 0.75) 0%, rgba(185, 185, 249, 0) 55%),
+    radial-gradient(ellipse at 85% 15%, rgba(249, 107, 238, 0.65) 0%, rgba(249, 107, 238, 0) 50%),
+    radial-gradient(ellipse at 80% 45%, rgba(83, 58, 253, 0.55) 0%, rgba(83, 58, 253, 0) 60%),
+    radial-gradient(ellipse at 95% 35%, rgba(234, 34, 97, 0.6) 0%, rgba(234, 34, 97, 0) 50%);
+}
+
+.dark .stripi-gradient-mesh {
+  background: 
+    radial-gradient(ellipse at 20% 25%, rgba(28, 30, 84, 0.95) 0%, rgba(28, 30, 84, 0) 55%),
+    radial-gradient(ellipse at 45% 20%, rgba(68, 52, 212, 0.6) 0%, rgba(68, 52, 212, 0) 50%),
+    radial-gradient(ellipse at 70% 35%, rgba(83, 58, 253, 0.5) 0%, rgba(83, 58, 253, 0) 60%),
+    radial-gradient(ellipse at 90% 25%, rgba(234, 34, 97, 0.45) 0%, rgba(234, 34, 97, 0) 50%),
+    radial-gradient(ellipse at 85% 55%, rgba(13, 37, 61, 0.9) 0%, rgba(13, 37, 61, 0) 70%);
+}
+
+/* SF Pro Font Class */
+.font-sf-pro {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "SF Pro", system-ui, sans-serif;
 }
 
 /* Primary High-Legibility Chat Typography */
 .font-chat, .chat-message-text {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
-  font-weight: 460;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font-weight: 450;
   letter-spacing: -0.012em;
   line-height: 1.54;
   -webkit-font-smoothing: antialiased;
