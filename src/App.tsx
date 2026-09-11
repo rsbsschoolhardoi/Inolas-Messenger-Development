@@ -8575,6 +8575,13 @@ export default function App() {
           onSelectAccount={handleQuickLoginWithSavedAccount}
           onRemoveAccount={handleRemoveSavedAccount}
           onUseAnotherAccount={() => setShowStandardAuthFlow(true)}
+          onBackToLanding={() => {
+            setShowLandingPage(true);
+            setShowStandardAuthFlow(false);
+            try {
+              window.history.pushState({}, '', '/');
+            } catch(e) {}
+          }}
           themeMode={themeMode}
           onToggleTheme={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
           renderAvatar={renderAvatar}
@@ -8586,14 +8593,11 @@ export default function App() {
       <AuthFlow
         initialMode={authFlowInitialMode}
         onBackToLanding={() => {
-          if (savedAccounts.length > 0) {
-            setShowStandardAuthFlow(false);
-          } else {
-            setShowLandingPage(true);
-            try {
-              window.history.pushState({}, '', '/');
-            } catch(e) {}
-          }
+          setShowLandingPage(true);
+          setShowStandardAuthFlow(false);
+          try {
+            window.history.pushState({}, '', '/');
+          } catch(e) {}
         }}
         onLoginSubmit={handleAuthFlowLogin}
         onRegisterSubmit={handleAuthFlowRegister}

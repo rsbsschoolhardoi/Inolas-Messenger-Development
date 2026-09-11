@@ -206,7 +206,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
             <button
               id="landing_get_started_btn"
-              onClick={() => onStartAuth('register')}
+              onClick={() => onStartAuth('login')}
               className="rounded-full px-4 py-2 bg-[#533afd] hover:bg-[#4434d4] active:bg-[#2e2b8c] text-white text-[14px] font-normal transition-all shadow-[0_1px_3px_rgba(0,55,112,0.15)] cursor-pointer flex items-center gap-1.5 active:scale-[0.98]"
             >
               <span>Launch App</span>
@@ -261,7 +261,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 <button
                   id="hero_start_btn"
-                  onClick={() => onStartAuth('register')}
+                  onClick={() => onStartAuth('login')}
                   className="rounded-full px-5 py-2.5 bg-[#533afd] hover:bg-[#4434d4] active:bg-[#2e2b8c] text-white text-[15px] font-normal transition-all shadow-[0_1px_3px_rgba(0,55,112,0.2)] cursor-pointer flex items-center justify-center gap-2 active:scale-[0.98]"
                 >
                   <span>Get Started Free</span>

@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  ArrowLeft, CheckCircle2, AlertCircle, Eye, EyeOff, User, Mail, Lock, 
-  ArrowRight, RefreshCw, Sun, Moon, Check, Key, Phone, Camera,
-  Upload, ChevronDown, UserPlus, UserCheck, ShieldCheck, AtSign, Smartphone
+  ArrowLeft, CheckCircle2, AlertCircle, Eye, EyeOff, User, Lock, 
+  ArrowRight, RefreshCw, Sun, Moon, Check, Phone, ShieldCheck,
+  ChevronDown, Camera, Upload, UserPlus, UserCheck, Terminal, Cpu, Shield, Sparkles
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
 import { LegalModal, LegalDocType } from './LegalModal';
 import { useBranding } from '../brandingUtils';
 import { UserData } from '../types';
@@ -88,7 +87,6 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   onLoginSubmit,
   onRegisterSubmit,
   onVerifyOtpSubmit,
-  onOAuthLogin,
   onForgotPassword,
   themeMode,
   onToggleTheme,
@@ -105,51 +103,97 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   const activeLogo = branding.oauth_logo || branding.public_logo || branding.messenger_logo;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Flow State: Default to 'login'
+  // Flow State: 'login' | 'register' | 'onboarding_photo' | 'onboarding_discover'
   const [mode, setMode] = useState<'login' | 'register' | 'onboarding_photo' | 'onboarding_discover'>(
-    isOnboarding ? 'onboarding_photo' : (truecallerProfile ? 'register' : initialMode)
+    isOnboarding ? 'onboarding_photo' : (truecallerProfile ? 'register' : (initialMode || 'login'))
   );
-  
-  // 5 Step Registration Wizard:
-  // Step 1: Name (First & Last)
-  // Step 2: Choose Zenoa ID (3 Options: 2 Suggestions + 1 Custom with round checkbox)
-  // Step 3: Contact Method (Choose Mobile Number OR Email Address strictly)
-  // Step 4: Password
-  // Step 5: Terms & Confirmation
+
+  // Sync mode with initialMode updates from URL or landing page
+  useEffect(() => {
+    if (!isOnboarding && !truecallerProfile && initialMode) {
+      setMode(initialMode);
+    }
+  }, [initialMode, isOnboarding, truecallerProfile]);
+
+  // 8-Step Wizard State
+  // 1: Name
+  // 2: Username
+  // 3: Zenoa ID
+  // 4: Date of birth & gender
+  // 5: Mobile number (optional)
+  // 6: Password
+  // 7: Confirmation & finalize
+  // 8: Done (Vault provisioned)
   const [wizardStep, setWizardStep] = useState<number>(1);
+  const [slideDirection, setSlideDirection] = useState<number>(1);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
 
-  // Login form state
+  // Sign In Form State
   const [loginIdentifier, setLoginIdentifier] = useState<string>('');
   const [loginPassword, setLoginPassword] = useState<string>('');
   const [showLoginPassword, setShowLoginPassword] = useState<boolean>(false);
+  const [loginFieldErrors, setLoginFieldErrors] = useState<{ identifier?: string; password?: string }>({});
 
-  // OTP Verification state (Only when explicitly needed for Email fallback)
+  // OTP Verification Fallback
   const [showOtpScreen, setShowOtpScreen] = useState<boolean>(false);
 
-  // Step 1: Full Name, DOB, Gender & Username (User enters their own username, allows dots)
+  // 8-Step Form Fields
+  // Step 1: Name
   const [regFullName, setRegFullName] = useState<string>(
     truecallerProfile?.name || [truecallerProfile?.firstName, truecallerProfile?.lastName].filter(Boolean).join(' ') || ''
   );
-  const [regDob, setRegDob] = useState<string>('2000-01-01');
-  const [regGender, setRegGender] = useState<'male' | 'female' | 'other' | 'prefer_not'>('prefer_not');
+  const [nameError, setNameError] = useState<string>('');
+
+  // Step 2: Username
   const [regUsername, setRegUsername] = useState<string>(
     truecallerProfile?.firstName ? `${truecallerProfile.firstName.toLowerCase().replace(/[^a-z0-9_.]/g, '')}` : ''
   );
   const [isCheckingRegUsername, setIsCheckingRegUsername] = useState<boolean>(false);
   const [regUsernameAsyncTaken, setRegUsernameAsyncTaken] = useState<boolean>(false);
   const [regUsernameReason, setRegUsernameReason] = useState<string>('');
+  const [usernameError, setUsernameError] = useState<string>('');
 
-  // Step 2: Zenoa ID selection (Suggestions provided based on entered username + custom option)
-  // Option types: 'sug1' | 'sug2' | 'custom'
+  // Step 3: Zenoa ID Selection
   const [selectedIdOption, setSelectedIdOption] = useState<'sug1' | 'sug2' | 'custom'>('sug1');
   const [customZenoaHandle, setCustomZenoaHandle] = useState<string>('');
   const [isCheckingCustomZenoaId, setIsCheckingCustomZenoaId] = useState<boolean>(false);
   const [customZenoaIdAsyncTaken, setCustomZenoaIdAsyncTaken] = useState<boolean>(false);
+  const [zenoaIdError, setZenoaIdError] = useState<string>('');
 
-  // Taken usernames set
+  // Step 4: DOB & Gender
+  const [regDob, setRegDob] = useState<string>('2000-01-01');
+  const [regGender, setRegGender] = useState<'male' | 'female' | 'other' | 'prefer_not'>('prefer_not');
+  const [dobError, setDobError] = useState<string>('');
+
+  // Step 5: Mobile (Optional)
+  const [selectedCountry, setSelectedCountry] = useState<CountryCode>(COUNTRY_CODES[0]);
+  const [isCountryDropdownOpen, setIsCountryDropdownOpen] = useState<boolean>(false);
+  const [countrySearch, setCountrySearch] = useState<string>('');
+  const [regPhoneDigits, setRegPhoneDigits] = useState<string>(
+    truecallerProfile?.phoneNumber ? truecallerProfile.phoneNumber.replace(/^\+91/, '') : ''
+  );
+  const [isTruecallerVerified, setIsTruecallerVerified] = useState<boolean>(!!truecallerProfile);
+  const [phoneError, setPhoneError] = useState<string>('');
+
+  // Step 6: Password
+  const [regPassword, setRegPassword] = useState<string>('');
+  const [showRegPassword, setShowRegPassword] = useState<boolean>(false);
+  const [passwordError, setPasswordError] = useState<string>('');
+
+  // Step 7: Confirmation & Legal Agreement
+  const [regAgreedToLegal, setRegAgreedToLegal] = useState<boolean>(true);
+  const [showLegalModal, setShowLegalModal] = useState<boolean>(false);
+  const [legalModalTab, setLegalModalTab] = useState<LegalDocType>('terms');
+  const [legalError, setLegalError] = useState<string>('');
+
+  // Post-Registration Profile
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState<string>('');
+  const [selectedAvatarSeed, setSelectedAvatarSeed] = useState<string>('');
+  const [followedUserMap, setFollowedUserMap] = useState<Record<string, boolean>>({});
+
+  // Sync taken usernames
   const takenUsernamesSet = useMemo(
     () => new Set(existingUsernames.filter(Boolean).map(u => u.toLowerCase())),
     [existingUsernames]
@@ -158,7 +202,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   const cleanRegUsername = regUsername.trim().toLowerCase();
   const cleanNameFirstWord = regFullName.trim().split(' ')[0]?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
 
-  // Step 1 Username validation
+  // Live validation formatting for Step 2 Username
   const isRegUsernameValidFormat = cleanRegUsername.length >= 3 && 
     cleanRegUsername.length <= 25 && 
     /^[a-z0-9_.]+$/.test(cleanRegUsername) && 
@@ -168,10 +212,11 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   const isRegUsernameTakenSync = takenUsernamesSet.has(cleanRegUsername);
   const isRegUsernameAvailable = isRegUsernameValidFormat && !isRegUsernameTakenSync && !regUsernameAsyncTaken;
 
-  // Debounced check for Step 1 Username
+  // Debounced check for Step 2 Username
   useEffect(() => {
     setRegUsernameAsyncTaken(false);
     setRegUsernameReason('');
+    setUsernameError('');
 
     if (!cleanRegUsername || cleanRegUsername.length < 3 || !/^[a-z0-9_.]+$/.test(cleanRegUsername)) {
       setIsCheckingRegUsername(false);
@@ -180,7 +225,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
     if (takenUsernamesSet.has(cleanRegUsername)) {
       setRegUsernameAsyncTaken(true);
-      setRegUsernameReason(`@${cleanRegUsername} is already taken.`);
+      setRegUsernameReason(`@${cleanRegUsername} is already taken`);
       setIsCheckingRegUsername(false);
       return;
     }
@@ -192,7 +237,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
           const res = await checkUsernameAvailability(cleanRegUsername);
           setRegUsernameAsyncTaken(res.isTaken);
           if (res.isTaken) {
-            setRegUsernameReason(res.reason || `@${cleanRegUsername} is already taken.`);
+            setRegUsernameReason(res.reason || `@${cleanRegUsername} is already taken`);
           }
         } catch {
           setRegUsernameAsyncTaken(false);
@@ -205,7 +250,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     }
   }, [cleanRegUsername, takenUsernamesSet, checkUsernameAvailability]);
 
-  // Generated Zenoa ID suggestion choices based on the user's entered username
+  // Derived Zenoa ID suggestion choices based on entered username (Step 3)
   const { sug1Handle, sug2Handle } = useMemo(() => {
     const base1 = cleanRegUsername || cleanNameFirstWord;
     const base2 = `${base1}99`;
@@ -227,40 +272,6 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     return { sug1Handle: candidate1, sug2Handle: candidate2 };
   }, [cleanRegUsername, cleanNameFirstWord, takenUsernamesSet]);
 
-  // Step 3: Contact Method (Choose Mobile Number OR Email Address strictly)
-  const [contactType, setContactType] = useState<'phone' | 'email'>('phone');
-  const [selectedCountry, setSelectedCountry] = useState<CountryCode>(COUNTRY_CODES[0]); // Default India +91
-  const [isCountryDropdownOpen, setIsCountryDropdownOpen] = useState<boolean>(false);
-  const [countrySearch, setCountrySearch] = useState<string>('');
-  const [regPhoneDigits, setRegPhoneDigits] = useState<string>(
-    truecallerProfile?.phoneNumber ? truecallerProfile.phoneNumber.replace(/^\+91/, '') : ''
-  );
-  const [regEmail, setRegEmail] = useState<string>(truecallerProfile?.email || '');
-  const [isTruecallerVerified, setIsTruecallerVerified] = useState<boolean>(!!truecallerProfile);
-
-  // Step 4: Password
-  const [regPassword, setRegPassword] = useState<string>('');
-  const [regConfirmPassword, setRegConfirmPassword] = useState<string>('');
-  const [showRegPassword, setShowRegPassword] = useState<boolean>(false);
-  const [showRegConfirmPassword, setShowRegConfirmPassword] = useState<boolean>(false);
-
-  // Step 5: Terms & Legal
-  const [regAgreedToLegal, setRegAgreedToLegal] = useState<boolean>(true);
-  const [showLegalModal, setShowLegalModal] = useState<boolean>(false);
-  const [legalModalTab, setLegalModalTab] = useState<LegalDocType>('terms');
-
-  // Post-Registration Onboarding
-  const [profileAvatarUrl, setProfileAvatarUrl] = useState<string>('');
-  const [selectedAvatarSeed, setSelectedAvatarSeed] = useState<string>('');
-  const [followedUserMap, setFollowedUserMap] = useState<Record<string, boolean>>({});
-
-  const triggerExplicitLoginFlag = () => {
-    sessionStorage.setItem('zenoa_is_explicit_login', 'true');
-    const freshToken = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
-    sessionStorage.setItem('zenoa_active_session_token', freshToken);
-    sessionStorage.setItem('zenoa_active_session_created_at', String(Date.now()));
-  };
-
   // Custom Zenoa ID validation check
   useEffect(() => {
     if (selectedIdOption !== 'custom') {
@@ -271,6 +282,8 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
     const clean = customZenoaHandle.trim().toLowerCase();
     setCustomZenoaIdAsyncTaken(false);
+    setZenoaIdError('');
+
     if (!clean || clean.length < 3 || !/^[a-zA-Z0-9_.]+$/.test(clean)) {
       setIsCheckingCustomZenoaId(false);
       return;
@@ -299,7 +312,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     }
   }, [customZenoaHandle, selectedIdOption, existingUsernames, checkUsernameAvailability]);
 
-  // Determine active Zenoa ID handle
+  // Active Zenoa ID handle resolver
   const getActiveZenoaHandle = (): string => {
     if (selectedIdOption === 'sug1') return sug1Handle;
     if (selectedIdOption === 'sug2') return sug2Handle;
@@ -316,6 +329,34 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     !customZenoaIdAsyncTaken;
 
   const isZenoaIdValid = selectedIdOption === 'custom' ? isCustomZenoaHandleValid : activeZenoaHandle.length >= 2;
+
+  // Password strength calculator
+  const passwordStrength = useMemo(() => {
+    if (!regPassword) return { score: 0, label: '', color: '' };
+    let score = 0;
+    if (regPassword.length >= 8) score++;
+    if (/[a-z]/.test(regPassword) && /[A-Z]/.test(regPassword)) score++;
+    if (/[0-9]/.test(regPassword)) score++;
+    if (/[^a-zA-Z0-9]/.test(regPassword)) score++;
+
+    if (regPassword.length < 8) {
+      return { score: 1, label: 'Too short (min 8 characters)', color: 'bg-rose-500' };
+    }
+    if (score <= 2) {
+      return { score: 2, label: 'Fair', color: 'bg-amber-500' };
+    }
+    if (score === 3) {
+      return { score: 3, label: 'Good', color: 'bg-indigo-500' };
+    }
+    return { score: 4, label: 'Strong', color: 'bg-emerald-500' };
+  }, [regPassword]);
+
+  const triggerExplicitLoginFlag = () => {
+    sessionStorage.setItem('zenoa_is_explicit_login', 'true');
+    const freshToken = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+    sessionStorage.setItem('zenoa_active_session_token', freshToken);
+    sessionStorage.setItem('zenoa_active_session_created_at', String(Date.now()));
+  };
 
   // Truecaller Verification Trigger
   const handleTruecallerVerification = () => {
@@ -336,23 +377,28 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
       setIsTruecallerVerified(true);
       setSuccessMessage('✓ Truecaller Verified');
       setTimeout(() => setSuccessMessage(''), 2000);
-    }, 500);
+    }, 450);
   };
 
-  // Sign In submit handler
+  // Sign In Handler with Inline Field Validation on Press
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
+    const errors: { identifier?: string; password?: string } = {};
 
     if (!loginIdentifier.trim()) {
-      setErrorMessage('Please enter your email or username');
-      return;
+      errors.identifier = 'Please enter your username or Zenoa ID';
     }
     if (!loginPassword) {
-      setErrorMessage('Please enter your password');
+      errors.password = 'Please enter your password';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setLoginFieldErrors(errors);
       return;
     }
+    setLoginFieldErrors({});
 
     setIsLoading(true);
     triggerExplicitLoginFlag();
@@ -363,36 +409,139 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
       setShowOtpScreen(true);
       setSuccessMessage('Verification link sent.');
     } else if (!res.success) {
-      setErrorMessage(res.error || 'Invalid credentials. Please try again.');
+      setErrorMessage(res.error || 'Invalid credentials. Please verify your details.');
     }
   };
 
-  // Final Registration Submission (Step 5)
-  const handleCompleteRegistration = async () => {
+  // Wizard Step Navigation Forward with Inline Validation on Press
+  const handleWizardNext = () => {
     setErrorMessage('');
-    setSuccessMessage('');
 
-    const cleanFullName = regFullName.trim();
-    const finalUsername = cleanRegUsername || activeZenoaHandle;
-    const finalZenoaId = activeZenoaId;
+    // Step 1: Name
+    if (wizardStep === 1) {
+      if (!regFullName.trim()) {
+        setNameError('Please enter your name');
+        return;
+      }
+      setNameError('');
+      if (!regUsername) {
+        const autoUser = regFullName.trim().toLowerCase().replace(/[^a-z0-9_.]/g, '');
+        if (autoUser.length >= 3) setRegUsername(autoUser);
+      }
+      setSlideDirection(1);
+      setWizardStep(2);
+      return;
+    }
 
-    // Optional Mobile Number for SMS verification / Account recovery
-    const finalMobile = regPhoneDigits.trim() 
-      ? `${selectedCountry.dial}${regPhoneDigits.replace(/[^0-9]/g, '')}`
-      : '';
-    
-    // Zenoa ID is the primary key and identity: no email is required or generated
-    const finalEmail = '';
+    // Step 2: Username
+    if (wizardStep === 2) {
+      if (!cleanRegUsername || cleanRegUsername.length < 3) {
+        setUsernameError('Username must be at least 3 characters');
+        return;
+      }
+      if (!isRegUsernameValidFormat) {
+        setUsernameError('Only letters, numbers, underscores, and dots are allowed');
+        return;
+      }
+      if (!isRegUsernameAvailable) {
+        setUsernameError(regUsernameReason || 'This username is already taken');
+        return;
+      }
+      setUsernameError('');
+      if (!customZenoaHandle) {
+        setCustomZenoaHandle(cleanRegUsername);
+      }
+      setSlideDirection(1);
+      setWizardStep(3);
+      return;
+    }
+
+    // Step 3: Zenoa ID
+    if (wizardStep === 3) {
+      if (selectedIdOption === 'custom') {
+        if (!customZenoaHandle || customZenoaHandle.length < 3) {
+          setZenoaIdError('Custom ID must be at least 3 characters');
+          return;
+        }
+        if (!isCustomZenoaHandleValid) {
+          setZenoaIdError('This custom Zenoa ID is unavailable');
+          return;
+        }
+      }
+      setZenoaIdError('');
+      setSlideDirection(1);
+      setWizardStep(4);
+      return;
+    }
+
+    // Step 4: DOB & Gender
+    if (wizardStep === 4) {
+      if (!regDob) {
+        setDobError('Please select your date of birth');
+        return;
+      }
+      setDobError('');
+      setSlideDirection(1);
+      setWizardStep(5);
+      return;
+    }
+
+    // Step 5: Mobile (Optional)
+    if (wizardStep === 5) {
+      if (regPhoneDigits.trim() && regPhoneDigits.replace(/[^0-9]/g, '').length < 6) {
+        setPhoneError('Please enter a valid mobile number or skip');
+        return;
+      }
+      setPhoneError('');
+      setSlideDirection(1);
+      setWizardStep(6);
+      return;
+    }
+
+    // Step 6: Password
+    if (wizardStep === 6) {
+      if (regPassword.length < 8) {
+        setPasswordError('Password must be at least 8 characters long');
+        return;
+      }
+      setPasswordError('');
+      setSlideDirection(1);
+      setWizardStep(7);
+      return;
+    }
+  };
+
+  const handleWizardBack = () => {
+    setErrorMessage('');
+    if (wizardStep > 1) {
+      setSlideDirection(-1);
+      setWizardStep(prev => prev - 1);
+    } else {
+      setMode('login');
+    }
+  };
+
+  // Step 7: Final Registration Creation Call -> Step 8: Done State
+  const handleFinalizeRegistration = async () => {
+    setErrorMessage('');
+    setLegalError('');
 
     if (!regAgreedToLegal) {
-      setErrorMessage('Please accept the Terms to continue.');
+      setLegalError('Please accept the Terms & Privacy Policy to provision your vault');
       return;
     }
 
     setIsLoading(true);
     triggerExplicitLoginFlag();
+    const cleanFullName = regFullName.trim();
+    const finalUsername = cleanRegUsername || activeZenoaHandle;
+    const finalZenoaId = activeZenoaId;
+    const finalMobile = regPhoneDigits.trim() 
+      ? `${selectedCountry.dial}${regPhoneDigits.replace(/[^0-9]/g, '')}`
+      : '';
+
     const res = await onRegisterSubmit({
-      email: finalEmail,
+      email: '',
       fullName: cleanFullName,
       username: finalUsername,
       zenoa_id: finalZenoaId,
@@ -404,15 +553,15 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     setIsLoading(false);
 
     if (res.success) {
-      confetti({ particleCount: 90, spread: 60, origin: { y: 0.6 } });
       setSelectedAvatarSeed(finalUsername);
-      setMode('onboarding_photo');
+      setSlideDirection(1);
+      setWizardStep(8); // Step 8: Done (Vault provisioned)
     } else {
       setErrorMessage(res.error || 'Registration failed. Please check your details.');
     }
   };
 
-  // Photo upload handler
+  // Photo Upload Handler
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -434,7 +583,6 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     e.target.value = '';
   };
 
-  // Toggle follow
   const handleToggleFollow = (user: UserData) => {
     const uname = (user.username || '').toLowerCase();
     const nextState = !followedUserMap[uname];
@@ -452,1186 +600,1534 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
   const displayNameGreeting = regFullName.trim() || activeHandle || 'there';
 
+  // Minimal slide & fade transition variants
+  const stepSlideVariants = {
+    enter: (dir: number) => ({
+      x: dir > 0 ? 18 : -18,
+      opacity: 0,
+    }),
+    center: {
+      x: 0,
+      opacity: 1,
+      transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] },
+    },
+    exit: (dir: number) => ({
+      x: dir > 0 ? -18 : 18,
+      opacity: 0,
+      transition: { duration: 0.18, ease: 'easeOut' },
+    }),
+  };
+
   return (
     <div 
-      className={`min-h-[100dvh] w-full flex items-center justify-center p-4 sm:p-6 transition-colors duration-200 ${
-        themeMode === 'dark' ? 'dark bg-[#000000] text-neutral-100' : 'bg-[#ffffff] text-neutral-900'
+      id="zenoa_auth_root"
+      className={`min-h-[100dvh] w-full relative flex flex-col justify-between overflow-x-hidden transition-colors duration-300 select-none ${
+        themeMode === 'dark' ? 'bg-[#090d16] text-[#f6f9fc]' : 'bg-[#ffffff] text-[#0d253d]'
       }`}
       style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
     >
-      {/* Aesthetic Full Screen Container for Windows Desktop & Native Mobile */}
-      <motion.div 
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.2, ease: 'easeOut' }}
-        className="w-full max-w-md md:max-w-lg lg:max-w-xl rounded-2xl md:rounded-3xl p-6 sm:p-8 md:p-10 border relative z-10 bg-white dark:bg-[#121215] border-neutral-200/90 dark:border-neutral-800/80 shadow-sm md:shadow-md text-neutral-900 dark:text-neutral-100"
-      >
-        {/* Top Header Bar */}
-        <div className="flex items-center justify-between mb-6">
-          <button
-            type="button"
-            onClick={() => {
-              if (mode === 'register' && wizardStep > 1) {
-                setWizardStep(prev => prev - 1);
-                setErrorMessage('');
-              } else if (mode === 'register') {
-                setMode('login');
-                setErrorMessage('');
-              } else {
-                onBackToLanding();
-              }
-            }}
-            className="h-8 w-8 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer flex items-center justify-center"
-            title="Back"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
+      {/* MULTI-LAYERED CRYPTOGRAPHIC & AMBIENT BACKGROUND SYSTEM */}
+      {/* 1. Base Atmospheric Mesh */}
+      <div 
+        className="fixed inset-0 pointer-events-none z-0 transition-opacity duration-500 opacity-90 dark:opacity-85"
+        style={{
+          background: themeMode === 'dark' 
+            ? `radial-gradient(circle at 50% 0%, rgba(83, 58, 253, 0.16) 0%, transparent 60%),
+               radial-gradient(circle at 10% 20%, rgba(28, 30, 84, 0.35) 0%, transparent 50%),
+               radial-gradient(circle at 90% 40%, rgba(68, 52, 212, 0.18) 0%, transparent 50%)`
+            : `radial-gradient(circle at 50% -10%, rgba(245, 233, 212, 0.75) 0%, transparent 55%),
+               radial-gradient(circle at 85% 15%, rgba(185, 185, 249, 0.5) 0%, transparent 50%),
+               radial-gradient(circle at 15% 30%, rgba(253, 238, 231, 0.65) 0%, transparent 45%)`
+        }}
+      />
 
-          {/* Logo Branding */}
-          <div className="flex items-center gap-2.5">
-            {activeLogo ? (
-              <img 
-                src={activeLogo} 
-                alt="Logo" 
-                className="h-7 w-7 rounded-lg object-contain border border-neutral-200 dark:border-neutral-800"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div className="h-7 w-7 rounded-lg bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-bold text-xs flex items-center justify-center">
-                Z
-              </div>
-            )}
-            <span className="font-semibold text-sm sm:text-base tracking-tight text-neutral-900 dark:text-white">
-              {branding.app_name || 'Zenoa'}
-            </span>
-          </div>
+      {/* 2. Cryptographic Geometric Dot Matrix Grid */}
+      <div 
+        className="fixed inset-0 pointer-events-none z-0 opacity-40 dark:opacity-25 transition-opacity duration-300"
+        style={{
+          backgroundImage: `radial-gradient(${themeMode === 'dark' ? 'rgba(129, 140, 248, 0.3)' : 'rgba(83, 58, 253, 0.18)'} 1.2px, transparent 1.2px)`,
+          backgroundSize: '24px 24px',
+          maskImage: 'radial-gradient(ellipse 70% 60% at 50% 50%, black 20%, transparent 78%)',
+          WebkitMaskImage: 'radial-gradient(ellipse 70% 60% at 50% 50%, black 20%, transparent 78%)'
+        }}
+      />
 
-          {/* Theme Switcher */}
+      {/* 3. Concentric Cryptographic Orbital Rings Pattern */}
+      <div className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center overflow-hidden opacity-30 dark:opacity-20">
+        <svg className="w-[840px] h-[840px] text-[#533afd] dark:text-[#818cf8]" viewBox="0 0 800 800" fill="none">
+          <circle cx="400" cy="400" r="380" stroke="currentColor" strokeWidth="1" strokeDasharray="4 8" className="opacity-30" />
+          <circle cx="400" cy="400" r="285" stroke="currentColor" strokeWidth="1.2" strokeDasharray="8 12" className="opacity-45" />
+          <circle cx="400" cy="400" r="190" stroke="currentColor" strokeWidth="1" strokeDasharray="3 6" className="opacity-60" />
+          <circle cx="400" cy="400" r="100" stroke="currentColor" strokeWidth="0.8" strokeDasharray="2 4" className="opacity-70" />
+          {/* Subtle Crosshairs & Coordinates */}
+          <line x1="400" y1="12" x2="400" y2="35" stroke="currentColor" strokeWidth="1.5" className="opacity-60" />
+          <line x1="400" y1="765" x2="400" y2="788" stroke="currentColor" strokeWidth="1.5" className="opacity-60" />
+          <line x1="12" y1="400" x2="35" y2="400" stroke="currentColor" strokeWidth="1.5" className="opacity-60" />
+          <line x1="765" y1="400" x2="788" y2="400" stroke="currentColor" strokeWidth="1.5" className="opacity-60" />
+          <circle cx="400" cy="115" r="3" fill="currentColor" className="opacity-70" />
+          <circle cx="685" cy="400" r="3" fill="currentColor" className="opacity-70" />
+          <circle cx="400" cy="685" r="3" fill="currentColor" className="opacity-70" />
+          <circle cx="115" cy="400" r="3" fill="currentColor" className="opacity-70" />
+        </svg>
+      </div>
+
+      {/* 4. Ambient Multi-Hue Soft Color Discs */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute -top-24 -left-20 w-[460px] h-[460px] rounded-full blur-[130px] bg-[#f5e9d4]/60 dark:bg-[#4434d4]/15 pointer-events-none" />
+        <div className="absolute top-1/4 -right-24 w-[480px] h-[480px] rounded-full blur-[140px] bg-[#533afd]/15 dark:bg-[#533afd]/20 pointer-events-none" />
+        <div className="absolute -bottom-24 left-1/4 w-[500px] h-[500px] rounded-full blur-[130px] bg-[#b9b9f9]/30 dark:bg-[#1c1e54]/30 pointer-events-none" />
+      </div>
+
+      {/* 5. Desktop Marginal Telemetry Badges (Frames the page on wide screens) */}
+      <div className="hidden xl:flex fixed left-8 2xl:left-12 top-1/2 -translate-y-1/2 flex-col gap-3 pointer-events-none z-10">
+        <div className="px-3.5 py-2 rounded-2xl border border-[#e3e8ee]/80 dark:border-[#273951]/80 bg-white/70 dark:bg-[#121624]/70 backdrop-blur-md text-[12px] flex items-center gap-2.5 shadow-xs">
+          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+          <span className="font-mono text-[#64748d] dark:text-[#94a3b8]">Vault:</span>
+          <span className="font-mono font-medium text-[#0d253d] dark:text-white">AES-256-GCM</span>
+        </div>
+        <div className="px-3.5 py-2 rounded-2xl border border-[#e3e8ee]/80 dark:border-[#273951]/80 bg-white/70 dark:bg-[#121624]/70 backdrop-blur-md text-[12px] flex items-center gap-2.5 shadow-xs">
+          <Cpu className="h-3.5 w-3.5 text-[#533afd] dark:text-[#818cf8] shrink-0" />
+          <span className="font-mono text-[#64748d] dark:text-[#94a3b8]">Handshake:</span>
+          <span className="font-mono font-medium text-[#0d253d] dark:text-white">X25519 Curve</span>
+        </div>
+        <div className="px-3.5 py-2 rounded-2xl border border-[#e3e8ee]/80 dark:border-[#273951]/80 bg-white/70 dark:bg-[#121624]/70 backdrop-blur-md text-[12px] flex items-center gap-2.5 shadow-xs">
+          <Shield className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+          <span className="font-mono text-[#64748d] dark:text-[#94a3b8]">Relay:</span>
+          <span className="font-mono font-medium text-[#0d253d] dark:text-white">0ms Ephemeral</span>
+        </div>
+      </div>
+
+      <div className="hidden xl:flex fixed right-8 2xl:right-12 top-1/2 -translate-y-1/2 flex-col gap-3 pointer-events-none z-10">
+        <div className="px-3.5 py-2 rounded-2xl border border-[#e3e8ee]/80 dark:border-[#273951]/80 bg-white/70 dark:bg-[#121624]/70 backdrop-blur-md text-[12px] flex items-center gap-2.5 shadow-xs">
+          <ShieldCheck className="h-3.5 w-3.5 text-[#533afd] dark:text-[#818cf8] shrink-0" />
+          <span className="font-mono font-medium text-[#0d253d] dark:text-white">Zero-Knowledge</span>
+        </div>
+        <div className="px-3.5 py-2 rounded-2xl border border-[#e3e8ee]/80 dark:border-[#273951]/80 bg-white/70 dark:bg-[#121624]/70 backdrop-blur-md text-[12px] flex items-center gap-2.5 shadow-xs">
+          <Lock className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+          <span className="font-mono font-medium text-[#0d253d] dark:text-white">Client-Side Keys</span>
+        </div>
+        <div className="px-3.5 py-2 rounded-2xl border border-[#e3e8ee]/80 dark:border-[#273951]/80 bg-white/70 dark:bg-[#121624]/70 backdrop-blur-md text-[12px] flex items-center gap-2.5 shadow-xs">
+          <Terminal className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+          <span className="font-mono font-medium text-[#0d253d] dark:text-white">IndexedDB Vault</span>
+        </div>
+      </div>
+
+      {/* PERSISTENT MINIMAL BACK NAVIGATION */}
+      <header className="fixed top-0 left-0 right-0 z-30 w-full px-5 sm:px-10 py-4 sm:py-5 flex items-center justify-between pointer-events-none">
+        {/* Left: Minimal Clean Home Back Button */}
+        <div className="flex items-center pointer-events-auto">
           <button
+            id="auth_header_back_btn"
             type="button"
-            onClick={onToggleTheme}
-            className="h-8 w-8 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer flex items-center justify-center"
-            title="Toggle Theme"
+            onClick={onBackToLanding}
+            className="group inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-[#e3e8ee] dark:border-[#273951] bg-white/85 dark:bg-[#121624]/85 hover:bg-[#f6f9fc] dark:hover:bg-[#1c2e42] text-[#273951] dark:text-[#cbd5e1] hover:text-[#0d253d] dark:hover:text-white transition-all text-[13px] font-medium shadow-xs backdrop-blur-md cursor-pointer active:scale-[0.98]"
+            title="Return to Public Home Page"
           >
-            {themeMode === 'dark' ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-neutral-700" />}
+            <ArrowLeft className="h-3.5 w-3.5 transition-transform duration-200 group-hover:-translate-x-0.5 text-[#533afd] dark:text-[#818cf8]" />
+            <span>Home</span>
           </button>
         </div>
 
-        {/* Global Error & Success Alerts */}
-        <AnimatePresence mode="wait">
+        {/* Right: Theme Toggle Only */}
+        <div className="flex items-center pointer-events-auto">
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            className="h-8 w-8 rounded-full flex items-center justify-center text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54]/50 border border-[#e3e8ee] dark:border-[#273951] bg-white/80 dark:bg-[#121624]/80 backdrop-blur-md transition-all cursor-pointer shadow-xs"
+            title="Toggle theme"
+          >
+            {themeMode === 'dark' ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4" />}
+          </button>
+        </div>
+      </header>
+
+      {/* FULLSCREEN VERTICALLY CENTERED CONTENT VIEWPORT */}
+      <main className="relative z-10 w-full flex-1 flex flex-col justify-center items-center px-4 sm:px-6 md:px-8 pt-24 pb-16">
+        <div className="w-full max-w-[490px] mx-auto bg-white/80 dark:bg-[#0f1422]/85 backdrop-blur-xl border border-[#e3e8ee] dark:border-[#273951]/80 rounded-3xl p-6 sm:p-9 shadow-[0_20px_50px_-15px_rgba(13,37,61,0.07)] dark:shadow-[0_20px_50px_-15px_rgba(0,0,0,0.6)] relative z-20 transition-all">
+          {/* Top Bar: Clean ZENOA Wordmark + Logo (Matching Saved Accounts view) */}
+          <div className="flex items-center justify-between pb-6 mb-6 border-b border-[#e3e8ee]/80 dark:border-[#273951]/80">
+            <div className="flex items-center gap-2.5 select-none">
+              <div className="h-8 w-8 rounded-full bg-[#533afd] text-white font-bold text-xs sm:text-sm flex items-center justify-center shadow-[0_1px_3px_rgba(0,55,112,0.2)] overflow-hidden">
+                {activeLogo ? (
+                  <img src={activeLogo} alt="Logo" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
+                ) : (
+                  <span className="font-bold text-xs tracking-tight">Z</span>
+                )}
+              </div>
+              <span className="font-sf-pro font-black text-[19px] sm:text-[21px] tracking-[0.06em] uppercase text-[#0d253d] dark:text-white leading-none">
+                ZENOA
+              </span>
+            </div>
+          </div>
+
+          {/* Subtle Global Feedback Alerts if triggered */}
           {errorMessage && (
-            <motion.div 
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              className="p-3 mb-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300 text-xs font-medium flex items-center gap-2"
-            >
+            <div className="mb-6 p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300 text-[13px] flex items-center gap-2.5">
               <AlertCircle className="h-4 w-4 shrink-0 text-rose-500" />
-              <span className="leading-tight flex-1">{errorMessage}</span>
-            </motion.div>
+              <span className="leading-tight">{errorMessage}</span>
+            </div>
           )}
 
           {successMessage && (
-            <motion.div 
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              className="p-3 mb-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-300 text-xs font-medium flex items-center gap-2"
-            >
+            <div className="mb-6 p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-300 text-[13px] flex items-center gap-2.5">
               <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-              <span className="leading-tight flex-1">{successMessage}</span>
-            </motion.div>
+              <span className="leading-tight">{successMessage}</span>
+            </div>
           )}
-        </AnimatePresence>
 
-        {/* ========================================================================= */}
-        {/* VIEW 1: SIGN IN VIEW (Full Screen Clean Architecture - Zenoa ID / Username + Password Only) */}
-        {/* ========================================================================= */}
-        {mode === 'login' && !showOtpScreen && (
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div className="mb-2">
-              <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-white">
-                Sign In
-              </h1>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-                Enter your username, Zenoa ID, or email to access your account.
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                Username or Zenoa ID
-              </label>
-              <div className="relative flex items-center">
-                <User className="absolute left-3.5 h-4 w-4 text-neutral-400 pointer-events-none" />
-                <input
-                  type="text"
-                  value={loginIdentifier}
-                  onChange={e => setLoginIdentifier(e.target.value)}
-                  placeholder=""
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="w-full pl-10 pr-3.5 py-2.5 text-xs sm:text-sm font-medium rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 outline-none focus:border-neutral-900 dark:focus:border-neutral-100 text-neutral-900 dark:text-white transition-colors"
-                  required
-                />
+          {/* ========================================================================= */}
+          {/* SURFACE A: FULLSCREEN SIGN IN EXPERIENCE */}
+          {/* ========================================================================= */}
+          {mode === 'login' && !showOtpScreen && (
+            <div id="zenoa_signin_surface" className="w-full">
+              {/* Confident Large Headline */}
+              <div className="mb-8">
+                <h1 className="text-[32px] sm:text-[36px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.15]">
+                  Welcome back
+                </h1>
+                <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
+                  Enter your Username or Zenoa ID and Password to Access your Zenoa Account.
+                </p>
               </div>
-            </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400">
-                  Password
-                </label>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!loginIdentifier.trim()) {
-                      setErrorMessage('Enter your username or email first.');
-                      return;
-                    }
-                    setIsLoading(true);
-                    const res = await onForgotPassword(loginIdentifier.trim());
-                    setIsLoading(false);
-                    if (res.success) {
-                      setSuccessMessage('Password reset link sent.');
-                    } else {
-                      setErrorMessage(res.error || 'Failed to send reset link.');
-                    }
-                  }}
-                  className="text-[11px] font-medium text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-200 cursor-pointer"
-                >
-                  Forgot?
-                </button>
-              </div>
-              <div className="relative flex items-center">
-                <Lock className="absolute left-3.5 h-4 w-4 text-neutral-400 pointer-events-none" />
-                <input
-                  type={showLoginPassword ? 'text' : 'password'}
-                  value={loginPassword}
-                  onChange={e => setLoginPassword(e.target.value)}
-                  placeholder=""
-                  autoComplete="off"
-                  className="w-full pl-10 pr-10 py-2.5 text-xs sm:text-sm font-medium rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 outline-none focus:border-neutral-900 dark:focus:border-neutral-100 text-neutral-900 dark:text-white transition-colors"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowLoginPassword(!showLoginPassword)}
-                  className="absolute right-3 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 p-1 cursor-pointer"
-                >
-                  {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Sign In Button */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full h-11 bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-950 text-xs sm:text-sm font-semibold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
-            >
-              {isLoading ? (
-                <div className="h-4 w-4 border-2 border-neutral-400 border-t-white dark:border-t-black rounded-full animate-spin" />
-              ) : (
-                <>
-                  <span>Sign In</span>
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              )}
-            </button>
-
-            {/* CREATE ACCOUNT ACTION BUTTON */}
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('register');
-                  setWizardStep(1);
-                  setErrorMessage('');
-                  setSuccessMessage('');
-                }}
-                className="w-full h-11 px-4 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-700/60 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer"
-              >
-                <UserPlus className="h-4 w-4" />
-                <span>Create Account</span>
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* ========================================================================= */}
-        {/* VIEW 2: CREATE ACCOUNT WIZARD (Steps 1 to 5) */}
-        {/* ========================================================================= */}
-        {mode === 'register' && !showOtpScreen && (
-          <div className="space-y-3.5">
-            {/* Step Progress Bar Indicator */}
-            <div className="flex items-center justify-between gap-1 mb-1">
-              {[1, 2, 3, 4, 5].map((s) => (
-                <div 
-                  key={s} 
-                  className={`h-1 flex-1 rounded-full transition-all duration-200 ${
-                    s <= wizardStep 
-                      ? 'bg-neutral-900 dark:bg-neutral-100' 
-                      : 'bg-neutral-200 dark:bg-neutral-800'
-                  }`}
-                />
-              ))}
-            </div>
-
-            <div className="flex items-center justify-between text-[11px] text-neutral-400 dark:text-neutral-500 font-medium">
-              <span>Step {wizardStep} of 5</span>
-              <span className="capitalize">
-                {wizardStep === 1 && 'Name & Username'}
-                {wizardStep === 2 && 'Zenoa ID'}
-                {wizardStep === 3 && 'Contact'}
-                {wizardStep === 4 && 'Password'}
-                {wizardStep === 5 && 'Agreement'}
-              </span>
-            </div>
-
-            {/* STEP 1: NAME & USERNAME */}
-            {wizardStep === 1 && (
-              <motion.div
-                key="step-1"
-                initial={{ opacity: 0, x: 6 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -6 }}
-                transition={{ duration: 0.15 }}
-                className="space-y-4"
-              >
+              {/* Minimal Clean Form with Generous Spacing */}
+              <form onSubmit={handleLogin} noValidate className="space-y-6">
+                {/* Field 1: Username or Zenoa ID */}
                 <div>
-                  <h2 className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-white">
-                    Create your profile
-                  </h2>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                    Enter your name and pick your username.
-                  </p>
-                </div>
-
-                {/* 1. Full Name (Single box replacing First Name / Last Name) */}
-                <div>
-                  <label className="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                    Full Name
+                  <label className="block text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8] mb-2">
+                    Username or Zenoa ID
                   </label>
-                  <input
-                    type="text"
-                    value={regFullName}
-                    onChange={e => setRegFullName(e.target.value)}
-                    placeholder="e.g. Aman Kumar"
-                    autoComplete="off"
-                    spellCheck={false}
-                    className="w-full px-3.5 py-2.5 text-xs sm:text-sm font-medium rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 outline-none focus:border-neutral-900 dark:focus:border-neutral-100 text-neutral-900 dark:text-white transition-colors"
-                  />
-                </div>
-
-                {/* 2. Date of Birth and Gender */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                      Date of Birth
-                    </label>
+                  <div className="relative">
                     <input
-                      type="date"
-                      value={regDob}
-                      onChange={e => setRegDob(e.target.value)}
-                      className="w-full px-3 py-2 text-xs sm:text-sm font-medium rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 outline-none focus:border-neutral-900 dark:focus:border-neutral-100 text-neutral-900 dark:text-white transition-colors cursor-pointer"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                      Gender
-                    </label>
-                    <select
-                      value={regGender}
-                      onChange={e => setRegGender(e.target.value as any)}
-                      className="w-full px-3 py-2 text-xs sm:text-sm font-medium rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 outline-none focus:border-neutral-900 dark:focus:border-neutral-100 text-neutral-900 dark:text-white transition-colors cursor-pointer"
-                    >
-                      <option value="male">Male</option>
-                      <option value="female">Female</option>
-                      <option value="other">Other</option>
-                      <option value="prefer_not">Prefer not to say</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* USERNAME INPUT (Direct entry, NO suggestions, dots allowed) */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400">
-                      Username
-                    </label>
-                    <div className="text-[11px] font-medium">
-                      {isCheckingRegUsername ? (
-                        <span className="text-neutral-400 flex items-center gap-1">
-                          <RefreshCw className="h-3 w-3 animate-spin" /> Checking...
-                        </span>
-                      ) : cleanRegUsername.length >= 3 ? (
-                        isRegUsernameAvailable ? (
-                          <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
-                            <Check className="h-3 w-3" /> Available
-                          </span>
-                        ) : (
-                          <span className="text-rose-500">
-                            {regUsernameReason || 'Username taken'}
-                          </span>
-                        )
-                      ) : cleanRegUsername.length > 0 ? (
-                        <span className="text-neutral-400">Min 3 characters</span>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div className="relative flex items-center">
-                    <span className="absolute left-3.5 text-neutral-400 text-xs sm:text-sm font-semibold pointer-events-none">@</span>
-                    <input
+                      id="signin_identifier"
                       type="text"
-                      value={regUsername}
+                      value={loginIdentifier}
                       onChange={e => {
-                        const clean = e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, '');
-                        setRegUsername(clean);
+                        setLoginIdentifier(e.target.value);
+                        if (loginFieldErrors.identifier) {
+                          setLoginFieldErrors(prev => ({ ...prev, identifier: undefined }));
+                        }
                       }}
-                      placeholder="e.g. aman.kumar"
+                      placeholder="e.g. alex or alex@zenoa"
                       autoComplete="off"
                       spellCheck={false}
-                      className={`w-full pl-8 pr-3.5 py-2.5 text-xs sm:text-sm font-medium rounded-xl border bg-neutral-50/70 dark:bg-neutral-900/70 outline-none transition-colors text-neutral-900 dark:text-white ${
-                        cleanRegUsername.length >= 3 && isRegUsernameAvailable
-                          ? 'border-emerald-500/60 focus:border-emerald-500'
-                          : cleanRegUsername.length >= 3 && !isRegUsernameAvailable
-                          ? 'border-rose-300 dark:border-rose-900 focus:border-rose-500'
-                          : 'border-neutral-200 dark:border-neutral-800 focus:border-neutral-900 dark:focus:border-neutral-100'
+                      className={`w-full px-4 py-3.5 text-[15px] rounded-xl border bg-white/70 dark:bg-[#121624]/70 backdrop-blur-sm outline-none transition-all duration-200 text-[#0d253d] dark:text-white placeholder-[#a0aec0] dark:placeholder-[#4a5568] ${
+                        loginFieldErrors.identifier
+                          ? 'border-rose-400 dark:border-rose-800 focus:ring-2 focus:ring-rose-500/20'
+                          : 'border-[#e3e8ee] dark:border-[#273951] focus:border-[#533afd] dark:focus:border-[#818cf8] focus:ring-2 focus:ring-[#533afd]/15'
                       }`}
                     />
                   </div>
-                  <p className="text-[11px] text-neutral-400 dark:text-neutral-500 mt-1">
-                    Letters, numbers, underscores, and dots (.) allowed.
-                  </p>
+                  {loginFieldErrors.identifier && (
+                    <p className="text-[12px] text-rose-500 mt-1.5 flex items-center gap-1 font-medium">
+                      <AlertCircle className="h-3 w-3 shrink-0" />
+                      <span>{loginFieldErrors.identifier}</span>
+                    </p>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode('login');
-                      setErrorMessage('');
-                    }}
-                    className="h-11 w-11 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer flex items-center justify-center shrink-0"
-                    title="Back to Sign In"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={!regFullName.trim() || !isRegUsernameAvailable || isCheckingRegUsername}
-                    onClick={() => {
-                      if (regFullName.trim() && isRegUsernameAvailable) {
-                        if (!customZenoaHandle) {
-                          setCustomZenoaHandle(cleanRegUsername);
-                        }
-                        setWizardStep(2);
-                        setErrorMessage('');
-                      }
-                    }}
-                    className={`flex-1 h-11 text-xs sm:text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer ${
-                      regFullName.trim() && isRegUsernameAvailable && !isCheckingRegUsername
-                        ? 'bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-950'
-                        : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-600 cursor-not-allowed'
-                    }`}
-                  >
-                    <span>Next</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
-                </div>
-              </motion.div>
-            )}
-
-            {/* STEP 2: CHOOSE ZENOA ID (Primary Identity - Compact, Clean, Uncluttered) */}
-            {wizardStep === 2 && (
-              <motion.div
-                key="step-2"
-                initial={{ opacity: 0, x: 6 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -6 }}
-                transition={{ duration: 0.15 }}
-                className="space-y-3"
-              >
+                {/* Field 2: Password with Inline Forgot? Action */}
                 <div>
-                  <h2 className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-white">
-                    Choose your Zenoa ID
-                  </h2>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                    Your primary uneditable identity across the Zenoa ecosystem.
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
-                  {/* Compact Suggestion 1 */}
-                  <label 
-                    onClick={() => setSelectedIdOption('sug1')}
-                    className={`flex items-center justify-between px-3 py-2.5 rounded-xl border cursor-pointer transition-all ${
-                      selectedIdOption === 'sug1'
-                        ? 'border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-900/80 shadow-xs'
-                        : 'border-neutral-200 dark:border-neutral-800/80 bg-white dark:bg-[#121215] hover:border-neutral-300 dark:hover:border-neutral-700'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className={`h-3.5 w-3.5 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
-                        selectedIdOption === 'sug1'
-                          ? 'border-neutral-900 dark:border-white bg-neutral-900 dark:bg-white text-white dark:text-neutral-950'
-                          : 'border-neutral-300 dark:border-neutral-700 bg-transparent'
-                      }`}>
-                        {selectedIdOption === 'sug1' && <div className="h-1.5 w-1.5 rounded-full bg-white dark:bg-neutral-950" />}
-                      </div>
-                      <span className="text-xs sm:text-sm font-semibold text-neutral-900 dark:text-white truncate">
-                        {sug1Handle}@zenoa
-                      </span>
-                    </div>
-                    {selectedIdOption === 'sug1' && (
-                      <Check className="h-3.5 w-3.5 text-neutral-900 dark:text-white shrink-0" />
-                    )}
-                  </label>
-
-                  {/* Compact Suggestion 2 */}
-                  <label 
-                    onClick={() => setSelectedIdOption('sug2')}
-                    className={`flex items-center justify-between px-3 py-2.5 rounded-xl border cursor-pointer transition-all ${
-                      selectedIdOption === 'sug2'
-                        ? 'border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-900/80 shadow-xs'
-                        : 'border-neutral-200 dark:border-neutral-800/80 bg-white dark:bg-[#121215] hover:border-neutral-300 dark:hover:border-neutral-700'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className={`h-3.5 w-3.5 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
-                        selectedIdOption === 'sug2'
-                          ? 'border-neutral-900 dark:border-white bg-neutral-900 dark:bg-white text-white dark:text-neutral-950'
-                          : 'border-neutral-300 dark:border-neutral-700 bg-transparent'
-                      }`}>
-                        {selectedIdOption === 'sug2' && <div className="h-1.5 w-1.5 rounded-full bg-white dark:bg-neutral-950" />}
-                      </div>
-                      <span className="text-xs sm:text-sm font-semibold text-neutral-900 dark:text-white truncate">
-                        {sug2Handle}@zenoa
-                      </span>
-                    </div>
-                    {selectedIdOption === 'sug2' && (
-                      <Check className="h-3.5 w-3.5 text-neutral-900 dark:text-white shrink-0" />
-                    )}
-                  </label>
-
-                  {/* Compact Option 3: Custom Zenoa ID */}
-                  <div 
-                    onClick={() => {
-                      setSelectedIdOption('custom');
-                      if (!customZenoaHandle) {
-                        setCustomZenoaHandle(cleanRegUsername || sug1Handle);
-                      }
-                    }}
-                    className={`px-3 py-2.5 rounded-xl border cursor-pointer transition-all space-y-2 ${
-                      selectedIdOption === 'custom'
-                        ? 'border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-900/80 shadow-xs'
-                        : 'border-neutral-200 dark:border-neutral-800/80 bg-white dark:bg-[#121215] hover:border-neutral-300 dark:hover:border-neutral-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className={`h-3.5 w-3.5 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
-                          selectedIdOption === 'custom'
-                            ? 'border-neutral-900 dark:border-white bg-neutral-900 dark:bg-white text-white dark:text-neutral-950'
-                            : 'border-neutral-300 dark:border-neutral-700 bg-transparent'
-                        }`}>
-                          {selectedIdOption === 'custom' && <div className="h-1.5 w-1.5 rounded-full bg-white dark:bg-neutral-950" />}
-                        </div>
-                        <span className="text-xs sm:text-sm font-semibold text-neutral-900 dark:text-white">
-                          Custom Zenoa ID
-                        </span>
-                      </div>
-
-                      {selectedIdOption === 'custom' && (
-                        <div className="flex items-center gap-1.5">
-                          {isCheckingCustomZenoaId ? (
-                            <RefreshCw className="h-3 w-3 animate-spin text-neutral-400" />
-                          ) : customZenoaHandle.length >= 3 ? (
-                            isCustomZenoaHandleValid ? (
-                              <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
-                                <Check className="h-3 w-3" /> Available
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-medium text-rose-500">
-                                Taken
-                              </span>
-                            )
-                          ) : customZenoaHandle.length > 0 ? (
-                            <span className="text-[10px] text-neutral-400">Min 3 chars</span>
-                          ) : null}
-                        </div>
-                      )}
-                    </div>
-
-                    {selectedIdOption === 'custom' && (
-                      <div className="pt-0.5" onClick={e => e.stopPropagation()}>
-                        <div className="relative flex items-center">
-                          <span className="absolute left-2.5 text-neutral-400 text-xs font-semibold pointer-events-none">@</span>
-                          <input
-                            type="text"
-                            value={customZenoaHandle}
-                            onChange={e => {
-                              const clean = e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, '');
-                              setCustomZenoaHandle(clean);
-                            }}
-                            placeholder="handle"
-                            autoComplete="off"
-                            spellCheck={false}
-                            autoFocus
-                            className="w-full pl-6 pr-14 py-1.5 text-xs font-semibold rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 outline-none focus:border-neutral-900 dark:focus:border-neutral-100 text-neutral-900 dark:text-white transition-colors"
-                          />
-                          <span className="absolute right-2.5 text-neutral-400 text-xs font-semibold pointer-events-none">@zenoa</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Selected primary identity badge */}
-                <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-neutral-100/70 dark:bg-neutral-800/40 text-xs text-neutral-500 dark:text-neutral-400">
-                  <span className="text-[11px] font-medium">Primary Zenoa ID</span>
-                  <span className="font-mono font-bold text-neutral-900 dark:text-white text-xs">{activeZenoaId}</span>
-                </div>
-
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setWizardStep(1)}
-                    className="h-11 w-11 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer flex items-center justify-center shrink-0"
-                    title="Back"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={!isZenoaIdValid || (selectedIdOption === 'custom' && isCheckingCustomZenoaId)}
-                    onClick={() => {
-                      if (isZenoaIdValid) {
-                        setWizardStep(3);
-                        setErrorMessage('');
-                      }
-                    }}
-                    className={`flex-1 h-11 text-xs sm:text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer ${
-                      isZenoaIdValid && !(selectedIdOption === 'custom' && isCheckingCustomZenoaId)
-                        ? 'bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-950'
-                        : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-600 cursor-not-allowed'
-                    }`}
-                  >
-                    <span>Next</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
-                </div>
-              </motion.div>
-            )}
-
-            {/* STEP 3: RECOVERY CONTACT (OPTIONAL MOBILE - NO EMAIL REQUIRED OR GENERATED) */}
-            {wizardStep === 3 && (
-              <motion.div
-                key="step-3"
-                initial={{ opacity: 0, x: 6 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -6 }}
-                transition={{ duration: 0.15 }}
-                className="space-y-3.5"
-              >
-                <div>
-                  <h2 className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-white">
-                    Account Recovery (Optional)
-                  </h2>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                    Your Zenoa ID is your primary digital identity and master key. Email is completely optional and never required. You can optionally link a mobile number for SMS verification.
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                      Mobile Number (Optional)
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8]">
+                      Password
                     </label>
-                    <div className="flex gap-2 relative">
-                      {/* Country Code Dropdown */}
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setIsCountryDropdownOpen(!isCountryDropdownOpen)}
-                          className="flex items-center gap-1 px-3 py-2.5 text-xs font-medium rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer h-full"
-                        >
-                          <span>{selectedCountry.flag}</span>
-                          <span className="font-semibold">{selectedCountry.dial}</span>
-                          <ChevronDown className="h-3 w-3 text-neutral-400" />
-                        </button>
-
-                        {isCountryDropdownOpen && (
-                          <div className="absolute left-0 top-12 z-50 w-56 max-h-48 overflow-y-auto bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl shadow-xl p-1.5">
-                            <input
-                              type="text"
-                              value={countrySearch}
-                              onChange={e => setCountrySearch(e.target.value)}
-                              placeholder="Search country..."
-                              autoComplete="off"
-                              className="w-full px-2 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800 outline-none mb-1 text-neutral-900 dark:text-white"
-                            />
-                            <div className="space-y-0.5">
-                              {filteredCountries.map(c => (
-                                <button
-                                  key={c.code + c.dial}
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedCountry(c);
-                                    setIsCountryDropdownOpen(false);
-                                    setCountrySearch('');
-                                  }}
-                                  className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left transition-colors ${
-                                    selectedCountry.code === c.code ? 'bg-neutral-100 dark:bg-neutral-800 font-semibold' : ''
-                                  }`}
-                                >
-                                  <span className="flex items-center gap-1.5 truncate">
-                                    <span>{c.flag}</span>
-                                    <span className="truncate">{c.name}</span>
-                                  </span>
-                                  <span className="font-mono text-neutral-400 shrink-0">{c.dial}</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Phone Digits Input */}
-                      <div className="relative flex-1 flex items-center">
-                        <input
-                          type="tel"
-                          value={regPhoneDigits}
-                          onChange={e => setRegPhoneDigits(e.target.value.replace(/[^0-9]/g, ''))}
-                          placeholder="Enter mobile number"
-                          autoComplete="off"
-                          className="w-full px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 outline-none focus:border-neutral-900 dark:focus:border-neutral-100 text-neutral-900 dark:text-white transition-colors font-mono"
-                        />
-                        {isTruecallerVerified && (
-                          <Check className="absolute right-3 h-4 w-4 text-emerald-500" />
-                        )}
-                      </div>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!loginIdentifier.trim()) {
+                          setLoginFieldErrors({ identifier: 'Enter your username or Zenoa ID first' });
+                          return;
+                        }
+                        setIsLoading(true);
+                        const res = await onForgotPassword(loginIdentifier.trim());
+                        setIsLoading(false);
+                        if (res.success) {
+                          setSuccessMessage('Password reset link sent to registered channel.');
+                        } else {
+                          setErrorMessage(res.error || 'Failed to send reset link.');
+                        }
+                      }}
+                      className="text-[12px] text-[#64748d] hover:text-[#0d253d] dark:text-[#94a3b8] dark:hover:text-white transition-colors cursor-pointer"
+                    >
+                      Forgot?
+                    </button>
                   </div>
-
-                  {/* Truecaller 1-Tap Trigger */}
-                  <button
-                    type="button"
-                    onClick={handleTruecallerVerification}
-                    disabled={isLoading}
-                    className="w-full h-10 px-3 bg-[#0087FF] hover:bg-[#0076E0] text-white rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Phone className="h-3.5 w-3.5" />
-                    <span>{isTruecallerVerified ? '✓ Truecaller Verified' : 'Verify with Truecaller (Optional)'}</span>
-                  </button>
-                  
-                  <p className="text-[11px] text-neutral-400 text-center">
-                    You can proceed without a phone number. Your account is secured by your Zenoa ID & password.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setWizardStep(2)}
-                    className="h-11 w-11 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer flex items-center justify-center shrink-0"
-                    title="Back"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWizardStep(4);
-                      setErrorMessage('');
-                    }}
-                    className="flex-1 h-11 text-xs sm:text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-950"
-                  >
-                    <span>{regPhoneDigits.trim().length >= 7 ? 'Next' : 'Skip & Set Password'}</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
-                </div>
-              </motion.div>
-            )}
-
-            {/* STEP 4: PASSWORD */}
-            {wizardStep === 4 && (
-              <motion.div
-                key="step-4"
-                initial={{ opacity: 0, x: 6 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -6 }}
-                transition={{ duration: 0.15 }}
-                className="space-y-3.5"
-              >
-                <div>
-                  <h2 className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-white">
-                    Set a Password
-                  </h2>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                    Must be at least 6 characters long.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                    Password
-                  </label>
-                  <div className="relative flex items-center">
-                    <Lock className="absolute left-3.5 h-4 w-4 text-neutral-400 pointer-events-none" />
+                  <div className="relative">
                     <input
-                      type={showRegPassword ? 'text' : 'password'}
-                      value={regPassword}
-                      onChange={e => setRegPassword(e.target.value)}
-                      placeholder=""
-                      autoComplete="off"
-                      className="w-full pl-10 pr-10 py-2.5 text-xs sm:text-sm font-medium rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 outline-none focus:border-neutral-900 dark:focus:border-neutral-100 text-neutral-900 dark:text-white transition-colors"
+                      id="signin_password"
+                      type={showLoginPassword ? 'text' : 'password'}
+                      value={loginPassword}
+                      onChange={e => {
+                        setLoginPassword(e.target.value);
+                        if (loginFieldErrors.password) {
+                          setLoginFieldErrors(prev => ({ ...prev, password: undefined }));
+                        }
+                      }}
+                      placeholder="••••••••"
+                      autoComplete="current-password"
+                      className={`w-full pl-4 pr-11 py-3.5 text-[15px] rounded-xl border bg-white/70 dark:bg-[#121624]/70 backdrop-blur-sm outline-none transition-all duration-200 text-[#0d253d] dark:text-white placeholder-[#a0aec0] dark:placeholder-[#4a5568] ${
+                        loginFieldErrors.password
+                          ? 'border-rose-400 dark:border-rose-800 focus:ring-2 focus:ring-rose-500/20'
+                          : 'border-[#e3e8ee] dark:border-[#273951] focus:border-[#533afd] dark:focus:border-[#818cf8] focus:ring-2 focus:ring-[#533afd]/15'
+                      }`}
                     />
                     <button
                       type="button"
-                      onClick={() => setShowRegPassword(!showRegPassword)}
-                      className="absolute right-3 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 p-1 cursor-pointer"
+                      onClick={() => setShowLoginPassword(!showLoginPassword)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#64748d] hover:text-[#0d253d] dark:text-[#94a3b8] dark:hover:text-white p-1 cursor-pointer transition-colors"
+                      tabIndex={-1}
                     >
-                      {showRegPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  {loginFieldErrors.password && (
+                    <p className="text-[12px] text-rose-500 mt-1.5 flex items-center gap-1 font-medium">
+                      <AlertCircle className="h-3 w-3 shrink-0" />
+                      <span>{loginFieldErrors.password}</span>
+                    </p>
+                  )}
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                    Confirm Password
-                  </label>
-                  <div className="relative flex items-center">
-                    <Lock className="absolute left-3.5 h-4 w-4 text-neutral-400 pointer-events-none" />
-                    <input
-                      type={showRegConfirmPassword ? 'text' : 'password'}
-                      value={regConfirmPassword}
-                      onChange={e => setRegConfirmPassword(e.target.value)}
-                      placeholder=""
-                      autoComplete="off"
-                      className="w-full pl-10 pr-10 py-2.5 text-xs sm:text-sm font-medium rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 outline-none focus:border-neutral-900 dark:focus:border-neutral-100 text-neutral-900 dark:text-white transition-colors"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowRegConfirmPassword(!showRegConfirmPassword)}
-                      className="absolute right-3 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 p-1 cursor-pointer"
-                    >
-                      {showRegConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 pt-1">
+                {/* Primary Confident Full-Width CTA (Never Dead-State Disabled) */}
+                <div className="pt-2">
                   <button
-                    type="button"
-                    onClick={() => setWizardStep(3)}
-                    className="h-11 w-11 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer flex items-center justify-center shrink-0"
-                    title="Back"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={regPassword.length < 6 || regPassword !== regConfirmPassword}
-                    onClick={() => {
-                      if (regPassword.length >= 6 && regPassword === regConfirmPassword) {
-                        setWizardStep(5);
-                        setErrorMessage('');
-                      } else if (regPassword !== regConfirmPassword) {
-                        setErrorMessage('Passwords do not match');
-                      }
-                    }}
-                    className={`flex-1 h-11 text-xs sm:text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer ${
-                      (regPassword.length >= 6 && regPassword === regConfirmPassword)
-                        ? 'bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-950'
-                        : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-600 cursor-not-allowed'
-                    }`}
-                  >
-                    <span>Next</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
-                </div>
-              </motion.div>
-            )}
-
-            {/* STEP 5: TERMS & REVIEW CONFIRMATION */}
-            {wizardStep === 5 && (
-              <motion.div
-                key="step-5"
-                initial={{ opacity: 0, x: 6 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -6 }}
-                transition={{ duration: 0.15 }}
-                className="space-y-3.5"
-              >
-                <div>
-                  <h2 className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-white">
-                    Confirm Account
-                  </h2>
-                </div>
-
-                {/* Clean Summary Card */}
-                <div className="p-3.5 rounded-xl bg-neutral-50 dark:bg-neutral-900/60 border border-neutral-200/80 dark:border-neutral-800 space-y-2 text-xs sm:text-sm">
-                  <div className="flex justify-between items-center">
-                    <span className="text-neutral-400">Name:</span>
-                    <span className="font-semibold text-neutral-900 dark:text-white">{regFullName}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-neutral-400">Username:</span>
-                    <span className="font-semibold text-neutral-900 dark:text-white">@{activeHandle}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-neutral-400">Zenoa ID (Primary Key):</span>
-                    <span className="font-mono font-medium text-neutral-800 dark:text-neutral-200">{activeHandle}@zenoa</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-neutral-400">Recovery Contact:</span>
-                    <span className="font-mono text-neutral-700 dark:text-neutral-300">
-                      {regPhoneDigits.trim() ? `${selectedCountry.dial} ${regPhoneDigits}` : 'Zenoa ID & Password'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Legal Agreement Checkbox */}
-                <div className="p-3 rounded-xl bg-neutral-50/50 dark:bg-neutral-900/30 border border-neutral-200/60 dark:border-neutral-800/60">
-                  <label className="flex items-start gap-2.5 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={regAgreedToLegal}
-                      onChange={e => setRegAgreedToLegal(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 rounded border-neutral-300 dark:border-neutral-700 text-neutral-900 focus:ring-0 accent-neutral-900 dark:accent-white"
-                    />
-                    <span className="text-xs leading-relaxed text-neutral-600 dark:text-neutral-400">
-                      I agree to the{' '}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setLegalModalTab('terms');
-                          setShowLegalModal(true);
-                        }}
-                        className="text-neutral-900 dark:text-neutral-100 font-medium underline"
-                      >
-                        Terms
-                      </button>
-                      {' '}and{' '}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setLegalModalTab('privacy');
-                          setShowLegalModal(true);
-                        }}
-                        className="text-neutral-900 dark:text-neutral-100 font-medium underline"
-                      >
-                        Privacy Policy
-                      </button>
-                      .
-                    </span>
-                  </label>
-                </div>
-
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setWizardStep(4)}
-                    className="h-11 w-11 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer flex items-center justify-center shrink-0"
-                    title="Back"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={isLoading || !regAgreedToLegal}
-                    onClick={handleCompleteRegistration}
-                    className={`flex-1 h-11 text-xs sm:text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer ${
-                      regAgreedToLegal && !isLoading
-                        ? 'bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-950'
-                        : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-600 cursor-not-allowed'
-                    }`}
+                    id="signin_submit_btn"
+                    type="submit"
+                    className="w-full h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
                   >
                     {isLoading ? (
-                      <div className="h-4 w-4 border-2 border-neutral-400 border-t-white dark:border-t-black rounded-full animate-spin" />
+                      <RefreshCw className="h-4 w-4 animate-spin text-current" />
                     ) : (
                       <>
-                        <ShieldCheck className="h-4 w-4" />
-                        <span>Create Account</span>
+                        <span>Sign in</span>
+                        <ArrowRight className="h-4 w-4" />
                       </>
                     )}
                   </button>
                 </div>
-              </motion.div>
-            )}
-          </div>
-        )}
 
-        {/* ========================================================================= */}
-        {/* VIEW 3: ONBOARDING STEP A (WELCOME & SET PROFILE PICTURE) */}
-        {/* ========================================================================= */}
-        {mode === 'onboarding_photo' && (
-          <motion.div
-            key="onboarding-photo"
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.2 }}
-            className="space-y-4 text-center"
-          >
-            <div>
-              <h2 className="text-lg font-bold tracking-tight text-neutral-900 dark:text-white">
-                Welcome, {displayNameGreeting}
-              </h2>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                Add a profile photo so friends recognize you.
-              </p>
-            </div>
-
-            {/* Profile Avatar Picker */}
-            <div className="flex flex-col items-center justify-center py-2">
-              <div className="relative group">
-                <div className="h-24 w-24 rounded-full border-2 border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center overflow-hidden">
-                  {profileAvatarUrl ? (
-                    <img 
-                      src={profileAvatarUrl} 
-                      alt="Avatar" 
-                      className="h-full w-full object-cover"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <span className="text-2xl font-bold text-neutral-900 dark:text-white uppercase">
-                      {regFullName ? regFullName.charAt(0) : (activeHandle ? activeHandle.charAt(0) : 'U')}
-                    </span>
-                  )}
+                {/* Secondary De-emphasized Path: Create account */}
+                <div className="text-center pt-2">
+                  <span className="text-[14px] text-[#64748d] dark:text-[#94a3b8]">
+                    Don't have an account?{' '}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('register');
+                      setWizardStep(1);
+                      setSlideDirection(1);
+                      setErrorMessage('');
+                    }}
+                    className="text-[14px] font-medium text-[#0d253d] dark:text-white hover:text-[#533afd] dark:hover:text-[#818cf8] underline underline-offset-4 cursor-pointer transition-colors"
+                  >
+                    Create account
+                  </button>
                 </div>
+              </form>
+            </div>
+          )}
 
-                {/* Upload Button Overlay */}
+          {/* ========================================================================= */}
+          {/* SURFACE B: 8-STEP FULLSCREEN SIGN UP WIZARD */}
+          {/* ========================================================================= */}
+          {mode === 'register' && !showOtpScreen && (
+            <div id="zenoa_signup_surface" className="w-full">
+              {/* Wizard Step Navigation Bar (Clean Step-Back Control) */}
+              <div className="flex items-center justify-between mb-5 pb-3 border-b border-[#e3e8ee]/70 dark:border-[#273951]/70 text-[12px]">
                 <button
+                  id="signup_wizard_back_btn"
                   type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="absolute bottom-0 right-0 p-2 rounded-full bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-950 shadow-sm transition-colors cursor-pointer"
-                  title="Upload Photo"
+                  onClick={handleWizardBack}
+                  className="group inline-flex items-center gap-1.5 font-medium text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer"
+                  title="Go to previous step or sign in"
                 >
-                  <Camera className="h-3.5 w-3.5" />
+                  <ArrowLeft className="h-3.5 w-3.5 transition-transform duration-200 group-hover:-translate-x-0.5 text-[#533afd] dark:text-[#818cf8]" />
+                  <span>{wizardStep > 1 ? `Back to Step ${wizardStep - 1}` : 'Back to Sign in'}</span>
                 </button>
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  onChange={handlePhotoUpload} 
-                  accept="image/*" 
-                  className="hidden" 
-                />
               </div>
 
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="mt-2 text-xs font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer flex items-center gap-1"
-              >
-                <Upload className="h-3 w-3" />
-                <span>Upload Photo</span>
-              </button>
-            </div>
+              {/* Subtle Segmented Progress Indicator (8 steps with checkmark micro-animation) */}
+              <div className="mb-8">
+                <div className="flex items-center gap-1.5 mb-3">
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map((stepNumber) => {
+                    const isCompleted = wizardStep > stepNumber;
+                    const isCurrent = wizardStep === stepNumber;
 
-            {/* Action Buttons */}
-            <div className="space-y-1.5 pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('onboarding_discover');
-                  setErrorMessage('');
-                }}
-                className="w-full h-10 bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-950 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <span>Continue</span>
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
+                    return (
+                      <div
+                        key={stepNumber}
+                        className={`h-1 flex-1 rounded-full transition-all duration-250 flex items-center justify-center ${
+                          isCompleted
+                            ? 'bg-[#533afd] dark:bg-[#818cf8]'
+                            : isCurrent
+                            ? 'bg-[#0d253d] dark:bg-white scale-y-125'
+                            : 'bg-[#e3e8ee] dark:bg-[#273951] opacity-40'
+                        }`}
+                      />
+                    );
+                  })}
+                </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('onboarding_discover');
-                  setErrorMessage('');
-                }}
-                className="w-full py-2 text-xs font-medium text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors cursor-pointer"
-              >
-                Skip for now
-              </button>
-            </div>
-          </motion.div>
-        )}
+                <div className="flex items-center justify-between text-[12px] font-medium text-[#64748d] dark:text-[#94a3b8]">
+                  <span>Step {wizardStep} of 8</span>
+                  <span className="text-[12px] font-normal text-[#94a3b8] dark:text-[#64748d]">
+                    {wizardStep === 1 && 'Name'}
+                    {wizardStep === 2 && 'Username'}
+                    {wizardStep === 3 && 'Zenoa ID'}
+                    {wizardStep === 4 && 'About you'}
+                    {wizardStep === 5 && 'Mobile recovery'}
+                    {wizardStep === 6 && 'Password'}
+                    {wizardStep === 7 && 'Review'}
+                    {wizardStep === 8 && 'Provisioned'}
+                  </span>
+                </div>
+              </div>
 
-        {/* ========================================================================= */}
-        {/* VIEW 4: ONBOARDING STEP B (DISCOVER USERS & ENTER MESSENGER) */}
-        {/* ========================================================================= */}
-        {mode === 'onboarding_discover' && (
-          <motion.div
-            key="onboarding-discover"
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.2 }}
-            className="space-y-3.5"
-          >
-            <div>
-              <h2 className="text-base font-semibold tracking-tight text-neutral-900 dark:text-white">
-                Discover People
-              </h2>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                Follow users to start connecting.
-              </p>
-            </div>
-
-            {/* Suggested Users List */}
-            <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
-              {allUsers.filter(u => u.username && u.username.toLowerCase() !== activeHandle.toLowerCase()).slice(0, 5).map(u => {
-                const uclean = (u.username || '').toLowerCase();
-                const isFollowed = !!followedUserMap[uclean];
-
-                return (
-                  <div 
-                    key={u.id || u.username}
-                    className="p-2 rounded-xl bg-neutral-50 dark:bg-neutral-900/60 border border-neutral-200/70 dark:border-neutral-800 flex items-center justify-between gap-2"
+              {/* AnimatePresence for Smooth Directional Transitions (200-250ms ease-out) */}
+              <AnimatePresence mode="wait" custom={slideDirection}>
+                {/* STEP 1: NAME — SINGLE INPUT, NOTHING ELSE ON SCREEN */}
+                {wizardStep === 1 && (
+                  <motion.div
+                    key="step-1"
+                    custom={slideDirection}
+                    variants={stepSlideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    className="space-y-6"
                   >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="h-8 w-8 rounded-full bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 font-bold text-xs flex items-center justify-center shrink-0">
-                        {u.avatar_url ? (
-                          <img src={u.avatar_url} alt={u.display_name} className="h-full w-full rounded-full object-cover" referrerPolicy="no-referrer" />
-                        ) : (
-                          <span>{(u.display_name || u.username || 'U').charAt(0).toUpperCase()}</span>
+                    <div>
+                      <h2 className="text-[32px] sm:text-[38px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.18]">
+                        What's your name?
+                      </h2>
+                      <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
+                        This is the name people will see when chatting with you.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8] mb-2">
+                        Full Name
+                      </label>
+                      <input
+                        id="signup_name_input"
+                        type="text"
+                        value={regFullName}
+                        onChange={e => {
+                          setRegFullName(e.target.value);
+                          if (nameError) setNameError('');
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleWizardNext();
+                          }
+                        }}
+                        placeholder="e.g. Alex Morgan"
+                        autoFocus
+                        autoComplete="name"
+                        spellCheck={false}
+                        className={`w-full px-4 py-3.5 text-[16px] rounded-xl border bg-white/70 dark:bg-[#121624]/70 backdrop-blur-sm outline-none transition-all duration-200 text-[#0d253d] dark:text-white placeholder-[#a0aec0] dark:placeholder-[#4a5568] ${
+                          nameError
+                            ? 'border-rose-400 dark:border-rose-800 focus:ring-2 focus:ring-rose-500/20'
+                            : 'border-[#e3e8ee] dark:border-[#273951] focus:border-[#533afd] dark:focus:border-[#818cf8] focus:ring-2 focus:ring-[#533afd]/15'
+                        }`}
+                      />
+                      {nameError && (
+                        <p className="text-[12px] text-rose-500 mt-1.5 flex items-center gap-1 font-medium">
+                          <AlertCircle className="h-3 w-3 shrink-0" />
+                          <span>{nameError}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="pt-2 space-y-3">
+                      <button
+                        type="button"
+                        onClick={handleWizardNext}
+                        className="w-full h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                      >
+                        <span>Continue</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+
+                      <div className="text-center">
+                        <button
+                          type="button"
+                          onClick={() => setMode('login')}
+                          className="text-[13px] text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer"
+                        >
+                          Already have an account? Sign in
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* STEP 2: USERNAME — SINGLE INPUT WITH LIVE AVAILABILITY CHECK */}
+                {wizardStep === 2 && (
+                  <motion.div
+                    key="step-2"
+                    custom={slideDirection}
+                    variants={stepSlideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    className="space-y-6"
+                  >
+                    <div>
+                      <h2 className="text-[32px] sm:text-[38px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.18]">
+                        Pick a username
+                      </h2>
+                      <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
+                        Your unique public handle across the Zenoa network.
+                      </p>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8]">
+                          Username
+                        </label>
+                        <div className="text-[12px] font-medium">
+                          {isCheckingRegUsername ? (
+                            <span className="text-[#64748d] flex items-center gap-1">
+                              <RefreshCw className="h-3 w-3 animate-spin" /> Checking...
+                            </span>
+                          ) : cleanRegUsername.length >= 3 ? (
+                            isRegUsernameAvailable ? (
+                              <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-semibold">
+                                <Check className="h-3 w-3" /> Available
+                              </span>
+                            ) : (
+                              <span className="text-rose-500 font-medium">
+                                {regUsernameReason || 'Unavailable'}
+                              </span>
+                            )
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="relative flex items-center">
+                        <span className="absolute left-4 text-[#a0aec0] dark:text-[#4a5568] text-[16px] font-medium pointer-events-none">@</span>
+                        <input
+                          id="signup_username_input"
+                          type="text"
+                          value={regUsername}
+                          onChange={e => {
+                            const clean = e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, '');
+                            setRegUsername(clean);
+                            if (usernameError) setUsernameError('');
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleWizardNext();
+                            }
+                          }}
+                          placeholder="alex"
+                          autoFocus
+                          autoComplete="username"
+                          spellCheck={false}
+                          className={`w-full pl-9 pr-4 py-3.5 text-[16px] rounded-xl border bg-white/70 dark:bg-[#121624]/70 backdrop-blur-sm outline-none transition-all duration-200 text-[#0d253d] dark:text-white placeholder-[#a0aec0] dark:placeholder-[#4a5568] ${
+                            usernameError
+                              ? 'border-rose-400 dark:border-rose-800 focus:ring-2 focus:ring-rose-500/20'
+                              : isRegUsernameAvailable && cleanRegUsername.length >= 3
+                              ? 'border-emerald-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15'
+                              : 'border-[#e3e8ee] dark:border-[#273951] focus:border-[#533afd] dark:focus:border-[#818cf8] focus:ring-2 focus:ring-[#533afd]/15'
+                          }`}
+                        />
+                      </div>
+                      {usernameError && (
+                        <p className="text-[12px] text-rose-500 mt-1.5 flex items-center gap-1 font-medium">
+                          <AlertCircle className="h-3 w-3 shrink-0" />
+                          <span>{usernameError}</span>
+                        </p>
+                      )}
+                      <p className="text-[12px] text-[#64748d] dark:text-[#94a3b8] mt-1.5">
+                        Letters, numbers, underscores, and dots allowed.
+                      </p>
+                    </div>
+
+                    <div className="pt-2 flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleWizardBack}
+                        className="h-12 px-4 rounded-xl border border-[#e3e8ee] dark:border-[#273951] text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer flex items-center justify-center shrink-0"
+                        title="Back"
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleWizardNext}
+                        className="flex-1 h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                      >
+                        <span>Continue</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* STEP 3: ZENOA ID — EMOTIONAL HIGH POINT WITH DISTINCT HIGHLIGHTED STATE */}
+                {wizardStep === 3 && (
+                  <motion.div
+                    key="step-3"
+                    custom={slideDirection}
+                    variants={stepSlideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    className="space-y-6"
+                  >
+                    <div>
+                      <h2 className="text-[32px] sm:text-[38px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.18]">
+                        Claim your Zenoa ID
+                      </h2>
+                      <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
+                        Your permanent cryptographic identity address across the ecosystem.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      {/* Suggestion 1 */}
+                      <div
+                        onClick={() => {
+                          setSelectedIdOption('sug1');
+                          setZenoaIdError('');
+                        }}
+                        className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer flex items-center justify-between ${
+                          selectedIdOption === 'sug1'
+                            ? 'border-[#533afd] bg-[#533afd]/5 dark:bg-[#533afd]/10 shadow-[0_2px_12px_rgba(83,58,253,0.08)] ring-1 ring-[#533afd]/30'
+                            : 'border-[#e3e8ee] dark:border-[#273951] bg-white/60 dark:bg-[#121624]/60 hover:border-[#cbd5e1] dark:hover:border-[#334155]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`h-5 w-5 rounded-full border flex items-center justify-center transition-colors ${
+                            selectedIdOption === 'sug1'
+                              ? 'border-[#533afd] bg-[#533afd] text-white'
+                              : 'border-[#cbd5e1] dark:border-[#475569]'
+                          }`}>
+                            {selectedIdOption === 'sug1' && <Check className="h-3 w-3 text-white" />}
+                          </div>
+                          <div>
+                            <span className="font-mono font-semibold text-[15px] text-[#0d253d] dark:text-white">
+                              {sug1Handle}@zenoa
+                            </span>
+                            <span className="block text-[11px] text-[#64748d] dark:text-[#94a3b8]">
+                              Recommended for @{cleanRegUsername}
+                            </span>
+                          </div>
+                        </div>
+                        {selectedIdOption === 'sug1' && (
+                          <span className="text-[11px] font-semibold text-[#533afd] dark:text-[#818cf8] uppercase tracking-wider">
+                            Selected
+                          </span>
                         )}
                       </div>
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold text-neutral-900 dark:text-white truncate">
-                          {u.display_name || u.username}
+
+                      {/* Suggestion 2 */}
+                      <div
+                        onClick={() => {
+                          setSelectedIdOption('sug2');
+                          setZenoaIdError('');
+                        }}
+                        className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer flex items-center justify-between ${
+                          selectedIdOption === 'sug2'
+                            ? 'border-[#533afd] bg-[#533afd]/5 dark:bg-[#533afd]/10 shadow-[0_2px_12px_rgba(83,58,253,0.08)] ring-1 ring-[#533afd]/30'
+                            : 'border-[#e3e8ee] dark:border-[#273951] bg-white/60 dark:bg-[#121624]/60 hover:border-[#cbd5e1] dark:hover:border-[#334155]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`h-5 w-5 rounded-full border flex items-center justify-center transition-colors ${
+                            selectedIdOption === 'sug2'
+                              ? 'border-[#533afd] bg-[#533afd] text-white'
+                              : 'border-[#cbd5e1] dark:border-[#475569]'
+                          }`}>
+                            {selectedIdOption === 'sug2' && <Check className="h-3 w-3 text-white" />}
+                          </div>
+                          <div>
+                            <span className="font-mono font-semibold text-[15px] text-[#0d253d] dark:text-white">
+                              {sug2Handle}@zenoa
+                            </span>
+                            <span className="block text-[11px] text-[#64748d] dark:text-[#94a3b8]">
+                              Alternative handle
+                            </span>
+                          </div>
                         </div>
-                        <div className="text-[10px] text-neutral-400 truncate">
-                          @{u.username}
+                        {selectedIdOption === 'sug2' && (
+                          <span className="text-[11px] font-semibold text-[#533afd] dark:text-[#818cf8] uppercase tracking-wider">
+                            Selected
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Custom Zenoa ID Option */}
+                      <div
+                        onClick={() => {
+                          setSelectedIdOption('custom');
+                          if (!customZenoaHandle) setCustomZenoaHandle(cleanRegUsername);
+                          setZenoaIdError('');
+                        }}
+                        className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer space-y-3 ${
+                          selectedIdOption === 'custom'
+                            ? 'border-[#533afd] bg-[#533afd]/5 dark:bg-[#533afd]/10 shadow-[0_2px_12px_rgba(83,58,253,0.08)] ring-1 ring-[#533afd]/30'
+                            : 'border-[#e3e8ee] dark:border-[#273951] bg-white/60 dark:bg-[#121624]/60 hover:border-[#cbd5e1] dark:hover:border-[#334155]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`h-5 w-5 rounded-full border flex items-center justify-center transition-colors ${
+                              selectedIdOption === 'custom'
+                                ? 'border-[#533afd] bg-[#533afd] text-white'
+                                : 'border-[#cbd5e1] dark:border-[#475569]'
+                            }`}>
+                              {selectedIdOption === 'custom' && <Check className="h-3 w-3 text-white" />}
+                            </div>
+                            <span className="font-medium text-[15px] text-[#0d253d] dark:text-white">
+                              Custom Zenoa ID
+                            </span>
+                          </div>
+
+                          {selectedIdOption === 'custom' && (
+                            <div className="text-[12px] font-medium">
+                              {isCheckingCustomZenoaId ? (
+                                <span className="text-[#64748d] flex items-center gap-1">
+                                  <RefreshCw className="h-3 w-3 animate-spin" /> Checking...
+                                </span>
+                              ) : customZenoaHandle.length >= 3 ? (
+                                isCustomZenoaHandleValid ? (
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">Available</span>
+                                ) : (
+                                  <span className="text-rose-500 font-medium">Unavailable</span>
+                                )
+                              ) : null}
+                            </div>
+                          )}
+                        </div>
+
+                        {selectedIdOption === 'custom' && (
+                          <div className="pt-1" onClick={e => e.stopPropagation()}>
+                            <div className="relative flex items-center">
+                              <input
+                                type="text"
+                                value={customZenoaHandle}
+                                onChange={e => {
+                                  const clean = e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, '');
+                                  setCustomZenoaHandle(clean);
+                                }}
+                                placeholder="custom-handle"
+                                autoFocus
+                                className="w-full pl-3.5 pr-20 py-2.5 text-[15px] font-mono rounded-lg border border-[#e3e8ee] dark:border-[#273951] bg-white dark:bg-[#090d16] outline-none focus:border-[#533afd] text-[#0d253d] dark:text-white"
+                              />
+                              <span className="absolute right-3.5 text-[#64748d] dark:text-[#94a3b8] font-mono text-[14px] pointer-events-none">
+                                @zenoa
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {zenoaIdError && (
+                      <p className="text-[12px] text-rose-500 flex items-center gap-1 font-medium">
+                        <AlertCircle className="h-3 w-3 shrink-0" />
+                        <span>{zenoaIdError}</span>
+                      </p>
+                    )}
+
+                    <div className="pt-2 flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleWizardBack}
+                        className="h-12 px-4 rounded-xl border border-[#e3e8ee] dark:border-[#273951] text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer flex items-center justify-center shrink-0"
+                        title="Back"
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleWizardNext}
+                        className="flex-1 h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                      >
+                        <span>Claim ID & Continue</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* STEP 4: DATE OF BIRTH & GENDER — PAIRED ON ONE SCREEN */}
+                {wizardStep === 4 && (
+                  <motion.div
+                    key="step-4"
+                    custom={slideDirection}
+                    variants={stepSlideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    className="space-y-6"
+                  >
+                    <div>
+                      <h2 className="text-[32px] sm:text-[38px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.18]">
+                        A little about you
+                      </h2>
+                      <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
+                        Helps tailor your experience and ensure age-appropriate privacy defaults.
+                      </p>
+                    </div>
+
+                    <div className="space-y-5">
+                      {/* Date of Birth */}
+                      <div>
+                        <label className="block text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8] mb-2">
+                          Date of Birth
+                        </label>
+                        <input
+                          id="signup_dob_input"
+                          type="date"
+                          value={regDob}
+                          onChange={e => {
+                            setRegDob(e.target.value);
+                            if (dobError) setDobError('');
+                          }}
+                          className="w-full px-4 py-3.5 text-[15px] rounded-xl border border-[#e3e8ee] dark:border-[#273951] bg-white/70 dark:bg-[#121624]/70 backdrop-blur-sm outline-none focus:border-[#533afd] dark:focus:border-[#818cf8] text-[#0d253d] dark:text-white cursor-pointer"
+                        />
+                        {dobError && (
+                          <p className="text-[12px] text-rose-500 mt-1.5 flex items-center gap-1 font-medium">
+                            <AlertCircle className="h-3 w-3 shrink-0" />
+                            <span>{dobError}</span>
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Gender Selector */}
+                      <div>
+                        <label className="block text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8] mb-2">
+                          Gender
+                        </label>
+                        <div className="grid grid-cols-2 gap-2.5">
+                          {[
+                            { value: 'male', label: 'Male' },
+                            { value: 'female', label: 'Female' },
+                            { value: 'other', label: 'Other' },
+                            { value: 'prefer_not', label: 'Prefer not to say' }
+                          ].map(item => (
+                            <button
+                              key={item.value}
+                              type="button"
+                              onClick={() => setRegGender(item.value as any)}
+                              className={`py-3 px-4 rounded-xl border text-[14px] font-medium transition-all text-center cursor-pointer ${
+                                regGender === item.value
+                                  ? 'border-[#533afd] bg-[#533afd]/5 dark:bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] font-semibold ring-1 ring-[#533afd]/20'
+                                  : 'border-[#e3e8ee] dark:border-[#273951] bg-white/60 dark:bg-[#121624]/60 text-[#0d253d] dark:text-white hover:border-[#cbd5e1]'
+                              }`}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
                         </div>
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleToggleFollow(u)}
-                      className={`h-7 px-2.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 shrink-0 ${
-                        isFollowed
-                          ? 'bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
-                          : 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 hover:opacity-90'
-                      }`}
-                    >
-                      {isFollowed ? (
-                        <>
-                          <UserCheck className="h-3 w-3" />
-                          <span>Following</span>
-                        </>
-                      ) : (
-                        <>
-                          <UserPlus className="h-3 w-3" />
-                          <span>Follow</span>
-                        </>
+                    <div className="pt-2 flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleWizardBack}
+                        className="h-12 px-4 rounded-xl border border-[#e3e8ee] dark:border-[#273951] text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer flex items-center justify-center shrink-0"
+                        title="Back"
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleWizardNext}
+                        className="flex-1 h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                      >
+                        <span>Continue</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* STEP 5: MOBILE NUMBER (OPTIONAL) WITH QUIET RECOVERY NOTE */}
+                {wizardStep === 5 && (
+                  <motion.div
+                    key="step-5"
+                    custom={slideDirection}
+                    variants={stepSlideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    className="space-y-6"
+                  >
+                    <div>
+                      <h2 className="text-[32px] sm:text-[38px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.18]">
+                        Add mobile recovery
+                      </h2>
+                      <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
+                        Optional security layer to recover your account if you forget your password.
+                      </p>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8] mb-2">
+                          Mobile Number (Optional)
+                        </label>
+                        <div className="flex gap-2.5 relative">
+                          {/* Country Selector */}
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setIsCountryDropdownOpen(!isCountryDropdownOpen)}
+                              className="h-12 px-3.5 rounded-xl border border-[#e3e8ee] dark:border-[#273951] bg-white/70 dark:bg-[#121624]/70 flex items-center gap-2 text-[14px] font-medium cursor-pointer"
+                            >
+                              <span>{selectedCountry.flag}</span>
+                              <span className="font-mono text-[#0d253d] dark:text-white">{selectedCountry.dial}</span>
+                              <ChevronDown className="h-3.5 w-3.5 text-[#64748d]" />
+                            </button>
+
+                            {isCountryDropdownOpen && (
+                              <div className="absolute left-0 top-14 z-50 w-64 max-h-56 overflow-y-auto bg-white dark:bg-[#0d253d] border border-[#e3e8ee] dark:border-[#273951] rounded-xl shadow-xl p-2">
+                                <input
+                                  type="text"
+                                  value={countrySearch}
+                                  onChange={e => setCountrySearch(e.target.value)}
+                                  placeholder="Search country..."
+                                  autoFocus
+                                  className="w-full px-2.5 py-1.5 text-[13px] rounded-lg border border-[#e3e8ee] dark:border-[#273951] bg-neutral-50 dark:bg-[#121624] outline-none mb-1.5 text-[#0d253d] dark:text-white"
+                                />
+                                <div className="space-y-0.5">
+                                  {filteredCountries.map(c => (
+                                    <button
+                                      key={c.code + c.dial}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedCountry(c);
+                                        setIsCountryDropdownOpen(false);
+                                        setCountrySearch('');
+                                      }}
+                                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] text-left hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] transition-colors ${
+                                        selectedCountry.code === c.code ? 'bg-[#f6f9fc] dark:bg-[#1c1e54] font-semibold' : ''
+                                      }`}
+                                    >
+                                      <span className="flex items-center gap-2 truncate">
+                                        <span>{c.flag}</span>
+                                        <span className="truncate">{c.name}</span>
+                                      </span>
+                                      <span className="font-mono text-[#64748d] shrink-0 text-[12px]">{c.dial}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Phone digits input */}
+                          <div className="flex-1 relative">
+                            <input
+                              type="tel"
+                              value={regPhoneDigits}
+                              onChange={e => {
+                                setRegPhoneDigits(e.target.value.replace(/[^0-9]/g, ''));
+                                if (phoneError) setPhoneError('');
+                              }}
+                              placeholder="Phone digits"
+                              className="w-full h-12 px-4 text-[15px] font-mono rounded-xl border border-[#e3e8ee] dark:border-[#273951] bg-white/70 dark:bg-[#121624]/70 outline-none focus:border-[#533afd] text-[#0d253d] dark:text-white"
+                            />
+                            {isTruecallerVerified && (
+                              <Check className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-500" />
+                            )}
+                          </div>
+                        </div>
+                        {phoneError && (
+                          <p className="text-[12px] text-rose-500 mt-1.5 flex items-center gap-1 font-medium">
+                            <AlertCircle className="h-3 w-3 shrink-0" />
+                            <span>{phoneError}</span>
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Truecaller Shortcut */}
+                      <button
+                        type="button"
+                        onClick={handleTruecallerVerification}
+                        className="w-full py-2.5 px-3 rounded-xl border border-[#e3e8ee] dark:border-[#273951] bg-[#0087FF]/10 text-[#0087FF] hover:bg-[#0087FF]/15 text-[13px] font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                      >
+                        <Phone className="h-3.5 w-3.5" />
+                        <span>{isTruecallerVerified ? '✓ Truecaller Verified' : 'Verify with Truecaller (1-tap)'}</span>
+                      </button>
+                    </div>
+
+                    <div className="pt-2 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={handleWizardBack}
+                          className="h-12 px-4 rounded-xl border border-[#e3e8ee] dark:border-[#273951] text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer flex items-center justify-center shrink-0"
+                          title="Back"
+                        >
+                          <ArrowLeft className="h-4 w-4" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleWizardNext}
+                          className="flex-1 h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                        >
+                          <span>{regPhoneDigits.trim().length >= 6 ? 'Save & Continue' : 'Continue'}</span>
+                          <ArrowRight className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      {/* Skip button with quiet, honest consequence note */}
+                      <div className="text-center pt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRegPhoneDigits('');
+                            setSlideDirection(1);
+                            setWizardStep(6);
+                          }}
+                          className="text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white underline cursor-pointer transition-colors"
+                        >
+                          Skip phone recovery
+                        </button>
+                        <p className="text-[12px] text-[#94a3b8] dark:text-[#64748d] mt-1.5 max-w-sm mx-auto leading-relaxed">
+                          Without a linked mobile number, account recovery is strictly limited to your Zenoa ID and password manually.
+                        </p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* STEP 6: PASSWORD — SINGLE INPUT FIELD WITH LIVE STRENGTH INDICATOR */}
+                {wizardStep === 6 && (
+                  <motion.div
+                    key="step-6"
+                    custom={slideDirection}
+                    variants={stepSlideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    className="space-y-6"
+                  >
+                    <div>
+                      <h2 className="text-[32px] sm:text-[38px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.18]">
+                        Create a password
+                      </h2>
+                      <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
+                        Protects access to your local encrypted session and device vault.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8] mb-2">
+                        Password
+                      </label>
+                      <div className="relative">
+                        <input
+                          id="signup_password_input"
+                          type={showRegPassword ? 'text' : 'password'}
+                          value={regPassword}
+                          onChange={e => {
+                            setRegPassword(e.target.value);
+                            if (passwordError) setPasswordError('');
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleWizardNext();
+                            }
+                          }}
+                          placeholder="••••••••"
+                          autoFocus
+                          autoComplete="new-password"
+                          className={`w-full pl-4 pr-11 py-3.5 text-[16px] rounded-xl border bg-white/70 dark:bg-[#121624]/70 backdrop-blur-sm outline-none transition-all duration-200 text-[#0d253d] dark:text-white placeholder-[#a0aec0] dark:placeholder-[#4a5568] ${
+                            passwordError
+                              ? 'border-rose-400 dark:border-rose-800 focus:ring-2 focus:ring-rose-500/20'
+                              : 'border-[#e3e8ee] dark:border-[#273951] focus:border-[#533afd] dark:focus:border-[#818cf8] focus:ring-2 focus:ring-[#533afd]/15'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowRegPassword(!showRegPassword)}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#64748d] hover:text-[#0d253d] dark:text-[#94a3b8] dark:hover:text-white p-1 cursor-pointer transition-colors"
+                          tabIndex={-1}
+                        >
+                          {showRegPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+
+                      {/* Live Strength Meter */}
+                      {regPassword && (
+                        <div className="mt-3 space-y-1.5">
+                          <div className="flex gap-1.5">
+                            {[1, 2, 3, 4].map((bar) => (
+                              <div
+                                key={bar}
+                                className={`h-1 flex-1 rounded-full transition-all duration-200 ${
+                                  bar <= passwordStrength.score ? passwordStrength.color : 'bg-[#e3e8ee] dark:bg-[#273951]'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                          <div className="flex justify-between items-center text-[12px] text-[#64748d] dark:text-[#94a3b8]">
+                            <span>Strength: <strong className="font-semibold text-[#0d253d] dark:text-white">{passwordStrength.label}</strong></span>
+                            <span>Min 8 characters</span>
+                          </div>
+                        </div>
                       )}
-                    </button>
+
+                      {passwordError && (
+                        <p className="text-[12px] text-rose-500 mt-1.5 flex items-center gap-1 font-medium">
+                          <AlertCircle className="h-3 w-3 shrink-0" />
+                          <span>{passwordError}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="pt-2 flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleWizardBack}
+                        className="h-12 px-4 rounded-xl border border-[#e3e8ee] dark:border-[#273951] text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer flex items-center justify-center shrink-0"
+                        title="Back"
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleWizardNext}
+                        className="flex-1 h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                      >
+                        <span>Continue</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* STEP 7: CONFIRMATION & FINALIZE — TWO-COLUMN KEY-VALUE RECEIPT LAYOUT */}
+                {wizardStep === 7 && (
+                  <motion.div
+                    key="step-7"
+                    custom={slideDirection}
+                    variants={stepSlideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    className="space-y-6"
+                  >
+                    <div>
+                      <h2 className="text-[32px] sm:text-[38px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.18]">
+                        Review your details
+                      </h2>
+                      <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
+                        Everything is set to provision your private device vault.
+                      </p>
+                    </div>
+
+                    {/* Summary Receipt Card */}
+                    <div className="p-5 rounded-2xl border border-[#e3e8ee] dark:border-[#273951] bg-white/60 dark:bg-[#121624]/60 backdrop-blur-sm space-y-3.5 text-[14px]">
+                      <div className="flex justify-between items-center pb-2.5 border-b border-[#e3e8ee]/70 dark:border-[#273951]/70">
+                        <span className="text-[#64748d] dark:text-[#94a3b8]">Name</span>
+                        <span className="font-semibold text-[#0d253d] dark:text-white">{regFullName}</span>
+                      </div>
+                      <div className="flex justify-between items-center pb-2.5 border-b border-[#e3e8ee]/70 dark:border-[#273951]/70">
+                        <span className="text-[#64748d] dark:text-[#94a3b8]">Username</span>
+                        <span className="font-semibold text-[#0d253d] dark:text-white">@{activeHandle}</span>
+                      </div>
+                      <div className="flex justify-between items-center pb-2.5 border-b border-[#e3e8ee]/70 dark:border-[#273951]/70">
+                        <span className="text-[#64748d] dark:text-[#94a3b8]">Zenoa ID</span>
+                        <span className="font-mono font-medium text-[#533afd] dark:text-[#818cf8]">{activeZenoaId}</span>
+                      </div>
+                      <div className="flex justify-between items-center pb-2.5 border-b border-[#e3e8ee]/70 dark:border-[#273951]/70">
+                        <span className="text-[#64748d] dark:text-[#94a3b8]">Date of Birth</span>
+                        <span className="text-[#0d253d] dark:text-white">{regDob}</span>
+                      </div>
+                      <div className="flex justify-between items-center pb-2.5 border-b border-[#e3e8ee]/70 dark:border-[#273951]/70">
+                        <span className="text-[#64748d] dark:text-[#94a3b8]">Recovery</span>
+                        <span className="font-mono text-[#0d253d] dark:text-white text-[13px]">
+                          {regPhoneDigits.trim() ? `${selectedCountry.dial} ${regPhoneDigits}` : 'Not linked (Manual only)'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-[#64748d] dark:text-[#94a3b8]">Session Credential</span>
+                        <span className="text-[#64748d] dark:text-[#94a3b8] font-mono text-[13px]">•••••••• (Secured)</span>
+                      </div>
+                    </div>
+
+                    {/* Legal Checkbox */}
+                    <div>
+                      <label className="flex items-start gap-3 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={regAgreedToLegal}
+                          onChange={e => {
+                            setRegAgreedToLegal(e.target.checked);
+                            if (legalError) setLegalError('');
+                          }}
+                          className="mt-1 h-4 w-4 rounded border-[#cbd5e1] dark:border-[#475569] text-[#533afd] focus:ring-0 accent-[#533afd]"
+                        />
+                        <span className="text-[13px] leading-relaxed text-[#64748d] dark:text-[#94a3b8]">
+                          I accept the{' '}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setLegalModalTab('terms');
+                              setShowLegalModal(true);
+                            }}
+                            className="text-[#0d253d] dark:text-white font-medium underline underline-offset-2"
+                          >
+                            Terms
+                          </button>
+                          {' '}and acknowledge the{' '}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setLegalModalTab('privacy');
+                              setShowLegalModal(true);
+                            }}
+                            className="text-[#0d253d] dark:text-white font-medium underline underline-offset-2"
+                          >
+                            Privacy Policy
+                          </button>
+                          .
+                        </span>
+                      </label>
+                      {legalError && (
+                        <p className="text-[12px] text-rose-500 mt-1.5 flex items-center gap-1 font-medium">
+                          <AlertCircle className="h-3 w-3 shrink-0" />
+                          <span>{legalError}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="pt-2 flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleWizardBack}
+                        className="h-12 px-4 rounded-xl border border-[#e3e8ee] dark:border-[#273951] text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer flex items-center justify-center shrink-0"
+                        title="Back"
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleFinalizeRegistration}
+                        className="flex-1 h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                      >
+                        {isLoading ? (
+                          <RefreshCw className="h-4 w-4 animate-spin text-current" />
+                        ) : (
+                          <>
+                            <ShieldCheck className="h-4 w-4" />
+                            <span>Create account</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* STEP 8: DONE — DISTINCT RESTRAINED CONFIRMATION BEFORE ENTERING APP */}
+                {wizardStep === 8 && (
+                  <motion.div
+                    key="step-8"
+                    custom={slideDirection}
+                    variants={stepSlideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    className="space-y-6 text-center py-4"
+                  >
+                    <div className="flex justify-center">
+                      <div className="h-16 w-16 rounded-full bg-[#533afd]/10 dark:bg-[#818cf8]/15 border border-[#533afd]/30 dark:border-[#818cf8]/40 flex items-center justify-center text-[#533afd] dark:text-[#818cf8]">
+                        <Check className="h-8 w-8 stroke-[2.5]" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <h2 className="text-[32px] sm:text-[38px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.18]">
+                        Vault provisioned
+                      </h2>
+                      <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2 max-w-md mx-auto">
+                        Welcome to Zenoa, {displayNameGreeting}. Your cryptographic keys and device vault are active.
+                      </p>
+                    </div>
+
+                    <div className="pt-4 space-y-3 max-w-sm mx-auto">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onCompleteAuth) {
+                            onCompleteAuth();
+                          } else {
+                            onBackToLanding();
+                          }
+                        }}
+                        className="w-full h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                      >
+                        <span>Enter Zenoa</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setMode('onboarding_photo')}
+                        className="text-[13px] text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer"
+                      >
+                        Customize profile photo & contacts
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* ONBOARDING PHOTO (OPTIONAL ENHANCEMENT ACCESSIBLE FROM DONE STEP) */}
+          {/* ========================================================================= */}
+          {mode === 'onboarding_photo' && (
+            <div className="w-full space-y-6 text-center">
+              <div>
+                <h2 className="text-[32px] sm:text-[38px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.18]">
+                  Profile photo
+                </h2>
+                <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
+                  Add an avatar so your contacts easily recognize your cryptographic handle.
+                </p>
+              </div>
+
+              <div className="flex flex-col items-center justify-center py-4">
+                <div className="relative group">
+                  <div className="h-28 w-28 rounded-full border border-[#e3e8ee] dark:border-[#273951] bg-white/70 dark:bg-[#121624]/70 flex items-center justify-center overflow-hidden shadow-sm">
+                    {profileAvatarUrl ? (
+                      <img 
+                        src={profileAvatarUrl} 
+                        alt="Avatar" 
+                        className="h-full w-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <span className="text-3xl font-bold text-[#0d253d] dark:text-white uppercase">
+                        {regFullName ? regFullName.charAt(0) : (activeHandle ? activeHandle.charAt(0) : 'U')}
+                      </span>
+                    )}
                   </div>
-                );
-              })}
+
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="absolute bottom-0 right-0 p-2.5 rounded-full bg-[#0d253d] text-white dark:bg-white dark:text-[#0d253d] shadow-md transition-transform hover:scale-105 cursor-pointer"
+                    title="Upload Photo"
+                  >
+                    <Camera className="h-4 w-4" />
+                  </button>
+                  <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    onChange={handlePhotoUpload} 
+                    accept="image/*" 
+                    className="hidden" 
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="mt-3 text-[13px] font-medium text-[#533afd] dark:text-[#818cf8] hover:underline cursor-pointer flex items-center gap-1.5"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  <span>Choose an image</span>
+                </button>
+              </div>
+
+              <div className="pt-2 space-y-3 max-w-sm mx-auto">
+                <button
+                  type="button"
+                  onClick={() => setMode('onboarding_discover')}
+                  className="w-full h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                >
+                  <span>Continue</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onCompleteAuth) onCompleteAuth();
+                    else onBackToLanding();
+                  }}
+                  className="text-[13px] text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer"
+                >
+                  Skip for now
+                </button>
+              </div>
             </div>
+          )}
 
-            {/* Final Done Action */}
-            <div className="space-y-1.5 pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  if (onCompleteAuth) {
-                    onCompleteAuth();
-                  } else {
-                    onBackToLanding();
-                  }
-                }}
-                className="w-full h-10 bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-950 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <span>Open Messenger</span>
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
+          {/* ========================================================================= */}
+          {/* ONBOARDING DISCOVER PEOPLE */}
+          {/* ========================================================================= */}
+          {mode === 'onboarding_discover' && (
+            <div className="w-full space-y-6">
+              <div>
+                <h2 className="text-[32px] sm:text-[38px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.18]">
+                  Discover people
+                </h2>
+                <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
+                  Connect with contacts on the decentralized network.
+                </p>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  if (onCompleteAuth) {
-                    onCompleteAuth();
-                  } else {
-                    onBackToLanding();
-                  }
-                }}
-                className="w-full py-1.5 text-xs font-medium text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors cursor-pointer"
-              >
-                Skip
-              </button>
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                {allUsers.filter(u => u.username && u.username.toLowerCase() !== activeHandle.toLowerCase()).slice(0, 5).map(u => {
+                  const uclean = (u.username || '').toLowerCase();
+                  const isFollowed = !!followedUserMap[uclean];
+
+                  return (
+                    <div 
+                      key={u.id || u.username}
+                      className="p-3 rounded-xl bg-white/70 dark:bg-[#121624]/70 border border-[#e3e8ee] dark:border-[#273951] flex items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="h-9 w-9 rounded-full bg-[#e3e8ee] dark:bg-[#273951] text-[#0d253d] dark:text-white font-bold text-xs flex items-center justify-center shrink-0">
+                          {u.avatar_url ? (
+                            <img src={u.avatar_url} alt={u.display_name} className="h-full w-full rounded-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            <span>{(u.display_name || u.username || 'U').charAt(0).toUpperCase()}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[14px] font-semibold text-[#0d253d] dark:text-white truncate">
+                            {u.display_name || u.username}
+                          </div>
+                          <div className="text-[12px] text-[#64748d] dark:text-[#94a3b8] truncate">
+                            @{u.username}
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleToggleFollow(u)}
+                        className={`h-8 px-3 rounded-lg text-[13px] font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                          isFollowed
+                            ? 'bg-[#e3e8ee] dark:bg-[#273951] text-[#0d253d] dark:text-white'
+                            : 'bg-[#0d253d] text-white dark:bg-white dark:text-[#0d253d]'
+                        }`}
+                      >
+                        {isFollowed ? (
+                          <>
+                            <UserCheck className="h-3.5 w-3.5" />
+                            <span>Connected</span>
+                          </>
+                        ) : (
+                          <>
+                            <UserPlus className="h-3.5 w-3.5" />
+                            <span>Connect</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="pt-2 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onCompleteAuth) onCompleteAuth();
+                    else onBackToLanding();
+                  }}
+                  className="w-full h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                >
+                  <span>Open Messenger</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-          </motion.div>
-        )}
+          )}
 
-        {/* ========================================================================= */}
-        {/* VIEW 5: OTP VERIFICATION SCREEN */}
-        {/* ========================================================================= */}
-        {showOtpScreen && (
-          <div className="text-center py-2">
-            <h3 className="text-base font-semibold text-neutral-900 dark:text-white mb-1">
-              Verification Link Sent
-            </h3>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-4">
-              Check <strong className="text-neutral-800 dark:text-neutral-200">{regEmail || loginIdentifier}</strong>
-            </p>
+          {/* ========================================================================= */}
+          {/* OTP VERIFICATION VIEW */}
+          {/* ========================================================================= */}
+          {showOtpScreen && (
+            <div className="w-full space-y-6 text-center">
+              <div>
+                <h2 className="text-[32px] sm:text-[38px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.18]">
+                  Verification link sent
+                </h2>
+                <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
+                  Check <strong className="text-[#0d253d] dark:text-white font-semibold">{loginIdentifier}</strong> to continue
+                </p>
+              </div>
 
-            <button
-              onClick={async () => {
-                setIsLoading(true);
-                triggerExplicitLoginFlag();
-                await onVerifyOtpSubmit('123456');
-                setIsLoading(false);
-              }}
-              disabled={isLoading}
-              className="w-full h-10 bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-950 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              {isLoading ? (
-                <div className="h-3.5 w-3.5 border-2 border-neutral-400 border-t-white dark:border-t-black rounded-full animate-spin" />
-              ) : (
-                <>
-                  <Key className="h-3.5 w-3.5" />
+              <button
+                onClick={async () => {
+                  setIsLoading(true);
+                  triggerExplicitLoginFlag();
+                  await onVerifyOtpSubmit('123456');
+                  setIsLoading(false);
+                }}
+                disabled={isLoading}
+                className="w-full h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+              >
+                {isLoading ? (
+                  <RefreshCw className="h-4 w-4 animate-spin text-current" />
+                ) : (
                   <span>Continue to Messenger</span>
-                </>
-              )}
-            </button>
-
-            <div className="mt-4 pt-2.5 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
-              <button
-                onClick={() => {
-                  setShowOtpScreen(false);
-                  setMode('login');
-                }}
-                className="text-xs font-medium text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 cursor-pointer"
-              >
-                Back to Sign In
+                )}
               </button>
 
-              <button
-                onClick={() => {
-                  setSuccessMessage('Verification link resent.');
-                }}
-                className="text-xs font-medium text-neutral-700 dark:text-neutral-300 hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                <RefreshCw className="h-3 w-3" />
-                <span>Resend</span>
-              </button>
+              <div className="pt-2 flex items-center justify-between text-[13px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowOtpScreen(false);
+                    setMode('login');
+                  }}
+                  className="text-[#64748d] hover:text-[#0d253d] dark:text-[#94a3b8] dark:hover:text-white cursor-pointer transition-colors"
+                >
+                  Back to Sign in
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSuccessMessage('Verification link resent.')}
+                  className="text-[#533afd] dark:text-[#818cf8] hover:underline cursor-pointer flex items-center gap-1"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  <span>Resend link</span>
+                </button>
+              </div>
             </div>
-          </div>
-        )}
-      </motion.div>
+          )}
+        </div>
+      </main>
+
+      {/* Persistent Quiet Footer Note */}
+      <footer className="relative z-10 w-full px-6 py-6 text-center">
+        <p className="text-[12px] text-[#94a3b8] dark:text-[#64748d] font-normal">
+          End-to-End Encrypted Session • Zero-Cloud Retention • Zenoa v3.4
+        </p>
+      </footer>
 
       {/* Legal Modal Component */}
       <LegalModal

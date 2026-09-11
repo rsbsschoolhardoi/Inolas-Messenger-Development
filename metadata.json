@@ -1,6 +1,6 @@
 {
-  "name": "Inolas Messenger",
-  "description": "Zenoa — A high-fidelity end-to-end encrypted private messenger with secure cloud persistence, audio notes, full-screen settings, and zero-knowledge privacy.",
+  "name": "Zenoa",
+  "description": "Zenoa Messenger is a privacy-first communication platform designed around one simple principle: your conversations belong to you.",
   "requestFramePermissions": [
     "microphone",
     "camera"
