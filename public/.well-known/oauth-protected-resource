@@ -1,0 +1,20 @@
+{
+  "resource": "https://zenoa.in/api/v1",
+  "authorization_servers": [
+    "https://zenoa.in"
+  ],
+  "scopes_supported": [
+    "openid",
+    "profile",
+    "email",
+    "zenoa:read",
+    "zenoa:write",
+    "zenoa:messages",
+    "zenoa:bots",
+    "zenoa:webhooks"
+  ],
+  "bearer_methods_supported": [
+    "header"
+  ],
+  "resource_documentation": "https://zenoa.in/docs"
+}

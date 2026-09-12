@@ -1,6 +1,9 @@
 # robots.txt for https://zenoa.in
 # Privacy-first communication platform & Developer APIs
 
+# Content Signals for AI content usage preferences (RFC / Content Signals standard)
+Content-Signal: ai-train=no, search=yes, ai-input=no
+
 User-agent: *
 Allow: /
 Allow: /developer

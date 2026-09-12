@@ -241,7 +241,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <span className="h-2 w-2 rounded-full bg-[#533afd] animate-pulse" />
                 <span className="font-semibold text-[#0d253d] dark:white">Inolas Nexus</span>
                 <span className="text-[#a8c3de] dark:text-[#64748d]">•</span>
-                <span className="text-[#533afd] dark:text-[#b9b9f9] font-medium">India's Sovereign Privacy Startup</span>
+                <span className="text-[#533afd] dark:text-[#b9b9f9] font-medium">Sovereign Privacy Platform</span>
                 <span className="text-[#a8c3de] dark:text-[#64748d]">•</span>
                 <span className="font-tabular text-[#273951] dark:text-[#cbd5e1] text-[12px]">Zero-Cloud Retention</span>
               </div>
@@ -249,7 +249,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               {/* Display Heading: Bold, High-Contrast, No Overlap, 100% Crisp Visibility */}
               <h1 className="text-[34px] sm:text-[46px] lg:text-[54px] font-bold tracking-tight text-[#0d253d] dark:text-white leading-[1.18] sm:leading-[1.14]">
                 <span className="block text-[#0d253d] dark:text-white">
-                  India's private messenger,
+                  Sovereign private messenger,
                 </span>
                 <span className="block mt-2 sm:mt-2.5 text-[#533afd] dark:text-[#818cf8]">
                   sealed in your device vault.
@@ -258,7 +258,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
               {/* Body Text: High-contrast ink text and comfortable reading line-height */}
               <p className="text-[16px] sm:text-[18px] font-normal text-[#273951] dark:text-[#cbd5e1] max-w-xl leading-[1.6]">
-                Engineered by Indian startup <strong>Inolas Nexus</strong>, Zenoa is the sovereign private messenger with 0ms cloud retention. Built for individuals and enterprise builders with <strong>Zenoa OAuth 2.0</strong> and the <strong>Zenoa Developer Console</strong> for real-time bot APIs.
+                Engineered by <strong>Inolas Nexus</strong>, Zenoa is the sovereign private messenger with 0ms cloud retention. Built for individuals and enterprise builders with <strong>Zenoa OAuth 2.0</strong> and the <strong>Zenoa Developer Console</strong> for real-time bot APIs.
               </p>
 
               {/* Action Buttons: Restrained Single Primary Indigo Pill */}
@@ -1049,18 +1049,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {/* Brand Col */}
           <div className="space-y-3 md:col-span-2">
             <div className="flex items-center gap-2.5">
-              <div className="h-7 w-7 rounded-full bg-[#533afd] text-white text-xs font-bold flex items-center justify-center">
-                Z
-              </div>
               <span className="font-sf-pro font-black text-[18px] tracking-[0.06em] uppercase text-[#0d253d] dark:text-white leading-none">
                 ZENOA
               </span>
               <span className="text-[11px] px-2 py-0.5 rounded bg-[#f0f4ff] dark:bg-[#1e2238] text-[#533afd] dark:text-[#b9b9f9] font-medium">
-                By Inolas Nexus (India)
+                By Inolas Nexus
               </span>
             </div>
             <p className="text-[13px] max-w-sm leading-[1.5]">
-              India's sovereign private messenger protocol with zero-cloud retention. Featuring <strong>Zenoa OAuth</strong> for decentralized identity and the <strong>Zenoa Developer Console</strong> for private bot communication.
+              Sovereign private messenger with zero-cloud retention. Featuring <strong>Zenoa OAuth</strong> for decentralized identity and the <strong>Zenoa Developer Console</strong> for private bot communication.
             </p>
             <div className="flex flex-wrap items-center gap-3 pt-1 text-[12px] text-[#533afd] dark:text-[#818cf8]">
               <a href="/developer" className="hover:underline">Developer Console</a>
@@ -1133,7 +1130,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {/* System Specs */}
           <div className="space-y-2.5">
             <div className="font-normal text-[#0d253d] dark:text-white uppercase text-[11px] tracking-[0.1px]">
-              Protocol Specifications
+              Security & Infrastructure
             </div>
             <ul className="space-y-1.5 text-[12px] font-tabular">
               <li>• IndexedDB Isolated Vault</li>
@@ -1145,16 +1142,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 border-t border-[#e3e8ee] dark:border-[#273951] flex flex-col sm:flex-row items-center justify-between gap-4 text-[12px] font-tabular text-[#64748d] dark:text-[#94a3b8]">
-          <span>© 2026 Inolas Nexus. All rights reserved. Zenoa Private Messenger (India Startup Innovation).</span>
-          <div className="flex items-center gap-4">
-            <span>Protocol v3.4.0 (Production Release)</span>
-            <button
-              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-              className="hover:text-[#533afd] transition-colors cursor-pointer"
-            >
-              Back to Top ↑
-            </button>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 border-t border-[#e3e8ee] dark:border-[#273951] flex flex-col sm:flex-row items-center justify-between gap-4 text-[13px] text-[#64748d] dark:text-[#94a3b8]">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-[#0d253d] dark:text-white">© 2026 Zenoa.</span>
+            <span>All Rights Reserved.</span>
+            <span className="text-[#cbd5e1] dark:text-[#475569]">•</span>
+            <span className="font-medium text-[#533afd] dark:text-[#818cf8]">A Product of Inolas Nexus.</span>
+          </div>
+          <div className="flex items-center gap-3 text-[12px] font-medium">
+            <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Zero-Retention Mesh</span>
+            </span>
+            <span className="text-[#cbd5e1] dark:text-[#475569]">•</span>
+            <span>Client-Side Encrypted</span>
           </div>
         </div>
       </footer>

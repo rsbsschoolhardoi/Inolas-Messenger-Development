@@ -1,0 +1,84 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schemas/server-card/v1.json",
+  "serverInfo": {
+    "name": "zenoa-mcp-server",
+    "title": "Zenoa Sovereign Messenger & Developer MCP Server",
+    "version": "1.0.4",
+    "description": "Model Context Protocol server for Zenoa: sovereign private messenger, zero-cloud retention messaging, WebCrypto key exchange, Bot API dispatches, and OAuth 2.0 integration."
+  },
+  "transport": {
+    "type": "streamable-http",
+    "endpoint": "https://zenoa.in/api/v1/mcp"
+  },
+  "capabilities": {
+    "tools": {
+      "listChanged": true
+    },
+    "resources": {
+      "subscribe": true,
+      "listChanged": true
+    },
+    "prompts": {
+      "listChanged": false
+    }
+  },
+  "tools": [
+    {
+      "name": "send_secure_message",
+      "description": "Send an end-to-end encrypted or ephemeral message via sovereign 0ms TTL relay.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "recipient": {
+            "type": "string",
+            "description": "Recipient username or Zenoa sovereign ID"
+          },
+          "content": {
+            "type": "string",
+            "description": "Message text payload"
+          },
+          "ttlMs": {
+            "type": "number",
+            "description": "Time-to-live in milliseconds (default 0 for ephemeral 0ms relay)"
+          }
+        },
+        "required": [
+          "recipient",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "get_system_status",
+      "description": "Check the health, active relays, and zero-retention status of the Zenoa network.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "verify_zenoa_identity",
+      "description": "Cryptographically verify a @zenoa sovereign username and public identity key.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Username to verify"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "get_api_catalog",
+      "description": "Retrieve RFC 9727 API catalog entries and machine-readable service descriptions.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

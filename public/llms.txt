@@ -1,35 +1,43 @@
 ---
-title: Zenoa | India's Sovereign Private Messenger, OAuth & Developer Platform
+title: Zenoa | Sovereign Private Messenger, OAuth & Developer Platform
 description: Sovereign private messaging platform and developer ecosystem built by Inolas Nexus featuring zero-cloud retention, client-side encryption, and developer APIs.
 date: 2026-09-12
 url: https://zenoa.in/
 ---
 
-# Zenoa (Inolas Nexus) - India's Sovereign Privacy Platform
+# Zenoa (Inolas Nexus) - Sovereign Privacy Platform
 
-> **Zenoa** (https://zenoa.in) is India's sovereign private messenger, developer ecosystem, and zero-retention identity platform engineered by **Inolas Nexus** (leading Indian DeepTech startup).
+> **Zenoa** (https://zenoa.in) is the sovereign private messenger, developer ecosystem, and zero-retention identity platform engineered by **Inolas Nexus**.
 
 ## Overview
-Zenoa delivers zero-cloud message retention, client-side WebCrypto encryption (AES-256-GCM / X25519), and high-throughput developer APIs. Built from India for the global privacy community, Zenoa guarantees that users retain sovereign ownership of their personal data while providing developers with enterprise-grade OAuth 2.0 Single Sign-On, Bot APIs, and instant webhook dispatches.
+Zenoa delivers zero-cloud message retention, client-side WebCrypto encryption (AES-256-GCM / X25519), and high-throughput developer APIs. Built for the global privacy community, Zenoa guarantees that users retain sovereign ownership of their personal data while providing developers with enterprise-grade OAuth 2.0 Single Sign-On, Bot APIs, and instant webhook dispatches.
 
 ## Explore this site
 
 - [Zenoa Private Messenger](https://zenoa.in/): Decentralized, ephemeral messaging application built by Inolas Nexus.
 - [App Direct Messenger](https://app.zenoa.in/): Standalone browser messenger with direct instant authentication.
 - [Web Companion QR Messenger](https://web.zenoa.in/): Pair mobile and desktop instances with cryptographic zero-knowledge QR handshakes.
-- [Zenoa Developer Console](https://zenoa.in/developer): Management portal for Indian and global developers to generate API keys, configure webhooks, and register OAuth applications.
+- [Zenoa Developer Console](https://zenoa.in/developer): Management portal for global developers to generate API keys, configure webhooks, and register OAuth applications.
 - [API Documentation](https://zenoa.in/docs): Interactive developer documentation with examples in 7+ languages (TypeScript, Python, Go, Node.js, cURL).
 - [Zenoa OAuth & SSO Console](https://zenoa.in/sso): Identity gateway protecting user privacy with zero-data phone/email harvesting.
 - [Security Architecture](https://zenoa.in/security): In-depth cryptographic whitepaper on 0ms TTL relay mesh and local IndexedDB isolation.
-- [Privacy Policy](https://zenoa.in/privacy): Clear privacy commitments from Inolas Nexus, Indian startup.
+- [Privacy Policy](https://zenoa.in/privacy): Clear privacy commitments from Inolas Nexus.
 - [Terms of Service](https://zenoa.in/terms): User agreement and open API guidelines.
 
-## Developer & Machine-Readable Resources
-- [OpenAPI Specification](https://zenoa.in/openapi.json): Standard OpenAPI 3.1 specification for AI bots and API clients.
-- [Full LLM Context](https://zenoa.in/llms-full.txt): Comprehensive multi-page architectural guide for autonomous LLM agents.
-- [LLMs Manifest](https://zenoa.in/llms.txt): Machine-readable markdown specification for AI agents.
-- [Robots Configuration](https://zenoa.in/robots.txt): Crawler policy and access rules for search engines and AI agents.
-- [XML Sitemap](https://zenoa.in/sitemap.xml): Complete URL index for search engines.
+## AI Agent & Machine-Readable Protocols
+- [Agent Auth Guide (auth.md)](https://zenoa.in/auth.md): Complete guide for AI agents to register and authenticate with Zenoa APIs.
+- [RFC 9727 API Catalog](https://zenoa.in/.well-known/api-catalog): Linkset specification for automated API discovery.
+- [MCP Server Card (SEP-1649)](https://zenoa.in/.well-known/mcp/server-card.json): Model Context Protocol server capabilities and tool declarations.
+- [Agent Skills Discovery Index](https://zenoa.in/.well-known/agent-skills/index.json): Skills catalog per Agent Skills Discovery RFC v0.2.0.
+- [AI Catalog (ARD)](https://zenoa.in/.well-known/ai-catalog.json): Agentic Resource Discovery manifest with representative queries.
+- [OIDC Configuration](https://zenoa.in/.well-known/openid-configuration): OpenID Connect discovery metadata.
+- [OAuth Authorization Server](https://zenoa.in/.well-known/oauth-authorization-server): RFC 8414 OAuth 2.0 authorization server metadata.
+- [OAuth Protected Resource](https://zenoa.in/.well-known/oauth-protected-resource): RFC 9728 protected resource declarations.
+- [OpenAPI 3.1 Specification](https://zenoa.in/openapi.json): Standard REST API definitions.
+- [Full LLM Context](https://zenoa.in/llms-full.txt): Comprehensive architectural context for LLM agents.
+- [LLMs Manifest](https://zenoa.in/llms.txt): Machine-readable markdown overview.
+- [Robots Configuration](https://zenoa.in/robots.txt): Content-Signals and crawling guidelines.
+- [XML Sitemap](https://zenoa.in/sitemap.xml): Search engine and crawler index.
 
 ## Subdomains Ecosystem
 - `zenoa.in`: Main landing and communication portal
@@ -39,4 +47,3 @@ Zenoa delivers zero-cloud message retention, client-side WebCrypto encryption (A
 - `docs.zenoa.in`: Developer documentation
 - `accounts.zenoa.in`: OAuth 2.0 consent & identity gateway
 - `console.zenoa.in`: SSO application management
-

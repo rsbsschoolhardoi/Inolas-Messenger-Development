@@ -62,29 +62,29 @@ function getMarkdownResponseForPath(reqPath: string): string {
 
   // Programmatic fallback
   return `---
-title: Zenoa | India's Sovereign Private Messenger, OAuth & Developer Platform
+title: Zenoa | Sovereign Private Messenger, OAuth & Developer Platform
 description: Sovereign private messaging platform and developer ecosystem built by Inolas Nexus featuring zero-cloud retention, client-side encryption, and developer APIs.
 date: 2026-09-12
 url: https://zenoa.in/
 ---
 
-# Zenoa (Inolas Nexus) - India's Sovereign Privacy Platform
+# Zenoa (Inolas Nexus) - Sovereign Privacy Platform
 
-> **Zenoa** (https://zenoa.in) is India's sovereign private messenger, developer ecosystem, and zero-retention identity platform engineered by **Inolas Nexus** (leading Indian DeepTech startup).
+> **Zenoa** (https://zenoa.in) is the sovereign private messenger, developer ecosystem, and zero-retention identity platform engineered by **Inolas Nexus**.
 
 ## Overview
-Zenoa delivers zero-cloud message retention, client-side WebCrypto encryption (AES-256-GCM / X25519), and high-throughput developer APIs. Built from India for the global privacy community, Zenoa guarantees that users retain sovereign ownership of their personal data while providing developers with enterprise-grade OAuth 2.0 Single Sign-On, Bot APIs, and instant webhook dispatches.
+Zenoa delivers zero-cloud message retention, client-side WebCrypto encryption (AES-256-GCM / X25519), and high-throughput developer APIs. Built for the global privacy community, Zenoa guarantees that users retain sovereign ownership of their personal data while providing developers with enterprise-grade OAuth 2.0 Single Sign-On, Bot APIs, and instant webhook dispatches.
 
 ## Explore this site
 
 - [Zenoa Private Messenger](https://zenoa.in/): Decentralized, ephemeral messaging application built by Inolas Nexus.
 - [App Direct Messenger](https://app.zenoa.in/): Standalone browser messenger with direct instant authentication.
 - [Web Companion QR Messenger](https://web.zenoa.in/): Pair mobile and desktop instances with cryptographic zero-knowledge QR handshakes.
-- [Zenoa Developer Console](https://zenoa.in/developer): Management portal for Indian and global developers to generate API keys, configure webhooks, and register OAuth applications.
+- [Zenoa Developer Console](https://zenoa.in/developer): Management portal for global developers to generate API keys, configure webhooks, and register OAuth applications.
 - [API Documentation](https://zenoa.in/docs): Interactive developer documentation with examples in 7+ languages (TypeScript, Python, Go, Node.js, cURL).
 - [Zenoa OAuth & SSO Console](https://zenoa.in/sso): Identity gateway protecting user privacy with zero-data phone/email harvesting.
 - [Security Architecture](https://zenoa.in/security): In-depth cryptographic whitepaper on 0ms TTL relay mesh and local IndexedDB isolation.
-- [Privacy Policy](https://zenoa.in/privacy): Clear privacy commitments from Inolas Nexus, Indian startup.
+- [Privacy Policy](https://zenoa.in/privacy): Clear privacy commitments from Inolas Nexus.
 - [Terms of Service](https://zenoa.in/terms): User agreement and open API guidelines.
 
 ## Developer & Machine-Readable Resources
@@ -109,7 +109,21 @@ app.use((req: any, res: any, next: any) => {
   // Agent Discovery RFC 8288 Link headers (scored by Cloudflare isitagentready / agent-ready.dev)
   res.header(
     "Link",
-    '<https://zenoa.in/llms.txt>; rel="alternate"; type="text/markdown", <https://zenoa.in/llms-full.txt>; rel="alternate"; type="text/markdown", <https://zenoa.in/openapi.json>; rel="service-desc"; type="application/json", <https://zenoa.in/sitemap.xml>; rel="sitemap"; type="application/xml"'
+    [
+      '</.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"',
+      '</.well-known/openid-configuration>; rel="service-desc"; type="application/json"',
+      '</.well-known/oauth-authorization-server>; rel="oauth-authorization-server"; type="application/json"',
+      '</.well-known/oauth-protected-resource>; rel="oauth-protected-resource"; type="application/json"',
+      '</.well-known/mcp/server-card.json>; rel="mcp-server-card"; type="application/json"',
+      '</.well-known/agent-skills/index.json>; rel="agent-skills"; type="application/json"',
+      '</.well-known/ai-catalog.json>; rel="ai-catalog"; type="application/json"',
+      '</docs>; rel="service-doc"',
+      '</openapi.json>; rel="service-desc"; type="application/json"',
+      '</llms.txt>; rel="alternate"; type="text/markdown"',
+      '</llms-full.txt>; rel="alternate"; type="text/markdown"',
+      '</auth.md>; rel="author-authorization"; type="text/markdown"',
+      '</sitemap.xml>; rel="sitemap"; type="application/xml"'
+    ].join(', ')
   );
 
   // Content negotiation for AI agents & markdown clients (Accept: text/markdown)
@@ -126,8 +140,10 @@ app.use((req: any, res: any, next: any) => {
 
       if (acceptsMarkdown) {
         const mdContent = getMarkdownResponseForPath(req.path);
+        const tokenEstimate = Math.max(1, Math.ceil(mdContent.length / 4));
         res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
         res.setHeader('Vary', 'Accept');
+        res.setHeader('x-markdown-tokens', String(tokenEstimate));
         return res.status(200).send(mdContent);
       }
     }
@@ -148,16 +164,16 @@ app.get('/google47f3905eac1338b5.html', (req, res) => {
 app.get('/robots.txt', (req, res) => {
   const robotsPath = path.join(process.cwd(), 'public', 'robots.txt');
   if (fs.existsSync(robotsPath)) {
-    res.type('text/plain').sendFile(robotsPath);
+    res.type('text/plain; charset=UTF-8').sendFile(robotsPath);
   } else {
-    res.type('text/plain').send('User-agent: *\nAllow: /\nSitemap: https://zenoa.in/sitemap.xml\n');
+    res.type('text/plain; charset=UTF-8').send('Content-Signal: ai-train=no, search=yes, ai-input=no\n\nUser-agent: *\nAllow: /\nSitemap: https://zenoa.in/sitemap.xml\n');
   }
 });
 
 app.get('/sitemap.xml', (req, res) => {
   const sitemapPath = path.join(process.cwd(), 'public', 'sitemap.xml');
   if (fs.existsSync(sitemapPath)) {
-    res.type('application/xml').sendFile(sitemapPath);
+    res.type('application/xml; charset=UTF-8').sendFile(sitemapPath);
   } else {
     res.status(404).send('Not Found');
   }
@@ -184,6 +200,165 @@ app.get('/llms-full.txt', (req, res) => {
     res.type('text/markdown; charset=UTF-8').sendFile(targetPath);
   } else {
     res.status(404).send('Not Found');
+  }
+});
+
+// Auth.md specification endpoint for AI Agent authentication
+app.get('/auth.md', (req, res) => {
+  const authPublicPath = path.join(process.cwd(), 'public', 'auth.md');
+  const authRootPath = path.join(process.cwd(), 'auth.md');
+  const targetPath = fs.existsSync(authPublicPath) ? authPublicPath : authRootPath;
+  if (fs.existsSync(targetPath)) {
+    res.type('text/markdown; charset=UTF-8').sendFile(targetPath);
+  } else {
+    res.status(404).send('Not Found');
+  }
+});
+
+// RFC 9727 API Catalog Endpoint
+app.get(['/.well-known/api-catalog', '/.well-known/api-catalog.json'], (req, res) => {
+  const catalogPath = path.join(process.cwd(), 'public', '.well-known', 'api-catalog');
+  res.setHeader('Content-Type', 'application/linkset+json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (fs.existsSync(catalogPath)) {
+    res.send(fs.readFileSync(catalogPath, 'utf8'));
+  } else {
+    res.json({
+      linkset: [
+        {
+          anchor: "https://zenoa.in/api/v1",
+          "service-desc": [{ href: "https://zenoa.in/openapi.json", type: "application/json" }],
+          "service-doc": [{ href: "https://zenoa.in/docs", type: "text/html" }],
+          status: [{ href: "https://zenoa.in/api/health", type: "application/json" }]
+        }
+      ]
+    });
+  }
+});
+
+// OpenID Connect & OAuth 2.0 Discovery
+app.get('/.well-known/openid-configuration', (req, res) => {
+  const oidcPath = path.join(process.cwd(), 'public', '.well-known', 'openid-configuration');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (fs.existsSync(oidcPath)) {
+    res.send(fs.readFileSync(oidcPath, 'utf8'));
+  } else {
+    res.json({
+      issuer: "https://zenoa.in",
+      authorization_endpoint: "https://zenoa.in/sso",
+      token_endpoint: "https://zenoa.in/api/v1/oauth/token",
+      userinfo_endpoint: "https://zenoa.in/api/v1/oauth/userinfo",
+      jwks_uri: "https://zenoa.in/.well-known/jwks.json"
+    });
+  }
+});
+
+app.get('/.well-known/oauth-authorization-server', (req, res) => {
+  const oauthPath = path.join(process.cwd(), 'public', '.well-known', 'oauth-authorization-server');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (fs.existsSync(oauthPath)) {
+    res.send(fs.readFileSync(oauthPath, 'utf8'));
+  } else {
+    res.json({
+      issuer: "https://zenoa.in",
+      authorization_endpoint: "https://zenoa.in/sso",
+      token_endpoint: "https://zenoa.in/api/v1/oauth/token",
+      jwks_uri: "https://zenoa.in/.well-known/jwks.json"
+    });
+  }
+});
+
+// RFC 9728 OAuth Protected Resource Metadata
+app.get('/.well-known/oauth-protected-resource', (req, res) => {
+  const protectedPath = path.join(process.cwd(), 'public', '.well-known', 'oauth-protected-resource');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (fs.existsSync(protectedPath)) {
+    res.send(fs.readFileSync(protectedPath, 'utf8'));
+  } else {
+    res.json({
+      resource: "https://zenoa.in/api/v1",
+      authorization_servers: ["https://zenoa.in"],
+      scopes_supported: ["openid", "profile", "email", "zenoa:read", "zenoa:write", "zenoa:messages"]
+    });
+  }
+});
+
+// JWKS Endpoint
+app.get('/.well-known/jwks.json', (req, res) => {
+  const jwksPath = path.join(process.cwd(), 'public', '.well-known', 'jwks.json');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (fs.existsSync(jwksPath)) {
+    res.send(fs.readFileSync(jwksPath, 'utf8'));
+  } else {
+    res.json({ keys: [] });
+  }
+});
+
+// MCP Server Card (SEP-1649)
+app.get('/.well-known/mcp/server-card.json', (req, res) => {
+  const cardPath = path.join(process.cwd(), 'public', '.well-known', 'mcp', 'server-card.json');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (fs.existsSync(cardPath)) {
+    res.send(fs.readFileSync(cardPath, 'utf8'));
+  } else {
+    res.json({
+      $schema: "https://modelcontextprotocol.io/schemas/server-card/v1.json",
+      serverInfo: { name: "zenoa-mcp-server", version: "1.0.4" }
+    });
+  }
+});
+
+// Agent Skills Index (RFC v0.2.0)
+app.get('/.well-known/agent-skills/index.json', (req, res) => {
+  const skillsPath = path.join(process.cwd(), 'public', '.well-known', 'agent-skills', 'index.json');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (fs.existsSync(skillsPath)) {
+    res.send(fs.readFileSync(skillsPath, 'utf8'));
+  } else {
+    res.json({ version: "0.2.0", skills: [] });
+  }
+});
+
+// Agent Skills Individual Markdown Files
+app.get('/.well-known/agent-skills/:skill/SKILL.md', (req, res) => {
+  const skillName = req.params.skill;
+  const skillFilePath = path.join(process.cwd(), 'public', '.well-known', 'agent-skills', skillName, 'SKILL.md');
+  res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (fs.existsSync(skillFilePath)) {
+    res.send(fs.readFileSync(skillFilePath, 'utf8'));
+  } else {
+    res.status(404).send('# Skill Not Found');
+  }
+});
+
+// Agentic Resource Discovery (ARD) AI Catalog
+app.get(['/.well-known/ai-catalog.json', '/.well-known/ard.json'], (req, res) => {
+  const aiCatPath = path.join(process.cwd(), 'public', '.well-known', 'ai-catalog.json');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (fs.existsSync(aiCatPath)) {
+    res.send(fs.readFileSync(aiCatPath, 'utf8'));
+  } else {
+    res.json({ specVersion: "1.0.0", entries: [] });
+  }
+});
+
+// DNS-AID Discovery Manifest
+app.get('/.well-known/dns-aid.json', (req, res) => {
+  const dnsAidPath = path.join(process.cwd(), 'public', '.well-known', 'dns-aid.json');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (fs.existsSync(dnsAidPath)) {
+    res.send(fs.readFileSync(dnsAidPath, 'utf8'));
+  } else {
+    res.json({ specVersion: "draft-mozleywilliams-dnsop-dnsaid-00", zone: "zenoa.in" });
   }
 });
 

@@ -1,0 +1,19 @@
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "use": "sig",
+      "alg": "RS256",
+      "kid": "zenoa-auth-key-2026",
+      "n": "u1P_z6VzYQfU0D4l9Z1mC7jP_9w0rG5uP8s7V4xL2bA1mK0vR3jQ8yL2sF7eA3dF6jP_9w0rG5uP8s7V4xL2bA1mK0vR3jQ8yL2sF7eA3dF6jP9w0rG5uP8s7V4xL2bA1mK0vR3jQ8yL2sF7eA3dF6",
+      "e": "AQAB"
+    },
+    {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "use": "sig",
+      "kid": "zenoa-ed25519-2026",
+      "x": "O270Y0y-0wG7o-7K0G0-0wG7o-7K0G0-0wG7o-7K0G0"
+    }
+  ]
+}

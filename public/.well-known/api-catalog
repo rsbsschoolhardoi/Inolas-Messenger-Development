@@ -1,0 +1,63 @@
+{
+  "linkset": [
+    {
+      "anchor": "https://zenoa.in/api/v1",
+      "service-desc": [
+        {
+          "href": "https://zenoa.in/openapi.json",
+          "type": "application/json"
+        }
+      ],
+      "service-doc": [
+        {
+          "href": "https://zenoa.in/docs",
+          "type": "text/html"
+        }
+      ],
+      "status": [
+        {
+          "href": "https://zenoa.in/api/health",
+          "type": "application/json"
+        }
+      ]
+    },
+    {
+      "anchor": "https://zenoa.in/api/v1/auth",
+      "service-desc": [
+        {
+          "href": "https://zenoa.in/.well-known/openid-configuration",
+          "type": "application/json"
+        },
+        {
+          "href": "https://zenoa.in/.well-known/oauth-authorization-server",
+          "type": "application/json"
+        }
+      ],
+      "service-doc": [
+        {
+          "href": "https://zenoa.in/sso",
+          "type": "text/html"
+        },
+        {
+          "href": "https://zenoa.in/auth.md",
+          "type": "text/markdown"
+        }
+      ]
+    },
+    {
+      "anchor": "https://zenoa.in/api/v1/mcp",
+      "service-desc": [
+        {
+          "href": "https://zenoa.in/.well-known/mcp/server-card.json",
+          "type": "application/json"
+        }
+      ],
+      "service-doc": [
+        {
+          "href": "https://zenoa.in/docs",
+          "type": "text/html"
+        }
+      ]
+    }
+  ]
+}

@@ -201,7 +201,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
             </div>
             <h3 className="text-base font-bold mb-1.5">Direct OTP Dispatch</h3>
             <p className="text-xs sm:text-sm text-[#64748d] dark:text-[#94a3b8] leading-relaxed">
-              Deliver verified 6-digit authentication codes instantly to Indian and global users with zero SMS latency and end-to-end device delivery.
+              Deliver verified 6-digit authentication codes instantly to global users with zero SMS latency and end-to-end device delivery.
             </p>
           </div>
 

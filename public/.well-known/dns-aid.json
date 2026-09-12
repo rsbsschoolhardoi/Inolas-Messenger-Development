@@ -1,0 +1,29 @@
+{
+  "specVersion": "draft-mozleywilliams-dnsop-dnsaid-00",
+  "zone": "zenoa.in",
+  "dnssec": true,
+  "records": [
+    {
+      "name": "_index._agents.zenoa.in",
+      "type": "HTTPS",
+      "priority": 1,
+      "target": "zenoa.in",
+      "params": {
+        "alpn": ["h2", "h3"],
+        "port": 443,
+        "endpoint": "/.well-known/ai-catalog.json"
+      }
+    },
+    {
+      "name": "_a2a._agents.zenoa.in",
+      "type": "HTTPS",
+      "priority": 1,
+      "target": "zenoa.in",
+      "params": {
+        "alpn": ["h2", "h3"],
+        "port": 443,
+        "endpoint": "/.well-known/mcp/server-card.json"
+      }
+    }
+  ]
+}

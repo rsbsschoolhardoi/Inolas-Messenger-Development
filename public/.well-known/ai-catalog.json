@@ -1,0 +1,78 @@
+{
+  "specVersion": "1.0.0",
+  "host": {
+    "domain": "zenoa.in",
+    "name": "Zenoa (Inolas Nexus)",
+    "description": "Sovereign Private Messenger, Developer Ecosystem & Zero-Retention Identity Platform",
+    "contact": "support@zenoa.in",
+    "documentation": "https://zenoa.in/docs"
+  },
+  "entries": [
+    {
+      "id": "urn:air:zenoa.in:service:messenger",
+      "displayName": "Zenoa Private Messenger",
+      "type": "text/html",
+      "url": "https://zenoa.in/",
+      "representativeQueries": [
+        "How to use Zenoa private messenger",
+        "Zero-cloud encrypted sovereign messaging",
+        "Inolas Nexus privacy chat application"
+      ]
+    },
+    {
+      "id": "urn:air:zenoa.in:mcp:server-card",
+      "displayName": "Zenoa MCP Server Card",
+      "type": "application/json",
+      "url": "https://zenoa.in/.well-known/mcp/server-card.json",
+      "representativeQueries": [
+        "Connect Model Context Protocol to Zenoa",
+        "MCP tool definitions for Zenoa messaging",
+        "AI agent MCP server for Zenoa"
+      ]
+    },
+    {
+      "id": "urn:air:zenoa.in:api:openapi",
+      "displayName": "Zenoa OpenAPI 3.1 Specification",
+      "type": "application/json",
+      "url": "https://zenoa.in/openapi.json",
+      "representativeQueries": [
+        "Zenoa REST API documentation",
+        "Zenoa OpenAPI spec for bots",
+        "Developer API endpoints for Zenoa"
+      ]
+    },
+    {
+      "id": "urn:air:zenoa.in:oauth:authorization-server",
+      "displayName": "Zenoa OAuth 2.0 Authorization Server",
+      "type": "application/json",
+      "url": "https://zenoa.in/.well-known/oauth-authorization-server",
+      "representativeQueries": [
+        "Zenoa OAuth 2.0 discovery metadata",
+        "Authenticate agents with Zenoa SSO",
+        "Zenoa OpenID configuration"
+      ]
+    },
+    {
+      "id": "urn:air:zenoa.in:skills:index",
+      "displayName": "Zenoa Agent Skills Discovery Index",
+      "type": "application/json",
+      "url": "https://zenoa.in/.well-known/agent-skills/index.json",
+      "representativeQueries": [
+        "Discover agent skills for Zenoa",
+        "Zenoa autonomous bot instructions",
+        "Agent Skills RFC index for Zenoa"
+      ]
+    },
+    {
+      "id": "urn:air:zenoa.in:catalog:api-catalog",
+      "displayName": "Zenoa RFC 9727 API Catalog",
+      "type": "application/linkset+json",
+      "url": "https://zenoa.in/.well-known/api-catalog",
+      "representativeQueries": [
+        "Zenoa API catalog linkset",
+        "Automated API discovery for Zenoa",
+        "RFC 9727 discovery endpoints"
+      ]
+    }
+  ]
+}

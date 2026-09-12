@@ -7,7 +7,7 @@ url: https://zenoa.in/
 
 # Zenoa (Inolas Nexus) - Full System Specification & Documentation
 
-> **Zenoa** (https://zenoa.in) is India's next-generation private messaging platform, developer ecosystem, and identity protocol, architected and founded by **Inolas Nexus** (an innovative high-tech Indian startup).
+> **Zenoa** (https://zenoa.in) is the sovereign private messaging platform, developer ecosystem, and identity protocol, architected and founded by **Inolas Nexus**.
 
 ## Mission & Core Architecture
 Unlike traditional communications providers that retain messages, contact graphs, and metadata on centralized servers, Zenoa implements a zero-retention ephemeral relay:
@@ -77,5 +77,5 @@ Unlike traditional communications providers that retain messages, contact graphs
 ## Organization & Lineage
 - **Product**: Zenoa (Zenoa Messenger)
 - **Company / Parent**: Inolas Nexus
-- **Country of Origin**: India (Indian Startup / DeepTech Innovation)
+- **Platform Scope**: Global Sovereign Communication Protocol & Developer Ecosystem
 - **License**: Sovereign Privacy & Open Developer Protocol

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://agentskills.io/schema/v0.2.0/skills-index.json",
+  "version": "0.2.0",
+  "skills": [
+    {
+      "name": "secure-messaging",
+      "type": "instruction",
+      "description": "Instructions for AI agents to compose, encrypt, and dispatch zero-retention messages through Zenoa sovereign relays.",
+      "url": "https://zenoa.in/.well-known/agent-skills/secure-messaging/SKILL.md",
+      "sha256": "4b96f1338d9b2ff92e105e6bca6c9c6123fba8e34dc517f8ab2194dc9d9365c1"
+    },
+    {
+      "name": "zenoa-oauth",
+      "type": "instruction",
+      "description": "Instructions for AI agents to authenticate users, issue consent prompts, and exchange OAuth 2.0 authorization codes without email/phone harvesting.",
+      "url": "https://zenoa.in/.well-known/agent-skills/zenoa-oauth/SKILL.md",
+      "sha256": "8a3297a7e1160fb0e38a2e1d09e7c5417abf29910dcf2392484c2f6d0f19c83a"
+    },
+    {
+      "name": "bot-dispatch",
+      "type": "instruction",
+      "description": "Instructions for AI agents to set up automated notification bots, subscribe to webhook events, and process incoming commands on Zenoa.",
+      "url": "https://zenoa.in/.well-known/agent-skills/bot-dispatch/SKILL.md",
+      "sha256": "9b64ea7d8b584a29a5fa158872b43b67e0dafb9bb8a649ef91206f4770fa30d7"
+    }
+  ]
+}

@@ -398,7 +398,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
                 rows={2}
                 value={officeAddress}
                 onChange={e => setOfficeAddress(e.target.value)}
-                placeholder="Innovation Tower, Cyber City, Gurugram, India"
+                placeholder="Innovation Tower, Sovereign Tech District, Suite 400"
                 className={`w-full px-3.5 py-2 rounded-xl border outline-none text-xs resize-none transition-all ${
                   isDark 
                     ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
