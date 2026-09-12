@@ -216,8 +216,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </header>
 
-      {/* HERO SECTION WITH ATMOSPHERIC GRADIENT MESH & ORIGINKIT WAVE ARCS */}
-      <section className="relative pt-16 pb-24 md:pt-24 md:pb-32 overflow-hidden z-10">
+      {/* MAIN CONTENT LANDMARK */}
+      <main id="main-content" tabIndex={-1} className="focus:outline-none">
+        {/* HERO SECTION WITH ATMOSPHERIC GRADIENT MESH & ORIGINKIT WAVE ARCS */}
+        <section className="relative pt-16 pb-24 md:pt-24 md:pb-32 overflow-hidden z-10">
         {/* Originkit Wave Arcs Canvas Interactive Layer (-z-10 to never occlude content) */}
         <div className="absolute inset-0 pointer-events-none opacity-20 dark:opacity-15 -z-10">
           <WaveArcs
@@ -1039,6 +1041,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </form>
         </div>
       </section>
+      </main>
 
       {/* FOOTER-LIGHT on canvas (#ffffff) with caption typography and ink-mute */}
       <footer className="mt-auto py-16 bg-white dark:bg-[#090d16] border-t border-[#e3e8ee] dark:border-[#273951]">

@@ -3,7 +3,7 @@ import {
   Server, Lock, History, FileText, Sliders, LogOut, ShieldCheck, Zap, Key, 
   Copy, Check, RefreshCw, AlertTriangle, Download, Plus, ChevronRight, Menu, X,
   Webhook, Terminal, ArrowLeft, FileCode, CreditCard, Users, Shield, Radio,
-  LayoutDashboard, Eye, EyeOff
+  LayoutDashboard, Eye, EyeOff, Sun, Moon
 } from 'lucide-react';
 import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../../firebaseClient';
@@ -28,6 +28,8 @@ interface PortalDashboardProps {
   currentUser: UserData;
   onLogout: () => void;
   onHome: () => void;
+  themeMode?: 'light' | 'dark';
+  onToggleTheme?: () => void;
 }
 
 export type TabType = 
@@ -42,7 +44,13 @@ export type TabType =
   | 'docs' 
   | 'settings';
 
-export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, onLogout, onHome }) => {
+export const PortalDashboard: React.FC<PortalDashboardProps> = ({ 
+  currentUser, 
+  onLogout, 
+  onHome,
+  themeMode = 'light',
+  onToggleTheme 
+}) => {
   const branding = useBranding();
   const activeLogo = branding.dev_console_logo || branding.public_logo;
   // Landing tab is Overview for security and streamlined UX
@@ -515,18 +523,26 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
     }
   };
 
+  const isDark = themeMode === 'dark';
+
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
+    <div className={`flex h-screen font-sans overflow-hidden transition-colors ${
+      isDark ? 'dark bg-[#0c1024] text-white selection:bg-[#533afd] selection:text-white' : 'bg-[#f6f9fc] text-[#0d253d] selection:bg-[#533afd]/20 selection:text-[#533afd]'
+    }`}>
       {notification && (
-        <div className="fixed top-4 right-4 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 text-sm font-medium animate-in slide-in-from-top-2 border border-slate-700">
+        <div className="fixed top-4 right-4 z-50 bg-[#0d253d] text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 text-sm font-medium animate-in slide-in-from-top-2 border border-[#273951]">
           <ShieldCheck className="h-5 w-5 text-emerald-400" />
           <span>{notification}</span>
         </div>
       )}
 
       {/* Sidebar - Desktop */}
-      <aside className="hidden md:flex flex-col w-64 border-r border-slate-200 bg-white shrink-0">
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+      <aside className={`hidden md:flex flex-col w-64 border-r shrink-0 transition-colors ${
+        isDark ? 'border-[#273951] bg-[#0d1326]' : 'border-[#e3e8ee] bg-white'
+      }`}>
+        <div className={`p-4 border-b flex items-center justify-between ${
+          isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+        }`}>
           <div className="flex items-center gap-3">
             <BrandLogo
               src={activeLogo}
@@ -534,16 +550,16 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               size="sm"
             />
             <div>
-              <h1 className="text-sm font-bold text-slate-900 tracking-tight">{branding.app_name || 'Zenoa'} Developer Console</h1>
-              <p className="text-[11px] text-slate-500 font-medium">Enterprise APIs & Platform Services</p>
+              <h1 className="text-xs font-bold tracking-tight text-[#0d253d] dark:text-white">{branding.app_name || 'Zenoa'} Developer Console</h1>
+              <p className="text-[10px] text-[#64748d] dark:text-[#94a3b8] font-medium">Inolas Nexus &bull; APIs & Bots</p>
             </div>
           </div>
         </div>
         
-        <div className="flex-1 p-3.5 space-y-4 overflow-y-auto">
+        <div className="flex-1 p-3 space-y-4 overflow-y-auto">
           {/* Main Navigation */}
           <div>
-            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-slate-400">Main</div>
+            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-[#64748d] dark:text-[#94a3b8]">Main</div>
             <div className="space-y-1">
               {[
                 { id: 'overview', icon: LayoutDashboard, label: 'Overview' },
@@ -553,18 +569,18 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as TabType)}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     activeTab === tab.id 
-                      ? 'bg-indigo-50 text-indigo-700 shadow-xs border border-indigo-100' 
-                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      ? 'bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 shadow-xs border border-[#533afd]/20' 
+                      : 'text-[#64748d] dark:text-[#94a3b8] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] hover:text-[#0d253d] dark:hover:text-white'
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <tab.icon className={`h-4 w-4 ${activeTab === tab.id ? 'text-indigo-600' : 'text-slate-400'}`} />
+                    <tab.icon className={`h-4 w-4 ${activeTab === tab.id ? 'text-[#533afd] dark:text-[#818cf8]' : 'text-[#64748d] dark:text-[#94a3b8]'}`} />
                     <span>{tab.label}</span>
                   </div>
                   {tab.badge && (
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-slate-100 text-slate-500">
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-[#f6f9fc] dark:bg-[#121624] text-[#64748d] dark:text-[#94a3b8] border border-[#e3e8ee] dark:border-[#273951]">
                       {tab.badge}
                     </span>
                   )}
@@ -575,7 +591,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
 
           {/* Tools & Testing */}
           <div>
-            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-slate-400">Tools & Testing</div>
+            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-[#64748d] dark:text-[#94a3b8]">Tools & Testing</div>
             <div className="space-y-1">
               {[
                 { id: 'otp', icon: Zap, label: 'OTP Simulator' },
@@ -585,13 +601,13 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as TabType)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     activeTab === tab.id 
-                      ? 'bg-indigo-50 text-indigo-700 shadow-xs border border-indigo-100' 
-                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      ? 'bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 shadow-xs border border-[#533afd]/20' 
+                      : 'text-[#64748d] dark:text-[#94a3b8] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] hover:text-[#0d253d] dark:hover:text-white'
                   }`}
                 >
-                  <tab.icon className={`h-4 w-4 ${activeTab === tab.id ? 'text-indigo-600' : 'text-slate-400'}`} />
+                  <tab.icon className={`h-4 w-4 ${activeTab === tab.id ? 'text-[#533afd] dark:text-[#818cf8]' : 'text-[#64748d] dark:text-[#94a3b8]'}`} />
                   <span>{tab.label}</span>
                 </button>
               ))}
@@ -600,7 +616,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
 
           {/* Management & Quotas */}
           <div>
-            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-slate-400">Management</div>
+            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-[#64748d] dark:text-[#94a3b8]">Management</div>
             <div className="space-y-1">
               {[
                 { id: 'templates', icon: FileCode, label: 'Templates' },
@@ -611,13 +627,13 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as TabType)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     activeTab === tab.id 
-                      ? 'bg-indigo-50 text-indigo-700 shadow-xs border border-indigo-100' 
-                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      ? 'bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 shadow-xs border border-[#533afd]/20' 
+                      : 'text-[#64748d] dark:text-[#94a3b8] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] hover:text-[#0d253d] dark:hover:text-white'
                   }`}
                 >
-                  <tab.icon className={`h-4 w-4 ${activeTab === tab.id ? 'text-indigo-600' : 'text-slate-400'}`} />
+                  <tab.icon className={`h-4 w-4 ${activeTab === tab.id ? 'text-[#533afd] dark:text-[#818cf8]' : 'text-[#64748d] dark:text-[#94a3b8]'}`} />
                   <span>{tab.label}</span>
                 </button>
               ))}
@@ -625,55 +641,78 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
           </div>
         </div>
 
-        <div className="p-4 border-t border-slate-200 space-y-3 bg-slate-50/50">
+        <div className={`p-4 border-t space-y-3 ${
+          isDark ? 'border-[#273951] bg-[#0c1024]/60' : 'border-[#e3e8ee] bg-[#f6f9fc]/80'
+        }`}>
           <div className="flex items-center gap-3 px-1 pt-1">
-            <div className="h-8 w-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold uppercase shadow-xs">
+            <div className="h-8 w-8 rounded-full bg-[#533afd] text-white flex items-center justify-center text-xs font-bold uppercase shadow-xs">
               {currentUser.username.slice(0,2)}
             </div>
             <div className="overflow-hidden min-w-0">
-              <p className="text-xs font-bold text-slate-900 truncate">{currentUser.display_name || currentUser.username}</p>
-              <p className="text-[11px] text-slate-500 truncate">@{currentUser.username}</p>
+              <p className="text-xs font-bold truncate text-[#0d253d] dark:text-white">{currentUser.display_name || currentUser.username}</p>
+              <p className="text-[11px] text-[#64748d] dark:text-[#94a3b8] truncate">@{currentUser.username}</p>
             </div>
           </div>
-          <button onClick={() => setShowLogoutConfirm(true)} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold transition-colors border border-slate-200 cursor-pointer">
+          <button onClick={() => setShowLogoutConfirm(true)} className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-colors border cursor-pointer ${
+            isDark ? 'bg-[#121624] hover:bg-[#1c1e54] text-[#cbd5e1] border-[#273951]' : 'bg-white hover:bg-[#f6f9fc] text-[#273951] border-[#e3e8ee]'
+          }`}>
             <LogOut className="h-3.5 w-3.5" /> Sign Out
           </button>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-y-auto">
+      <main className={`flex-1 flex flex-col min-w-0 overflow-y-auto ${
+        isDark ? 'bg-[#0c1024]' : 'bg-[#f6f9fc]'
+      }`}>
         {/* Top Header - Zenoa Developer Console */}
-        <header className="bg-white border-b border-slate-200 px-6 py-3.5 flex items-center justify-between sticky top-0 z-20 shadow-2xs">
+        <header className={`border-b px-6 py-3.5 flex items-center justify-between sticky top-0 z-20 backdrop-blur-md ${
+          isDark ? 'border-[#273951] bg-[#0c1024]/90' : 'border-[#e3e8ee] bg-white/90 shadow-[0_1px_3px_rgba(0,55,112,0.04)]'
+        }`}>
           <div className="flex items-center gap-3">
-            <button onClick={() => setMobileMenuOpen(true)} className="md:hidden p-2 -ml-2 text-slate-600">
+            <button onClick={() => setMobileMenuOpen(true)} className="md:hidden p-2 -ml-2 text-[#64748d] dark:text-[#94a3b8]">
               <Menu className="h-5 w-5" />
             </button>
             <div className="flex items-center gap-3">
-              <h1 className="text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-indigo-600" />
+              <h1 className="text-base font-extrabold tracking-tight flex items-center gap-2 text-[#0d253d] dark:text-white">
+                <ShieldCheck className="h-5 w-5 text-[#533afd]" />
                 Zenoa Developer Console
               </h1>
-              <span className="text-slate-300 hidden sm:inline">|</span>
-              <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500">
+              <span className="text-[#64748d]/40 hidden sm:inline">|</span>
+              <div className="hidden sm:flex items-center gap-1.5 text-xs text-[#64748d] dark:text-[#94a3b8]">
                 <span>Account:</span>
-                <span className="font-mono text-slate-800 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-[11px]">
+                <span className="font-mono font-bold px-2 py-0.5 rounded border text-[11px] bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] border-[#533afd]/20">
                   {selectedApp?.app_name || 'sa_active'}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            {/* Theme Toggle */}
+            {onToggleTheme && (
+              <button
+                onClick={onToggleTheme}
+                className={`p-2 rounded-full border transition-colors cursor-pointer ${
+                  isDark ? 'border-[#273951] hover:bg-[#1c1e54] text-amber-400' : 'border-[#e3e8ee] hover:bg-[#f6f9fc] text-[#273951]'
+                }`}
+                title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+              >
+                {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </button>
+            )}
+
             {/* Environment Switcher Pills */}
-            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-2xs">
+            <div className={`flex items-center p-1 rounded-xl border shadow-2xs ${
+              isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'
+            }`}>
               <button
                 type="button"
                 onClick={() => handleSetEnvironment('test')}
                 className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                   environment === 'test'
                     ? 'bg-amber-500 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    : 'text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white'
                 }`}
                 title="Switch to Sandbox Test Environment"
               >
@@ -686,7 +725,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                 className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                   environment === 'live'
                     ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    : 'text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white'
                 }`}
                 title="Switch to Live Production Environment"
               >
@@ -695,7 +734,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               </button>
             </div>
 
-            <span className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
+            <span className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
               Gateway Online
             </span>
@@ -722,11 +761,20 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
 
         {/* Mobile Sidebar Overlay */}
         {mobileMenuOpen && (
-          <div className="fixed inset-0 z-50 bg-slate-900/20 backdrop-blur-sm md:hidden flex">
-            <div className="w-64 bg-white h-full shadow-2xl flex flex-col">
-              <div className="p-4 flex items-center justify-between border-b border-slate-100">
-                <span className="font-bold text-slate-900 text-sm">Navigation</span>
-                <button onClick={() => setMobileMenuOpen(false)} className="p-2 text-slate-500"><X className="h-5 w-5" /></button>
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm md:hidden flex">
+            <div className={`w-64 h-full shadow-2xl flex flex-col border-r ${
+              isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+            }`}>
+              <div className={`p-4 flex items-center justify-between border-b ${
+                isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+              }`}>
+                <span className="font-bold text-sm">Navigation</span>
+                <button 
+                  onClick={() => setMobileMenuOpen(false)} 
+                  className="p-1.5 rounded-lg text-[#64748d] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
               </div>
               <div className="flex-1 p-3 space-y-1 overflow-y-auto">
                 {[
@@ -744,8 +792,10 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                   <button 
                     key={t.id} 
                     onClick={() => { setActiveTab(t.id as TabType); setMobileMenuOpen(false); }} 
-                    className={`w-full text-left px-4 py-3 rounded-lg text-xs font-bold ${
-                      activeTab === t.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700'
+                    className={`w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                      activeTab === t.id 
+                        ? 'bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20' 
+                        : 'text-[#64748d] dark:text-[#94a3b8] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] hover:text-[#0d253d] dark:hover:text-white'
                     }`}
                   >
                     {t.label}
@@ -766,6 +816,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               environment={environment}
               onNavigate={(tab) => setActiveTab(tab)}
               showToast={showToast}
+              themeMode={themeMode}
             />
           )}
 
@@ -795,21 +846,23 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               </div>
 
               {!selectedApp ? (
-                <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-xs max-w-2xl">
+                <div className={`rounded-2xl p-8 shadow-xs max-w-2xl border ${
+                  isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+                }`}>
                   <div className="flex items-center justify-between mb-6">
                     <div>
-                      <h3 className="text-lg font-bold text-slate-900">Create New Service Account</h3>
-                      <p className="text-xs text-slate-500 mt-0.5">Strict limit: 1 permanent Service Account per developer account.</p>
+                      <h3 className="text-lg font-bold text-[#0d253d] dark:text-white">Create New Service Account</h3>
+                      <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-0.5">Strict limit: 1 permanent Service Account per developer account.</p>
                     </div>
-                    <span className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-50 text-amber-800 border border-amber-200">
+                    <span className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-500/10 text-amber-500 border border-amber-500/30">
                       Immutable Setup
                     </span>
                   </div>
 
                   <form onSubmit={handleCreateApp} className="space-y-5">
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                        Application / Service Name <span className="text-xs text-slate-400 font-normal">(Display Name, case preserved as-is)</span>
+                      <label className="block text-sm font-semibold text-[#0d253d] dark:text-white mb-1.5">
+                        Application / Service Name <span className="text-xs text-[#64748d] dark:text-[#94a3b8] font-normal">(Display Name, case preserved as-is)</span>
                       </label>
                       <input 
                         type="text" 
@@ -819,62 +872,81 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                           setAppName(val);
                         }} 
                         placeholder="e.g. Azad" 
-                        className={`w-full px-4 py-2.5 rounded-lg border outline-none transition-all text-sm ${containsZenoa(appName) ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40 text-rose-900' : 'border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-900'}`} 
+                        className={`w-full px-4 py-2.5 rounded-xl border outline-none transition-all text-sm ${
+                          containsZenoa(appName) 
+                            ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40 text-rose-900' 
+                            : isDark
+                              ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]'
+                              : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                        }`} 
                         required 
                       />
                       {containsZenoa(appName) && (
-                        <p className="text-xs font-semibold text-rose-600 mt-1.5 flex items-center gap-1">
+                        <p className="text-xs font-semibold text-rose-500 mt-1.5 flex items-center gap-1">
                           ⚠️ The reserved word &quot;Zenoa&quot; cannot be used anywhere in service account names.
                         </p>
                       )}
                     </div>
 
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                        Bot Username / Handle <span className="text-xs text-slate-400 font-normal">(Only a-z, 0-9, ., _)</span>
+                      <label className="block text-sm font-semibold text-[#0d253d] dark:text-white mb-1.5">
+                        Bot Username / Handle <span className="text-xs text-[#64748d] dark:text-[#94a3b8] font-normal">(Only a-z, 0-9, ., _)</span>
                       </label>
                       <div className="flex">
-                        <span className="inline-flex items-center px-4 rounded-l-lg border border-r-0 border-slate-300 bg-slate-50 text-slate-500 text-sm font-mono">@</span>
+                        <span className={`inline-flex items-center px-4 rounded-l-xl border border-r-0 text-sm font-mono ${
+                          isDark ? 'bg-[#121624] border-[#273951] text-[#94a3b8]' : 'bg-[#f6f9fc] border-[#e3e8ee] text-[#64748d]'
+                        }`}>@</span>
                         <input 
                           type="text" 
                           value={botUsername} 
                           onChange={e => {
-                            // Username strictly allows only lowercase letters, numbers, dot, and underscore (a-z0-9._)
                             const val = e.target.value.toLowerCase().replace(/[^a-z0-9._]/g, '');
                             setBotUsername(val);
                           }} 
                           placeholder="e.g. azad_bot" 
-                          className={`w-full px-4 py-2.5 rounded-r-lg border outline-none transition-all text-sm font-mono ${containsZenoa(botUsername) ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40 text-rose-900' : 'border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-900'}`} 
+                          className={`w-full px-4 py-2.5 rounded-r-xl border outline-none transition-all text-sm font-mono ${
+                            containsZenoa(botUsername) 
+                              ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40 text-rose-900' 
+                              : isDark
+                                ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]'
+                                : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                          }`} 
                         />
                       </div>
                       {containsZenoa(botUsername) && (
-                        <p className="text-xs font-semibold text-rose-600 mt-1.5 flex items-center gap-1">
+                        <p className="text-xs font-semibold text-rose-500 mt-1.5 flex items-center gap-1">
                           ⚠️ The reserved word &quot;Zenoa&quot; cannot be used anywhere in bot handles.
                         </p>
                       )}
                     </div>
 
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">Initial Operational Environment</label>
+                      <label className="block text-sm font-semibold text-[#0d253d] dark:text-white mb-1.5">Initial Operational Environment</label>
                       <select 
                         value={selectedEnvOnCreate} 
                         onChange={e => setSelectedEnvOnCreate(e.target.value as 'test' | 'live')} 
-                        className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:border-indigo-500 text-sm text-slate-900 outline-none bg-white font-medium cursor-pointer"
+                        className={`w-full px-4 py-2.5 rounded-xl border text-sm outline-none font-medium cursor-pointer ${
+                          isDark 
+                            ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
+                            : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                        }`}
                       >
                         <option value="test">Test / Sandbox Environment (Free simulation &amp; mock dispatches)</option>
                         <option value="live">Live / Production Environment (Real Telecommunication Gateway)</option>
                       </select>
-                      <p className="text-xs text-slate-500 mt-1">
+                      <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-1">
                         You can change environment mode anytime later in Settings -&gt; Account Environment.
                       </p>
                     </div>
 
-                    <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 text-xs text-slate-600 space-y-1.5">
-                      <p className="font-bold text-slate-800 flex items-center gap-1.5">
-                        <Lock className="h-3.5 w-3.5 text-indigo-600" />
+                    <div className={`rounded-xl p-4 border text-xs space-y-1.5 ${
+                      isDark ? 'bg-[#121624] border-[#273951] text-[#94a3b8]' : 'bg-[#f6f9fc] border-[#e3e8ee] text-[#64748d]'
+                    }`}>
+                      <p className="font-bold text-[#0d253d] dark:text-white flex items-center gap-1.5">
+                        <Lock className="h-3.5 w-3.5 text-[#533afd] dark:text-[#818cf8]" />
                         Service Account Security Rules:
                       </p>
-                      <ul className="list-disc pl-4 space-y-1 text-slate-600">
+                      <ul className="list-disc pl-4 space-y-1">
                         <li>Each user can register only <strong>1 service account</strong>.</li>
                         <li>Service account identity is <strong>immutable</strong> and locked after creation.</li>
                         <li>Secrets are stored securely on backend servers via <code>ZENOA_SA_CLIENT_SECRET</code> environment variable.</li>
@@ -884,7 +956,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                     <button 
                       type="submit" 
                       disabled={isCreating || containsZenoa(appName) || containsZenoa(botUsername)} 
-                      className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold shadow-xs transition-all flex items-center justify-center gap-2 w-full sm:w-auto cursor-pointer"
+                      className="px-6 py-2.5 bg-[#533afd] hover:bg-[#432ec4] disabled:opacity-50 text-white rounded-xl text-sm font-semibold shadow-xs transition-all flex items-center justify-center gap-2 w-full sm:w-auto cursor-pointer"
                     >
                       {isCreating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create Service Account
                     </button>
@@ -893,28 +965,34 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               ) : (
                 <div className="space-y-6">
                   {/* Credentials & Key Master Panel */}
-                  <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
-                    <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50/50">
+                  <div className={`rounded-2xl shadow-xs overflow-hidden border ${
+                    isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+                  }`}>
+                    <div className={`p-6 border-b flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                      isDark ? 'border-[#273951] bg-[#121624]/60' : 'border-[#e3e8ee] bg-[#f6f9fc]/80'
+                    }`}>
                       <div>
                         <div className="flex items-center gap-2.5">
-                          <h3 className="text-lg font-bold text-slate-900">{selectedApp.app_name}</h3>
+                          <h3 className="text-lg font-bold text-[#0d253d] dark:text-white">{selectedApp.app_name}</h3>
                           <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border ${
                             environment === 'test'
-                              ? 'bg-amber-50 text-amber-800 border-amber-200'
-                              : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
+                              : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
                           }`}>
                             {environment === 'test' ? 'Sandbox Environment' : 'Live Production'}
                           </span>
                         </div>
-                        <p className="text-xs font-mono text-slate-500 mt-1 flex items-center gap-2">
+                        <p className="text-xs font-mono text-[#64748d] dark:text-[#94a3b8] mt-1 flex items-center gap-2">
                           <span>Handle: @{selectedApp.bot_username || selectedApp.owner}</span>
                           <span>•</span>
                           <span>Account ID: sa_{selectedApp.owner.toLowerCase()}</span>
                         </p>
                       </div>
 
-                      <div className="flex items-center gap-2 text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200/80">
-                        <Lock className="h-3.5 w-3.5 text-amber-600" />
+                      <div className={`flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl border ${
+                        isDark ? 'bg-[#121624] border-[#273951] text-[#94a3b8]' : 'bg-[#f6f9fc] border-[#e3e8ee] text-[#64748d]'
+                      }`}>
+                        <Lock className="h-3.5 w-3.5 text-amber-500" />
                         <span>Secrets Encrypted &amp; Masked</span>
                       </div>
                     </div>
@@ -924,69 +1002,73 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                         {/* Client ID */}
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
-                            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                              <Key className="h-3.5 w-3.5 text-indigo-600" />
+                            <label className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-[#0d253d] dark:text-white">
+                              <Key className="h-3.5 w-3.5 text-[#533afd] dark:text-[#818cf8]" />
                               <span>{environment === 'test' ? 'Test Client ID (Sandbox)' : 'Live Client ID (Production)'}</span>
                             </label>
                             <button
                               type="button"
                               onClick={() => handleCopy(selectedApp.active_client_id, "Client ID")}
-                              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                              className="text-xs font-bold text-[#533afd] dark:text-[#818cf8] hover:underline flex items-center gap-1 cursor-pointer"
                             >
-                              {copiedKey === selectedApp.active_client_id ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                              {copiedKey === selectedApp.active_client_id ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
                               <span>{copiedKey === selectedApp.active_client_id ? 'Copied' : 'Copy ID'}</span>
                             </button>
                           </div>
-                          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 font-mono text-xs font-bold text-slate-800 select-all flex items-center justify-between">
+                          <div className={`p-3.5 rounded-xl border font-mono text-xs font-bold select-all flex items-center justify-between ${
+                            isDark ? 'bg-[#121624] border-[#273951] text-white' : 'bg-[#f6f9fc] border-[#e3e8ee] text-[#0d253d]'
+                          }`}>
                             <span className="truncate">{selectedApp.active_client_id}</span>
-                            <span className="text-[10px] uppercase font-sans font-bold text-slate-400 bg-slate-200/60 px-2 py-0.5 rounded ml-2 shrink-0">Public</span>
+                            <span className="text-[10px] uppercase font-sans font-bold text-[#64748d] dark:text-[#94a3b8] bg-[#533afd]/10 px-2 py-0.5 rounded ml-2 shrink-0">Public</span>
                           </div>
                         </div>
 
                         {/* Client Secret */}
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
-                            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                              <Lock className="h-3.5 w-3.5 text-rose-600" />
+                            <label className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-[#0d253d] dark:text-white">
+                              <Lock className="h-3.5 w-3.5 text-rose-500" />
                               <span>{environment === 'test' ? 'Test Client Secret' : 'Live Client Secret'}</span>
                             </label>
                             <button
                               type="button"
                               onClick={() => handleCopy(selectedApp.active_client_secret, "Client Secret")}
-                              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                              className="text-xs font-bold text-[#533afd] dark:text-[#818cf8] hover:underline flex items-center gap-1 cursor-pointer"
                             >
-                              {copiedKey === selectedApp.active_client_secret ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                              {copiedKey === selectedApp.active_client_secret ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
                               <span>{copiedKey === selectedApp.active_client_secret ? 'Copied' : 'Copy Secret'}</span>
                             </button>
                           </div>
-                          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 font-mono text-xs text-slate-800 select-all flex items-center justify-between">
-                            <span className="truncate text-slate-400 tracking-widest font-mono">
+                          <div className={`p-3.5 rounded-xl border font-mono text-xs select-all flex items-center justify-between ${
+                            isDark ? 'bg-[#121624] border-[#273951] text-white' : 'bg-[#f6f9fc] border-[#e3e8ee] text-[#0d253d]'
+                          }`}>
+                            <span className="truncate text-[#64748d] dark:text-[#94a3b8] tracking-widest font-mono">
                               {environment === 'test' ? 'zen_test_sec_••••••••••••••••••••••••' : 'zen_sec_••••••••••••••••••••••••'}
                             </span>
-                            <span className="text-[10px] uppercase font-sans font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded ml-2 shrink-0">Protected</span>
+                            <span className="text-[10px] uppercase font-sans font-bold text-rose-500 bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 rounded ml-2 shrink-0">Protected</span>
                           </div>
                         </div>
                       </div>
 
                       {/* Quick REST API Authorization Header Box */}
-                      <div className="pt-2 border-t border-slate-100">
+                      <div className={`pt-2 border-t ${isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'}`}>
                         <div className="flex items-center justify-between mb-2">
-                          <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                            <Terminal className="h-3.5 w-3.5 text-emerald-600" />
+                          <label className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-[#0d253d] dark:text-white">
+                            <Terminal className="h-3.5 w-3.5 text-emerald-500" />
                             <span>HTTP Authorization Header (cURL / Postman / REST)</span>
                           </label>
                           <button
                             type="button"
                             onClick={() => handleCopy(`Authorization: Bearer ${selectedApp.active_client_secret}`, "Authorization Header")}
-                            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                            className="text-xs font-bold text-[#533afd] dark:text-[#818cf8] hover:underline flex items-center gap-1 cursor-pointer"
                           >
                             <Copy className="h-3.5 w-3.5" />
                             <span>Copy Header</span>
                           </button>
                         </div>
-                        <div className="bg-slate-900 text-slate-200 p-3.5 rounded-xl font-mono text-xs flex items-center justify-between overflow-x-auto selection:bg-indigo-800">
-                          <code className="text-indigo-300">
-                            Authorization: <span className="text-emerald-400">Bearer</span> <span className="text-slate-400 tracking-wider font-mono">{environment === 'test' ? 'zen_test_sec_••••••••••••••••' : 'zen_sec_••••••••••••••••'}</span>
+                        <div className="bg-[#0c1024] text-slate-200 p-3.5 rounded-xl font-mono text-xs flex items-center justify-between overflow-x-auto border border-[#273951]">
+                          <code className="text-[#818cf8]">
+                            Authorization: <span className="text-emerald-400">Bearer</span> <span className="text-[#94a3b8] tracking-wider font-mono">{environment === 'test' ? 'zen_test_sec_••••••••••••••••' : 'zen_sec_••••••••••••••••'}</span>
                           </code>
                         </div>
                       </div>
@@ -994,14 +1076,18 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                   </div>
 
                   {/* Commercial Multi-Language SDK Generator Suite */}
-                  <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden space-y-0">
-                    <div className="p-5 border-b border-slate-200 bg-slate-50/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className={`rounded-2xl shadow-xs overflow-hidden border ${
+                    isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+                  }`}>
+                    <div className={`p-5 border-b flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                      isDark ? 'bg-[#121624]/70 border-[#273951]' : 'bg-[#f6f9fc]/80 border-[#e3e8ee]'
+                    }`}>
                       <div>
-                        <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                          <FileCode className="h-5 w-5 text-indigo-600" />
+                        <h3 className="text-base font-bold flex items-center gap-2 text-[#0d253d] dark:text-white">
+                          <FileCode className="h-5 w-5 text-[#533afd] dark:text-[#818cf8]" />
                           Multi-Language SDK Code Master
                         </h3>
-                        <p className="text-xs text-slate-500 mt-0.5">
+                        <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-0.5">
                           Pre-configured integration code with embedded service account keys. Select language:
                         </p>
                       </div>
@@ -1010,7 +1096,11 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                         <select
                           value={selectedLanguage}
                           onChange={e => setSelectedLanguage(e.target.value as any)}
-                          className="px-3.5 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-indigo-500 cursor-pointer shadow-2xs"
+                          className={`px-3.5 py-2 rounded-xl text-xs font-bold outline-none cursor-pointer border ${
+                            isDark 
+                              ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
+                              : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                          }`}
                         >
                           <option value="typescript">TypeScript (Browser / React / Node)</option>
                           <option value="node">Node.js (CommonJS / ESM)</option>
@@ -1025,7 +1115,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                         <button
                           type="button"
                           onClick={() => handleCopy(getGeneratedCode(), `${selectedLanguage.toUpperCase()} SDK Code`)}
-                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
+                          className="px-4 py-2 bg-[#533afd] hover:bg-[#432ec4] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
                         >
                           {copiedKey === getGeneratedCode() ? <Check className="h-3.5 w-3.5 text-emerald-300" /> : <Copy className="h-3.5 w-3.5" />}
                           <span>{copiedKey === getGeneratedCode() ? 'Copied to Clipboard!' : 'Copy Code'}</span>
@@ -1033,8 +1123,8 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
                       </div>
                     </div>
 
-                    <div className="p-0 bg-slate-950">
-                      <pre className="p-6 text-xs font-mono text-indigo-200/90 leading-relaxed overflow-x-auto selection:bg-indigo-800 selection:text-white max-h-[500px]">
+                    <div className="p-0 bg-[#0c1024]">
+                      <pre className="p-6 text-xs font-mono text-indigo-200/90 leading-relaxed overflow-x-auto selection:bg-[#533afd] selection:text-white max-h-[500px]">
                         {getGeneratedCode()}
                       </pre>
                     </div>
@@ -1050,6 +1140,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               app={selectedApp}
               showToast={showToast}
               environment={environment}
+              themeMode={themeMode}
             />
           )}
 
@@ -1058,6 +1149,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
             <BillingQuotaView
               app={selectedApp}
               showToast={showToast}
+              themeMode={themeMode}
             />
           )}
 
@@ -1067,6 +1159,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               app={selectedApp}
               currentUser={currentUser}
               showToast={showToast}
+              themeMode={themeMode}
             />
           )}
 
@@ -1075,6 +1168,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
             <ApiLogsView 
               app={selectedApp} 
               showToast={showToast} 
+              themeMode={themeMode}
             />
           )}
 
@@ -1084,6 +1178,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               app={selectedApp} 
               showToast={showToast} 
               onUpdateApp={handleUpdateApp}
+              themeMode={themeMode}
             />
           )}
 
@@ -1093,6 +1188,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               app={selectedApp} 
               currentUser={currentUser} 
               showToast={showToast} 
+              themeMode={themeMode}
             />
           )}
 
@@ -1101,6 +1197,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
             <ApiDocsView 
               app={selectedApp} 
               showToast={showToast} 
+              themeMode={themeMode}
             />
           )}
 
@@ -1114,6 +1211,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({ currentUser, o
               onUpdateApp={handleUpdateApp}
               onRotateKey={handleRotateKey}
               onDeleteApp={handleDeleteApp}
+              themeMode={themeMode}
             />
           )}
 

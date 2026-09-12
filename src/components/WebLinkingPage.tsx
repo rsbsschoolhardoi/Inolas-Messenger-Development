@@ -22,7 +22,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import QRCode from 'qrcode';
 import { getDeviceDetails, getDeviceLocation, getDeviceId } from '../utils/deviceIdentity';
 
-interface Web1LinkingPageProps {
+interface WebLinkingPageProps {
   onSuccessfulLogin?: (userData: any) => void;
   onNavigateHome?: () => void;
   onSwitchToDirectLogin?: () => void;
@@ -30,7 +30,7 @@ interface Web1LinkingPageProps {
   onToggleTheme?: () => void;
 }
 
-export const Web1LinkingPage: React.FC<Web1LinkingPageProps> = ({
+export const WebLinkingPage: React.FC<WebLinkingPageProps> = ({
   onSuccessfulLogin,
   onNavigateHome,
   onSwitchToDirectLogin,
@@ -287,7 +287,7 @@ export const Web1LinkingPage: React.FC<Web1LinkingPageProps> = ({
         </header>
 
         {/* Read-Only Mobile Showcase Body */}
-        <main className="flex-1 max-w-4xl w-full mx-auto p-5 sm:p-8 flex flex-col justify-center space-y-8">
+        <main id="main-content" tabIndex={-1} className="flex-1 max-w-4xl w-full mx-auto p-5 sm:p-8 flex flex-col justify-center space-y-8 focus:outline-none">
           
           {/* Hero Header */}
           <div className="space-y-4 text-center sm:text-left">
@@ -400,7 +400,7 @@ export const Web1LinkingPage: React.FC<Web1LinkingPageProps> = ({
       </header>
 
       {/* Main Container - WhatsApp Web Style Card */}
-      <main className="flex-1 flex items-center justify-center p-4 sm:p-6 lg:p-10 z-10">
+      <main id="main-content" tabIndex={-1} className="flex-1 flex items-center justify-center p-4 sm:p-6 lg:p-10 z-10 focus:outline-none">
         <div className="w-full max-w-4xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800/90 rounded-3xl shadow-xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 transition-all">
           
           {/* Left Column: Instructions (7 cols) */}

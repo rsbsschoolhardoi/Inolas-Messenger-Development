@@ -588,22 +588,22 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer select-none ${
           isActive
             ? isDark
-              ? 'bg-indigo-950/70 text-indigo-400 border border-indigo-800/80 shadow-xs'
-              : 'bg-indigo-50 text-indigo-700 border border-indigo-100 shadow-xs'
+              ? 'bg-[#533afd]/20 text-[#818cf8] border border-[#533afd]/30 shadow-xs'
+              : 'bg-[#533afd]/10 text-[#533afd] border border-[#533afd]/20 shadow-xs'
             : isDark
-            ? 'text-slate-400 hover:bg-slate-900/80 hover:text-slate-200'
-            : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900'
+            ? 'text-[#94a3b8] hover:bg-[#1c1e54] hover:text-white'
+            : 'text-[#64748d] hover:bg-[#f6f9fc] hover:text-[#0d253d]'
         }`}
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <Icon className={`h-4 w-4 shrink-0 ${isActive ? (isDark ? 'text-indigo-400' : 'text-indigo-600') : 'text-slate-400'}`} />
+          <Icon className={`h-4 w-4 shrink-0 ${isActive ? (isDark ? 'text-[#818cf8]' : 'text-[#533afd]') : 'text-[#64748d] dark:text-[#94a3b8]'}`} />
           <span className="truncate">{label}</span>
         </div>
         {badge && (
           <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold shrink-0 ${
             isActive
-              ? isDark ? 'bg-indigo-900/80 text-indigo-200' : 'bg-indigo-100 text-indigo-800'
-              : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'
+              ? isDark ? 'bg-[#533afd]/30 text-[#b9b9f9]' : 'bg-[#533afd]/15 text-[#533afd]'
+              : isDark ? 'bg-[#121624] text-[#94a3b8] border border-[#273951]' : 'bg-[#f6f9fc] text-[#64748d] border border-[#e3e8ee]'
           }`}>
             {badge}
           </span>
@@ -614,7 +614,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
 
   return (
     <div className={`flex h-screen w-full font-sans overflow-hidden transition-colors ${
-      isDark ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+      isDark ? 'dark bg-[#0c1024] text-white selection:bg-[#533afd] selection:text-white' : 'bg-[#f6f9fc] text-[#0d253d] selection:bg-[#533afd]/20 selection:text-[#533afd]'
     }`}>
       {/* Toast Alert */}
       <AnimatePresence>
@@ -638,12 +638,12 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       {/* ========================================================================= */}
       {/* DESKTOP SIDEBAR NAVIGATION (Matching Developer Console)                    */}
       {/* ========================================================================= */}
-      <aside className={`hidden md:flex flex-col w-64 border-r shrink-0 select-none ${
-        isDark ? 'bg-slate-900 border-slate-800/80' : 'bg-white border-slate-200'
+      <aside className={`hidden md:flex flex-col w-64 border-r shrink-0 select-none transition-colors ${
+        isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
       }`}>
         {/* Brand Header */}
         <div className={`p-4 border-b flex items-center justify-between ${
-          isDark ? 'border-slate-800/80' : 'border-slate-100'
+          isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
         }`}>
           <div className="flex items-center gap-3 min-w-0">
             <BrandLogo
@@ -653,14 +653,14 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <h1 className="text-sm font-bold tracking-tight truncate text-slate-900 dark:text-white">
+                <h1 className="text-sm font-bold tracking-tight truncate text-[#0d253d] dark:text-white">
                   {branding.app_name || 'Zenoa'} OAuth
                 </h1>
-                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60">
+                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-[#533afd]/10 dark:bg-[#533afd]/20 text-[#533afd] dark:text-[#818cf8] border border-[#533afd]/20">
                   OIDC
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+              <p className="text-[11px] text-[#64748d] dark:text-[#94a3b8] truncate">
                 Identity & Single Sign-On
               </p>
             </div>
@@ -671,7 +671,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         <div className="flex-1 p-3.5 space-y-4 overflow-y-auto custom-scrollbar">
           {/* Section: Main & Registry */}
           <div>
-            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-slate-400">
+            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-[#64748d] dark:text-[#94a3b8]">
               Identity & SSO
             </div>
             <div className="space-y-1">
@@ -683,7 +683,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
 
           {/* Section: Tools & Testing */}
           <div>
-            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-slate-400">
+            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-[#64748d] dark:text-[#94a3b8]">
               Sandbox & Simulator
             </div>
             <div className="space-y-1">
@@ -694,7 +694,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
 
           {/* Section: Integration & Audit */}
           <div>
-            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-slate-400">
+            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-[#64748d] dark:text-[#94a3b8]">
               Integration & Security
             </div>
             <div className="space-y-1">
@@ -706,11 +706,11 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
 
         {/* User Account & Footer in Sidebar */}
         <div className={`p-3.5 border-t ${
-          isDark ? 'border-slate-800/80 bg-slate-900/40' : 'border-slate-100 bg-slate-50/50'
+          isDark ? 'border-[#273951] bg-[#0c1024]/60' : 'border-[#e3e8ee] bg-[#f6f9fc]/80'
         }`}>
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="h-8 w-8 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-xs text-indigo-600 dark:text-indigo-400 overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700">
+              <div className="h-8 w-8 rounded-xl bg-[#533afd]/10 dark:bg-[#533afd]/20 flex items-center justify-center font-bold text-xs text-[#533afd] dark:text-[#818cf8] overflow-hidden shrink-0 border border-[#533afd]/20">
                 {currentUser?.avatar_url ? (
                   <img src={currentUser.avatar_url} alt="User" className="h-full w-full object-cover" />
                 ) : (
@@ -718,16 +718,16 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                 )}
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold truncate text-slate-900 dark:text-white">{currentUser?.display_name || currentUser?.username || 'Developer'}</p>
-                <p className="text-[10px] text-slate-400 truncate">@{currentUser?.username || 'dev'}</p>
+                <p className="text-xs font-bold truncate text-[#0d253d] dark:text-white">{currentUser?.display_name || currentUser?.username || 'Developer'}</p>
+                <p className="text-[10px] text-[#64748d] dark:text-[#94a3b8] truncate">@{currentUser?.username || 'dev'}</p>
               </div>
             </div>
 
             {onBack && (
               <button
                 onClick={onBack}
-                className={`p-2 rounded-xl border transition-colors cursor-pointer text-slate-400 hover:text-slate-700 dark:hover:text-white shrink-0 ${
-                  isDark ? 'border-slate-800 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-100'
+                className={`p-2 rounded-xl border transition-colors cursor-pointer text-[#64748d] hover:text-[#0d253d] dark:hover:text-white shrink-0 ${
+                  isDark ? 'border-[#273951] hover:bg-[#1c1e54]' : 'border-[#e3e8ee] hover:bg-[#f6f9fc]'
                 }`}
                 title="Return to Messenger"
               >
@@ -757,10 +757,12 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
               exit={{ x: -280 }}
               transition={{ type: 'spring', damping: 25, stiffness: 250 }}
               className={`fixed inset-y-0 left-0 z-50 w-72 flex flex-col border-r shadow-2xl md:hidden ${
-                isDark ? 'bg-[#0f1422] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+                isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
               }`}
             >
-              <div className="p-4 border-b flex items-center justify-between">
+              <div className={`p-4 border-b flex items-center justify-between ${
+                isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+              }`}>
                 <div className="flex items-center gap-3 min-w-0">
                   <BrandLogo
                     src={activeLogo}
@@ -768,13 +770,13 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                     size="sm"
                   />
                   <div className="min-w-0">
-                    <h2 className="text-sm font-bold truncate">{branding.app_name || 'Zenoa'} OAuth</h2>
-                    <p className="text-[10px] text-slate-400">Developer Identity</p>
+                    <h2 className="text-sm font-bold truncate text-[#0d253d] dark:text-white">{branding.app_name || 'Zenoa'} OAuth</h2>
+                    <p className="text-[10px] text-[#64748d] dark:text-[#94a3b8]">Developer Identity</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setMobileMenuOpen(false)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="p-1.5 rounded-lg text-[#64748d] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -792,7 +794,9 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                 </div>
               </div>
 
-              <div className="p-4 border-t flex items-center justify-between">
+              <div className={`p-4 border-t flex items-center justify-between ${
+                isDark ? 'border-[#273951] bg-[#0c1024]/60' : 'border-[#e3e8ee] bg-[#f6f9fc]/80'
+              }`}>
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-emerald-500" />
                   <span className="text-xs font-bold truncate">@{currentUser?.username || 'dev'}</span>
@@ -817,22 +821,22 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       {/* ========================================================================= */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* Top Header Bar */}
-        <header className={`h-16 border-b flex items-center justify-between px-4 sm:px-6 shrink-0 backdrop-blur-md z-10 ${
-          isDark ? 'bg-slate-900/90 border-slate-800/80' : 'bg-white/90 border-slate-200'
+        <header className={`h-16 border-b flex items-center justify-between px-4 sm:px-6 shrink-0 backdrop-blur-md z-10 transition-colors ${
+          isDark ? 'bg-[#0c1024]/90 border-[#273951]' : 'bg-white/90 border-[#e3e8ee] shadow-[0_1px_3px_rgba(0,55,112,0.04)]'
         }`}>
           <div className="flex items-center gap-3 min-w-0">
             {/* Mobile Menu Button */}
             <button
               onClick={() => setMobileMenuOpen(true)}
               className={`p-2 rounded-xl border md:hidden transition-colors cursor-pointer shrink-0 ${
-                isDark ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-700 hover:bg-slate-100'
+                isDark ? 'border-[#273951] text-[#cbd5e1] hover:bg-[#1c1e54]' : 'border-[#e3e8ee] text-[#273951] hover:bg-[#f6f9fc]'
               }`}
             >
               <Menu className="w-4 h-4" />
             </button>
 
             <div className="min-w-0">
-              <h2 className="text-sm sm:text-base font-bold tracking-tight truncate text-slate-900 dark:text-white">
+              <h2 className="text-sm sm:text-base font-bold tracking-tight truncate text-[#0d253d] dark:text-white">
                 {activeTab === 'overview' && 'Console Overview'}
                 {activeTab === 'apps' && 'OAuth 2.0 Client Registry'}
                 {activeTab === 'create' && (editingAppId ? 'Update Client Configuration' : 'Register Application')}
@@ -841,7 +845,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                 {activeTab === 'docs' && 'SDKs & API Reference'}
                 {activeTab === 'activity' && 'Security & Audit Logs'}
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block truncate">
+              <p className="text-[11px] text-[#64748d] dark:text-[#94a3b8] hidden sm:block truncate">
                 {activeTab === 'overview' && 'System status, identity protocol metrics, and OAuth endpoints.'}
                 {activeTab === 'apps' && 'Manage your registered client applications, credentials, and callback URIs.'}
                 {activeTab === 'create' && 'Configure application details, allowed redirect URIs, and scopes.'}
@@ -857,12 +861,12 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
-              className={`p-2 rounded-xl border transition-colors cursor-pointer ${
-                isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
+              className={`p-2 rounded-full border transition-colors cursor-pointer ${
+                isDark ? 'border-[#273951] hover:bg-[#1c1e54] text-[#cbd5e1]' : 'border-[#e3e8ee] hover:bg-[#f6f9fc] text-[#273951]'
               }`}
               title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
             >
-              {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
+              {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-[#273951]" />}
             </button>
 
             {/* Quick Register CTA */}
@@ -872,7 +876,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                   resetForm();
                   setActiveTab('create');
                 }}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer shrink-0"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#533afd] hover:bg-[#4434d4] active:bg-[#2e2b8c] text-white text-[13px] font-medium shadow-[0_1px_3px_rgba(0,55,112,0.15)] transition-all cursor-pointer shrink-0 active:scale-[0.98]"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Register Client</span>

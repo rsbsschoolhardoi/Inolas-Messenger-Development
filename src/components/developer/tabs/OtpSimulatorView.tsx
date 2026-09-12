@@ -8,9 +8,16 @@ interface OtpSimulatorViewProps {
   app: any;
   currentUser: any;
   showToast: (msg: string) => void;
+  themeMode?: 'light' | 'dark';
 }
 
-export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, currentUser, showToast }) => {
+export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ 
+  app, 
+  currentUser, 
+  showToast,
+  themeMode = 'light'
+}) => {
+  const isDark = themeMode === 'dark';
   const [recipient, setRecipient] = useState(currentUser?.mobile_number || currentUser?.username || '');
   const [templateType, setTemplateType] = useState('standard_otp');
   const [expiryMins, setExpiryMins] = useState(10);
@@ -175,11 +182,11 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <Zap className="h-6 w-6 text-indigo-600" />
+          <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2 text-[#0d253d] dark:text-white">
+            <Zap className="h-6 w-6 text-[#533afd] dark:text-[#818cf8]" />
             Interactive OTP Simulator & Sandbox
           </h2>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm text-[#64748d] dark:text-[#94a3b8] mt-1">
             Test real-time OTP dispatch, in-app DM delivery, auto-verification, and webhook triggers.
           </p>
         </div>
@@ -187,9 +194,9 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
         <button
           onClick={handleRunAutoPipeline}
           disabled={isAutoSimulating}
-          className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+          className="px-5 py-2.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
         >
-          {isAutoSimulating ? <RefreshCw className="h-4 w-4 animate-spin text-indigo-400" /> : <Sparkles className="h-4 w-4 text-indigo-400" />}
+          {isAutoSimulating ? <RefreshCw className="h-4 w-4 animate-spin text-white" /> : <Sparkles className="h-4 w-4 text-white" />}
           {isAutoSimulating ? 'Simulating Pipeline...' : '1-Click Auto Pipeline'}
         </button>
       </div>
@@ -198,20 +205,24 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Step 1: Dispatch Form */}
         <div className="lg:col-span-7 space-y-6">
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <span className="h-6 w-6 rounded-full bg-indigo-50 text-indigo-700 text-xs font-bold flex items-center justify-center border border-indigo-200">
+          <div className={`rounded-2xl p-6 shadow-xs space-y-5 border ${
+            isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+          }`}>
+            <div className={`flex items-center justify-between border-b pb-3 ${
+              isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+            }`}>
+              <h3 className="text-base font-bold flex items-center gap-2 text-[#0d253d] dark:text-white">
+                <span className="h-6 w-6 rounded-full bg-[#533afd]/15 text-[#533afd] dark:text-[#818cf8] text-xs font-bold flex items-center justify-center border border-[#533afd]/30">
                   1
                 </span>
                 Send One-Time Passcode
               </h3>
-              <span className="text-xs font-mono font-medium text-slate-400">POST /api/v1/otp/send</span>
+              <span className="text-xs font-mono font-medium text-[#64748d] dark:text-[#94a3b8]">POST /api/v1/otp/send</span>
             </div>
 
             <form onSubmit={handleSendOtp} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#64748d] dark:text-[#94a3b8]">
                   Recipient (Zenoa @username or Mobile Number with country code)
                 </label>
                 <input
@@ -219,19 +230,23 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
                   value={recipient}
                   onChange={e => setRecipient(e.target.value)}
                   placeholder="@john_doe or +919876543210"
-                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none text-sm text-slate-900 transition-all"
+                  className={`w-full px-4 py-2.5 rounded-xl border text-sm outline-none transition-all ${
+                    isDark ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                  }`}
                 />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#64748d] dark:text-[#94a3b8]">
                     Template Format
                   </label>
                   <select
                     value={templateType}
                     onChange={e => setTemplateType(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500"
+                    className={`w-full px-3 py-2.5 rounded-xl border text-xs font-semibold outline-none cursor-pointer ${
+                      isDark ? 'bg-[#121624] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+                    }`}
                   >
                     <option value="standard_otp">Standard OTP Verification</option>
                     <option value="2fa_auth">Two-Factor Auth (2FA)</option>
@@ -241,7 +256,7 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#64748d] dark:text-[#94a3b8]">
                     Validity (Minutes)
                   </label>
                   <input
@@ -250,13 +265,15 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
                     max="1440"
                     value={expiryMins}
                     onChange={e => setExpiryMins(Number(e.target.value))}
-                    className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-sm text-slate-900"
+                    className={`w-full px-4 py-2.5 rounded-xl border text-sm outline-none ${
+                      isDark ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                    }`}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#64748d] dark:text-[#94a3b8]">
                   Custom Code (Optional - Leave blank for random 6 digits)
                 </label>
                 <input
@@ -265,14 +282,16 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
                   value={customCode}
                   onChange={e => setCustomCode(e.target.value)}
                   placeholder="e.g. 584920"
-                  className="w-full px-4 py-2 rounded-lg border border-slate-200 font-mono text-sm text-slate-800 outline-none focus:border-indigo-500"
+                  className={`w-full px-4 py-2 rounded-xl border font-mono text-sm outline-none ${
+                    isDark ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                  }`}
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={isSending}
-                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-2.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
               >
                 {isSending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {isSending ? 'Dispatching OTP...' : 'Dispatch OTP to Recipient Inbox'}
@@ -281,20 +300,24 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
           </div>
 
           {/* Step 2: Verification Form */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <span className="h-6 w-6 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold flex items-center justify-center border border-emerald-200">
+          <div className={`rounded-2xl p-6 shadow-xs space-y-5 border ${
+            isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+          }`}>
+            <div className={`flex items-center justify-between border-b pb-3 ${
+              isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+            }`}>
+              <h3 className="text-base font-bold flex items-center gap-2 text-[#0d253d] dark:text-white">
+                <span className="h-6 w-6 rounded-full bg-emerald-500/15 text-emerald-500 text-xs font-bold flex items-center justify-center border border-emerald-500/30">
                   2
                 </span>
                 Verify Passcode
               </h3>
-              <span className="text-xs font-mono font-medium text-slate-400">POST /api/v1/otp/verify</span>
+              <span className="text-xs font-mono font-medium text-[#64748d] dark:text-[#94a3b8]">POST /api/v1/otp/verify</span>
             </div>
 
             <form onSubmit={handleVerifyOtp} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#64748d] dark:text-[#94a3b8]">
                   6-Digit Passcode
                 </label>
                 <div className="flex gap-2">
@@ -304,12 +327,14 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
                     value={verifyCodeInput}
                     onChange={e => setVerifyCodeInput(e.target.value)}
                     placeholder="Enter received code"
-                    className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none text-base font-mono font-bold text-center tracking-widest text-slate-900"
+                    className={`w-full px-4 py-2.5 rounded-xl border outline-none text-base font-mono font-bold text-center tracking-widest ${
+                      isDark ? 'bg-[#121624] border-[#273951] text-white focus:border-emerald-500' : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-emerald-500'
+                    }`}
                   />
                   <button
                     type="submit"
                     disabled={isVerifying}
-                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50 cursor-pointer"
                   >
                     {isVerifying ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                     Verify Code
@@ -322,14 +347,16 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
             {verifyOutcome && (
               <div className={`p-4 rounded-xl border text-xs font-mono space-y-2 ${
                 verifyOutcome.verified 
-                  ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900' 
-                  : 'bg-rose-50/80 border-rose-200 text-rose-900'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' 
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-500'
               }`}>
                 <div className="flex items-center gap-2 font-bold">
-                  {verifyOutcome.verified ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <AlertCircle className="h-4 w-4 text-rose-600" />}
+                  {verifyOutcome.verified ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <AlertCircle className="h-4 w-4 text-rose-500" />}
                   <span>{verifyOutcome.verified ? 'Verification Succeeded (200 OK)' : 'Verification Failed'}</span>
                 </div>
-                <pre className="p-2.5 bg-white/90 rounded border border-slate-200 text-[11px] overflow-x-auto text-slate-800">
+                <pre className={`p-2.5 rounded border text-[11px] overflow-x-auto ${
+                  isDark ? 'bg-[#0c1024] border-[#273951] text-slate-200' : 'bg-white border-[#e3e8ee] text-slate-800'
+                }`}>
                   {JSON.stringify(verifyOutcome, null, 2)}
                 </pre>
               </div>
@@ -341,21 +368,25 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
         <div className="lg:col-span-5 space-y-6">
           {/* Active OTP Payload Inspector */}
           {activeOtpResponse && (
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4 animate-in fade-in-50">
+            <div className={`rounded-2xl p-5 shadow-xs space-y-4 animate-in fade-in-50 border ${
+              isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+            }`}>
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase text-slate-500">Active OTP Dispatched</span>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
+                <span className="text-xs font-bold uppercase text-[#64748d] dark:text-[#94a3b8]">Active OTP Dispatched</span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[10px] font-bold border border-emerald-500/30">
                   Delivered to DM
                 </span>
               </div>
 
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs font-mono">
-                <p><span className="text-slate-500">Recipient:</span> <span className="font-bold text-slate-900">@{activeOtpResponse.recipient}</span></p>
-                <p><span className="text-slate-500">Chat ID:</span> <span className="text-indigo-600 font-semibold">{activeOtpResponse.chat_id}</span></p>
-                <p><span className="text-slate-500">Expires in:</span> {activeOtpResponse.expiry_mins} minutes</p>
+              <div className={`p-3 border rounded-xl space-y-2 text-xs font-mono ${
+                isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'
+              }`}>
+                <p><span className="text-slate-400">Recipient:</span> <span className="font-bold text-[#0d253d] dark:text-white">@{activeOtpResponse.recipient}</span></p>
+                <p><span className="text-slate-400">Chat ID:</span> <span className="text-[#533afd] dark:text-[#818cf8] font-semibold">{activeOtpResponse.chat_id}</span></p>
+                <p><span className="text-slate-400">Expires in:</span> {activeOtpResponse.expiry_mins} minutes</p>
               </div>
 
-              <pre className="p-3 bg-slate-900 text-slate-200 rounded-xl text-[11px] font-mono overflow-x-auto">
+              <pre className="p-3 bg-[#0c1024] text-slate-200 rounded-xl text-[11px] font-mono overflow-x-auto border border-[#273951]">
                 {JSON.stringify(activeOtpResponse, null, 2)}
               </pre>
             </div>
@@ -363,13 +394,17 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
 
           {/* 1-Click Auto Pipeline Timeline */}
           {autoPipelineTimeline && (
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4 animate-in slide-in-from-top-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-indigo-600" />
+            <div className={`rounded-2xl p-5 shadow-xs space-y-4 animate-in slide-in-from-top-4 border ${
+              isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+            }`}>
+              <div className={`flex items-center justify-between border-b pb-3 ${
+                isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+              }`}>
+                <h4 className="text-sm font-bold flex items-center gap-2 text-[#0d253d] dark:text-white">
+                  <Sparkles className="h-4 w-4 text-[#533afd] dark:text-[#818cf8]" />
                   Auto-Simulation Execution
                 </h4>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 font-bold text-[10px] border border-emerald-500/30">
                   Completed
                 </span>
               </div>
@@ -377,16 +412,16 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
               <div className="space-y-3">
                 {autoPipelineTimeline.map((step, idx) => (
                   <div key={idx} className="flex items-start gap-3 text-xs">
-                    <div className="h-5 w-5 rounded-full bg-emerald-50 border border-emerald-300 text-emerald-700 font-bold flex items-center justify-center shrink-0 mt-0.5 text-[10px]">
+                    <div className="h-5 w-5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 font-bold flex items-center justify-center shrink-0 mt-0.5 text-[10px]">
                       ✓
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="font-bold text-slate-800 capitalize font-mono text-[11px]">
+                      <p className="font-bold capitalize font-mono text-[11px] text-[#0d253d] dark:text-white">
                         {step.action.replace(/_/g, ' ')}
                       </p>
-                      {step.code && <p className="text-slate-500 font-mono">Passcode: <span className="font-bold text-slate-900">{step.code}</span></p>}
-                      {step.message_preview && <p className="text-slate-500 truncate">{step.message_preview}</p>}
-                      {step.result && <p className="text-slate-500 font-mono">Webhook status: HTTP {step.result.status || 200}</p>}
+                      {step.code && <p className="text-slate-400 font-mono">Passcode: <span className="font-bold text-[#0d253d] dark:text-white">{step.code}</span></p>}
+                      {step.message_preview && <p className="text-slate-400 truncate">{step.message_preview}</p>}
+                      {step.result && <p className="text-slate-400 font-mono">Webhook status: HTTP {step.result.status || 200}</p>}
                     </div>
                   </div>
                 ))}
@@ -395,13 +430,15 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({ app, current
           )}
 
           {/* Quick Tip Box */}
-          <div className="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-5 text-xs text-indigo-950 space-y-2">
-            <h4 className="font-bold flex items-center gap-1.5 text-indigo-900">
-              <MessageSquare className="h-4 w-4 text-indigo-600" />
+          <div className={`border rounded-2xl p-5 text-xs space-y-2 ${
+            isDark ? 'bg-[#533afd]/10 border-[#533afd]/30 text-slate-200' : 'bg-indigo-50/70 border-indigo-100 text-indigo-950'
+          }`}>
+            <h4 className="font-bold flex items-center gap-1.5 text-[#533afd] dark:text-[#818cf8]">
+              <MessageSquare className="h-4 w-4 text-[#533afd] dark:text-[#818cf8]" />
               Direct Service Account Delivery
             </h4>
             <p className="leading-relaxed">
-              When an OTP is requested, Zenoa delivers it directly inside the target user's Zenoa chat box under your Service Account name <code className="font-mono font-bold bg-white/80 px-1 py-0.5 rounded">@{app?.bot_username || app?.owner}</code>.
+              When an OTP is requested, Zenoa delivers it directly inside the target user's Zenoa chat box under your Service Account name <code className="font-mono font-bold bg-[#533afd]/20 px-1 py-0.5 rounded">@{app?.bot_username || app?.owner}</code>.
             </p>
           </div>
         </div>

@@ -8,6 +8,7 @@ interface TeamMembersViewProps {
   app: any;
   currentUser: any;
   showToast: (msg: string) => void;
+  themeMode?: 'light' | 'dark';
 }
 
 interface TeamMember {
@@ -21,7 +22,13 @@ interface TeamMember {
   is_owner?: boolean;
 }
 
-export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUser, showToast }) => {
+export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ 
+  app, 
+  currentUser, 
+  showToast,
+  themeMode = 'light'
+}) => {
+  const isDark = themeMode === 'dark';
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -153,11 +160,11 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <Users className="h-6 w-6 text-indigo-600" />
+          <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2 text-[#0d253d] dark:text-white">
+            <Users className="h-6 w-6 text-[#533afd] dark:text-[#818cf8]" />
             Team Members & Collaborators
           </h2>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm text-[#64748d] dark:text-[#94a3b8] mt-1">
             Manage developer team access with fine-grained role-based permissions (Admin, Developer, Viewer).
           </p>
         </div>
@@ -165,13 +172,17 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowMatrixModal(true)}
-            className="px-3.5 py-2.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 shadow-xs transition-colors"
+            className={`px-3.5 py-2.5 rounded-xl text-xs font-semibold shadow-xs transition-colors border cursor-pointer ${
+              isDark 
+                ? 'bg-[#121624] border-[#273951] text-white hover:bg-[#1c1e54]' 
+                : 'bg-white border-[#e3e8ee] text-[#0d253d] hover:bg-[#f6f9fc]'
+            }`}
           >
             Role Permissions
           </button>
           <button
             onClick={() => setShowInviteModal(true)}
-            className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center gap-2"
+            className="px-4 py-2.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer"
           >
             <UserPlus className="h-4 w-4" /> Invite Member
           </button>
@@ -180,41 +191,55 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
 
       {/* KPI Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-500 block">Total Team</span>
-          <div className="text-2xl font-extrabold text-slate-900 mt-1">{members.length}</div>
-          <span className="text-[11px] text-slate-500 mt-0.5 block">Active & invited members</span>
+        <div className={`rounded-2xl p-5 shadow-xs border ${
+          isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+        }`}>
+          <span className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] block">Total Team</span>
+          <div className="text-2xl font-extrabold text-[#0d253d] dark:text-white mt-1">{members.length}</div>
+          <span className="text-[11px] text-[#64748d] dark:text-[#94a3b8] mt-0.5 block">Active & invited members</span>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-          <span className="text-xs font-bold uppercase tracking-wider text-purple-600 block">Admins</span>
-          <div className="text-2xl font-extrabold text-purple-600 mt-1">{adminCount}</div>
-          <span className="text-[11px] text-slate-500 mt-0.5 block">Full billing & credentials access</span>
+        <div className={`rounded-2xl p-5 shadow-xs border ${
+          isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+        }`}>
+          <span className="text-xs font-bold uppercase tracking-wider text-[#533afd] dark:text-[#818cf8] block">Admins</span>
+          <div className="text-2xl font-extrabold text-[#533afd] dark:text-[#818cf8] mt-1">{adminCount}</div>
+          <span className="text-[11px] text-[#64748d] dark:text-[#94a3b8] mt-0.5 block">Full billing & credentials</span>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-          <span className="text-xs font-bold uppercase tracking-wider text-indigo-600 block">Developers</span>
-          <div className="text-2xl font-extrabold text-indigo-600 mt-1">{devCount}</div>
-          <span className="text-[11px] text-slate-500 mt-0.5 block">APIs, templates, & webhooks</span>
+        <div className={`rounded-2xl p-5 shadow-xs border ${
+          isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+        }`}>
+          <span className="text-xs font-bold uppercase tracking-wider text-emerald-500 block">Developers</span>
+          <div className="text-2xl font-extrabold text-emerald-500 mt-1">{devCount}</div>
+          <span className="text-[11px] text-[#64748d] dark:text-[#94a3b8] mt-0.5 block">APIs, templates, & webhooks</span>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-600 block">Viewers</span>
-          <div className="text-2xl font-extrabold text-slate-600 mt-1">{viewerCount}</div>
-          <span className="text-[11px] text-slate-500 mt-0.5 block">Read-only logs & monitoring</span>
+        <div className={`rounded-2xl p-5 shadow-xs border ${
+          isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+        }`}>
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">Viewers</span>
+          <div className="text-2xl font-extrabold text-[#0d253d] dark:text-white mt-1">{viewerCount}</div>
+          <span className="text-[11px] text-[#64748d] dark:text-[#94a3b8] mt-0.5 block">Read-only logs & monitoring</span>
         </div>
       </div>
 
       {/* Members Directory Table */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+      <div className={`rounded-2xl p-6 shadow-xs space-y-4 border ${
+        isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+      }`}>
+        <div className={`flex items-center justify-between border-b pb-3 ${
+          isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+        }`}>
           <div>
-            <h3 className="text-base font-bold text-slate-900">Application Collaborators</h3>
-            <p className="text-xs text-slate-500 mt-0.5">People with authorized console access to this application.</p>
+            <h3 className="text-base font-bold text-[#0d253d] dark:text-white">Application Collaborators</h3>
+            <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-0.5">People with authorized console access to this application.</p>
           </div>
           <button
             onClick={fetchMembers}
-            className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-50"
+            className={`p-2 rounded-xl transition-colors cursor-pointer ${
+              isDark ? 'text-[#94a3b8] hover:text-white hover:bg-[#121624]' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
+            }`}
             title="Refresh team list"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -224,7 +249,9 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-50/50">
+              <tr className={`border-b text-[10px] font-bold uppercase tracking-wider ${
+                isDark ? 'border-[#273951] text-[#94a3b8] bg-[#121624]/60' : 'border-[#e3e8ee] text-slate-400 bg-slate-50/50'
+              }`}>
                 <th className="py-2.5 px-3">Collaborator</th>
                 <th className="py-2.5 px-3">Email Address</th>
                 <th className="py-2.5 px-3">Role</th>
@@ -233,35 +260,39 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
                 <th className="py-2.5 px-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
+            <tbody className={`divide-y ${
+              isDark ? 'divide-[#273951] text-[#cbd5e1]' : 'divide-[#e3e8ee] text-[#0d253d]'
+            }`}>
               {members.map(member => (
-                <tr key={member.id} className="hover:bg-slate-50/50 transition-colors">
+                <tr key={member.id} className={`transition-colors ${
+                  isDark ? 'hover:bg-[#121624]/70' : 'hover:bg-slate-50/50'
+                }`}>
                   <td className="py-3.5 px-3">
                     <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-600 text-white font-bold text-xs flex items-center justify-center shadow-xs">
+                      <div className="h-8 w-8 rounded-full bg-[#533afd] text-white font-bold text-xs flex items-center justify-center shadow-xs">
                         {(member.name || member.username || 'U').charAt(0).toUpperCase()}
                       </div>
                       <div>
-                        <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                        <div className="font-bold text-[#0d253d] dark:text-white flex items-center gap-1.5">
                           {member.name || member.username}
                           {member.is_owner && (
-                            <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold uppercase bg-amber-100 text-amber-800">
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold uppercase bg-amber-500/20 text-amber-500 border border-amber-500/30">
                               Owner
                             </span>
                           )}
                         </div>
-                        <span className="text-[11px] text-slate-400 font-mono">@{member.username}</span>
+                        <span className="text-[11px] text-[#64748d] dark:text-[#94a3b8] font-mono">@{member.username}</span>
                       </div>
                     </div>
                   </td>
 
-                  <td className="py-3.5 px-3 font-mono text-slate-600">
+                  <td className="py-3.5 px-3 font-mono text-[#64748d] dark:text-[#94a3b8]">
                     {member.email}
                   </td>
 
                   <td className="py-3.5 px-3">
                     {member.is_owner ? (
-                      <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase bg-purple-50 text-purple-700 border border-purple-200">
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase bg-[#533afd]/15 text-[#533afd] dark:text-[#818cf8] border border-[#533afd]/30">
                         Admin (Owner)
                       </span>
                     ) : (
@@ -270,10 +301,10 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
                         onChange={e => handleUpdateRole(member.id, e.target.value as any)}
                         className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border outline-none cursor-pointer ${
                           member.role === 'admin'
-                            ? 'bg-purple-50 text-purple-700 border-purple-200'
+                            ? 'bg-[#533afd]/15 text-[#533afd] dark:text-[#818cf8] border-[#533afd]/30'
                             : member.role === 'developer'
-                            ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                            : 'bg-slate-50 text-slate-700 border-slate-200'
+                            ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
+                            : isDark ? 'bg-[#121624] text-slate-300 border-[#273951]' : 'bg-slate-50 text-slate-700 border-slate-200'
                         }`}
                       >
                         <option value="admin">Admin</option>
@@ -286,15 +317,15 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
                   <td className="py-3.5 px-3">
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                       member.status === 'active' 
-                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-                        : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30' 
+                        : 'bg-amber-500/10 text-amber-500 border border-amber-500/30'
                     }`}>
                       {member.status === 'active' ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
                       {member.status === 'active' ? 'Active' : 'Invited'}
                     </span>
                   </td>
 
-                  <td className="py-3.5 px-3 text-slate-500">
+                  <td className="py-3.5 px-3 text-[#64748d] dark:text-[#94a3b8]">
                     {new Date(member.joined_at).toLocaleDateString()}
                   </td>
 
@@ -302,7 +333,7 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
                     {!member.is_owner && (
                       <button
                         onClick={() => handleRemoveMember(member.id, member.name || member.username)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                        className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
                         title="Remove collaborator"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -318,21 +349,25 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
 
       {/* MODAL: Invite Collaborator */}
       {showInviteModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-xl space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className={`border rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5 ${
+            isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+          }`}>
+            <div className={`flex items-center justify-between border-b pb-3 ${
+              isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+            }`}>
               <div>
-                <h3 className="text-base font-bold text-slate-900">Invite Team Member</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Send an invitation to join this application.</p>
+                <h3 className="text-base font-bold text-[#0d253d] dark:text-white">Invite Team Member</h3>
+                <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-0.5">Send an invitation to join this application.</p>
               </div>
-              <button onClick={() => setShowInviteModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
+              <button onClick={() => setShowInviteModal(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
                 ✕
               </button>
             </div>
 
             <form onSubmit={handleInvite} className="space-y-4 text-xs">
               <div>
-                <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+                <label className="block font-bold uppercase tracking-wider mb-1 text-[#64748d] dark:text-[#94a3b8]">
                   Full Name
                 </label>
                 <input
@@ -340,12 +375,14 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
                   placeholder="e.g. Sarah Connor"
                   value={inviteName}
                   onChange={e => setInviteName(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-lg border border-slate-300 text-xs text-slate-900 focus:border-indigo-500 outline-none"
+                  className={`w-full px-3.5 py-2 rounded-xl border text-xs outline-none transition-all ${
+                    isDark ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                  }`}
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+                <label className="block font-bold uppercase tracking-wider mb-1 text-[#64748d] dark:text-[#94a3b8]">
                   Email Address
                 </label>
                 <input
@@ -353,13 +390,15 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
                   placeholder="sarah@company.com"
                   value={inviteEmail}
                   onChange={e => setInviteEmail(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-lg border border-slate-300 text-xs text-slate-900 focus:border-indigo-500 outline-none"
+                  className={`w-full px-3.5 py-2 rounded-xl border text-xs outline-none transition-all ${
+                    isDark ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                  }`}
                   required
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+                <label className="block font-bold uppercase tracking-wider mb-1 text-[#64748d] dark:text-[#94a3b8]">
                   Role Assignment
                 </label>
                 <div className="grid grid-cols-3 gap-2">
@@ -373,12 +412,12 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
                       onClick={() => setInviteRole(r.id as any)}
                       className={`p-3 rounded-xl border cursor-pointer text-center transition-all ${
                         inviteRole === r.id 
-                          ? 'border-indigo-600 bg-indigo-50/60 ring-1 ring-indigo-600' 
-                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                          ? 'border-[#533afd] bg-[#533afd]/15 ring-1 ring-[#533afd]' 
+                          : isDark ? 'border-[#273951] bg-[#121624]' : 'border-[#e3e8ee] bg-white'
                       }`}
                     >
-                      <span className="font-bold text-xs text-slate-900 block">{r.label}</span>
-                      <span className="text-[10px] text-slate-500 block mt-0.5">{r.desc}</span>
+                      <span className="font-bold text-xs text-[#0d253d] dark:text-white block">{r.label}</span>
+                      <span className="text-[10px] text-[#64748d] dark:text-[#94a3b8] block mt-0.5">{r.desc}</span>
                     </div>
                   ))}
                 </div>
@@ -388,14 +427,16 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
                 <button
                   type="button"
                   onClick={() => setShowInviteModal(false)}
-                  className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 font-semibold"
+                  className={`px-4 py-2 border rounded-xl font-semibold cursor-pointer ${
+                    isDark ? 'bg-[#121624] border-[#273951] text-white hover:bg-[#1c1e54]' : 'bg-white border-[#e3e8ee] text-[#0d253d] hover:bg-[#f6f9fc]'
+                  }`}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isInviting}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold shadow-xs flex items-center gap-2 disabled:opacity-50"
+                  className="px-5 py-2 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl font-semibold shadow-xs flex items-center gap-2 disabled:opacity-50 cursor-pointer"
                 >
                   {isInviting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
                   {isInviting ? 'Sending...' : 'Send Invitation'}
@@ -408,14 +449,18 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
 
       {/* MODAL: Role Permission Matrix */}
       {showMatrixModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className={`border rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 ${
+            isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+          }`}>
+            <div className={`flex items-center justify-between border-b pb-3 ${
+              isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+            }`}>
               <div>
-                <h3 className="text-base font-bold text-slate-900">Role Permission Matrix</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Granular feature breakdown across roles.</p>
+                <h3 className="text-base font-bold text-[#0d253d] dark:text-white">Role Permission Matrix</h3>
+                <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-0.5">Granular feature breakdown across roles.</p>
               </div>
-              <button onClick={() => setShowMatrixModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
+              <button onClick={() => setShowMatrixModal(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
                 ✕
               </button>
             </div>
@@ -423,49 +468,53 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
             <div className="space-y-3 text-xs">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="border-b border-slate-200 text-[10px] font-bold uppercase text-slate-400">
+                  <tr className={`border-b text-[10px] font-bold uppercase ${
+                    isDark ? 'border-[#273951] text-[#94a3b8]' : 'border-[#e3e8ee] text-slate-400'
+                  }`}>
                     <th className="py-2">Capability</th>
-                    <th className="py-2 text-center text-purple-600">Admin</th>
-                    <th className="py-2 text-center text-indigo-600">Developer</th>
-                    <th className="py-2 text-center text-slate-600">Viewer</th>
+                    <th className="py-2 text-center text-[#533afd] dark:text-[#818cf8]">Admin</th>
+                    <th className="py-2 text-center text-emerald-500">Developer</th>
+                    <th className="py-2 text-center text-slate-400">Viewer</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-700">
+                <tbody className={`divide-y ${
+                  isDark ? 'divide-[#273951] text-slate-300' : 'divide-[#e3e8ee] text-slate-700'
+                }`}>
                   <tr>
                     <td className="py-2.5 font-semibold">View Live API Logs & Metrics</td>
-                    <td className="py-2.5 text-center text-emerald-600 font-bold">✓</td>
-                    <td className="py-2.5 text-center text-emerald-600 font-bold">✓</td>
-                    <td className="py-2.5 text-center text-emerald-600 font-bold">✓</td>
+                    <td className="py-2.5 text-center text-emerald-500 font-bold">✓</td>
+                    <td className="py-2.5 text-center text-emerald-500 font-bold">✓</td>
+                    <td className="py-2.5 text-center text-emerald-500 font-bold">✓</td>
                   </tr>
                   <tr>
                     <td className="py-2.5 font-semibold">Create & Edit Message Templates</td>
-                    <td className="py-2.5 text-center text-emerald-600 font-bold">✓</td>
-                    <td className="py-2.5 text-center text-emerald-600 font-bold">✓</td>
-                    <td className="py-2.5 text-center text-slate-300">—</td>
+                    <td className="py-2.5 text-center text-emerald-500 font-bold">✓</td>
+                    <td className="py-2.5 text-center text-emerald-500 font-bold">✓</td>
+                    <td className="py-2.5 text-center text-slate-500">—</td>
                   </tr>
                   <tr>
                     <td className="py-2.5 font-semibold">Configure Webhooks & Test Pings</td>
-                    <td className="py-2.5 text-center text-emerald-600 font-bold">✓</td>
-                    <td className="py-2.5 text-center text-emerald-600 font-bold">✓</td>
-                    <td className="py-2.5 text-center text-slate-300">—</td>
+                    <td className="py-2.5 text-center text-emerald-500 font-bold">✓</td>
+                    <td className="py-2.5 text-center text-emerald-500 font-bold">✓</td>
+                    <td className="py-2.5 text-center text-slate-500">—</td>
                   </tr>
                   <tr>
                     <td className="py-2.5 font-semibold">View & Rotate API Client Secrets</td>
-                    <td className="py-2.5 text-center text-emerald-600 font-bold">✓</td>
-                    <td className="py-2.5 text-center text-emerald-600 font-bold">✓</td>
-                    <td className="py-2.5 text-center text-slate-300">—</td>
+                    <td className="py-2.5 text-center text-emerald-500 font-bold">✓</td>
+                    <td className="py-2.5 text-center text-emerald-500 font-bold">✓</td>
+                    <td className="py-2.5 text-center text-slate-500">—</td>
                   </tr>
                   <tr>
                     <td className="py-2.5 font-semibold">Billing, Credits Top-up & Plan Switch</td>
-                    <td className="py-2.5 text-center text-emerald-600 font-bold">✓</td>
-                    <td className="py-2.5 text-center text-slate-300">—</td>
-                    <td className="py-2.5 text-center text-slate-300">—</td>
+                    <td className="py-2.5 text-center text-emerald-500 font-bold">✓</td>
+                    <td className="py-2.5 text-center text-slate-500">—</td>
+                    <td className="py-2.5 text-center text-slate-500">—</td>
                   </tr>
                   <tr>
                     <td className="py-2.5 font-semibold">Invite & Manage Team Members</td>
-                    <td className="py-2.5 text-center text-emerald-600 font-bold">✓</td>
-                    <td className="py-2.5 text-center text-slate-300">—</td>
-                    <td className="py-2.5 text-center text-slate-300">—</td>
+                    <td className="py-2.5 text-center text-emerald-500 font-bold">✓</td>
+                    <td className="py-2.5 text-center text-slate-500">—</td>
+                    <td className="py-2.5 text-center text-slate-500">—</td>
                   </tr>
                 </tbody>
               </table>
@@ -474,7 +523,7 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({ app, currentUs
             <div className="flex justify-end pt-2">
               <button
                 onClick={() => setShowMatrixModal(false)}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold"
+                className="px-5 py-2.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-semibold cursor-pointer"
               >
                 Got it
               </button>

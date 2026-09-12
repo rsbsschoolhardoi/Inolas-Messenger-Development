@@ -1,7 +1,7 @@
 // Forced Sync Timestamp: 0x75bcd15
 import { FullScreenProfilePanel } from './components/FullScreenProfilePanel';
 import { FollowListModal } from './components/FollowListModal';
-import { Web1LinkingPage } from './components/Web1LinkingPage';
+import { WebLinkingPage } from './components/WebLinkingPage';
 import { LinkDeviceModal } from './components/LinkDeviceModal';
 import { ServiceAccountModal } from './components/ServiceAccountModal';
 // Inolas Messenger - Verified UTF-8 Source Code
@@ -511,9 +511,9 @@ export default function App() {
         id: newCallSession.id,
         type: type,
         caller: selfName,
-        caller_clean: selfName.toLowerCase(),
+        caller_clean: selfName.toLowerCase().trim().replace(/^@/, ''),
         receiver: targetUsername,
-        receiver_clean: targetUsername.toLowerCase(),
+        receiver_clean: cleanTarget,
         receiver_uid: targetUserObj?.id || '',
         caller_name: userDisplayName || selfName,
         receiver_name: partnerName,
@@ -525,27 +525,31 @@ export default function App() {
         created_at: nowTimestamp,
         start_time_str: nowTimeStr,
         candidates: []
-      }).catch(err => console.warn("Failed to synchronize call to Cloud Firestore:", err));
+      }, { merge: true }).catch(err => console.warn("Failed to synchronize call to Cloud Firestore:", err));
     }
 
     // Local tab signaling accelerator
     try {
       if (typeof BroadcastChannel !== 'undefined' && targetUsername) {
         const bc1 = new BroadcastChannel(`zenoa_incoming_calls_${targetUsername}`);
-        const bc2 = new BroadcastChannel(`zenoa_incoming_calls_${targetUsername.toLowerCase()}`);
+        const bc2 = new BroadcastChannel(`zenoa_incoming_calls_${cleanTarget}`);
         const payload = {
           id: newCallSession.id,
           type: type,
           caller: selfName,
+          caller_clean: selfName.toLowerCase().trim().replace(/^@/, ''),
           receiver: targetUsername,
-          receiver_clean: targetUsername.toLowerCase(),
+          receiver_clean: cleanTarget,
+          caller_name: userDisplayName || selfName,
+          caller_avatar_seed: userAvatarSeed || selfName,
+          caller_avatar_url: userAvatarUrl || '',
           status: 'dialing',
           created_at: nowTimestamp,
           start_time_str: nowTimeStr
         };
         bc1.postMessage(payload);
         bc2.postMessage(payload);
-        setTimeout(() => { try { bc1.close(); bc2.close(); } catch(e){} }, 2000);
+        setTimeout(() => { try { bc1.close(); bc2.close(); } catch(e){} }, 3000);
       }
     } catch (bcErr) {
       console.warn("BroadcastChannel post notice:", bcErr);
@@ -700,9 +704,26 @@ export default function App() {
     showToast("Call ended");
   };
 
-  const handleAnswerCall = () => {
+  const handleAnswerCall = async () => {
     if (activeCallSession) {
       setActiveCallSession(prev => prev ? { ...prev, status: 'connected' } : null);
+      if (isFirebaseConfigured && db && activeCallSession.id) {
+        try {
+          await setDoc(doc(db, 'calls', activeCallSession.id), {
+            status: 'connected',
+            answered_at: Date.now()
+          }, { merge: true });
+        } catch (e) {
+          console.warn("Error updating call answer status in Firestore:", e);
+        }
+      }
+      try {
+        if (typeof BroadcastChannel !== 'undefined' && activeCallSession.id) {
+          const bc = new BroadcastChannel(`zenoa_call_${activeCallSession.id}`);
+          bc.postMessage({ type: 'accept' });
+          setTimeout(() => { try { bc.close(); } catch(e){} }, 2000);
+        }
+      } catch (e) {}
     }
   };
   const [showProfilePanel, setShowProfilePanel] = useState<boolean>(false);
@@ -1120,7 +1141,7 @@ export default function App() {
       return;
     }
 
-    // Linked web companions (Web1 / QR link) coexist peacefully with the mobile/primary device
+    // Linked web companions (App / QR link) coexist peacefully with the mobile/primary device
     const isLinkedClient = sessionStorage.getItem('zenoa_is_linked_client') === 'true';
     if (isLinkedClient) {
       return;
@@ -3021,7 +3042,13 @@ export default function App() {
     }
   }, [isAuthenticated]);
 
-  // Monitor active call document status changes to close Call Modal on both sides if ended, cancelled, timed out, or declined
+  // Keep stable ref to users to prevent tearing down call listeners on heartbeat updates
+  const usersRef = useRef(users);
+  useEffect(() => {
+    usersRef.current = users;
+  }, [users]);
+
+  // Monitor active call document status changes to close Call Modal on both sides if ended/declined, or transition to connected
   useEffect(() => {
     if (!isFirebaseConfigured || !db || !activeCallSession?.id) return;
 
@@ -3033,6 +3060,12 @@ export default function App() {
       if (terminalStatuses.includes(data.status) || (data.end_reason && terminalStatuses.includes(data.end_reason)) || data.cancelled_by_caller) {
         console.log("Active call ended remotely in Firestore:", data.status, data.end_reason);
         setActiveCallSession(null);
+        return;
+      }
+
+      // If remote accepted and status transitioned to connected, ensure state updates on caller side!
+      if (data.status === 'connected') {
+        setActiveCallSession(prev => prev && prev.status !== 'connected' ? { ...prev, status: 'connected' } : prev);
       }
     }, (err) => {
       console.warn("Active call listener notice:", err);
@@ -3063,12 +3096,12 @@ export default function App() {
         staleSnap.docs.forEach((docSnap) => {
           const cData = docSnap.data();
           if (now - (cData.created_at || 0) > 45000) {
-            updateDoc(docSnap.ref, {
+            setDoc(docSnap.ref, {
               status: 'ended',
               end_reason: 'timeout',
               call_status: 'missed',
               ended_at: now
-            }).catch(() => {});
+            }, { merge: true }).catch(() => {});
           }
         });
       }).catch(() => {});
@@ -3083,16 +3116,14 @@ export default function App() {
 
           if (change.type === 'added' || change.type === 'modified') {
             const callData = change.doc.data();
-            const recClean = callData.receiver_clean || callData.receiver?.toLowerCase();
-            const isForMe = (recClean === cleanSelf || callData.receiver === userUsername || callData.receiver_uid === userId);
+            const recClean = callData.receiver_clean || callData.receiver?.toLowerCase().trim().replace(/^@/, '');
+            const isForMe = (recClean === cleanSelf || callData.receiver === userUsername || (callData.receiver_uid && callData.receiver_uid === userId));
             if (!isForMe) return;
 
             // Check if call is in terminal state or cancelled by caller
             const terminalStatuses = ['ended', 'declined', 'cancelled', 'unanswered', 'missed', 'rejected', 'timeout'];
             if (terminalStatuses.includes(callData.status) || (callData.end_reason && terminalStatuses.includes(callData.end_reason)) || callData.cancelled_by_caller) {
-              if (activeCallSession?.id === callData.id) {
-                setActiveCallSession(null);
-              }
+              setActiveCallSession(prev => (prev?.id === callData.id ? null : prev));
               return;
             }
 
@@ -3101,22 +3132,22 @@ export default function App() {
 
             // 45-Second Ring Limit Protection:
             // If call was created > 45 seconds ago, it is EXPIRED.
-            // Mark as ended in Firestore and do not trigger incoming call popup!
             const now = Date.now();
             const callAge = now - (callData.created_at || 0);
             if (callAge > 45000) {
               if (change.doc.ref) {
-                updateDoc(change.doc.ref, {
+                setDoc(change.doc.ref, {
                   status: 'ended',
                   end_reason: 'timeout',
                   call_status: 'missed',
                   ended_at: now
-                }).catch(() => {});
+                }, { merge: true }).catch(() => {});
               }
               return;
             }
 
-            const callerUserObj = users[callData.caller] || users[callData.caller_clean] || Object.values(users).find(u => u.username?.toLowerCase() === callData.caller_clean || u.username === callData.caller);
+            const currentUsers = usersRef.current;
+            const callerUserObj = currentUsers[callData.caller] || currentUsers[callData.caller_clean] || Object.values(currentUsers).find(u => (u.username || '').toLowerCase().trim().replace(/^@/, '') === callData.caller_clean || u.username === callData.caller);
             setActiveCallSession({
               id: callData.id,
               type: callData.type as 'voice' | 'video',
@@ -3158,15 +3189,13 @@ export default function App() {
 
           // If hangup/cancel/ended broadcast
           if (callData.type === 'hangup' || callData.type === 'ended' || callData.type === 'cancel' || callData.reason === 'cancelled' || callData.reason === 'timeout') {
-            if (activeCallSession && (!callData.id || activeCallSession.id === callData.id)) {
-              setActiveCallSession(null);
-            }
+            setActiveCallSession(prev => (prev && (!callData.id || prev.id === callData.id) ? null : prev));
             return;
           }
 
           const cleanSelf = userUsername.toLowerCase().trim().replace(/^@/, '');
-          const recClean = callData?.receiver_clean || callData?.receiver?.toLowerCase();
-          const isForMe = (recClean === cleanSelf || callData.receiver === userUsername || callData.receiver_uid === userId);
+          const recClean = callData?.receiver_clean || callData?.receiver?.toLowerCase().trim().replace(/^@/, '');
+          const isForMe = (recClean === cleanSelf || callData.receiver === userUsername || (callData.receiver_uid && callData.receiver_uid === userId));
           if (!isForMe) return;
 
           if (callData.status !== 'dialing' || callData.cancelled_by_caller || callData.end_reason) return;
@@ -3175,16 +3204,17 @@ export default function App() {
           const callAge = now - (callData.created_at || 0);
           if (callAge > 45000) return; // Expired 45s limit
 
-          const callerUserObj = users[callData.caller] || Object.values(users).find(u => u.username === callData.caller);
+          const currentUsers = usersRef.current;
+          const callerUserObj = currentUsers[callData.caller] || Object.values(currentUsers).find(u => u.username === callData.caller);
           setActiveCallSession({
             id: callData.id,
             type: callData.type as 'voice' | 'video',
             status: 'ringing',
             isIncoming: true,
             partnerUsername: callData.caller,
-            partnerName: callerUserObj?.display_name || callData.caller,
-            partnerAvatarSeed: callerUserObj?.avatar_seed || callData.caller,
-            partnerAvatarUrl: callerUserObj?.avatar_url,
+            partnerName: callData.caller_name || callerUserObj?.display_name || callData.caller,
+            partnerAvatarSeed: callData.caller_avatar_seed || callerUserObj?.avatar_seed || callData.caller,
+            partnerAvatarUrl: callData.caller_avatar_url || callerUserObj?.avatar_url,
             startedAt: callData.created_at || now,
             startTimeStr: callData.start_time_str || new Date(callData.created_at || now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           });
@@ -3209,7 +3239,7 @@ export default function App() {
       if (localBc1) localBc1.close();
       if (localBc2) localBc2.close();
     };
-  }, [userUsername, userId, isFirebaseConfigured, db, users, activeCallSession?.id]);
+  }, [userUsername, userId, isFirebaseConfigured, db]);
 
   // Live Call History Listener across all devices & sessions (Caller and Receiver)
   useEffect(() => {
@@ -8285,8 +8315,8 @@ export default function App() {
   const isDevSubdomain = currentHostname.startsWith("developer.") || currentHostname.startsWith("developers.") || currentHostname.startsWith("dev.") || currentHostname.startsWith("portal.") || currentHostname.startsWith("dash.");
   // 4. docs.zenoa.in / docs.zenoa.sbs -> API Documentation
   const isDocsSubdomain = currentHostname.startsWith("docs.") || currentHostname.startsWith("api-docs.") || currentHostname.startsWith("api.");
-  // 5. web1.zenoa.in / web1.zenoa.sbs -> Standalone Web1 Direct Real Messenger
-  const isWeb1Subdomain = currentHostname.startsWith("web1.");
+  // 5. app.zenoa.in / app.zenoa.sbs -> Standalone App Direct Real Messenger
+  const isAppSubdomain = currentHostname.startsWith("app.");
   // 6. web.zenoa.in / web.zenoa.sbs -> Standalone Web QR Code Messenger
   const isWebSubdomain = currentHostname.startsWith("web.");
 
@@ -8376,18 +8406,18 @@ export default function App() {
   );
   if (isDeveloperPath) return <DeveloperConsoleStandalone />;
 
-  // E. Standalone Web & Web1 Messenger Services
-  // Web1: Direct access to real messenger (Direct login, signup, saved accounts, full messenger)
-  const isWeb1DirectMessenger = isWeb1Subdomain || (
-    currentPathname === "/web1" || 
-    currentPathname.startsWith("/web1/") ||
-    currentSearchParams.get("view") === "web1" ||
+  // E. Standalone App & Web Messenger Services
+  // App: Direct access to real messenger (Direct login, signup, saved accounts, full messenger)
+  const isAppDirectMessenger = isAppSubdomain || (
+    currentPathname === "/app" || 
+    currentPathname.startsWith("/app/") ||
+    currentSearchParams.get("view") === "app" ||
     currentPathname === "/login" ||
     currentPathname === "/signup"
   );
 
   // Web: QR-Code based Web Messenger (companion for web.zenoa.in or /web)
-  const isWebQRPairing = !isWeb1DirectMessenger && (
+  const isWebQRPairing = !isAppDirectMessenger && (
     isWebSubdomain ||
     currentPathname === "/web" || 
     currentPathname.startsWith("/web/") ||
@@ -8398,10 +8428,10 @@ export default function App() {
   // Render Web QR-Code Pairing Companion on Web routes when not authenticated
   if (isWebQRPairing && !isAuthenticated) {
     return (
-      <Web1LinkingPage 
+      <WebLinkingPage 
         themeMode={themeMode}
         onToggleTheme={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
-        onSwitchToDirectLogin={() => navigateTo('/web1')}
+        onSwitchToDirectLogin={() => navigateTo('/app')}
         onSuccessfulLogin={async (linkedUser) => {
           if (linkedUser && linkedUser.username) {
             // Check if local data payload arrived via P2P
@@ -8439,7 +8469,7 @@ export default function App() {
             showToast(`Linked successfully as @${linkedUser.username}!`);
           }
         }}
-        onNavigateHome={() => navigateTo('/web1')}
+        onNavigateHome={() => navigateTo('/app')}
       />
     );
   }
@@ -8539,15 +8569,15 @@ export default function App() {
       );
     }
 
-    if (showLandingPage && !isWeb1DirectMessenger) {
+    if (showLandingPage && !isAppDirectMessenger) {
       return (
         <LandingPage
           onStartAuth={(initialMode) => {
             const host = window.location.hostname.toLowerCase();
             const mode = initialMode || 'login';
-            if ((host.endsWith('zenoa.in') || host.endsWith('zenoa.sbs')) && !host.startsWith('web1.')) {
+            if ((host.endsWith('zenoa.in') || host.endsWith('zenoa.sbs')) && !host.startsWith('app.')) {
               const baseDomain = host.endsWith('zenoa.sbs') ? 'zenoa.sbs' : 'zenoa.in';
-              window.location.href = `https://web1.${baseDomain}${mode === 'register' ? '/signup' : '/login'}`;
+              window.location.href = `https://app.${baseDomain}${mode === 'register' ? '/signup' : '/login'}`;
               return;
             }
             setAuthFlowInitialMode(mode);

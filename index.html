@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>Zenoa | India's Private Messenger, Zenoa OAuth & Inolas Nexus Developer Console</title>
     <meta name="description" content="Zenoa is India's next-generation private messenger and sovereign communication platform by Inolas Nexus startup. Featuring zero-cloud retention, Zenoa OAuth 2.0, and the Zenoa Developer Console." />
-    <meta name="keywords" content="Zenoa, private messenger, Inolas Nexus, Zenoa OAuth, Zenoa Developer Console, India, Startup, Indian Startup, encrypted chat, secure messaging, zero retention, privacy messenger, Web1 messenger, Zenoa API" />
+    <meta name="keywords" content="Zenoa, private messenger, Inolas Nexus, Zenoa OAuth, Zenoa Developer Console, India, Startup, Indian Startup, encrypted chat, secure messaging, zero retention, privacy messenger, App messenger, Zenoa API" />
     <meta name="author" content="Inolas Nexus" />
     <link rel="canonical" href="https://zenoa.in/" />
     <link rel="alternate" type="text/markdown" href="https://zenoa.in/llms.txt" title="LLM Context Manifest" />
@@ -90,9 +90,47 @@
         } catch(e) {}
       })();
     </script>
+    <style>
+      .skip-link {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+        z-index: 999999;
+      }
+      .skip-link:focus {
+        top: 1rem;
+        left: 1rem;
+        padding: 0.625rem 1.25rem;
+        background-color: #533afd;
+        color: #ffffff;
+        font-weight: 600;
+        border-radius: 0.5rem;
+        box-shadow: 0 4px 12px rgba(83, 58, 253, 0.35);
+        outline: 2px solid #ffffff;
+        text-decoration: none;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    <div id="root">
+      <main id="main-content" tabIndex="-1">
+        <header>
+          <h1>Zenoa | India's Sovereign Private Messenger, OAuth & Developer Platform</h1>
+          <p>Sovereign private messaging platform and developer ecosystem built by Inolas Nexus featuring zero-cloud retention, client-side encryption, and developer APIs.</p>
+        </header>
+        <nav aria-label="Quick Navigation">
+          <ul>
+            <li><a href="https://zenoa.in/">Zenoa Private Messenger</a></li>
+            <li><a href="https://app.zenoa.in/">App Direct Messenger</a></li>
+            <li><a href="https://web.zenoa.in/">Web Companion QR Messenger</a></li>
+            <li><a href="https://zenoa.in/developer">Zenoa Developer Console</a></li>
+            <li><a href="https://zenoa.in/docs">Interactive API Documentation</a></li>
+            <li><a href="https://zenoa.in/sso">Zenoa OAuth & SSO Console</a></li>
+          </ul>
+        </nav>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

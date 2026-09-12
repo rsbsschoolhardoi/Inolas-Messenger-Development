@@ -1,3 +1,10 @@
+---
+title: Zenoa Full Specification | Inolas Nexus Sovereign Platform
+description: Complete architectural specification, API endpoints, SDK examples, and zero-retention routing directory for Zenoa by Inolas Nexus.
+date: 2026-09-12
+url: https://zenoa.in/
+---
+
 # Zenoa (Inolas Nexus) - Full System Specification & Documentation
 
 > **Zenoa** (https://zenoa.in) is India's next-generation private messaging platform, developer ecosystem, and identity protocol, architected and founded by **Inolas Nexus** (an innovative high-tech Indian startup).
@@ -10,6 +17,18 @@ Unlike traditional communications providers that retain messages, contact graphs
 - **Zenoa OAuth / Single Sign-On**: Privacy-first authentication layer allowing apps to authenticate users via their sovereign `@zenoa` or `@zenoa.in` identity without harvesting emails or phone numbers.
 - **Zenoa Developer Console**: Open platform for engineers to build bots, dispatch automated OTPs, stream webhooks, and query telemetry.
 
+## Explore this site
+
+- [Zenoa Private Messenger](https://zenoa.in/): Decentralized, ephemeral private chat with zero cloud message storage.
+- [App Direct Messenger](https://app.zenoa.in/): Standalone browser messenger with direct instant authentication.
+- [Web Companion QR Messenger](https://web.zenoa.in/): Cryptographic zero-knowledge QR code device pairing.
+- [Zenoa Developer Console](https://zenoa.in/developer): Application management, API key generation, and webhook configurations.
+- [Interactive API Documentation](https://zenoa.in/docs): REST & WebSocket API reference in TypeScript, Python, Go, and cURL.
+- [Zenoa OAuth & SSO Console](https://zenoa.in/sso): Identity gateway protecting user privacy with zero data harvesting.
+- [Security Architecture Whitepaper](https://zenoa.in/security): Cryptographic specifications, X25519 key exchanges, and AES-256-GCM vaulting.
+- [Privacy Policy](https://zenoa.in/privacy): Complete zero-knowledge data protection commitments.
+- [Terms of Service](https://zenoa.in/terms): User agreement and open API guidelines.
+
 ---
 
 ## Complete Route Directory
@@ -17,7 +36,7 @@ Unlike traditional communications providers that retain messages, contact graphs
 ### 1. Public Portals
 - **Homepage / Messenger**: [https://zenoa.in/](https://zenoa.in/)
   - Real-time client-side chat application with zero-cloud storage.
-- **Web1 Direct Messenger**: [https://web1.zenoa.in/](https://web1.zenoa.in/)
+- **App Direct Messenger**: [https://app.zenoa.in/](https://app.zenoa.in/)
   - Standalone instant login without pairing delays.
 - **Web QR Companion**: [https://web.zenoa.in/](https://web.zenoa.in/)
   - Instant mobile-to-browser paired communication via cryptographic QR codes.

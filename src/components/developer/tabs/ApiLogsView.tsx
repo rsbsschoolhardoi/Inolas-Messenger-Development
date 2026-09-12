@@ -8,9 +8,15 @@ import {
 interface ApiLogsViewProps {
   app: any;
   showToast: (msg: string) => void;
+  themeMode?: 'light' | 'dark';
 }
 
-export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
+export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ 
+  app, 
+  showToast,
+  themeMode = 'light'
+}) => {
+  const isDark = themeMode === 'dark';
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -35,7 +41,6 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
         const data = await res.json();
         if (data.success && Array.isArray(data.data)) {
           setLogs(data.data);
-          // If a log is selected, update its reference if it still exists
           if (selectedLog) {
             const updated = data.data.find((l: any) => l.id === selectedLog.id);
             if (updated) setSelectedLog(updated);
@@ -53,7 +58,6 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
     fetchLogs();
   }, [app?.id, app?.client_id]);
 
-  // Auto polling every 4 seconds if enabled
   useEffect(() => {
     if (!autoRefresh) return;
     const interval = setInterval(() => {
@@ -96,7 +100,7 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
     const code = Number(statusCode) || 200;
     if (code >= 200 && code < 300) {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/30">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
           {code} OK
         </span>
@@ -104,15 +108,15 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
     }
     if (code >= 400 && code < 500) {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
-          <AlertCircle className="h-3 w-3 text-amber-600" />
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/10 text-amber-500 border border-amber-500/30">
+          <AlertCircle className="h-3 w-3" />
           {code} {code === 401 ? 'Unauthorized' : code === 404 ? 'Not Found' : code === 429 ? 'Rate Limited' : 'Client Error'}
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200">
-        <AlertCircle className="h-3 w-3 text-rose-600" />
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-500/10 text-rose-500 border border-rose-500/30">
+        <AlertCircle className="h-3 w-3" />
         {code} Server Error
       </span>
     );
@@ -134,11 +138,11 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <Terminal className="h-6 w-6 text-indigo-600" />
+          <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2 text-[#0d253d] dark:text-white">
+            <Terminal className="h-6 w-6 text-[#533afd] dark:text-[#818cf8]" />
             Live Request & Error Logs
           </h2>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm text-[#64748d] dark:text-[#94a3b8] mt-1">
             Real-time HTTP request inspector, latency monitoring, and live payload debugger.
           </p>
         </div>
@@ -147,10 +151,12 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
           {/* Live Polling Toggle */}
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
               autoRefresh 
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm' 
-                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30 shadow-xs' 
+                : isDark 
+                  ? 'bg-[#121624] text-[#94a3b8] border-[#273951] hover:bg-[#1c1e54]' 
+                  : 'bg-[#f6f9fc] text-[#64748d] border-[#e3e8ee] hover:bg-slate-100'
             }`}
           >
             <span className={`h-2 w-2 rounded-full ${autoRefresh ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'}`}></span>
@@ -161,27 +167,39 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
           <button
             onClick={() => fetchLogs()}
             disabled={loading}
-            className="p-2 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-700 text-xs font-semibold shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
+            className={`p-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer ${
+              isDark 
+                ? 'bg-[#121624] border-[#273951] text-white hover:bg-[#1c1e54]' 
+                : 'bg-white border-[#e3e8ee] text-[#0d253d] hover:bg-[#f6f9fc]'
+            }`}
             title="Refresh Logs"
           >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-indigo-600' : ''}`} />
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-[#533afd] dark:text-[#818cf8]' : ''}`} />
           </button>
         </div>
       </div>
 
       {/* Control Bar: Filters & Search */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+      <div className={`rounded-2xl p-4 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 border ${
+        isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+      }`}>
         <div className="flex flex-wrap items-center gap-2">
           {/* Status Filter Buttons */}
-          <div className="inline-flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs font-semibold">
+          <div className={`inline-flex p-0.5 rounded-xl border text-xs font-semibold ${
+            isDark ? 'bg-[#121624] border-[#273951]' : 'bg-slate-100 border-slate-200'
+          }`}>
             {(['all', '2xx', '4xx', '5xx'] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setStatusFilter(tab)}
-                className={`px-3 py-1.5 rounded-md transition-all uppercase tracking-wider text-[11px] ${
+                className={`px-3 py-1.5 rounded-lg transition-all uppercase tracking-wider text-[11px] cursor-pointer ${
                   statusFilter === tab
-                    ? 'bg-white text-slate-900 shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? isDark 
+                      ? 'bg-[#533afd] text-white shadow-xs font-bold' 
+                      : 'bg-white text-[#0d253d] shadow-xs font-bold'
+                    : isDark 
+                      ? 'text-[#94a3b8] hover:text-white' 
+                      : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 {tab === 'all' ? 'All Codes' : tab}
@@ -193,7 +211,11 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
           <select
             value={endpointFilter}
             onChange={e => setEndpointFilter(e.target.value)}
-            className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+            className={`px-3 py-1.5 rounded-xl border text-xs font-semibold outline-none cursor-pointer ${
+              isDark 
+                ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
+                : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+            }`}
           >
             <option value="all">All Endpoints</option>
             <option value="otp/send">/api/v1/otp/send</option>
@@ -207,13 +229,17 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
 
         {/* Search */}
         <div className="relative min-w-[240px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#64748d] dark:text-[#94a3b8]" />
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search by ID, recipient, or action..."
-            className="w-full pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+            className={`w-full pl-9 pr-4 py-1.5 rounded-xl text-xs outline-none border transition-all ${
+              isDark 
+                ? 'bg-[#121624] border-[#273951] text-white placeholder-[#64748d] focus:border-[#533afd]' 
+                : 'bg-[#f6f9fc] border-[#e3e8ee] text-[#0d253d] placeholder-slate-400 focus:border-[#533afd]'
+            }`}
           />
         </div>
       </div>
@@ -222,27 +248,33 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Main Logs List */}
         <div className={`transition-all ${selectedLog ? 'lg:col-span-7' : 'lg:col-span-12'}`}>
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
+          <div className={`rounded-2xl shadow-xs overflow-hidden border ${
+            isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+          }`}>
+            <div className={`p-4 border-b flex items-center justify-between ${
+              isDark ? 'border-[#273951] bg-[#121624]/60' : 'border-[#e3e8ee] bg-[#f6f9fc]/80'
+            }`}>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-600">Events Recorded</span>
-                <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-bold border border-indigo-100">
+                <span className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8]">Events Recorded</span>
+                <span className="px-2 py-0.5 rounded-full bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] text-xs font-bold border border-[#533afd]/20">
                   {filteredLogs.length}
                 </span>
               </div>
-              <span className="text-[11px] text-slate-400 font-medium">Auto-synced with server</span>
+              <span className="text-[11px] text-[#64748d] dark:text-[#94a3b8] font-medium">Auto-synced with server</span>
             </div>
 
             {filteredLogs.length === 0 ? (
               <div className="p-12 text-center">
-                <History className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-                <h3 className="text-sm font-bold text-slate-700">No Logs Matching Filter</h3>
-                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                <History className="h-10 w-10 text-[#64748d] dark:text-[#94a3b8] mx-auto mb-3 opacity-50" />
+                <h3 className="text-sm font-bold text-[#0d253d] dark:text-white">No Logs Matching Filter</h3>
+                <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-1 max-w-sm mx-auto">
                   Trigger an OTP or message request via the simulator or curl snippet to see live inspection details here.
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-100 max-h-[620px] overflow-y-auto">
+              <div className={`divide-y max-h-[620px] overflow-y-auto ${
+                isDark ? 'divide-[#273951]' : 'divide-[#e3e8ee]'
+              }`}>
                 {filteredLogs.map(log => {
                   const isSelected = selectedLog?.id === log.id;
                   const statusCode = Number(log.status_code) || 200;
@@ -255,39 +287,45 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
                       onClick={() => setSelectedLog(isSelected ? null : log)}
                       className={`p-4 cursor-pointer transition-all flex items-center justify-between gap-4 ${
                         isSelected 
-                          ? 'bg-indigo-50/70 border-l-4 border-indigo-600 pl-3' 
-                          : 'hover:bg-slate-50/80 border-l-4 border-transparent pl-3'
+                          ? isDark 
+                            ? 'bg-[#533afd]/20 border-l-4 border-[#533afd] pl-3' 
+                            : 'bg-indigo-50/70 border-l-4 border-[#533afd] pl-3'
+                          : isDark 
+                            ? 'hover:bg-[#121624] border-l-4 border-transparent pl-3' 
+                            : 'hover:bg-slate-50/80 border-l-4 border-transparent pl-3'
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         {/* Method badge */}
-                        <span className="px-2 py-1 bg-slate-100 border border-slate-200 text-slate-800 font-mono font-bold text-[10px] rounded">
+                        <span className={`px-2 py-1 border font-mono font-bold text-[10px] rounded ${
+                          isDark ? 'bg-[#121624] border-[#273951] text-white' : 'bg-slate-100 border-slate-200 text-slate-800'
+                        }`}>
                           {log.method || 'POST'}
                         </span>
 
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-bold text-slate-900 truncate">
+                            <span className="font-mono text-xs font-bold truncate text-[#0d253d] dark:text-white">
                               {endpointStr}
                             </span>
                             {getStatusBadge(statusCode, log.status)}
                           </div>
 
-                          <div className="flex items-center gap-3 text-[11px] text-slate-500 font-medium mt-1">
+                          <div className="flex items-center gap-3 text-[11px] text-[#64748d] dark:text-[#94a3b8] font-medium mt-1">
                             {log.recipient && (
-                              <span className="text-indigo-600 font-mono font-semibold truncate">
+                              <span className="text-[#533afd] dark:text-[#818cf8] font-mono font-semibold truncate">
                                 Recipient: @{log.recipient}
                               </span>
                             )}
                             <span>Latency: {log.latency_ms || 12}ms</span>
-                            <span className="font-mono text-slate-400">ID: {String(log.id).substring(0, 14)}...</span>
+                            <span className="font-mono opacity-75">ID: {String(log.id).substring(0, 14)}...</span>
                           </div>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-3 shrink-0">
-                        <span className="text-xs font-mono text-slate-500">{timeFormatted}</span>
-                        <ChevronRight className={`h-4 w-4 transition-transform ${isSelected ? 'rotate-90 text-indigo-600' : 'text-slate-400'}`} />
+                        <span className="text-xs font-mono text-[#64748d] dark:text-[#94a3b8]">{timeFormatted}</span>
+                        <ChevronRight className={`h-4 w-4 transition-transform ${isSelected ? 'rotate-90 text-[#533afd] dark:text-[#818cf8]' : 'text-[#64748d] dark:text-[#94a3b8]'}`} />
                       </div>
                     </div>
                   );
@@ -299,44 +337,54 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
 
         {/* Selected Log Inspector Drawer */}
         {selectedLog && (
-          <div className="lg:col-span-5 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden sticky top-4 animate-in slide-in-from-right-4 duration-200">
+          <div className={`lg:col-span-5 rounded-2xl shadow-xl overflow-hidden sticky top-4 animate-in slide-in-from-right-4 duration-200 border ${
+            isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+          }`}>
             {/* Inspector Header */}
-            <div className="p-5 border-b border-slate-100 bg-slate-900 text-white flex items-center justify-between">
+            <div className="p-5 border-b border-[#273951] bg-[#0c1024] text-white flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 bg-indigo-500/20 text-indigo-300 font-mono font-bold text-[10px] rounded border border-indigo-500/30">
+                  <span className="px-2 py-0.5 bg-[#533afd]/20 text-[#818cf8] font-mono font-bold text-[10px] rounded border border-[#533afd]/40">
                     {selectedLog.method || 'POST'}
                   </span>
                   <h3 className="text-sm font-bold font-mono text-white truncate">
                     {selectedLog.endpoint || `/api/v1/${selectedLog.action || 'request'}`}
                   </h3>
                 </div>
-                <p className="text-[11px] text-slate-400 font-mono mt-1">ID: {selectedLog.id}</p>
+                <p className="text-[11px] text-[#94a3b8] font-mono mt-1">ID: {selectedLog.id}</p>
               </div>
 
               <button
                 onClick={() => setSelectedLog(null)}
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                className="p-1.5 rounded-lg bg-[#121624] hover:bg-[#1c1e54] text-[#94a3b8] hover:text-white transition-colors cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             {/* Quick Metrics Bar */}
-            <div className="p-4 bg-slate-50 border-b border-slate-100 grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="p-2 bg-white rounded-lg border border-slate-200 shadow-xs">
-                <span className="text-[10px] font-bold uppercase text-slate-400 block">Status</span>
-                <span className={`font-mono font-bold ${Number(selectedLog.status_code) >= 400 ? 'text-rose-600' : 'text-emerald-600'}`}>
+            <div className={`p-4 border-b grid grid-cols-3 gap-2 text-center text-xs ${
+              isDark ? 'bg-[#121624]/70 border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'
+            }`}>
+              <div className={`p-2 rounded-xl border ${
+                isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+              }`}>
+                <span className="text-[10px] font-bold uppercase text-[#64748d] dark:text-[#94a3b8] block">Status</span>
+                <span className={`font-mono font-bold ${Number(selectedLog.status_code) >= 400 ? 'text-rose-500' : 'text-emerald-500'}`}>
                   {selectedLog.status_code || 200}
                 </span>
               </div>
-              <div className="p-2 bg-white rounded-lg border border-slate-200 shadow-xs">
-                <span className="text-[10px] font-bold uppercase text-slate-400 block">Latency</span>
-                <span className="font-mono font-bold text-slate-800">{selectedLog.latency_ms || 12}ms</span>
+              <div className={`p-2 rounded-xl border ${
+                isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+              }`}>
+                <span className="text-[10px] font-bold uppercase text-[#64748d] dark:text-[#94a3b8] block">Latency</span>
+                <span className="font-mono font-bold text-[#0d253d] dark:text-white">{selectedLog.latency_ms || 12}ms</span>
               </div>
-              <div className="p-2 bg-white rounded-lg border border-slate-200 shadow-xs">
-                <span className="text-[10px] font-bold uppercase text-slate-400 block">Client IP</span>
-                <span className="font-mono font-bold text-slate-800 truncate block">{selectedLog.ip || '127.0.0.1'}</span>
+              <div className={`p-2 rounded-xl border ${
+                isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+              }`}>
+                <span className="text-[10px] font-bold uppercase text-[#64748d] dark:text-[#94a3b8] block">Client IP</span>
+                <span className="font-mono font-bold text-[#0d253d] dark:text-white truncate block">{selectedLog.ip || '127.0.0.1'}</span>
               </div>
             </div>
 
@@ -345,19 +393,19 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
               {/* Request Payload */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <ArrowUpRight className="h-3.5 w-3.5 text-indigo-600" />
+                  <label className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-[#0d253d] dark:text-white">
+                    <ArrowUpRight className="h-3.5 w-3.5 text-[#533afd] dark:text-[#818cf8]" />
                     Request Payload (Body)
                   </label>
                   <button
                     onClick={() => handleCopy(JSON.stringify(selectedLog.req_body || { recipient: selectedLog.recipient }, null, 2), "Request Payload")}
-                    className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                    className="text-[11px] font-semibold text-[#533afd] dark:text-[#818cf8] hover:underline flex items-center gap-1 cursor-pointer"
                   >
                     {copiedKey === "Request Payload" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                     Copy JSON
                   </button>
                 </div>
-                <pre className="p-3.5 bg-slate-900 text-slate-200 rounded-xl text-xs font-mono overflow-x-auto border border-slate-800">
+                <pre className="p-3.5 bg-[#0c1024] text-[#818cf8] rounded-xl text-xs font-mono overflow-x-auto border border-[#273951]">
                   {JSON.stringify(selectedLog.req_body || {
                     recipient: selectedLog.recipient,
                     action: selectedLog.action,
@@ -369,19 +417,19 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
               {/* Response Payload */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-600" />
+                  <label className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-[#0d253d] dark:text-white">
+                    <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-500" />
                     Server Response (JSON)
                   </label>
                   <button
                     onClick={() => handleCopy(JSON.stringify(selectedLog.res_body || { success: selectedLog.status === 'success', status: selectedLog.status }, null, 2), "Response Payload")}
-                    className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                    className="text-[11px] font-semibold text-[#533afd] dark:text-[#818cf8] hover:underline flex items-center gap-1 cursor-pointer"
                   >
                     {copiedKey === "Response Payload" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                     Copy JSON
                   </button>
                 </div>
-                <pre className="p-3.5 bg-slate-900 text-slate-200 rounded-xl text-xs font-mono overflow-x-auto border border-slate-800">
+                <pre className="p-3.5 bg-[#0c1024] text-emerald-400 rounded-xl text-xs font-mono overflow-x-auto border border-[#273951]">
                   {JSON.stringify(selectedLog.res_body || {
                     success: selectedLog.status === 'success',
                     status: selectedLog.status,
@@ -394,19 +442,19 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({ app, showToast }) => {
               {/* Replay cURL */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <Terminal className="h-3.5 w-3.5 text-slate-600" />
+                  <label className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-[#0d253d] dark:text-white">
+                    <Terminal className="h-3.5 w-3.5 text-[#64748d] dark:text-[#94a3b8]" />
                     cURL Command (Replay Request)
                   </label>
                   <button
                     onClick={() => handleCopy(generateCurlFromLog(selectedLog), "cURL Replay")}
-                    className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                    className="text-[11px] font-semibold text-[#533afd] dark:text-[#818cf8] hover:underline flex items-center gap-1 cursor-pointer"
                   >
                     {copiedKey === "cURL Replay" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                     Copy cURL
                   </button>
                 </div>
-                <pre className="p-3.5 bg-slate-900 text-slate-200 rounded-xl text-xs font-mono overflow-x-auto border border-slate-800">
+                <pre className="p-3.5 bg-[#0c1024] text-slate-300 rounded-xl text-xs font-mono overflow-x-auto border border-[#273951]">
                   {generateCurlFromLog(selectedLog)}
                 </pre>
               </div>

@@ -6,10 +6,11 @@ import { ZenoaAuthGatewayModal } from './ZenoaAuthGatewayModal';
 import { UserData } from '../types';
 import { useBranding } from '../brandingUtils';
 import { BrandLogo } from './common/BrandLogo';
+import { WaveArcs } from './originkit/ui/wave-arcs';
 import { 
   Shield, ArrowRight, Lock, Key, Sparkles, RefreshCw, 
   User, Mail, Terminal, ArrowLeft, LogOut, Globe, CheckCircle2,
-  Code2, Layers, ShieldCheck, Fingerprint, ExternalLink
+  Code2, Layers, ShieldCheck, Fingerprint, ExternalLink, Sun, Moon, Zap
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -101,14 +102,27 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
   if (!user) {
     const isDark = themeMode === 'dark';
     return (
-      <div className={`min-h-screen flex flex-col font-sans transition-colors ${
-        isDark ? 'dark bg-slate-950 text-white selection:bg-indigo-600 selection:text-white' : 'bg-slate-50 text-slate-900 selection:bg-indigo-500/20 selection:text-indigo-600'
+      <div className={`min-h-screen flex flex-col font-sans transition-colors relative overflow-hidden ${
+        isDark ? 'dark bg-[#0c1024] text-white selection:bg-[#533afd] selection:text-white' : 'bg-[#f6f9fc] text-[#0d253d] selection:bg-[#533afd]/20 selection:text-[#533afd]'
       }`}>
+        {/* Background Wave Arc Visual */}
+        <div className="absolute inset-0 pointer-events-none opacity-20 dark:opacity-15 -z-10">
+          <WaveArcs
+            backgroundColor="transparent"
+            lineColor={isDark ? 'rgb(129, 140, 248)' : 'rgb(83, 58, 253)'}
+            lineWidth={1.2}
+            lineCount={64}
+            speed={4.5}
+            glow={12}
+            interactive={false}
+          />
+        </div>
+
         {/* Top Navigation */}
-        <header className={`border-b sticky top-0 z-50 backdrop-blur-md ${
-          isDark ? 'border-slate-800/80 bg-slate-950/90' : 'border-slate-200/80 bg-white/90'
+        <header className={`border-b sticky top-0 z-50 backdrop-blur-md transition-colors ${
+          isDark ? 'border-[#273951]/80 bg-[#0c1024]/90' : 'border-[#e3e8ee]/90 bg-white/90 shadow-[0_1px_3px_rgba(0,55,112,0.04)]'
         }`}>
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <BrandLogo
                 src={branding.oauth_logo || branding.dev_console_logo || branding.public_logo}
@@ -116,14 +130,14 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
                 size="sm"
               />
               <div className="flex items-center gap-2">
-                <span className="font-bold text-sm sm:text-base tracking-tight">{branding.app_name || 'Zenoa'}</span>
-                <span className="text-[10px] font-mono uppercase bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800/60 font-bold">
-                  OAuth 2.0 & OIDC
+                <span className="font-bold text-base tracking-tight text-[#0d253d] dark:text-white">{branding.app_name || 'Zenoa'}</span>
+                <span className="text-[10px] font-mono uppercase bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 px-2.5 py-0.5 rounded-full font-bold tracking-wider border border-[#533afd]/20">
+                  SSO & OAuth 2.0
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => {
                   const nextTheme = themeMode === 'light' ? 'dark' : 'light';
@@ -132,17 +146,16 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
                     localStorage.setItem('zenoa_oauth_theme', nextTheme);
                   } catch (e) {}
                 }}
-                className={`p-2 rounded-xl border transition-colors cursor-pointer ${
-                  isDark ? 'border-slate-800 hover:bg-slate-900 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
-                }`}
+                className="p-2 rounded-full border border-[#e3e8ee] dark:border-[#273951] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] text-[#273951] dark:text-[#cbd5e1] transition-colors cursor-pointer"
                 title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+                aria-label="Toggle theme"
               >
-                {isDark ? <span className="text-amber-400 text-sm">☀️</span> : <span className="text-slate-600 text-sm">🌙</span>}
+                {isDark ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-[#273951]" />}
               </button>
 
               <a
                 href="/"
-                className="text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5 transition-colors hidden sm:flex"
+                className="text-xs font-semibold text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white flex items-center gap-1.5 transition-colors hidden sm:flex px-2 py-1"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 <span>Messenger</span>
@@ -150,7 +163,7 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
 
               <button
                 onClick={() => setShowZenoaAuthModal(true)}
-                className="px-3.5 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                className="rounded-full px-4 py-2 bg-[#533afd] hover:bg-[#4434d4] active:bg-[#2e2b8c] text-white text-[13px] font-medium transition-all shadow-[0_1px_3px_rgba(0,55,112,0.15)] flex items-center gap-1.5 cursor-pointer active:scale-[0.98]"
               >
                 <Lock className="h-3.5 w-3.5" />
                 <span>Sign In to Console</span>
@@ -160,74 +173,101 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
         </header>
 
         {/* Hero & Access Gate */}
-        <main className="flex-1 flex flex-col justify-center max-w-5xl mx-auto px-6 py-16 text-center w-full">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 text-xs font-semibold mb-6 mx-auto">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            <span>Single Sign-On (SSO) &bull; Developer Identity Infrastructure</span>
+        <main className="flex-1 flex flex-col justify-center items-center py-16 md:py-24 px-4 sm:px-6 relative z-10 max-w-5xl mx-auto w-full text-center">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/95 dark:bg-[#1c1e54]/95 border border-[#e3e8ee] dark:border-[#273951] text-[#273951] dark:text-[#cbd5e1] text-[13px] shadow-[0_1px_3px_rgba(0,55,112,0.06)] mx-auto flex-wrap mb-6">
+            <span className="h-2 w-2 rounded-full bg-[#533afd] animate-pulse" />
+            <span className="font-semibold text-[#0d253d] dark:text-white">Inolas Nexus Identity</span>
+            <span className="text-[#a8c3de] dark:text-[#64748d]">•</span>
+            <span className="text-[#533afd] dark:text-[#b9b9f9] font-medium">OAuth 2.0 & OIDC</span>
+            <span className="text-[#a8c3de] dark:text-[#64748d]">•</span>
+            <span className="font-tabular text-[#273951] dark:text-[#cbd5e1] text-[12px]">RFC 6749 Compliant</span>
           </div>
 
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight leading-tight">
+          <h1 className="text-[34px] sm:text-[46px] lg:text-[54px] font-bold tracking-tight text-[#0d253d] dark:text-white leading-[1.18] sm:leading-[1.14]">
             OAuth 2.0 & OpenID Connect Console
+            <span className="block mt-2 text-[#533afd] dark:text-[#818cf8]">
+              Decentralized Identity Infrastructure.
+            </span>
           </h1>
 
-          <p className="text-slate-500 dark:text-slate-400 text-sm sm:text-base max-w-2xl mx-auto mt-4 leading-relaxed">
-            Register third-party client applications, issue Client IDs & Secrets, whitelist authorized callback URIs, and integrate "Continue with {branding.app_name || 'Zenoa'}" authentication into your services.
+          <p className="text-[16px] sm:text-[18px] font-normal text-[#273951] dark:text-[#cbd5e1] max-w-2xl mx-auto mt-4 leading-[1.6]">
+            Register third-party client applications, issue Client IDs & Secrets, whitelist authorized callback URIs, and integrate "Continue with {branding.app_name || 'Zenoa'}" authentication with cryptographic zero-knowledge security.
           </p>
 
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
             <button
               onClick={() => setShowZenoaAuthModal(true)}
-              className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+              className="w-full sm:w-auto px-7 py-3 rounded-full bg-[#533afd] hover:bg-[#4434d4] active:bg-[#2e2b8c] text-white text-[14px] font-medium transition-all shadow-[0_1px_3px_rgba(0,55,112,0.15)] flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
             >
               <Lock className="h-4 w-4" />
               <span>Authenticate with {branding.app_name || 'Zenoa'}</span>
               <ArrowRight className="h-4 w-4 ml-0.5" />
             </button>
+            <a
+              href="/docs"
+              className="w-full sm:w-auto px-6 py-3 rounded-full bg-white dark:bg-[#121624] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] text-[#0d253d] dark:text-white border border-[#e3e8ee] dark:border-[#273951] text-[14px] font-medium transition-colors flex items-center justify-center gap-2 shadow-xs"
+            >
+              OAuth Documentation
+            </a>
           </div>
 
-          <p className="text-[11px] text-slate-400 mt-3">
+          <p className="text-[12px] text-[#64748d] dark:text-[#94a3b8] mt-3">
             Authenticate with your active {branding.app_name || 'Zenoa'} developer identity to access the management portal.
           </p>
 
           {/* Architecture Feature Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-12 text-left">
-            <div className={`p-5 rounded-2xl border transition-all ${
-              isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16 text-left w-full">
+            <div className={`p-6 rounded-2xl border transition-all ${
+              isDark ? 'bg-[#121624]/90 border-[#273951] text-white' : 'bg-white border-[#e3e8ee] shadow-[0_1px_3px_rgba(0,55,112,0.06)] text-[#0d253d]'
             }`}>
-              <div className="h-9 w-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-3">
-                <Key className="h-4 w-4" />
+              <div className="h-11 w-11 rounded-xl bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 flex items-center justify-center mb-4 border border-[#533afd]/20">
+                <Key className="h-5 w-5" />
               </div>
-              <h3 className="text-sm font-bold">RFC 6749 Auth Codes</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                Standard authorization code flow with secure short-lived auth codes and server-to-server token exchange.
+              <h3 className="text-base font-bold mb-1.5">RFC 6749 Auth Codes</h3>
+              <p className="text-xs sm:text-sm text-[#64748d] dark:text-[#94a3b8] leading-relaxed">
+                Standard authorization code flow with secure short-lived auth codes and server-to-server token exchange with PKCE support.
               </p>
             </div>
 
-            <div className={`p-5 rounded-2xl border transition-all ${
-              isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+            <div className={`p-6 rounded-2xl border transition-all ${
+              isDark ? 'bg-[#121624]/90 border-[#273951] text-white' : 'bg-white border-[#e3e8ee] shadow-[0_1px_3px_rgba(0,55,112,0.06)] text-[#0d253d]'
             }`}>
-              <div className="h-9 w-9 rounded-xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 flex items-center justify-center mb-3">
-                <Globe className="h-4 w-4" />
+              <div className="h-11 w-11 rounded-xl bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 flex items-center justify-center mb-4 border border-[#533afd]/20">
+                <Globe className="h-5 w-5" />
               </div>
-              <h3 className="text-sm font-bold">Strict Redirect Whitelisting</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                Prevent token interception with exact protocol, domain, port, and path matching for web & mobile apps.
+              <h3 className="text-base font-bold mb-1.5">Strict Redirect Whitelisting</h3>
+              <p className="text-xs sm:text-sm text-[#64748d] dark:text-[#94a3b8] leading-relaxed">
+                Prevent token interception with exact protocol, domain, port, and path matching for web, desktop, and mobile callback URIs.
               </p>
             </div>
 
-            <div className={`p-5 rounded-2xl border transition-all ${
-              isDark ? 'bg-[#111726] border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+            <div className={`p-6 rounded-2xl border transition-all ${
+              isDark ? 'bg-[#121624]/90 border-[#273951] text-white' : 'bg-white border-[#e3e8ee] shadow-[0_1px_3px_rgba(0,55,112,0.06)] text-[#0d253d]'
             }`}>
-              <div className="h-9 w-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-3">
-                <Code2 className="h-4 w-4" />
+              <div className="h-11 w-11 rounded-xl bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 flex items-center justify-center mb-4 border border-[#533afd]/20">
+                <Code2 className="h-5 w-5" />
               </div>
-              <h3 className="text-sm font-bold">Interactive Sandbox & SDKs</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                Step-by-step simulator, embeddable button generator, and multi-language handlers for React, Node, and Python.
+              <h3 className="text-base font-bold mb-1.5">Interactive Sandbox & SDKs</h3>
+              <p className="text-xs sm:text-sm text-[#64748d] dark:text-[#94a3b8] leading-relaxed">
+                Step-by-step simulator, embeddable button generator, and multi-language handlers for React, Node, Python, and Go.
               </p>
             </div>
           </div>
         </main>
+
+        {/* Footer */}
+        <footer className={`border-t py-6 px-4 sm:px-6 text-center text-xs text-[#64748d] dark:text-[#94a3b8] mt-auto ${
+          isDark ? 'border-[#273951]/80 bg-[#0c1024]' : 'border-[#e3e8ee] bg-white'
+        }`}>
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+            <p>&copy; {new Date().getFullYear()} {branding.app_name || 'Zenoa'} &bull; Inolas Nexus SSO. All rights reserved.</p>
+            <div className="flex items-center gap-4 text-[12px]">
+              <a href="/legal/terms" className="hover:text-[#533afd] transition-colors">Terms of Service</a>
+              <a href="/legal/privacy" className="hover:text-[#533afd] transition-colors">Privacy Policy</a>
+              <a href="/docs" className="hover:text-[#533afd] transition-colors">OAuth Specifications</a>
+            </div>
+          </div>
+        </footer>
 
         {/* Unified "Continue with Zenoa" Modal */}
         <ZenoaAuthGatewayModal
@@ -236,7 +276,7 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
           serviceTitle={`${branding.app_name || 'Zenoa'} OAuth & Identity Console`}
           serviceDescription="Manage OAuth 2.0 client applications, credentials, and allowed callback URIs."
           onAuthenticated={handleAuthenticatedWithZenoa}
-          themeMode="light"
+          themeMode={themeMode}
         />
       </div>
     );

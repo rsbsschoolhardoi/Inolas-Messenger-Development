@@ -223,6 +223,11 @@ export const CallModal: React.FC<CallModalProps> = ({
     } catch (e) {}
   }, []);
 
+  const sessionRef = useRef(session);
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
   const isMinimizedRef = useRef(isMinimized);
   useEffect(() => {
     isMinimizedRef.current = isMinimized;
@@ -597,11 +602,11 @@ export const CallModal: React.FC<CallModalProps> = ({
         await pc.setLocalDescription(offer);
 
         if (callDocRef) {
-          await updateDoc(callDocRef, {
+          await setDoc(callDocRef, {
             offer: { type: offer.type, sdp: offer.sdp },
             status: 'dialing',
             created_at: session.startedAt || Date.now()
-          });
+          }, { merge: true });
         }
 
         if (broadcastChannelRef.current) {
@@ -630,11 +635,11 @@ export const CallModal: React.FC<CallModalProps> = ({
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
 
-              await updateDoc(callDocRef, {
+              await setDoc(callDocRef, {
                 answer: { type: answer.type, sdp: answer.sdp },
                 status: 'connected',
                 answered_at: Date.now()
-              });
+              }, { merge: true });
               isSettingRemoteDescriptionRef.current = false;
 
               if (broadcastChannelRef.current) {
@@ -709,7 +714,12 @@ export const CallModal: React.FC<CallModalProps> = ({
           if (!msg || isCancelled) return;
           const pc = peerConnectionRef.current;
 
-          if (msg.type === 'offer' && session.isIncoming) {
+          if (msg.type === 'accept') {
+            setIsRemoteConnected(true);
+            wasConnectedRef.current = true;
+            stopAudioTone();
+            onAnswerCall();
+          } else if (msg.type === 'offer' && session.isIncoming) {
             if (pc && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current) {
               try {
                 isSettingRemoteDescriptionRef.current = true;
@@ -780,30 +790,42 @@ export const CallModal: React.FC<CallModalProps> = ({
             setIsRemoteConnected(true);
             wasConnectedRef.current = true;
             stopAudioTone();
-            if (session.status !== 'connected') {
-              onAnswerCall();
-            }
+            onAnswerCall();
           }
 
           // Callee receives caller's offer
-          if (session.isIncoming && data.offer && pc && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current && session.status === 'connected') {
-            try {
-              isSettingRemoteDescriptionRef.current = true;
-              await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-              await processPendingCandidates(pc);
+          const isAccepted = wasConnectedRef.current || isRemoteConnected || sessionRef.current.status === 'connected';
+          if (session.isIncoming && data.offer && isAccepted) {
+            if (pc && !pc.currentRemoteDescription && !isSettingRemoteDescriptionRef.current) {
+              try {
+                isSettingRemoteDescriptionRef.current = true;
+                await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+                await processPendingCandidates(pc);
 
-              const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
 
-              await updateDoc(callDocRef, {
-                answer: { type: answer.type, sdp: answer.sdp },
-                status: 'connected',
-                answered_at: Date.now()
-              });
-              isSettingRemoteDescriptionRef.current = false;
-            } catch (e) {
-              isSettingRemoteDescriptionRef.current = false;
-              console.warn("Offer handling notice:", e);
+                await setDoc(callDocRef, {
+                  answer: { type: answer.type, sdp: answer.sdp },
+                  status: 'connected',
+                  answered_at: Date.now()
+                }, { merge: true });
+                isSettingRemoteDescriptionRef.current = false;
+                setIsRemoteConnected(true);
+                wasConnectedRef.current = true;
+
+                if (broadcastChannelRef.current) {
+                  broadcastChannelRef.current.postMessage({
+                    type: 'answer',
+                    answer: { type: answer.type, sdp: answer.sdp }
+                  });
+                }
+              } catch (e) {
+                isSettingRemoteDescriptionRef.current = false;
+                console.warn("Offer handling notice:", e);
+              }
+            } else if (!isPeerConnectionInitializedRef.current) {
+              initWebRTC();
             }
           }
 
@@ -842,7 +864,7 @@ export const CallModal: React.FC<CallModalProps> = ({
 
   // Callee WebRTC Trigger
   useEffect(() => {
-    if (session.isIncoming && session.status === 'connected' && !isPeerConnectionInitializedRef.current) {
+    if (session.isIncoming && (session.status === 'connected' || wasConnectedRef.current) && !isPeerConnectionInitializedRef.current) {
       console.log("Callee accepted call, starting peer connection...");
       initWebRTC();
     }
@@ -909,7 +931,7 @@ export const CallModal: React.FC<CallModalProps> = ({
 
     if (isFirebaseConfigured && db && session.id) {
       try {
-        await updateDoc(doc(db, 'calls', session.id), {
+        await setDoc(doc(db, 'calls', session.id), {
           status: 'ended',
           end_reason: 'timeout',
           call_status: finalStatus,
@@ -918,7 +940,7 @@ export const CallModal: React.FC<CallModalProps> = ({
           duration_seconds: 0,
           duration_formatted: '00:00',
           end_time_str: endTimeStr
-        });
+        }, { merge: true });
       } catch (e) {
         console.warn("Firestore timeout call termination notice:", e);
       }
@@ -984,7 +1006,7 @@ export const CallModal: React.FC<CallModalProps> = ({
 
     if (isFirebaseConfigured && db && session.id) {
       try {
-        await updateDoc(doc(db, 'calls', session.id), {
+        await setDoc(doc(db, 'calls', session.id), {
           status: 'ended',
           end_reason: wasConnected ? 'answered' : (session.isIncoming ? 'declined' : 'cancelled'),
           cancelled_by_caller: !session.isIncoming && !wasConnected,
@@ -994,7 +1016,7 @@ export const CallModal: React.FC<CallModalProps> = ({
           duration_seconds: finalDuration,
           duration_formatted: formatTime(finalDuration),
           end_time_str: endTimeStr
-        });
+        }, { merge: true });
       } catch (e) {
         console.warn("Firestore call termination update notice:", e);
       }
@@ -1023,10 +1045,10 @@ export const CallModal: React.FC<CallModalProps> = ({
 
     if (isFirebaseConfigured && db && session.id) {
       try {
-        await updateDoc(doc(db, 'calls', session.id), {
+        await setDoc(doc(db, 'calls', session.id), {
           status: 'connected',
           answered_at: Date.now()
-        });
+        }, { merge: true });
       } catch (e) {
         console.warn("Firestore accept call update notice:", e);
       }
@@ -1048,14 +1070,14 @@ export const CallModal: React.FC<CallModalProps> = ({
 
     if (isFirebaseConfigured && db && session.id) {
       try {
-        await updateDoc(doc(db, 'calls', session.id), {
+        await setDoc(doc(db, 'calls', session.id), {
           status: 'declined',
           ended_at: Date.now(),
           duration: 0,
           duration_seconds: 0,
           duration_formatted: '00:00',
           end_time_str: endTimeStr
-        });
+        }, { merge: true });
       } catch (e) {
         console.warn("Firestore decline call update notice:", e);
       }

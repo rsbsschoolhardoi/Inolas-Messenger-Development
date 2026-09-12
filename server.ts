@@ -39,6 +39,63 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// Helper to generate clean, valid Markdown responses with YAML Frontmatter, sitemap links & no HTML
+function getMarkdownResponseForPath(reqPath: string): string {
+  const cleanPath = (reqPath || '/').toLowerCase().split('?')[0].replace(/\/+$/, '') || '/';
+  
+  if (cleanPath === '/docs' || cleanPath === '/api-docs' || cleanPath === '/developer/docs') {
+    const fullPublicPath = path.join(process.cwd(), 'public', 'llms-full.txt');
+    const fullRootPath = path.join(process.cwd(), 'llms-full.txt');
+    const target = fs.existsSync(fullPublicPath) ? fullPublicPath : fullRootPath;
+    if (fs.existsSync(target)) {
+      return fs.readFileSync(target, 'utf8');
+    }
+  }
+
+  // Use public/llms.txt or root llms.txt
+  const llmsPublicPath = path.join(process.cwd(), 'public', 'llms.txt');
+  const llmsRootPath = path.join(process.cwd(), 'llms.txt');
+  const target = fs.existsSync(llmsPublicPath) ? llmsPublicPath : llmsRootPath;
+  if (fs.existsSync(target)) {
+    return fs.readFileSync(target, 'utf8');
+  }
+
+  // Programmatic fallback
+  return `---
+title: Zenoa | India's Sovereign Private Messenger, OAuth & Developer Platform
+description: Sovereign private messaging platform and developer ecosystem built by Inolas Nexus featuring zero-cloud retention, client-side encryption, and developer APIs.
+date: 2026-09-12
+url: https://zenoa.in/
+---
+
+# Zenoa (Inolas Nexus) - India's Sovereign Privacy Platform
+
+> **Zenoa** (https://zenoa.in) is India's sovereign private messenger, developer ecosystem, and zero-retention identity platform engineered by **Inolas Nexus** (leading Indian DeepTech startup).
+
+## Overview
+Zenoa delivers zero-cloud message retention, client-side WebCrypto encryption (AES-256-GCM / X25519), and high-throughput developer APIs. Built from India for the global privacy community, Zenoa guarantees that users retain sovereign ownership of their personal data while providing developers with enterprise-grade OAuth 2.0 Single Sign-On, Bot APIs, and instant webhook dispatches.
+
+## Explore this site
+
+- [Zenoa Private Messenger](https://zenoa.in/): Decentralized, ephemeral messaging application built by Inolas Nexus.
+- [App Direct Messenger](https://app.zenoa.in/): Standalone browser messenger with direct instant authentication.
+- [Web Companion QR Messenger](https://web.zenoa.in/): Pair mobile and desktop instances with cryptographic zero-knowledge QR handshakes.
+- [Zenoa Developer Console](https://zenoa.in/developer): Management portal for Indian and global developers to generate API keys, configure webhooks, and register OAuth applications.
+- [API Documentation](https://zenoa.in/docs): Interactive developer documentation with examples in 7+ languages (TypeScript, Python, Go, Node.js, cURL).
+- [Zenoa OAuth & SSO Console](https://zenoa.in/sso): Identity gateway protecting user privacy with zero-data phone/email harvesting.
+- [Security Architecture](https://zenoa.in/security): In-depth cryptographic whitepaper on 0ms TTL relay mesh and local IndexedDB isolation.
+- [Privacy Policy](https://zenoa.in/privacy): Clear privacy commitments from Inolas Nexus, Indian startup.
+- [Terms of Service](https://zenoa.in/terms): User agreement and open API guidelines.
+
+## Developer & Machine-Readable Resources
+- [OpenAPI Specification](https://zenoa.in/openapi.json): Standard OpenAPI 3.1 specification for AI bots and API clients.
+- [Full LLM Context](https://zenoa.in/llms-full.txt): Comprehensive multi-page architectural guide for autonomous LLM agents.
+- [LLMs Manifest](https://zenoa.in/llms.txt): Machine-readable markdown specification for AI agents.
+- [Robots Configuration](https://zenoa.in/robots.txt): Crawler policy and access rules for search engines and AI agents.
+- [XML Sitemap](https://zenoa.in/sitemap.xml): Complete URL index for search engines.
+`;
+}
+
 // Normalization & Header Middleware for Vercel / Cloud Run / Local & Cloudflare Agent Readiness
 app.use((req: any, res: any, next: any) => {
   // If request URL is prefixed as /v1/ instead of /api/v1/, normalize to /api/v1/
@@ -55,14 +112,23 @@ app.use((req: any, res: any, next: any) => {
     '<https://zenoa.in/llms.txt>; rel="alternate"; type="text/markdown", <https://zenoa.in/llms-full.txt>; rel="alternate"; type="text/markdown", <https://zenoa.in/openapi.json>; rel="service-desc"; type="application/json", <https://zenoa.in/sitemap.xml>; rel="sitemap"; type="application/xml"'
   );
 
-  // Content negotiation for AI agents: if Accept: text/markdown is explicitly requested on root or docs
-  const acceptHeader = (req.headers['accept'] || '').toLowerCase();
-  if (acceptHeader.includes('text/markdown') && !acceptHeader.includes('text/html')) {
-    if (req.path === '/' || req.path === '/docs' || req.path === '/developer') {
-      const llmsPath = path.join(process.cwd(), 'public', 'llms.txt');
-      if (fs.existsSync(llmsPath)) {
-        res.type('text/markdown; charset=UTF-8');
-        return res.sendFile(llmsPath);
+  // Content negotiation for AI agents & markdown clients (Accept: text/markdown)
+  if (req.method === 'GET' && !req.path.startsWith('/api/') && !req.path.startsWith('/v1/')) {
+    const isStaticAsset = req.path.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|json|xml|woff|woff2|ttf|map)$/i);
+    if (!isStaticAsset) {
+      const acceptHeader = String(req.headers['accept'] || '').toLowerCase();
+      const formatQuery = String(req.query?.format || req.query?.markdown || '').toLowerCase();
+      const acceptsMarkdown = acceptHeader.includes('text/markdown') || 
+                              acceptHeader.includes('text/x-markdown') || 
+                              formatQuery === 'markdown' || 
+                              formatQuery === 'true' || 
+                              formatQuery === 'md';
+
+      if (acceptsMarkdown) {
+        const mdContent = getMarkdownResponseForPath(req.path);
+        res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+        res.setHeader('Vary', 'Accept');
+        return res.status(200).send(mdContent);
       }
     }
   }
@@ -2760,7 +2826,7 @@ app.post('/api/v1/team/remove', authenticateApiKey, async (req: any, res: any) =
 });
 
 // ==========================================
-// P2P / QR CODE DEVICE LINKING & SYNC SESSIONS (WEB1 & NATIVE APP)
+// P2P / QR CODE DEVICE LINKING & SYNC SESSIONS (APP & WEB COMPANION)
 // ==========================================
 interface EphemeralLinkSession {
   sessionId: string;
@@ -2828,7 +2894,7 @@ app.post('/api/v1/link-device/register-primary', async (req: any, res: any) => {
   }
 });
 
-// 1. Create a fresh QR linking session (called by Web1 browser)
+// 1. Create a fresh QR linking session (called by Web browser)
 app.post('/api/v1/link-device/create-session', async (req: any, res: any) => {
   try {
     const { publicKey, browser, os, customSessionId, location, deviceName, deviceId, deviceType } = req.body;
@@ -2891,7 +2957,7 @@ app.post('/api/v1/link-device/create-session', async (req: any, res: any) => {
   }
 });
 
-// 2. Poll session status (called by Web1 browser awaiting phone confirmation)
+// 2. Poll session status (called by Web browser awaiting phone confirmation)
 app.get('/api/v1/link-device/session/:sessionId', async (req: any, res: any) => {
   try {
     const { sessionId } = req.params;

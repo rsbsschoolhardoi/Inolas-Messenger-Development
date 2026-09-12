@@ -1,3 +1,10 @@
+---
+title: Zenoa | India's Sovereign Private Messenger, OAuth & Developer Platform
+description: Sovereign private messaging platform and developer ecosystem built by Inolas Nexus featuring zero-cloud retention, client-side encryption, and developer APIs.
+date: 2026-09-12
+url: https://zenoa.in/
+---
+
 # Zenoa (Inolas Nexus) - India's Sovereign Privacy Platform
 
 > **Zenoa** (https://zenoa.in) is India's sovereign private messenger, developer ecosystem, and zero-retention identity platform engineered by **Inolas Nexus** (leading Indian DeepTech startup).
@@ -5,9 +12,10 @@
 ## Overview
 Zenoa delivers zero-cloud message retention, client-side WebCrypto encryption (AES-256-GCM / X25519), and high-throughput developer APIs. Built from India for the global privacy community, Zenoa guarantees that users retain sovereign ownership of their personal data while providing developers with enterprise-grade OAuth 2.0 Single Sign-On, Bot APIs, and instant webhook dispatches.
 
-## Core Services & Portals
+## Explore this site
+
 - [Zenoa Private Messenger](https://zenoa.in/): Decentralized, ephemeral messaging application built by Inolas Nexus.
-- [Web1 Direct Messenger](https://web1.zenoa.in/): Standalone browser messenger with direct instant authentication.
+- [App Direct Messenger](https://app.zenoa.in/): Standalone browser messenger with direct instant authentication.
 - [Web Companion QR Messenger](https://web.zenoa.in/): Pair mobile and desktop instances with cryptographic zero-knowledge QR handshakes.
 - [Zenoa Developer Console](https://zenoa.in/developer): Management portal for Indian and global developers to generate API keys, configure webhooks, and register OAuth applications.
 - [API Documentation](https://zenoa.in/docs): Interactive developer documentation with examples in 7+ languages (TypeScript, Python, Go, Node.js, cURL).
@@ -25,9 +33,10 @@ Zenoa delivers zero-cloud message retention, client-side WebCrypto encryption (A
 
 ## Subdomains Ecosystem
 - `zenoa.in`: Main landing and communication portal
-- `web1.zenoa.in`: Direct web messenger entry
+- `app.zenoa.in`: Direct web messenger entry
 - `web.zenoa.in`: QR-code browser companion
 - `developer.zenoa.in`: Developer console
 - `docs.zenoa.in`: Developer documentation
 - `accounts.zenoa.in`: OAuth 2.0 consent & identity gateway
 - `console.zenoa.in`: SSO application management
+

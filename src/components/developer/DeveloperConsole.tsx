@@ -15,6 +15,21 @@ export const DeveloperConsoleStandalone: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<ConsoleView>('landing');
   const [showZenoaAuthModal, setShowZenoaAuthModal] = useState(false);
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
+    try {
+      const saved = localStorage.getItem('zenoa_dev_theme') || localStorage.getItem('zenoa_theme_mode');
+      if (saved === 'dark' || saved === 'light') return saved;
+    } catch (e) {}
+    return 'light';
+  });
+
+  const toggleTheme = () => {
+    const next = themeMode === 'light' ? 'dark' : 'light';
+    setThemeMode(next);
+    try {
+      localStorage.setItem('zenoa_dev_theme', next);
+    } catch (e) {}
+  };
 
   const fetchFullUserProfile = async (searchIdent: string, uid?: string): Promise<UserData | null> => {
     if (!db) return null;
@@ -117,7 +132,9 @@ export const DeveloperConsoleStandalone: React.FC = () => {
           user={user} 
           onOpenConsole={() => setView('portal')} 
           onShowAuth={() => setShowZenoaAuthModal(true)} 
-          onSwitchAccount={handleLogout} 
+          onSwitchAccount={handleLogout}
+          themeMode={themeMode}
+          onToggleTheme={toggleTheme}
         />
       )}
       
@@ -126,6 +143,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
           user={user} 
           onSuccess={(u) => { setUser(u); setView('portal'); }} 
           onSkip={() => setView('portal')} 
+          themeMode={themeMode}
         />
       )}
       
@@ -133,7 +151,9 @@ export const DeveloperConsoleStandalone: React.FC = () => {
         <PortalDashboard 
           currentUser={user} 
           onLogout={handleLogout} 
-          onHome={() => setView('landing')} 
+          onHome={() => setView('landing')}
+          themeMode={themeMode}
+          onToggleTheme={toggleTheme}
         />
       )}
       
@@ -143,7 +163,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
         serviceTitle="Developer Console"
         serviceDescription="Manage developer applications, bots, and API credentials."
         onAuthenticated={handleAuthenticatedWithZenoa}
-        themeMode="light"
+        themeMode={themeMode}
         disableSavedAccounts={true}
       />
     </>
