@@ -266,18 +266,14 @@ export const MessageCard: React.FC<MessageCardProps> = ({
       {/* Reply banner preview if replying to another message */}
       {msg.reply_to && !msg.deleted_for_everyone && (
         <div 
-          className={`text-[11px] py-1 px-3 rounded-t-xl max-w-[85%] md:max-w-md border-b text-left truncate select-none ${
+          className={`text-[11px] py-1.5 px-3.5 rounded-t-2xl max-w-[85%] md:max-w-md border-l-3 border-[#533afd] text-left truncate select-none shadow-2xs mb-0.5 ${
             isMe 
-              ? isSentDark 
-                ? 'bg-black/30 text-white/95 border-white/20' 
-                : 'bg-black/10 text-slate-900 border-black/15'
-              : isReceivedDark
-                ? 'bg-white/10 text-neutral-200 border-white/15'
-                : 'bg-neutral-200/90 text-neutral-800 border-neutral-300'
+              ? 'bg-[#0a1b2d] text-slate-200 border-r border-t border-b border-white/10' 
+              : 'bg-[#f4f6f8] dark:bg-[#121826] text-[#0d253d] dark:text-[#f8fafc] border-r border-t border-b border-[#e3e8ee] dark:border-[#1f293d]'
           }`}
         >
-          <span className="font-bold">Replying to <AppleEmojiText text={msg.reply_sender || 'message'} />: </span>
-          <span className="italic opacity-90"><AppleEmojiText text={msg.reply_preview || '...'} /></span>
+          <span className="font-bold text-[#533afd] dark:text-[#818cf8]">Replying to <AppleEmojiText text={msg.reply_sender || 'message'} />: </span>
+          <span className="italic opacity-85"><AppleEmojiText text={msg.reply_preview || '...'} /></span>
         </div>
       )}
 
@@ -294,7 +290,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                 onOpenActions(msg);
               }
             }}
-            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-black/20 text-neutral-400 hover:text-white transition-opacity shrink-0 cursor-pointer"
+            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-black/10 dark:hover:bg-white/10 text-[#64748d] dark:text-[#94a3b8] transition-opacity shrink-0 cursor-pointer"
             title="Select Message"
           >
             <MoreVertical className="h-3.5 w-3.5" />
@@ -303,22 +299,22 @@ export const MessageCard: React.FC<MessageCardProps> = ({
 
         {/* Message Bubble Card */}
         <div
-          className={`font-chat text-left min-w-[80px] break-words [overflow-wrap:anywhere] transition-all relative ${
+          className={`font-chat text-left min-w-[84px] break-words [overflow-wrap:anywhere] transition-all relative ${
             isCleanTransparent 
               ? 'p-1 bg-transparent border-0 shadow-none' 
               : isCallMsg 
-                ? 'px-3 py-2 sm:px-3.5 sm:py-2.5 min-w-[190px] sm:min-w-[215px] max-w-[290px] shadow-xs' 
-                : 'p-3 shadow-xs'
+                ? 'px-3.5 py-2.5 sm:px-4 sm:py-3 min-w-[195px] sm:min-w-[220px] max-w-[300px] shadow-xs' 
+                : 'px-3.5 py-2.5 sm:px-4 sm:py-3 shadow-xs'
           } ${
             msg.reply_to ? 'rounded-b-2xl' : 'rounded-2xl'
           } ${
             isMe
               ? isCleanTransparent 
                 ? 'rounded-tr-xs' 
-                : `${activeTheme.bubble.sentBg} ${activeTheme.bubble.sentText} ${activeTheme.bubble.borderStyle || ''} rounded-tr-xs`
+                : `${activeTheme.bubble.sentBg} ${activeTheme.bubble.sentText} ${activeTheme.bubble.borderStyle || ''} rounded-tr-xs shadow-sm`
               : isCleanTransparent
                 ? 'rounded-tl-xs'
-                : `${activeTheme.bubble.receivedBg || 'bg-white dark:bg-neutral-900'} ${activeTheme.bubble.receivedText || 'text-neutral-900 dark:text-neutral-100'} rounded-tl-xs ${activeTheme.bubble.borderStyle || 'border border-neutral-200/70 dark:border-neutral-800'} shadow-neutral-900/5`
+                : `${activeTheme.bubble.receivedBg || 'bg-white dark:bg-[#0b101b]'} ${activeTheme.bubble.receivedText || 'text-[#0d253d] dark:text-[#f8fafc]'} rounded-tl-xs ${activeTheme.bubble.borderStyle || 'border border-[#e3e8ee] dark:border-[#1f293d]'} shadow-sm`
           }`}
         >
 

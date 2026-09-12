@@ -209,32 +209,27 @@ export const DetailedProfilePage: React.FC<DetailedProfilePageProps> = ({
         {/* 5. Direct Interactions Action Buttons (Premium typography & minimal styles) */}
         {isLocked ? (
           /* Private Locked Profile Area */
-          <div className="w-full flex flex-col items-center space-y-6 pt-4 text-center">
-            <div className="space-y-1.5 max-w-xs">
-              <h3 className="text-sm font-bold text-slate-950 dark:text-white">This Account is Private</h3>
-              <p className="text-xs text-slate-400 dark:text-slate-500">
-                Follow this user to view their activity and start chatting on Zenoa.
+          <div className="w-full flex flex-col items-center space-y-5 pt-4 text-center">
+            <div className="space-y-2 max-w-xs flex flex-col items-center">
+              <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-neutral-800 flex items-center justify-center text-slate-700 dark:text-slate-300 shadow-xs mb-1">
+                <Lock className="h-6 w-6" />
+              </div>
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white">This Account is Private</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
+                Follow this account to start chatting and connect.
               </p>
             </div>
             {!isMe && (
               <button
                 id="detailed-profile-private-follow-btn"
-                onClick={() => !isPendingRequest && handleFollow(targetUser)}
-                disabled={isPendingRequest}
-                className={`px-8 py-3 rounded-full font-extrabold text-xs tracking-wider uppercase transition-all flex items-center justify-center gap-2 ${
+                onClick={() => handleFollow(targetUser)}
+                className={`px-8 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all duration-200 cursor-pointer ${
                   isPendingRequest
-                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-default shadow-none'
-                    : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md hover:shadow-indigo-600/25 active:scale-95 cursor-pointer'
+                    ? 'bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-700 shadow-none'
+                    : 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-100 shadow-md active:scale-95'
                 }`}
               >
-                {isPendingRequest ? (
-                  <>
-                    <Clock className="h-4 w-4 shrink-0" />
-                    <span>Requested</span>
-                  </>
-                ) : (
-                  <span>Follow to Connect</span>
-                )}
+                {isPendingRequest ? 'Requested' : 'Follow'}
               </button>
             )}
           </div>
@@ -290,7 +285,7 @@ export const DetailedProfilePage: React.FC<DetailedProfilePageProps> = ({
         )}
 
         {/* 6. Privacy & Action Controls Section (Positioned elegantly below Message/Follow under a proper divider) */}
-        {!isMe && !isBot && (
+        {!isMe && !isBot && !isLocked && (
           <div className="w-full max-w-sm pt-4 space-y-4">
             {/* Divider line */}
             <div className="w-full border-t border-slate-200/80 dark:border-slate-800/80" />

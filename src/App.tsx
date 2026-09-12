@@ -4168,10 +4168,18 @@ export default function App() {
           mobile_number: userRealPhone,
           phone_number: userRealPhone,
           created_at: now,
+          followers: [],
+          following: [],
           active_session_token: freshToken,
           active_session_created_at: now,
           last_login_device: navigator.userAgent || 'Web Browser'
         });
+
+        // Ensure clean slate local follow storage for new account
+        try {
+          localStorage.removeItem('inolas_followed_users');
+          localStorage.setItem(`inolas_followed_users_${cleanUsername}`, '[]');
+        } catch(e) {}
 
         await setDoc(doc(db, 'usernames', cleanUsername), {
           uid: userObj.uid,
@@ -7378,6 +7386,29 @@ export default function App() {
     }
   };
 
+  const handleCancelFollowRequest = async (targetUser: UserData) => {
+    const cleanTarget = (targetUser.username || '').replace(/^@/, '').trim().toLowerCase();
+    const resolvedTarget = users[cleanTarget] || Object.values(users).find(u => u?.username?.toLowerCase() === cleanTarget) || targetUser;
+    const targetUserId = resolvedTarget.id || (Object.entries(users).find(([k, v]) => v?.username?.toLowerCase() === cleanTarget && k !== cleanTarget)?.[0]) || cleanTarget;
+    
+    if (!targetUserId) return;
+    const deterministicReqId = `${userId}_${targetUserId}`;
+
+    // Optimistically remove request from local state
+    setFollowRequests(prev => prev.filter(r => r.id !== deterministicReqId && !(r.fromId === userId && r.toId === targetUserId)));
+
+    if (isFirebaseConfigured && db && userId) {
+      try {
+        await deleteDoc(doc(db, 'follow_requests', deterministicReqId)).catch(() => {});
+        const notifDocId = `follow_req_${userId}_${targetUserId}`;
+        await deleteDoc(doc(db, 'notifications', notifDocId)).catch(() => {});
+      } catch (err) {
+        console.error("Cancel follow request error:", err);
+      }
+    }
+    showToast("Follow request cancelled");
+  };
+
   // Follow/Unfollow Entry Point
   const handleFollow = async (targetUser: UserData | undefined) => {
     if (!targetUser) return;
@@ -7398,6 +7429,16 @@ export default function App() {
     const amIFollowing = isFollowingUser(userUsername, cleanTarget, users);
 
     if (targetUser.is_private && !amIFollowing) {
+      const targetUserId = targetUser.id || (Object.entries(users).find(([k, v]) => v?.username?.toLowerCase() === cleanTarget && k !== cleanTarget)?.[0]) || cleanTarget;
+      const isPending = followRequests.some(r => 
+        (r.toId === targetUserId || r.toUsername?.toLowerCase() === cleanTarget) && 
+        (r.fromUsername?.toLowerCase() === cleanMy || r.fromId === userId) &&
+        r.status === 'pending'
+      );
+      if (isPending) {
+        await handleCancelFollowRequest(targetUser);
+        return;
+      }
       handleSendFollowRequest(targetUser);
       return;
     }
@@ -8874,23 +8915,23 @@ export default function App() {
       )}
 
       {/* SIDEBAR: Primary Navigation Rail (Chats, Search, Profile, Settings) */}
-      <aside className={`hidden md:flex flex-col w-[76px] border-r shrink-0 h-full max-h-[100dvh] transition-colors items-center py-4 justify-between z-20 select-none ${themeMode === 'dark' ? 'bg-[#0f1422] border-slate-800/80' : 'bg-slate-50/90 border-slate-200/80'}`}>
+      <aside className={`hidden md:flex flex-col w-[76px] border-r shrink-0 h-full max-h-[100dvh] transition-colors items-center py-4 justify-between z-20 select-none ${themeMode === 'dark' ? 'bg-[#070a12] border-[#1f293d]' : 'bg-[#fafbfc] border-[#e3e8ee]'}`}>
         {/* Top: App Brand Icon */}
         <div className="flex flex-col items-center gap-4 w-full">
           <button 
             onClick={() => { setActiveView('chats'); setShowProfilePanel(false); }}
             className="group relative cursor-pointer active:scale-95 transition-transform"
-            title={branding.app_name || 'Inolas Messenger'}
+            title={branding.app_name || 'Zenoa'}
           >
             {branding.messenger_logo ? (
               <img 
                 src={branding.messenger_logo} 
-                className="h-10 w-10 rounded-2xl object-contain border border-slate-200/50 dark:border-slate-800 shadow-sm group-hover:shadow-md transition-shadow" 
+                className="h-10 w-10 rounded-2xl object-contain border border-[#e3e8ee] dark:border-[#1f293d] shadow-2xs group-hover:shadow-md transition-shadow" 
                 alt="App Logo" 
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <div className="h-10 w-10 rounded-2xl bg-neutral-900 dark:bg-neutral-800 border border-neutral-700 text-white font-bold text-base flex items-center justify-center shadow-md shadow-indigo-500/20 group-hover:scale-105 transition-transform">
+              <div className="h-10 w-10 rounded-2xl bg-[#0d253d] dark:bg-[#121826] border border-[#e3e8ee] dark:border-[#1f293d] text-white font-bold text-base flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
                 {(branding.app_name || 'Z').charAt(0).toUpperCase()}
               </div>
             )}
@@ -8903,14 +8944,14 @@ export default function App() {
               onClick={() => { setActiveView('chats'); setShowProfilePanel(false); }}
               className={`relative p-3 rounded-2xl transition-all cursor-pointer group flex items-center justify-center w-12 h-12 ${
                 activeView === 'chats' 
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/25' 
-                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-[#533afd] text-white shadow-sm shadow-[#533afd]/25' 
+                  : 'text-[#64748d] dark:text-[#94a3b8] hover:bg-[#e9eef5] dark:hover:bg-[#121826] hover:text-[#0d253d] dark:hover:text-white'
               }`}
               title="Chats"
             >
               <MessageSquare className="h-5 w-5 stroke-[2.2]" />
               {totalUnreads > 0 && (
-                <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-bold h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center shadow-xs border-2 border-white dark:border-[#0f1422]">
+                <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-bold h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center shadow-xs border-2 border-white dark:border-[#070a12]">
                   {totalUnreads > 99 ? '99+' : totalUnreads}
                 </span>
               )}
@@ -8921,8 +8962,8 @@ export default function App() {
               onClick={() => { setActiveView('search'); setShowProfilePanel(false); }}
               className={`relative p-3 rounded-2xl transition-all cursor-pointer group flex items-center justify-center w-12 h-12 ${
                 activeView === 'search' 
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/25' 
-                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-[#533afd] text-white shadow-sm shadow-[#533afd]/25' 
+                  : 'text-[#64748d] dark:text-[#94a3b8] hover:bg-[#e9eef5] dark:hover:bg-[#121826] hover:text-[#0d253d] dark:hover:text-white'
               }`}
               title="Explore & Search"
             >
@@ -8934,8 +8975,8 @@ export default function App() {
               onClick={() => { setActiveView('profile'); setShowProfilePanel(false); }}
               className={`relative p-3 rounded-2xl transition-all cursor-pointer group flex items-center justify-center w-12 h-12 ${
                 activeView === 'profile' 
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/25' 
-                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-[#533afd] text-white shadow-sm shadow-[#533afd]/25' 
+                  : 'text-[#64748d] dark:text-[#94a3b8] hover:bg-[#e9eef5] dark:hover:bg-[#121826] hover:text-[#0d253d] dark:hover:text-white'
               }`}
               title="My Profile"
             >
@@ -8947,8 +8988,8 @@ export default function App() {
               onClick={() => { setActiveView('settings'); setShowProfilePanel(false); }}
               className={`relative p-3 rounded-2xl transition-all cursor-pointer group flex items-center justify-center w-12 h-12 ${
                 activeView === 'settings' 
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/25' 
-                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-[#533afd] text-white shadow-sm shadow-[#533afd]/25' 
+                  : 'text-[#64748d] dark:text-[#94a3b8] hover:bg-[#e9eef5] dark:hover:bg-[#121826] hover:text-[#0d253d] dark:hover:text-white'
               }`}
               title="Settings & Themes"
             >
@@ -8962,7 +9003,7 @@ export default function App() {
           {/* Theme Toggle Button */}
           <button 
             onClick={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
-            className="p-2.5 rounded-2xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-all cursor-pointer"
+            className="p-2.5 rounded-2xl text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white hover:bg-[#e9eef5] dark:hover:bg-[#121826] transition-all cursor-pointer"
             title={`Switch to ${themeMode === 'light' ? 'Dark' : 'Light'} Mode`}
           >
             {themeMode === 'light' ? <Moon className="h-5 w-5 stroke-[2]" /> : <Sun className="h-5 w-5 text-amber-400 stroke-[2]" />}
@@ -8973,21 +9014,21 @@ export default function App() {
             <div className="relative">
               <button
                 onClick={() => setShowStatusPopover(prev => !prev)}
-                className="relative p-0.5 rounded-full ring-2 ring-transparent hover:ring-indigo-500/50 transition-all cursor-pointer block"
+                className="relative p-0.5 rounded-full ring-2 ring-transparent hover:ring-[#533afd]/50 transition-all cursor-pointer block"
                 title={`Status: ${myPresenceStatus} • Click to change`}
               >
                 {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-9 w-9 text-xs')}
-                <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white dark:border-[#0f1422] ${
+                <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white dark:border-[#070a12] ${
                   myPresenceStatus === 'online' ? 'bg-emerald-500' : myPresenceStatus === 'away' ? 'bg-amber-500' : myPresenceStatus === 'busy' ? 'bg-rose-500' : 'bg-slate-400'
                 }`} />
               </button>
 
               {/* Status Popover */}
               {showStatusPopover && (
-                <div className="absolute left-14 bottom-0 z-50 w-56 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-3 backdrop-blur-md">
+                <div className="absolute left-14 bottom-0 z-50 w-56 p-3 rounded-2xl bg-white dark:bg-[#0b101b] border border-[#e3e8ee] dark:border-[#1f293d] shadow-xl space-y-3 backdrop-blur-md">
                   <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Activity Status</span>
-                    <button onClick={() => setShowStatusPopover(false)} className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-3 w-3" /></button>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8]">Activity Status</span>
+                    <button onClick={() => setShowStatusPopover(false)} className="p-0.5 rounded hover:bg-[#f4f6f8] dark:hover:bg-[#121826] text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white"><X className="h-3 w-3" /></button>
                   </div>
 
                   <div className="space-y-1">
@@ -9005,26 +9046,26 @@ export default function App() {
                           showToast(`Status set to ${st.label}`);
                         }}
                         className={`w-full flex items-center justify-between p-2 rounded-xl text-xs font-medium transition-colors ${
-                          myPresenceStatus === st.status ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-semibold border border-indigo-200/50 dark:border-indigo-800/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800/70 text-slate-700 dark:text-slate-300'
+                          myPresenceStatus === st.status ? 'bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] font-semibold border border-[#533afd]/20' : 'hover:bg-[#f4f6f8] dark:hover:bg-[#121826] text-[#273951] dark:text-[#cbd5e1]'
                         }`}
                       >
                         <span className="flex items-center gap-2.5">
                           <span className={`h-2 w-2 rounded-full ${st.color}`} />
                           <span>{st.label}</span>
                         </span>
-                        {myPresenceStatus === st.status && <Check className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />}
+                        {myPresenceStatus === st.status && <Check className="h-3.5 w-3.5 text-[#533afd] dark:text-[#818cf8]" />}
                       </button>
                     ))}
                   </div>
 
-                  <div className="border-t border-slate-100 dark:border-slate-800 pt-2 space-y-1.5">
-                    <label className="block text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Custom Status Note</label>
+                  <div className="border-t border-[#e3e8ee] dark:border-[#1f293d] pt-2 space-y-1.5">
+                    <label className="block text-[10px] uppercase font-bold text-[#64748d] dark:text-[#94a3b8]">Custom Status Note</label>
                     <input 
                       type="text" 
                       value={myCustomStatus}
                       onChange={e => setMyCustomStatus(e.target.value)}
                       placeholder="e.g. In a meeting"
-                      className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/90 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100"
+                      className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-[#e3e8ee] dark:border-[#1f293d] bg-[#f8fafc] dark:bg-[#121826] outline-none focus:border-[#533afd] focus:ring-1 focus:ring-[#533afd]/20 text-[#0d253d] dark:text-white"
                     />
                   </div>
                 </div>
@@ -9036,7 +9077,7 @@ export default function App() {
 
       {/* CENTER: Main working viewport */}
       <main 
-        className="flex flex-1 h-full relative overflow-hidden bg-slate-50/50 dark:bg-[#0b0f19]"
+        className="flex flex-1 h-full relative overflow-hidden bg-[#fafbfc] dark:bg-[#070a12]"
         style={{ height: 'var(--app-height, 100dvh)', maxHeight: 'var(--app-height, 100dvh)' }}
       >
         
@@ -9045,21 +9086,21 @@ export default function App() {
           <div className="flex flex-1 h-full relative">
             
             {/* Left Sub-sidebar: Chat rooms */}
-            <div className={`${mobileShowChat ? 'hidden' : 'flex'} md:flex flex-col w-full md:w-80 lg:w-[340px] border-r border-slate-200/80 dark:border-slate-800/80 shrink-0 h-full bg-white/80 dark:bg-[#0f1422]/90 backdrop-blur-md`}>
-              <div className="p-4 border-b border-slate-200/80 dark:border-slate-800/80">
+            <div className={`${mobileShowChat ? 'hidden' : 'flex'} md:flex flex-col w-full md:w-80 lg:w-[340px] border-r border-[#e3e8ee] dark:border-[#1f293d] shrink-0 h-full bg-white dark:bg-[#0b101b] backdrop-blur-md`}>
+              <div className="p-4 border-b border-[#e3e8ee] dark:border-[#1f293d]">
                 {/* Mobile Header: App Logo + Title + Bell + New Group */}
                 <div className="flex md:hidden items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     {branding.messenger_logo && (
                       <img 
                         src={branding.messenger_logo} 
-                        className="h-7 w-7 object-contain rounded-lg border border-slate-200/40 dark:border-slate-800/40 shadow-xs shrink-0" 
+                        className="h-7 w-7 object-contain rounded-lg border border-[#e3e8ee] dark:border-[#1f293d] shadow-2xs shrink-0" 
                         alt="Logo" 
                         referrerPolicy="no-referrer"
                       />
                     )}
-                    <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white select-none truncate">
-                      {branding.app_name || 'Inolas'}
+                    <h1 className="text-xl font-bold tracking-tight text-[#0d253d] dark:text-white select-none truncate">
+                      {branding.app_name || 'Zenoa'}
                     </h1>
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -9069,12 +9110,12 @@ export default function App() {
                         setShowNotificationsPanel(true);
                         markNotificationsAsRead();
                       }}
-                      className="relative p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all active:scale-95 cursor-pointer"
+                      className="relative p-2 rounded-xl bg-[#f4f6f8] hover:bg-[#e9eef5] dark:bg-[#121826] dark:hover:bg-[#1a2234] text-[#273951] dark:text-[#cbd5e1] border border-[#e3e8ee] dark:border-[#1f293d] transition-all active:scale-95 cursor-pointer"
                       title="Notifications"
                     >
                       <Bell className="h-4 w-4" />
                       {(notifications.filter(n => !n.read).length > 0 || followRequests.length > 0) && (
-                        <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500 border-2 border-white dark:border-slate-900 animate-pulse" />
+                        <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500 border-2 border-white dark:border-[#0b101b] animate-pulse" />
                       )}
                     </button>
 
@@ -9084,7 +9125,7 @@ export default function App() {
                         setNewGroupPreselectedUser(null);
                         setShowNewGroupModal(true);
                       }} 
-                      className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer" 
+                      className="p-2 rounded-xl bg-[#f4f6f8] hover:bg-[#e9eef5] dark:bg-[#121826] dark:hover:bg-[#1a2234] text-[#273951] dark:text-[#cbd5e1] border border-[#e3e8ee] dark:border-[#1f293d] transition-colors cursor-pointer" 
                       title="New Group Chat"
                     >
                       <Users className="h-4 w-4" />
@@ -9095,9 +9136,9 @@ export default function App() {
                 {/* Desktop Header: Clean "Messages" Heading + Bell + New Group (Zero Duplicate Branding) */}
                 <div className="hidden md:flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Messages</h2>
+                    <h2 className="text-xl font-bold tracking-tight text-[#0d253d] dark:text-white">Messages</h2>
                     {totalUnreads > 0 && (
-                      <span className="bg-indigo-600 text-white text-[11px] font-bold px-2 py-0.5 rounded-full shadow-xs">
+                      <span className="bg-[#533afd] text-white text-[11px] font-bold px-2 py-0.5 rounded-full shadow-2xs">
                         {totalUnreads} new
                       </span>
                     )}
@@ -9109,12 +9150,12 @@ export default function App() {
                         setShowNotificationsPanel(true);
                         markNotificationsAsRead();
                       }}
-                      className="relative p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-all active:scale-95 cursor-pointer"
+                      className="relative p-2 rounded-xl hover:bg-[#f4f6f8] dark:hover:bg-[#121826] text-[#64748d] dark:text-[#94a3b8] transition-all active:scale-95 cursor-pointer"
                       title="Notifications & Follow Requests"
                     >
                       <Bell className="h-4 w-4 stroke-[2.2]" />
                       {(notifications.filter(n => !n.read).length > 0 || followRequests.length > 0) && (
-                        <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500 border-2 border-white dark:border-slate-900 animate-pulse" />
+                        <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500 border-2 border-white dark:border-[#0b101b] animate-pulse" />
                       )}
                     </button>
 
@@ -9124,7 +9165,7 @@ export default function App() {
                         setNewGroupPreselectedUser(null);
                         setShowNewGroupModal(true);
                       }} 
-                      className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer" 
+                      className="p-2 rounded-xl hover:bg-[#f4f6f8] dark:hover:bg-[#121826] text-[#64748d] dark:text-[#94a3b8] transition-colors cursor-pointer" 
                       title="New Group Chat"
                     >
                       <Users className="h-4 w-4 stroke-[2.2]" />
@@ -9132,13 +9173,13 @@ export default function App() {
                   </div>
                 </div>
                 <div className="relative">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#94a3b8]" />
                   <input 
                     type="text" 
                     value={chatSearchQuery}
                     onChange={e => setChatSearchQuery(e.target.value)}
                     placeholder="Search chats or people..."
-                    className="w-full pl-9 pr-4 py-2 rounded-xl text-xs font-medium border border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/90 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 transition-all"
+                    className="w-full pl-9 pr-4 py-2 rounded-xl text-xs font-medium border border-[#e3e8ee] dark:border-[#1f293d] bg-[#f8fafc] dark:bg-[#121826] outline-none focus:border-[#533afd] focus:ring-1 focus:ring-[#533afd]/20 text-[#0d253d] dark:text-white placeholder:text-[#94a3b8] transition-all"
                   />
                 </div>
               </div>
@@ -9147,7 +9188,7 @@ export default function App() {
               <div className="flex-1 overflow-y-auto p-2 space-y-1 pb-24 md:pb-2 overscroll-contain">
                 {filteredChats.length === 0 && (!chatSearchQuery.trim() || matchingContactsForSidebar.length === 0) ? (
                   <div className="p-8 text-center">
-                    <p className="text-sm text-slate-500 dark:text-slate-400">No chats or contacts found</p>
+                    <p className="text-sm text-[#64748d] dark:text-[#94a3b8]">No chats or contacts found</p>
                   </div>
                 ) : (
                   <>
@@ -9163,7 +9204,7 @@ export default function App() {
                             setMobileShowChat(true);
                           }
                         }}
-                        className="w-full flex items-center gap-3 p-3 mb-2.5 rounded-2xl cursor-pointer bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-emerald-500/15 dark:from-emerald-500/25 dark:via-teal-500/15 dark:to-emerald-500/25 border-2 border-emerald-500/40 hover:border-emerald-500 transition-all shadow-xs group select-none"
+                        className="w-full flex items-center gap-3 p-3 mb-2.5 rounded-2xl cursor-pointer bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/30 hover:border-emerald-500 transition-all shadow-2xs group select-none"
                       >
                         <div className="relative shrink-0">
                           {renderAvatar(activeCallSession.partnerAvatarSeed, activeCallSession.partnerName, activeCallSession.partnerAvatarUrl, 'h-11 w-11 text-sm')}
@@ -9218,42 +9259,42 @@ export default function App() {
                         onTouchEnd={() => {
                           if ((window as any)._chatTouchTimer) clearTimeout((window as any)._chatTouchTimer);
                         }}
-                        className={`group w-full flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all relative ${chat.id === activeChatId ? 'bg-indigo-50/90 dark:bg-slate-900/90 border border-indigo-200/80 dark:border-indigo-500/30 text-slate-900 dark:text-white shadow-2xs' : 'hover:bg-slate-100/70 dark:hover:bg-slate-900/50 border border-transparent'}`}
+                        className={`group w-full flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all relative ${chat.id === activeChatId ? 'bg-[#533afd]/8 dark:bg-[#121826] border border-[#533afd]/30 dark:border-[#533afd]/40 text-[#0d253d] dark:text-white shadow-2xs' : 'hover:bg-[#f4f6f8] dark:hover:bg-[#121826]/60 border border-transparent'}`}
                       >
                         <div className="relative">
                           {renderAvatar(chat.avatar_seed, chat.name, chat.avatar_url || users[chat.username]?.avatar_url, 'h-10 w-10 text-sm')}
-                          {isUserEffectivelyOnline(users[chat.username]) && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-950"></span>}
+                          {isUserEffectivelyOnline(users[chat.username]) && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#0b101b]"></span>}
                         </div>
 
                         <div className="flex-1 min-w-0 text-left">
                           <div className="flex justify-between items-baseline">
                             <div className="flex items-center gap-1.5 min-w-0">
-                              <p className={`text-sm truncate ${chat.id === activeChatId ? 'font-bold text-indigo-950 dark:text-white' : 'font-semibold text-slate-800 dark:text-slate-200'}`}>
+                              <p className={`text-[13.5px] truncate ${chat.id === activeChatId ? 'font-bold text-[#0d253d] dark:text-white' : 'font-semibold text-[#273951] dark:text-[#cbd5e1]'}`}>
                                 <AppleEmojiText text={chat.type !== 'group' && chat.username && chatNicknames[chat.username] 
-                                  ? chatNicknames[chat.username] 
-                                  : chat.name} />
+                                   ? chatNicknames[chat.username] 
+                                   : chat.name} />
                               </p>
                               {chat.type !== 'group' && chat.username && isAccountVerified(users[chat.username], chat.username) && (
                                 <PurpleVerifiedBadge size="xs"  />
                               )}
                               {chat.pinned && <Pin className="h-3 w-3 text-amber-500 dark:text-amber-400 rotate-45 shrink-0" />}
-                              {chat.muted && <VolumeX className="h-3 w-3 text-slate-400 shrink-0" />}
-                              {chat.archived && <Archive className="h-3 w-3 text-slate-400 shrink-0" />}
+                              {chat.muted && <VolumeX className="h-3 w-3 text-[#94a3b8] shrink-0" />}
+                              {chat.archived && <Archive className="h-3 w-3 text-[#94a3b8] shrink-0" />}
                             </div>
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium shrink-0 ml-1">
+                            <span className="text-[10px] text-[#94a3b8] font-medium shrink-0 ml-1 font-mono">
                               {formatChatListTime(chat.updated_at, chat.last_time)}
                             </span>
                           </div>
                           <div className="flex justify-between items-center mt-1 min-w-0">
-                            <div className="text-xs text-slate-500 dark:text-slate-400 truncate pr-2 flex-1 min-w-0 flex items-center gap-1.5">
+                            <div className="text-xs text-[#64748d] dark:text-[#94a3b8] truncate pr-2 flex-1 min-w-0 flex items-center gap-1.5">
                               {(() => {
                                 const chatMsgs = messagesByChat[chat.id] || [];
                                 const lastMsg = chatMsgs.length > 0 ? chatMsgs[chatMsgs.length - 1] : null;
 
                                 if (chat.typing) {
                                   return (
-                                    <span className="text-indigo-600 dark:text-indigo-400 font-semibold animate-pulse flex items-center gap-1">
-                                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-600 dark:bg-indigo-400 animate-ping" />
+                                    <span className="text-[#533afd] dark:text-[#818cf8] font-semibold animate-pulse flex items-center gap-1">
+                                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#533afd] dark:bg-[#818cf8] animate-ping" />
                                       typing...
                                     </span>
                                   );
@@ -9413,7 +9454,7 @@ export default function App() {
                 <>
                   {/* Chat View Header - Adoptive to Selected Theme / Selection Mode */}
               {selectedMessageIds.length > 0 ? (
-                <div className="flex items-center justify-between h-16 px-4 bg-indigo-900 dark:bg-slate-900 text-white border-b border-indigo-800 dark:border-slate-800 shrink-0 transition-all duration-300 z-20 shadow-md">
+                <div className="flex items-center justify-between h-16 px-4 bg-[#0d253d] dark:bg-[#070a12] text-white border-b border-[#e3e8ee]/20 dark:border-[#1f293d] shrink-0 transition-all duration-300 z-20 shadow-sm">
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => setSelectedMessageIds([])}
@@ -9541,7 +9582,7 @@ export default function App() {
                     }}
                   >
                     {renderAvatar(activeChat.avatar_seed, activeChat.name, activeChat.avatar_url || (activeChat?.username ? users[activeChat?.username]?.avatar_url : undefined), 'h-10 w-10 text-sm')}
-                    {activeChat.type !== 'group' && isUserEffectivelyOnline(users[activeChat?.username]) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-950"></span>}
+                    {activeChat.type !== 'group' && isUserEffectivelyOnline(users[activeChat?.username]) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#070a12]"></span>}
                   </div>
                   <div className="min-w-0 text-left flex-1">
                     <h3 
@@ -9569,7 +9610,7 @@ export default function App() {
                         <PurpleVerifiedBadge size="xs"  />
                       )}
                       {activeChat.type === 'group' && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-indigo-50/20 dark:bg-indigo-950/20 text-current border border-current/20">
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] border border-[#533afd]/20">
                           Group
                         </span>
                       )}
@@ -9589,16 +9630,16 @@ export default function App() {
                           <Mic className="h-3 w-3 inline" /> recording voice note...
                         </span>
                       ) : activeChat.typing || activeChat.activity_type === 'typing' ? (
-                        <span className="text-indigo-600 dark:text-indigo-400 font-medium flex items-center gap-1">
+                        <span className="text-[#533afd] dark:text-[#818cf8] font-medium flex items-center gap-1">
                           <span>typing</span>
                           <span className="flex items-center gap-0.5 ml-0.5">
-                            <span className="h-1 w-1 rounded-full bg-indigo-600 dark:bg-indigo-400 animate-bounce [animation-delay:-0.3s]" />
-                            <span className="h-1 w-1 rounded-full bg-indigo-600 dark:bg-indigo-400 animate-bounce [animation-delay:-0.15s]" />
-                            <span className="h-1 w-1 rounded-full bg-indigo-600 dark:bg-indigo-400 animate-bounce" />
+                            <span className="h-1 w-1 rounded-full bg-[#533afd] dark:bg-[#818cf8] animate-bounce [animation-delay:-0.3s]" />
+                            <span className="h-1 w-1 rounded-full bg-[#533afd] dark:bg-[#818cf8] animate-bounce [animation-delay:-0.15s]" />
+                            <span className="h-1 w-1 rounded-full bg-[#533afd] dark:bg-[#818cf8] animate-bounce" />
                           </span>
                         </span>
                       ) : activeChat.activity_type === 'in_call' ? (
-                        <span className="text-indigo-600 dark:text-indigo-400 font-medium flex items-center gap-1">
+                        <span className="text-[#533afd] dark:text-[#818cf8] font-medium flex items-center gap-1">
                           <Phone className="h-3 w-3 inline" /> in audio call...
                         </span>
                       ) : isOfficialAccount(users[activeChat?.username], activeChat?.username) ? (
@@ -9648,7 +9689,7 @@ export default function App() {
                               handleFollow(users[activeChat?.username.toLowerCase()] || { username: activeChat.username, display_name: activeChat.name });
                             }
                           }}
-                          className="px-4 py-1.5 rounded-full text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs active:scale-95 transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                          className="px-4 py-1.5 rounded-full text-xs font-bold bg-[#533afd] hover:bg-[#4326ea] text-white shadow-xs active:scale-95 transition-all inline-flex items-center gap-1.5 cursor-pointer"
                           title="Click to Follow"
                         >
                           <UserPlus className="h-3.5 w-3.5 shrink-0" />
@@ -9666,14 +9707,14 @@ export default function App() {
                     <>
                       <button 
                         onClick={() => handleStartCall('voice')} 
-                        className={`p-2 rounded-xl text-neutral-500 dark:text-neutral-400 transition-all cursor-pointer active:scale-95 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`} 
+                        className={`p-2 rounded-xl text-[#64748d] dark:text-[#94a3b8] transition-all cursor-pointer active:scale-95 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`} 
                         title="Voice Call"
                       >
                         <Phone className="h-4 w-4" />
                       </button>
                       <button 
                         onClick={() => handleStartCall('video')} 
-                        className={`p-2 rounded-xl text-neutral-500 dark:text-neutral-400 transition-all cursor-pointer active:scale-95 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`} 
+                        className={`p-2 rounded-xl text-[#64748d] dark:text-[#94a3b8] transition-all cursor-pointer active:scale-95 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`} 
                         title="Video Call"
                       >
                         <Video className="h-4 w-4" />
@@ -9685,7 +9726,7 @@ export default function App() {
                   {activeChat.type === 'group' && (
                     <button
                       onClick={() => setShowGroupDetailsModal(true)}
-                      className={`p-2 rounded-xl text-neutral-500 dark:text-neutral-400 transition-all cursor-pointer mr-1 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`}
+                      className={`p-2 rounded-xl text-[#64748d] dark:text-[#94a3b8] transition-all cursor-pointer mr-1 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`}
                       title="Group Information & Members"
                     >
                       <Users className="h-4 w-4" />
@@ -9698,7 +9739,7 @@ export default function App() {
                     className={`p-2 rounded-xl transition-all cursor-pointer ${
                       showChatCustomizationSheet 
                         ? `${currentChatTheme.actionButtonActiveBg}` 
-                        : `text-neutral-500 dark:text-neutral-400 ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`
+                        : `text-[#64748d] dark:text-[#94a3b8] ${currentChatTheme.actionButtonHoverBg} ${themeHoverTextClass}`
                     }`}
                     title="Options"
                   >
@@ -10402,44 +10443,56 @@ export default function App() {
           </div>
         </>
       ) : (
-        <div className="hidden md:flex flex-1 flex-col items-center justify-center text-center p-8 bg-slate-50/50 dark:bg-[#0b0f19]">
-          <div className="max-w-md w-full p-8 rounded-3xl bg-white/90 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800/80 shadow-xl backdrop-blur-md">
+        <div className="hidden md:flex flex-1 flex-col items-center justify-center text-center p-8 bg-[#fafbfc] dark:bg-[#070a12] relative overflow-hidden">
+          {/* Subtle sovereign radial background glow */}
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-[#533afd]/5 via-transparent to-transparent pointer-events-none" />
+
+          <div className="max-w-md w-full p-8 rounded-3xl bg-white/90 dark:bg-[#0b101b]/90 border border-[#e3e8ee] dark:border-[#1f293d] shadow-xl backdrop-blur-md relative z-10">
             {branding.messenger_logo ? (
               <img 
                 src={branding.messenger_logo} 
-                className="w-16 h-16 object-contain rounded-2xl mx-auto mb-4 border border-slate-200/50 dark:border-slate-800/50 shadow-sm" 
+                className="w-16 h-16 object-contain rounded-2xl mx-auto mb-4 border border-[#e3e8ee] dark:border-[#1f293d] shadow-sm" 
                 alt="App Logo" 
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-950/60 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-indigo-100 dark:border-indigo-900/60 text-indigo-600 dark:text-indigo-400 shadow-sm">
+              <div className="w-16 h-16 bg-[#533afd]/10 dark:bg-[#533afd]/20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-[#533afd]/20 text-[#533afd] dark:text-[#818cf8] shadow-sm">
                 <MessageSquare className="h-8 w-8" />
               </div>
             )}
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Welcome to {branding.app_name || 'Zenoa'} Desktop</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
-              Select a conversation from the sidebar to start encrypted messaging, voice/video calls, or access developer integrations.
+            
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] border border-[#533afd]/20 text-[11px] font-bold tracking-wide uppercase mb-3">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#533afd] animate-pulse" />
+              <span>Sovereign Encrypted Mesh</span>
+            </div>
+
+            <h2 className="text-2xl font-extrabold text-[#0d253d] dark:text-white mb-2 tracking-tight">
+              Welcome to {branding.app_name || 'Zenoa'}
+            </h2>
+            <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mb-6 leading-relaxed">
+              Select a conversation from the left sidebar to start end-to-end encrypted chats, voice & video calls, or access developer automation tools.
             </p>
-            <div className="grid grid-cols-2 gap-2.5">
+            
+            <div className="grid grid-cols-2 gap-3">
               <button 
                 onClick={() => setActiveView('search')}
-                className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-indigo-500 text-left transition-all group cursor-pointer"
+                className="p-3.5 rounded-2xl bg-[#f4f6f8] dark:bg-[#121826] border border-[#e3e8ee] dark:border-[#1f293d] hover:border-[#533afd] text-left transition-all group cursor-pointer shadow-2xs hover:shadow-sm"
               >
-                <div className="flex items-center gap-2 mb-1 text-slate-900 dark:text-white font-bold text-xs group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
-                  <Search className="h-4 w-4" />
+                <div className="flex items-center gap-2 mb-1 text-[#0d253d] dark:text-white font-bold text-xs group-hover:text-[#533afd] dark:group-hover:text-[#818cf8]">
+                  <Search className="h-4 w-4 text-[#533afd]" />
                   <span>Discover People</span>
                 </div>
-                <p className="text-[11px] text-slate-400">Find & chat with verified users</p>
+                <p className="text-[11px] text-[#64748d] dark:text-[#94a3b8]">Find & message verified profiles</p>
               </button>
               <button 
                 onClick={() => setActiveView('developer_portal')}
-                className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-indigo-500 text-left transition-all group cursor-pointer"
+                className="p-3.5 rounded-2xl bg-[#f4f6f8] dark:bg-[#121826] border border-[#e3e8ee] dark:border-[#1f293d] hover:border-[#533afd] text-left transition-all group cursor-pointer shadow-2xs hover:shadow-sm"
               >
-                <div className="flex items-center gap-2 mb-1 text-slate-900 dark:text-white font-bold text-xs group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
-                  <Laptop className="h-4 w-4" />
+                <div className="flex items-center gap-2 mb-1 text-[#0d253d] dark:text-white font-bold text-xs group-hover:text-[#533afd] dark:group-hover:text-[#818cf8]">
+                  <Laptop className="h-4 w-4 text-[#533afd]" />
                   <span>Dev Console</span>
                 </div>
-                <p className="text-[11px] text-slate-400">Create bot accounts & OTP API</p>
+                <p className="text-[11px] text-[#64748d] dark:text-[#94a3b8]">Create bots & webhook APIs</p>
               </button>
             </div>
           </div>
@@ -10498,10 +10551,18 @@ export default function App() {
                             </div>
                           </div>
                           <button 
-                            onClick={(e) => { e.stopPropagation(); handleStartChatWithUser(user); }}
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              const isPrivateAccount = user.is_private && !isFollowingUser(userUsername, user.username, users) && user.username?.toLowerCase() !== userUsername?.toLowerCase();
+                              if (isPrivateAccount) {
+                                handleOpenUserProfile(user.username);
+                              } else {
+                                handleStartChatWithUser(user); 
+                              }
+                            }}
                             className="px-3 py-1 bg-neutral-900 dark:bg-neutral-100 group-hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 rounded-xl text-xs font-semibold shadow-sm transition-colors shrink-0"
                           >
-                            Chat
+                            {user.is_private && !isFollowingUser(userUsername, user.username, users) && user.username?.toLowerCase() !== userUsername?.toLowerCase() ? 'Profile' : 'Chat'}
                           </button>
                         </div>
                       ))}
@@ -10537,10 +10598,18 @@ export default function App() {
                           </div>
                         </div>
                         <button 
-                          onClick={(e) => { e.stopPropagation(); handleStartChatWithUser(user); }}
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            const isPrivateAccount = user.is_private && !isFollowingUser(userUsername, user.username, users) && user.username?.toLowerCase() !== userUsername?.toLowerCase();
+                            if (isPrivateAccount) {
+                              handleOpenUserProfile(user.username);
+                            } else {
+                              handleStartChatWithUser(user); 
+                            }
+                          }}
                           className="px-3.5 py-1.5 bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 rounded-xl text-xs font-semibold shadow-md transition-colors shrink-0 ml-4"
                         >
-                          Chat
+                          {user.is_private && !isFollowingUser(userUsername, user.username, users) && user.username?.toLowerCase() !== userUsername?.toLowerCase() ? 'Profile' : 'Chat'}
                         </button>
                       </div>
                     ))

@@ -130,6 +130,7 @@ export interface FollowRequest {
   fromName: string;
   fromUsername: string;
   fromAvatar: string;
+  toUsername?: string;
   status: 'pending' | 'accepted' | 'declined';
   timestamp: number;
 }

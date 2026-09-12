@@ -581,20 +581,20 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   };
 
   return (
-    <div className="flex-1 h-full overflow-y-auto bg-neutral-50/50 dark:bg-neutral-950 transition-colors pb-24 md:pb-8 overscroll-contain">
+    <div className="flex-1 h-full overflow-y-auto bg-[#fafbfc] dark:bg-[#070a12] transition-colors pb-24 md:pb-8 overscroll-contain">
       {/* Top Header Bar */}
-      <div className="sticky top-0 z-10 backdrop-blur-md bg-white/85 dark:bg-neutral-900/85 border-b border-neutral-200/80 dark:border-neutral-800 px-4 md:px-8 py-3.5 flex items-center justify-between">
+      <div className="sticky top-0 z-10 backdrop-blur-md bg-white/85 dark:bg-[#070a12]/85 border-b border-[#e3e8ee] dark:border-[#1f293d] px-4 md:px-8 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           {section !== 'main' && (
             <button
               onClick={() => setSection('main')}
-              className="p-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors cursor-pointer"
+              className="p-1.5 rounded-xl hover:bg-[#f4f6f8] dark:hover:bg-[#121826] text-[#64748d] dark:text-[#94a3b8] transition-colors cursor-pointer"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
           )}
           <div>
-            <h1 className="text-base md:text-lg font-bold text-neutral-900 dark:text-white capitalize">
+            <h1 className="text-base md:text-lg font-bold text-[#0d253d] dark:text-white capitalize">
               {section === 'main' 
                 ? 'Settings & Preferences' 
                 : section === 'private_account' 
@@ -605,7 +605,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       ? 'Linked Devices'
                       : section}
             </h1>
-            <p className="text-[11px] text-neutral-400">
+            <p className="text-[11px] text-[#64748d] dark:text-[#94a3b8]">
               {section === 'main' 
                 ? 'Manage your account, privacy, and preferences' 
                 : section === 'private_account'
@@ -622,7 +622,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={() => changeTheme(themeMode === 'light' ? 'dark' : 'light')}
-            className="p-2 rounded-xl text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+            className="p-2 rounded-xl text-[#64748d] dark:text-[#94a3b8] hover:bg-[#f4f6f8] dark:hover:bg-[#121826] transition-colors cursor-pointer"
             title="Toggle theme"
           >
             {themeMode === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5 text-amber-400" />}
@@ -635,9 +635,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {section === 'main' && (
           <div className="space-y-6 animate-fade-in">
             {/* 1. TOP ITEM: USER PROFILE CARD (REDESIGNED) */}
-            <div className="relative rounded-3xl overflow-hidden border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xl">
-              <div className="h-24 w-full bg-gradient-to-r from-neutral-900 via-indigo-950 to-neutral-900 relative p-4 flex justify-between items-start">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-indigo-500/20 via-transparent to-transparent" />
+            <div className="relative rounded-3xl overflow-hidden border border-[#e3e8ee] dark:border-[#1f293d] bg-white dark:bg-[#0b101b] shadow-sm">
+              <div className="h-24 w-full bg-[#0d253d] dark:bg-[#121826] relative p-4 flex justify-between items-start">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-[#533afd]/20 via-transparent to-transparent" />
                 <span className="relative z-10 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-white/10 dark:bg-black/30 backdrop-blur-md text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   {isAccountPrivate ? 'Private Profile' : 'Public Profile'}
