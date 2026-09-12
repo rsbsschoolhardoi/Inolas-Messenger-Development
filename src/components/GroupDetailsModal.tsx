@@ -102,7 +102,8 @@ export const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
   });
 
   const handleCopyInviteLink = () => {
-    const link = `https://zenoa.app/g/${chat.id}`;
+    const groupDomain = typeof window !== 'undefined' && window.location.hostname.includes('zenoa.sbs') ? 'zenoa.sbs' : 'zenoa.in';
+    const link = `https://${groupDomain}/g/${chat.id}`;
     try {
       navigator.clipboard.writeText(link);
       setCopiedLink(true);
@@ -251,7 +252,7 @@ export const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
                 <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200">Group Share QR Code</p>
                 <div className="p-3 bg-white rounded-xl inline-block border border-neutral-200">
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=https://zenoa.app/g/${chat.id}`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=https://${typeof window !== 'undefined' && window.location.hostname.includes('zenoa.sbs') ? 'zenoa.sbs' : 'zenoa.in'}/g/${chat.id}`}
                     alt="Group QR Code"
                     className="h-32 w-32 mx-auto"
                   />

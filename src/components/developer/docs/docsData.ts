@@ -1149,7 +1149,7 @@ resp, _ := http.DefaultClient.Do(req)`,
   "error": "MACHINE_READABLE_CODE",
   "message": "Human-readable explanation of why the request failed.",
   "status": 400,
-  "documentation_url": "https://zenoa.sbs/docs/errors#MACHINE_READABLE_CODE"
+  "documentation_url": "https://zenoa.in/docs/errors#MACHINE_READABLE_CODE"
 }
 \`\`\`
 

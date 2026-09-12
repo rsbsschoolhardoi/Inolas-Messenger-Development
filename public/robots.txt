@@ -1,0 +1,95 @@
+# robots.txt for https://zenoa.in
+# Privacy-first communication platform & Developer APIs
+
+User-agent: *
+Allow: /
+Allow: /developer
+Allow: /docs
+Allow: /features
+Allow: /about
+Allow: /privacy
+Allow: /terms
+Allow: /security
+Allow: /apps
+Disallow: /api/
+Disallow: /admin
+Disallow: /console/
+Disallow: /auth/
+Disallow: /oauth/
+Disallow: /sso/
+
+# Major Search Engines
+User-agent: Googlebot
+Allow: /
+Disallow: /api/
+Disallow: /admin
+Disallow: /oauth/
+
+User-agent: Googlebot-Image
+Allow: /assets/
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+Disallow: /api/
+Disallow: /admin
+
+User-agent: Slurp
+Allow: /
+Disallow: /api/
+Disallow: /admin
+
+User-agent: DuckDuckBot
+Allow: /
+Disallow: /api/
+Disallow: /admin
+
+User-agent: Baiduspider
+Allow: /
+Disallow: /api/
+Disallow: /admin
+
+User-agent: YandexBot
+Allow: /
+Disallow: /api/
+Disallow: /admin
+
+# AI Search & Crawlers (Allow public content and docs indexing)
+User-agent: GPTBot
+Allow: /
+Disallow: /api/
+Disallow: /admin
+Disallow: /oauth/
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot
+Allow: /
+Disallow: /api/
+Disallow: /admin
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /api/
+Disallow: /admin
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /api/
+
+User-agent: Cohere-ai
+Allow: /
+
+User-agent: CCBot
+Allow: /
+Disallow: /api/
+
+# Sitemaps
+Sitemap: https://zenoa.in/sitemap.xml

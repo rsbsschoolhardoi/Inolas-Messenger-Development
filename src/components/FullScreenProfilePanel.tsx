@@ -328,11 +328,12 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
 
                               <button
                                 onClick={() => {
+                                  const profileDomain = typeof window !== 'undefined' && window.location.hostname.includes('zenoa.sbs') ? 'zenoa.sbs' : 'zenoa.in';
                                   try {
-                                    navigator.clipboard.writeText(`https://zenoa.app/u/${userUsername}`);
+                                    navigator.clipboard.writeText(`https://${profileDomain}/u/${userUsername}`);
                                     showToast("Profile link copied!");
                                   } catch (e) {
-                                    showToast("Profile link: zenoa.app/u/" + userUsername);
+                                    showToast(`Profile link: ${profileDomain}/u/${userUsername}`);
                                   }
                                 }}
                                 className="py-3 px-4 rounded-2xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-bold text-xs flex items-center justify-center gap-2 transition-all border border-neutral-200 dark:border-neutral-700 active:scale-98 cursor-pointer"

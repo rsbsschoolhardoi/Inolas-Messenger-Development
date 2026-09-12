@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, collection, query, where, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, increment, writeBatch, orderBy, limit } from 'firebase/firestore';
 import axios from 'axios';
@@ -56,6 +57,25 @@ app.use((req: any, res: any, next: any) => {
 // Google Site Verification Endpoint
 app.get('/google47f3905eac1338b5.html', (req, res) => {
   res.type('text/html').send('google-site-verification: google47f3905eac1338b5.html');
+});
+
+// Explicit SEO Endpoints (robots.txt & sitemap.xml for Google, AI crawlers, and search engines)
+app.get('/robots.txt', (req, res) => {
+  const robotsPath = path.join(process.cwd(), 'public', 'robots.txt');
+  if (fs.existsSync(robotsPath)) {
+    res.type('text/plain').sendFile(robotsPath);
+  } else {
+    res.type('text/plain').send('User-agent: *\nAllow: /\nSitemap: https://zenoa.in/sitemap.xml\n');
+  }
+});
+
+app.get('/sitemap.xml', (req, res) => {
+  const sitemapPath = path.join(process.cwd(), 'public', 'sitemap.xml');
+  if (fs.existsSync(sitemapPath)) {
+    res.type('application/xml').sendFile(sitemapPath);
+  } else {
+    res.status(404).send('Not Found');
+  }
 });
 
 // Health check
@@ -647,7 +667,7 @@ async function resolveUserRecipient(recipientInput: string): Promise<{
     }
 
     // 2. Query by active username (e.g. azad1)
-    const bareUsername = cleanLower.replace(/@zenoa(\.im)?$/, '');
+    const bareUsername = cleanLower.replace(/@zenoa(\.in|\.im|\.sbs)?$/, '');
     if (!matchedDocData) {
       const uq = query(usersRef, where('username', '==', bareUsername));
       const uSnap = await getDocs(uq);

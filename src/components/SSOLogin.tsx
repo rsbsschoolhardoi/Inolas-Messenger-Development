@@ -450,7 +450,7 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
 
       // Also create signed JWT payload for immediate fallback compatibility
       const rawProfile = {
-        iss: 'https://zenoa.sbs/oauth',
+        iss: typeof window !== 'undefined' && window.location.hostname.includes('zenoa.sbs') ? 'https://zenoa.sbs/oauth' : 'https://zenoa.in/oauth',
         sub: targetUser.id,
         aud: clientId,
         zenoa_id: targetUser.zenoa_id || `${targetUser.username}@zenoa`,

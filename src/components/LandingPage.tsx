@@ -308,7 +308,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <div className="h-3 w-3 rounded-full bg-[#ea2261]" />
                     <div className="h-3 w-3 rounded-full bg-[#f96bee]" />
                     <div className="h-3 w-3 rounded-full bg-[#533afd]" />
-                    <span className="ml-2 text-[12px] font-mono text-[#a8c3de]">zenoa-vault.app</span>
+                    <span className="ml-2 text-[12px] font-mono text-[#a8c3de]">zenoa.in</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px] font-mono text-[#b9b9f9]">
                     <span className="h-1.5 w-1.5 rounded-full bg-[#533afd] animate-ping" />

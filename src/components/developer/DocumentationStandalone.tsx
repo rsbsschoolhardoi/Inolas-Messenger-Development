@@ -24,7 +24,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
   initialSection
 }) => {
   const branding = useBranding();
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://api.zenoa.inolas.com';
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://api.zenoa.in';
 
   // Retrieve stored app/credentials or fallback
   const storedApp = useMemo(() => {

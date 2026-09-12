@@ -1021,10 +1021,10 @@ export default function App() {
       } else {
         setShowAdminPanel(false);
         if (isWeb) {
-          // web.zenoa.sbs opens directly into Messenger
+          // web.zenoa.in opens directly into Messenger
           setShowLandingPage(false);
         } else {
-          // zenoa.sbs shows the public landing page!
+          // zenoa.in shows the public landing page!
           setShowLandingPage(true);
         }
         setAuthFlowInitialMode('login');
@@ -8277,20 +8277,20 @@ export default function App() {
   const currentSearchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
 
   // Subdomain matching:
-  // 1. accounts.zenoa.sbs -> OAuth 2.0 Account Selection & Consent Gate
+  // 1. accounts.zenoa.in / accounts.zenoa.sbs -> OAuth 2.0 Account Selection & Consent Gate
   const isAccountsSubdomain = currentHostname.startsWith("accounts.") || currentHostname.startsWith("account.") || currentHostname.startsWith("auth.") || currentHostname.startsWith("identity.") || currentHostname.startsWith("oauth.");
-  // 2. console.zenoa.sbs / sso.zenoa.sbs -> SSO & OAuth Management Console
+  // 2. console.zenoa.in / sso.zenoa.in / console.zenoa.sbs -> SSO & OAuth Management Console
   const isConsoleSubdomain = currentHostname.startsWith("console.") || currentHostname.startsWith("sso.") || currentHostname.startsWith("id.");
-  // 3. developer.zenoa.sbs -> Developer APIs & Services Console
+  // 3. developer.zenoa.in / developer.zenoa.sbs -> Developer APIs & Services Console
   const isDevSubdomain = currentHostname.startsWith("developer.") || currentHostname.startsWith("developers.") || currentHostname.startsWith("dev.") || currentHostname.startsWith("portal.") || currentHostname.startsWith("dash.");
-  // 4. docs.zenoa.sbs -> API Documentation
+  // 4. docs.zenoa.in / docs.zenoa.sbs -> API Documentation
   const isDocsSubdomain = currentHostname.startsWith("docs.") || currentHostname.startsWith("api-docs.") || currentHostname.startsWith("api.");
-  // 5. web1.zenoa.sbs -> Standalone Web1 Direct Real Messenger
+  // 5. web1.zenoa.in / web1.zenoa.sbs -> Standalone Web1 Direct Real Messenger
   const isWeb1Subdomain = currentHostname.startsWith("web1.");
-  // 6. web.zenoa.sbs -> Standalone Web QR Code Messenger
+  // 6. web.zenoa.in / web.zenoa.sbs -> Standalone Web QR Code Messenger
   const isWebSubdomain = currentHostname.startsWith("web.");
 
-  // A. Accounts / OAuth 2.0 Consent Screen (accounts.zenoa.sbs, /auth/sso, /oauth, or client_id query param)
+  // A. Accounts / OAuth 2.0 Consent Screen (accounts.zenoa.in, /auth/sso, /oauth, or client_id query param)
   const isSSOAuthConsent = isAccountsSubdomain || currentPathname === "/auth/sso" || currentPathname === "/oauth" || currentSearchParams.has("client_id") || currentSearchParams.has("redirect_uri");
   if (isSSOAuthConsent) {
     if (onboardingStep > 0 && onboardingStep < 3 && isAuthenticated) {
@@ -8360,7 +8360,7 @@ export default function App() {
     );
   }
 
-  // C. SSO & OAuth Management Console (console.zenoa.sbs or /sso)
+  // C. SSO & OAuth Management Console (console.zenoa.in or /sso)
   const isSSOConsolePath = isConsoleSubdomain || (
     currentPathname === "/sso" || 
     currentPathname === "/developer/sso" ||
@@ -8368,7 +8368,7 @@ export default function App() {
   ); 
   if (isSSOConsolePath) return <SSOConsoleStandalone currentUser={currentUserObj} />; 
 
-  // D. Developer Console Portal (developer.zenoa.sbs or /developer)
+  // D. Developer Console Portal (developer.zenoa.in or /developer)
   const isDeveloperPath = isDevSubdomain || (
     currentPathname === "/developer" || 
     currentPathname === "/portal" ||
@@ -8386,7 +8386,7 @@ export default function App() {
     currentPathname === "/signup"
   );
 
-  // Web: QR-Code based Web Messenger (companion for web.zenoa.sbs or /web)
+  // Web: QR-Code based Web Messenger (companion for web.zenoa.in or /web)
   const isWebQRPairing = !isWeb1DirectMessenger && (
     isWebSubdomain ||
     currentPathname === "/web" || 
@@ -8545,8 +8545,9 @@ export default function App() {
           onStartAuth={(initialMode) => {
             const host = window.location.hostname.toLowerCase();
             const mode = initialMode || 'login';
-            if (host.endsWith('zenoa.sbs') && !host.startsWith('web1.')) {
-              window.location.href = `https://web1.zenoa.sbs${mode === 'register' ? '/signup' : '/login'}`;
+            if ((host.endsWith('zenoa.in') || host.endsWith('zenoa.sbs')) && !host.startsWith('web1.')) {
+              const baseDomain = host.endsWith('zenoa.sbs') ? 'zenoa.sbs' : 'zenoa.in';
+              window.location.href = `https://web1.${baseDomain}${mode === 'register' ? '/signup' : '/login'}`;
               return;
             }
             setAuthFlowInitialMode(mode);

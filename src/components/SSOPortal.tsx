@@ -156,6 +156,9 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
   const getAccountsAuthUrl = () => {
     if (typeof window === 'undefined') return '/auth/sso';
     const hostname = window.location.hostname.toLowerCase();
+    if (hostname.includes('zenoa.in')) {
+      return 'https://accounts.zenoa.in/auth/sso';
+    }
     if (hostname.includes('zenoa.sbs')) {
       return 'https://accounts.zenoa.sbs/auth/sso';
     }
@@ -169,6 +172,9 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
   const getApiTokenUrl = () => {
     if (typeof window === 'undefined') return '/api/oauth/token';
     const hostname = window.location.hostname.toLowerCase();
+    if (hostname.includes('zenoa.in')) {
+      return 'https://accounts.zenoa.in/api/oauth/token';
+    }
     if (hostname.includes('zenoa.sbs')) {
       return 'https://accounts.zenoa.sbs/api/oauth/token';
     }

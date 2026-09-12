@@ -17,7 +17,7 @@ const resolveBotHandle = (app: any): string => {
 export const generateTsSdk = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
 
@@ -160,7 +160,7 @@ export default ZenoaSDK;
 export const generateNodeSdk = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
 
@@ -248,7 +248,7 @@ module.exports = ZenoaSDK;
 export const generatePythonSdk = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
 
@@ -333,7 +333,7 @@ class ZenoaSDK:
 export const generateGoSdk = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
 
@@ -419,7 +419,7 @@ func (c *Client) SendOTP(recipient, templateType string) (*OTPResponse, error) {
 export const generatePhpSdk = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
 
@@ -506,7 +506,7 @@ class ZenoaSDK {
 export const generateJavaSdk = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
 
@@ -573,7 +573,7 @@ public class ZenoaSDK {
 export const generateEnvConfig = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
 
@@ -603,7 +603,7 @@ ZENOA_BOT_SEND_URL="${origin}/api/v1/bot/send"`;
 export const generateCurlSnippets = (app: any) => {
   if (!app) return '';
   const cid = app.active_client_id || app.client_id || app.api_key || 'zen_client_prod';
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
   return `# Ensure both variables are exported on your secure backend:
 export ZENOA_SA_CLIENT_ID="${cid}"
 export ZENOA_SA_CLIENT_SECRET="your_secret_here"
@@ -649,6 +649,6 @@ export const generateHtmlSnippet = (app: any) => {
   if (!app) return '';
   const botHandle = resolveBotHandle(app);
   const appName = app.app_name || 'Service Account';
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.sbs';
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
   return `<a href="${origin}/@${botHandle.replace(/^@/, '')}" target="_blank" rel="noopener noreferrer">Contact ${appName} (${botHandle})</a>`;
 };

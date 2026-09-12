@@ -147,6 +147,7 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
       
       const candidateEmails = [
         targetUserData?.email,
+        `${pureHandle}@zenoa.in`,
         `${pureHandle}@zenoa.auth`,
         `${pureHandle}@zenoa.sbs`,
         `${pureHandle}@zenoa.internal`,
