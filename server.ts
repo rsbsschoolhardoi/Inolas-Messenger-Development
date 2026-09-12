@@ -39,7 +39,7 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Normalization & Header Middleware for Vercel / Cloud Run / Local
+// Normalization & Header Middleware for Vercel / Cloud Run / Local & Cloudflare Agent Readiness
 app.use((req: any, res: any, next: any) => {
   // If request URL is prefixed as /v1/ instead of /api/v1/, normalize to /api/v1/
   if (req.url && req.url.startsWith('/v1/')) {
@@ -48,6 +48,25 @@ app.use((req: any, res: any, next: any) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS,PATCH");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-API-Key, Accept");
+
+  // Agent Discovery RFC 8288 Link headers (scored by Cloudflare isitagentready / agent-ready.dev)
+  res.header(
+    "Link",
+    '<https://zenoa.in/llms.txt>; rel="alternate"; type="text/markdown", <https://zenoa.in/llms-full.txt>; rel="alternate"; type="text/markdown", <https://zenoa.in/openapi.json>; rel="service-desc"; type="application/json", <https://zenoa.in/sitemap.xml>; rel="sitemap"; type="application/xml"'
+  );
+
+  // Content negotiation for AI agents: if Accept: text/markdown is explicitly requested on root or docs
+  const acceptHeader = (req.headers['accept'] || '').toLowerCase();
+  if (acceptHeader.includes('text/markdown') && !acceptHeader.includes('text/html')) {
+    if (req.path === '/' || req.path === '/docs' || req.path === '/developer') {
+      const llmsPath = path.join(process.cwd(), 'public', 'llms.txt');
+      if (fs.existsSync(llmsPath)) {
+        res.type('text/markdown; charset=UTF-8');
+        return res.sendFile(llmsPath);
+      }
+    }
+  }
+
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -75,6 +94,40 @@ app.get('/sitemap.xml', (req, res) => {
     res.type('application/xml').sendFile(sitemapPath);
   } else {
     res.status(404).send('Not Found');
+  }
+});
+
+// Machine-readable LLM documentation file (llms.txt)
+app.get('/llms.txt', (req, res) => {
+  const llmsPublicPath = path.join(process.cwd(), 'public', 'llms.txt');
+  const llmsRootPath = path.join(process.cwd(), 'llms.txt');
+  const targetPath = fs.existsSync(llmsPublicPath) ? llmsPublicPath : llmsRootPath;
+  if (fs.existsSync(targetPath)) {
+    res.type('text/markdown; charset=UTF-8').sendFile(targetPath);
+  } else {
+    res.status(404).send('Not Found');
+  }
+});
+
+// Full LLM context manifest (llms-full.txt)
+app.get('/llms-full.txt', (req, res) => {
+  const llmsFullPublicPath = path.join(process.cwd(), 'public', 'llms-full.txt');
+  const llmsFullRootPath = path.join(process.cwd(), 'llms-full.txt');
+  const targetPath = fs.existsSync(llmsFullPublicPath) ? llmsFullPublicPath : llmsFullRootPath;
+  if (fs.existsSync(targetPath)) {
+    res.type('text/markdown; charset=UTF-8').sendFile(targetPath);
+  } else {
+    res.status(404).send('Not Found');
+  }
+});
+
+// Machine-readable OpenAPI 3.1 specification for AI bots and developer agents
+app.get(['/openapi.json', '/api/openapi.json'], (req, res) => {
+  const openApiPath = path.join(process.cwd(), 'public', 'openapi.json');
+  if (fs.existsSync(openApiPath)) {
+    res.type('application/json; charset=UTF-8').sendFile(openApiPath);
+  } else {
+    res.status(404).json({ error: 'openapi_not_found' });
   }
 });
 

@@ -1,0 +1,133 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Zenoa Developer & Inolas Nexus API",
+    "version": "1.0.0",
+    "description": "Public developer APIs for Zenoa Messenger by Inolas Nexus. Provides endpoints for Bot messaging, OAuth 2.0 Single Sign-On, OTP authentication, and Webhook dispatching.",
+    "contact": {
+      "name": "Zenoa Developer Platform",
+      "url": "https://zenoa.in/developer",
+      "email": "support@zenoa.in"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://zenoa.in",
+      "description": "Production Server"
+    },
+    {
+      "url": "https://developer.zenoa.in",
+      "description": "Developer Console & Services"
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "System Health Status",
+        "description": "Checks the health and uptime of Zenoa Developer Services.",
+        "responses": {
+          "200": {
+            "description": "Successful health check",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "service": { "type": "string", "example": "zenoa-developer-api" },
+                    "timestamp": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/developer/send-message": {
+      "post": {
+        "summary": "Send Bot Message",
+        "description": "Dispatches an automated business bot message or notification to a Zenoa user or channel.",
+        "security": [{ "ApiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["recipient", "text"],
+                "properties": {
+                  "recipient": { "type": "string", "description": "Target Zenoa username or @zenoa address", "example": "azad1" },
+                  "text": { "type": "string", "description": "Message body to deliver", "example": "Your security code is 849201" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Message dispatched successfully" },
+          "401": { "description": "Unauthorized - Invalid API credentials" }
+        }
+      }
+    },
+    "/api/developer/send-otp": {
+      "post": {
+        "summary": "Dispatch Multi-Factor OTP",
+        "description": "Generates and delivers a cryptographically secure one-time verification code via Zenoa private relay.",
+        "security": [{ "ApiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["recipient"],
+                "properties": {
+                  "recipient": { "type": "string", "example": "azad1" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "OTP generated and delivered" }
+        }
+      }
+    },
+    "/api/oauth/token": {
+      "post": {
+        "summary": "OAuth 2.0 Token Exchange",
+        "description": "Exchanges authorization code for an OAuth 2.0 access token under Zenoa OAuth / Inolas Nexus.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["client_id", "client_secret", "code"],
+                "properties": {
+                  "client_id": { "type": "string" },
+                  "client_secret": { "type": "string" },
+                  "code": { "type": "string" },
+                  "grant_type": { "type": "string", "example": "authorization_code" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Token issued" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    }
+  }
+}

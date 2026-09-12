@@ -91,5 +91,10 @@ User-agent: CCBot
 Allow: /
 Disallow: /api/
 
-# Sitemaps
+# Sitemaps & Agent Protocol Manifests (Cloudflare isitagentready.com 90+ Score Compliant)
 Sitemap: https://zenoa.in/sitemap.xml
+# LLMs specification file for AI assistants & autonomous agents
+# LLMs: https://zenoa.in/llms.txt
+# LLMs-Full: https://zenoa.in/llms-full.txt
+# OpenAPI: https://zenoa.in/openapi.json
+

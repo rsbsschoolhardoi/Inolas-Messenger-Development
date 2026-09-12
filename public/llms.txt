@@ -1,0 +1,33 @@
+# Zenoa (Inolas Nexus) - India's Sovereign Privacy Platform
+
+> **Zenoa** (https://zenoa.in) is India's sovereign private messenger, developer ecosystem, and zero-retention identity platform engineered by **Inolas Nexus** (leading Indian DeepTech startup).
+
+## Overview
+Zenoa delivers zero-cloud message retention, client-side WebCrypto encryption (AES-256-GCM / X25519), and high-throughput developer APIs. Built from India for the global privacy community, Zenoa guarantees that users retain sovereign ownership of their personal data while providing developers with enterprise-grade OAuth 2.0 Single Sign-On, Bot APIs, and instant webhook dispatches.
+
+## Core Services & Portals
+- [Zenoa Private Messenger](https://zenoa.in/): Decentralized, ephemeral messaging application built by Inolas Nexus.
+- [Web1 Direct Messenger](https://web1.zenoa.in/): Standalone browser messenger with direct instant authentication.
+- [Web Companion QR Messenger](https://web.zenoa.in/): Pair mobile and desktop instances with cryptographic zero-knowledge QR handshakes.
+- [Zenoa Developer Console](https://zenoa.in/developer): Management portal for Indian and global developers to generate API keys, configure webhooks, and register OAuth applications.
+- [API Documentation](https://zenoa.in/docs): Interactive developer documentation with examples in 7+ languages (TypeScript, Python, Go, Node.js, cURL).
+- [Zenoa OAuth & SSO Console](https://zenoa.in/sso): Identity gateway protecting user privacy with zero-data phone/email harvesting.
+- [Security Architecture](https://zenoa.in/security): In-depth cryptographic whitepaper on 0ms TTL relay mesh and local IndexedDB isolation.
+- [Privacy Policy](https://zenoa.in/privacy): Clear privacy commitments from Inolas Nexus, Indian startup.
+- [Terms of Service](https://zenoa.in/terms): User agreement and open API guidelines.
+
+## Developer & Machine-Readable Resources
+- [OpenAPI Specification](https://zenoa.in/openapi.json): Standard OpenAPI 3.1 specification for AI bots and API clients.
+- [Full LLM Context](https://zenoa.in/llms-full.txt): Comprehensive multi-page architectural guide for autonomous LLM agents.
+- [LLMs Manifest](https://zenoa.in/llms.txt): Machine-readable markdown specification for AI agents.
+- [Robots Configuration](https://zenoa.in/robots.txt): Crawler policy and access rules for search engines and AI agents.
+- [XML Sitemap](https://zenoa.in/sitemap.xml): Complete URL index for search engines.
+
+## Subdomains Ecosystem
+- `zenoa.in`: Main landing and communication portal
+- `web1.zenoa.in`: Direct web messenger entry
+- `web.zenoa.in`: QR-code browser companion
+- `developer.zenoa.in`: Developer console
+- `docs.zenoa.in`: Developer documentation
+- `accounts.zenoa.in`: OAuth 2.0 consent & identity gateway
+- `console.zenoa.in`: SSO application management

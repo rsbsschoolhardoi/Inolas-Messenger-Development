@@ -1,0 +1,62 @@
+# Zenoa (Inolas Nexus) - Full System Specification & Documentation
+
+> **Zenoa** (https://zenoa.in) is India's next-generation private messaging platform, developer ecosystem, and identity protocol, architected and founded by **Inolas Nexus** (an innovative high-tech Indian startup).
+
+## Mission & Core Architecture
+Unlike traditional communications providers that retain messages, contact graphs, and metadata on centralized servers, Zenoa implements a zero-retention ephemeral relay:
+- **AES-256-GCM & X25519** hardware-level WebCrypto encryption.
+- **Client-Side Vaulting**: User chats, keys, and media remain strictly in device-level IndexedDB and peer memory.
+- **Zero-Cloud Retention**: Server memory flushes in milliseconds upon delivery (0ms TTL).
+- **Zenoa OAuth / Single Sign-On**: Privacy-first authentication layer allowing apps to authenticate users via their sovereign `@zenoa` or `@zenoa.in` identity without harvesting emails or phone numbers.
+- **Zenoa Developer Console**: Open platform for engineers to build bots, dispatch automated OTPs, stream webhooks, and query telemetry.
+
+---
+
+## Complete Route Directory
+
+### 1. Public Portals
+- **Homepage / Messenger**: [https://zenoa.in/](https://zenoa.in/)
+  - Real-time client-side chat application with zero-cloud storage.
+- **Web1 Direct Messenger**: [https://web1.zenoa.in/](https://web1.zenoa.in/)
+  - Standalone instant login without pairing delays.
+- **Web QR Companion**: [https://web.zenoa.in/](https://web.zenoa.in/)
+  - Instant mobile-to-browser paired communication via cryptographic QR codes.
+
+### 2. Developer & Enterprise APIs
+- **Developer Console**: [https://zenoa.in/developer](https://zenoa.in/developer)
+  - Application dashboard, secret generation, webhook URL subscriptions, and delivery metrics.
+- **API Documentation**: [https://zenoa.in/docs](https://zenoa.in/docs)
+  - Machine-readable endpoints, code snippets in TypeScript, Python, Go, Node.js, PHP, Java, and cURL.
+- **OpenAPI 3.1 Spec**: [https://zenoa.in/openapi.json](https://zenoa.in/openapi.json)
+  - Full OpenAPI schema for AI agents, LangChain, Claude, GPT, and custom SDK generators.
+
+### 3. Identity, SSO & Security
+- **Zenoa OAuth & SSO Console**: [https://zenoa.in/sso](https://zenoa.in/sso)
+  - Manage OAuth 2.0 client credentials, redirect URIs, and scopes (`profile:read`, `messages:send`).
+- **OAuth Authorization Endpoint**: `https://accounts.zenoa.in/auth/sso`
+  - Consent screen and authentication gate.
+- **OAuth Token Endpoint**: `https://accounts.zenoa.in/api/oauth/token`
+  - Secure code-for-token exchange.
+- **Security Whitepaper**: [https://zenoa.in/security](https://zenoa.in/security)
+  - Zero-knowledge encryption, threat modeling, and cryptographic benchmarks.
+- **Privacy Policy**: [https://zenoa.in/privacy](https://zenoa.in/privacy)
+  - Detailed zero-retention audit and data protection policies.
+- **Terms of Service**: [https://zenoa.in/terms](https://zenoa.in/terms)
+  - Fair usage and open developer terms.
+
+---
+
+## Machine-Readable Manifests
+- **LLM Summary**: [https://zenoa.in/llms.txt](https://zenoa.in/llms.txt)
+- **Full LLM Context**: [https://zenoa.in/llms-full.txt](https://zenoa.in/llms-full.txt)
+- **Robots Policy**: [https://zenoa.in/robots.txt](https://zenoa.in/robots.txt)
+- **XML Sitemap**: [https://zenoa.in/sitemap.xml](https://zenoa.in/sitemap.xml)
+- **OpenAPI Schema**: [https://zenoa.in/openapi.json](https://zenoa.in/openapi.json)
+
+---
+
+## Organization & Lineage
+- **Product**: Zenoa (Zenoa Messenger)
+- **Company / Parent**: Inolas Nexus
+- **Country of Origin**: India (Indian Startup / DeepTech Innovation)
+- **License**: Sovereign Privacy & Open Developer Protocol

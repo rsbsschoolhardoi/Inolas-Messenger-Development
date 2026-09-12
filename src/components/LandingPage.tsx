@@ -235,17 +235,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
             {/* Left Column: Bold Display Headlines & Editorial Density (Guaranteed 100% visible, no motion opacity:0 delay) */}
             <div className="lg:col-span-7 space-y-6 text-left relative z-30">
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/95 dark:bg-[#1c1e54]/95 border border-[#e3e8ee] dark:border-[#273951] text-[#273951] dark:text-[#cbd5e1] text-[13px] shadow-[0_1px_3px_rgba(0,55,112,0.06)]">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/95 dark:bg-[#1c1e54]/95 border border-[#e3e8ee] dark:border-[#273951] text-[#273951] dark:text-[#cbd5e1] text-[13px] shadow-[0_1px_3px_rgba(0,55,112,0.06)] flex-wrap">
                 <span className="h-2 w-2 rounded-full bg-[#533afd] animate-pulse" />
-                <span className="font-semibold text-[#0d253d] dark:text-white">Zero-Cloud Retention</span>
+                <span className="font-semibold text-[#0d253d] dark:white">Inolas Nexus</span>
                 <span className="text-[#a8c3de] dark:text-[#64748d]">•</span>
-                <span className="font-tabular text-[#533afd] dark:text-[#b9b9f9] text-[12px] font-semibold">0ms TTL Relay Mesh</span>
+                <span className="text-[#533afd] dark:text-[#b9b9f9] font-medium">India's Sovereign Privacy Startup</span>
+                <span className="text-[#a8c3de] dark:text-[#64748d]">•</span>
+                <span className="font-tabular text-[#273951] dark:text-[#cbd5e1] text-[12px]">Zero-Cloud Retention</span>
               </div>
 
               {/* Display Heading: Bold, High-Contrast, No Overlap, 100% Crisp Visibility */}
               <h1 className="text-[34px] sm:text-[46px] lg:text-[54px] font-bold tracking-tight text-[#0d253d] dark:text-white leading-[1.18] sm:leading-[1.14]">
                 <span className="block text-[#0d253d] dark:text-white">
-                  Decentralized privacy,
+                  India's private messenger,
                 </span>
                 <span className="block mt-2 sm:mt-2.5 text-[#533afd] dark:text-[#818cf8]">
                   sealed in your device vault.
@@ -254,7 +256,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
               {/* Body Text: High-contrast ink text and comfortable reading line-height */}
               <p className="text-[16px] sm:text-[18px] font-normal text-[#273951] dark:text-[#cbd5e1] max-w-xl leading-[1.6]">
-                Conventional messengers retain your private chats on central cloud databases. Zenoa operates an ephemeral relay: messages exist in-flight for milliseconds, deliver directly into your device's encrypted IndexedDB storage, and vanish forever from the cloud.
+                Engineered by Indian startup <strong>Inolas Nexus</strong>, Zenoa is the sovereign private messenger with 0ms cloud retention. Built for individuals and enterprise builders with <strong>Zenoa OAuth 2.0</strong> and the <strong>Zenoa Developer Console</strong> for real-time bot APIs.
               </p>
 
               {/* Action Buttons: Restrained Single Primary Indigo Pill */}
@@ -1050,10 +1052,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <span className="font-sf-pro font-black text-[18px] tracking-[0.06em] uppercase text-[#0d253d] dark:text-white leading-none">
                 ZENOA
               </span>
+              <span className="text-[11px] px-2 py-0.5 rounded bg-[#f0f4ff] dark:bg-[#1e2238] text-[#533afd] dark:text-[#b9b9f9] font-medium">
+                By Inolas Nexus (India)
+              </span>
             </div>
             <p className="text-[13px] max-w-sm leading-[1.5]">
-              Zero-Cloud Message Retention Protocol. Client-side encrypted with AES-256-GCM and stored exclusively within physical device hardware vaults.
+              India's sovereign private messenger protocol with zero-cloud retention. Featuring <strong>Zenoa OAuth</strong> for decentralized identity and the <strong>Zenoa Developer Console</strong> for private bot communication.
             </p>
+            <div className="flex flex-wrap items-center gap-3 pt-1 text-[12px] text-[#533afd] dark:text-[#818cf8]">
+              <a href="/developer" className="hover:underline">Developer Console</a>
+              <span>•</span>
+              <a href="/sso" className="hover:underline">Zenoa OAuth SSO</a>
+              <span>•</span>
+              <a href="/docs" className="hover:underline">API Docs</a>
+              <span>•</span>
+              <a href="/llms.txt" className="hover:underline">llms.txt</a>
+            </div>
           </div>
 
           {/* Legal Disclosures */}
@@ -1129,7 +1143,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 border-t border-[#e3e8ee] dark:border-[#273951] flex flex-col sm:flex-row items-center justify-between gap-4 text-[12px] font-tabular text-[#64748d] dark:text-[#94a3b8]">
-          <span>© 2026 Zenoa Inc. All rights reserved. Zero-Retention System.</span>
+          <span>© 2026 Inolas Nexus. All rights reserved. Zenoa Private Messenger (India Startup Innovation).</span>
           <div className="flex items-center gap-4">
             <span>Protocol v3.4.0 (Production Release)</span>
             <button
