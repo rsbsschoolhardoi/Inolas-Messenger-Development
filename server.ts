@@ -2304,8 +2304,8 @@ app.post('/api/v1/sso/authorize', async (req: any, res: any) => {
     res.status(500).json({ error: err?.message || 'SSO Authorization failed' });
   }
 });
-// OAuth 2.0 Token Exchange Endpoint (/api/v1/sso/token)
-app.post(['/api/v1/sso/token', '/v1/sso/token'], async (req: any, res: any) => {
+// OAuth 2.0 Token Exchange Endpoint (/api/v1/sso/token, /api/oauth/token, etc.)
+app.post(['/api/v1/sso/token', '/v1/sso/token', '/api/oauth/token', '/api/v1/oauth/token', '/oauth/token'], async (req: any, res: any) => {
   try {
     const { client_id, client_secret, code, redirect_uri, grant_type } = req.body;
 
@@ -2450,8 +2450,8 @@ app.post(['/api/v1/sso/token', '/v1/sso/token'], async (req: any, res: any) => {
   }
 });
 
-// OAuth 2.0 UserInfo API Endpoint (/api/v1/sso/userinfo or /api/v1/sso/me)
-app.get(['/api/v1/sso/userinfo', '/api/v1/sso/me'], async (req: any, res: any) => {
+// OAuth 2.0 UserInfo API Endpoint (/api/v1/sso/userinfo, /api/oauth/userinfo, /oauth/userinfo, /api/v1/sso/me, etc.)
+app.get(['/api/v1/sso/userinfo', '/api/v1/sso/me', '/api/oauth/userinfo', '/api/v1/oauth/userinfo', '/oauth/userinfo', '/oauth/me'], async (req: any, res: any) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {

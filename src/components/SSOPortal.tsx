@@ -7,13 +7,13 @@ import {
   FileCode, CheckSquare, X, Activity, ShieldCheck, Cpu, ArrowUpRight,
   Sliders, Database, Fingerprint, HelpCircle, Flame, ShieldAlert,
   Server, Link2, CheckCircle, AlertTriangle, LayoutDashboard, Sun,
-  Moon, ChevronRight, Monitor, BookOpen, ShieldOff, ArrowLeft, Menu,
+  Moon, ChevronRight, ChevronDown, ChevronUp, Search, Monitor, BookOpen, ShieldOff, ArrowLeft, Menu,
   LogOut, Hash, Sparkle, Laptop, CheckCheck
 } from 'lucide-react';
 import { UserData } from '../types';
 import { useBranding } from '../brandingUtils';
 import { BrandLogo } from './common/BrandLogo';
-import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebaseClient';
 
 export interface SSOApp {
@@ -119,8 +119,19 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
   const [isTesterRunning, setIsTesterRunning] = useState<boolean>(false);
   const [testerLog, setTesterLog] = useState<string[]>([]);
 
-  // Code Snippets Tab
-  const [docsLanguage, setDocsLanguage] = useState<'react' | 'nodejs' | 'python' | 'go' | 'curl' | 'env'>('react');
+  // Code Snippets Tab States
+  const [docsLanguage, setDocsLanguage] = useState<'react' | 'nodejs' | 'python' | 'curl' | 'vanilla' | 'env'>('react');
+  const [selectedSnippetAppId, setSelectedSnippetAppId] = useState<string>('');
+  const [isAppDropdownOpen, setIsAppDropdownOpen] = useState<boolean>(false);
+  const [appDropdownSearch, setAppDropdownSearch] = useState<string>('');
+  const [snippetRedirectUri, setSnippetRedirectUri] = useState<string>('');
+  const [showSnippetSecret, setShowSnippetSecret] = useState<boolean>(false);
+
+  // Real-time Redirect URI management states
+  const [expandedUriManagerAppId, setExpandedUriManagerAppId] = useState<string | null>(null);
+  const [quickUriInputByApp, setQuickUriInputByApp] = useState<{ [appId: string]: string }>({});
+  const [uriSavingAppId, setUriSavingAppId] = useState<string | null>(null);
+  const [uriSavedSuccessAppId, setUriSavedSuccessAppId] = useState<string | null>(null);
 
   // SSO Button Customizer State
   const [buttonConfig, setButtonConfig] = useState<{
@@ -181,6 +192,22 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     return `${window.location.origin}/api/oauth/token`;
   };
 
+  const getApiUserInfoUrl = () => {
+    if (typeof window === 'undefined') return '/api/oauth/userinfo';
+    const hostname = window.location.hostname.toLowerCase();
+    if (hostname.includes('zenoa.in')) {
+      return 'https://accounts.zenoa.in/api/oauth/userinfo';
+    }
+    if (hostname.includes('zenoa.sbs')) {
+      return 'https://accounts.zenoa.sbs/api/oauth/userinfo';
+    }
+    return `${window.location.origin}/api/oauth/userinfo`;
+  };
+
+  const getOidcDiscoveryUrl = () => {
+    return `${window.location.origin}/.well-known/openid-configuration`;
+  };
+
   // Load User's SSO Applications
   const fetchApps = async () => {
     const ownerName = currentUser?.username || 'developer_user';
@@ -239,6 +266,10 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         setSelectedTesterAppId(firestoreApps[0].id);
         setTestRedirectUri(firestoreApps[0].redirect_uris[0] || 'http://localhost:3000/auth/callback');
       }
+      if (!selectedSnippetAppId && firestoreApps.length > 0) {
+        setSelectedSnippetAppId(firestoreApps[0].id);
+        setSnippetRedirectUri(firestoreApps[0].redirect_uris[0] || 'http://localhost:3000/auth/callback');
+      }
     } catch (err: any) {
       console.warn('Failed to load SSO apps:', err);
       showNotification('error', err.message || 'Failed to fetch registered applications');
@@ -249,7 +280,129 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
 
   useEffect(() => {
     fetchApps();
-  }, [currentUser?.username]);
+
+    if (!db) return;
+    try {
+      const ssoRef = collection(db, 'sso_applications');
+      const unsubscribe = onSnapshot(ssoRef, (snapshot) => {
+        const ownerName = currentUser?.username || 'developer_user';
+        const updatedDocs: SSOApp[] = [];
+
+        snapshot.forEach(docSnap => {
+          const data = { id: docSnap.id, ...docSnap.data() } as SSOApp;
+          if (data.id === 'sso_official_default' || data.client_id === 'zenoa_official_app') {
+            updatedDocs.unshift(data);
+          } else if (data.owner === ownerName || !data.owner || data.owner === currentUser?.zenoa_id) {
+            updatedDocs.push(data);
+          }
+        });
+
+        if (updatedDocs.length > 0) {
+          setApps(prev => {
+            const idMap = new Map<string, SSOApp>();
+            updatedDocs.forEach(a => idMap.set(a.id, a));
+            prev.forEach(a => {
+              if (!idMap.has(a.id)) {
+                idMap.set(a.id, a);
+              }
+            });
+            return Array.from(idMap.values());
+          });
+        }
+      }, (err) => {
+        console.warn('Real-time SSO listener notice:', err);
+      });
+
+      return () => unsubscribe();
+    } catch (e) {
+      console.warn('Could not attach real-time SSO listener:', e);
+    }
+  }, [currentUser?.username, currentUser?.zenoa_id]);
+
+  // Real-Time Redirect URI Updater for any App
+  const handleUpdateAppRedirectUris = async (
+    appId: string,
+    updatedUris: string[],
+    action: 'added' | 'removed'
+  ) => {
+    if (!updatedUris || updatedUris.length === 0) {
+      showNotification('error', 'OAuth 2.0 clients require at least one allowed Redirect URI');
+      return;
+    }
+
+    setUriSavingAppId(appId);
+
+    // 1. Optimistic Real-Time UI State Update
+    setApps(prev => prev.map(a => (a.id === appId ? { ...a, redirect_uris: updatedUris, updated_at: Date.now() } : a)));
+
+    // 2. If this app is being edited in form, sync form state
+    if (editingAppId === appId) {
+      setRedirectUrisList(updatedUris);
+    }
+
+    // 3. If this app is active in tester or snippet, sync selected URI
+    if (selectedTesterAppId === appId && !updatedUris.includes(testRedirectUri)) {
+      setTestRedirectUri(updatedUris[0] || '');
+    }
+    if (selectedSnippetAppId === appId && !updatedUris.includes(snippetRedirectUri)) {
+      setSnippetRedirectUri(updatedUris[0] || '');
+    }
+
+    // 4. Persist to Firestore with setDoc + merge: true
+    try {
+      if (db) {
+        await setDoc(doc(db, 'sso_applications', appId), {
+          redirect_uris: updatedUris,
+          updated_at: Date.now()
+        }, { merge: true });
+      }
+
+      // Update local storage backup cache
+      try {
+        const cachedStr = localStorage.getItem('zenoa_sso_apps_cache');
+        if (cachedStr) {
+          const cached = JSON.parse(cachedStr);
+          const nextCached = cached.map((c: any) => c.id === appId ? { ...c, redirect_uris: updatedUris } : c);
+          localStorage.setItem('zenoa_sso_apps_cache', JSON.stringify(nextCached));
+        }
+      } catch (e) {}
+
+      setUriSavedSuccessAppId(appId);
+      setTimeout(() => {
+        setUriSavedSuccessAppId(null);
+      }, 2500);
+
+      showNotification('success', action === 'added' ? 'Redirect URI added and saved in real time' : 'Redirect URI removed and saved in real time');
+    } catch (err: any) {
+      console.error('Failed to update redirect URIs:', err);
+      showNotification('error', err.message || 'Failed to save Redirect URIs in real time');
+    } finally {
+      setUriSavingAppId(null);
+    }
+  };
+
+  const handleQuickAddUri = (appId: string, uriToAdd?: string) => {
+    const targetApp = apps.find(a => a.id === appId);
+    if (!targetApp) return;
+
+    const inputVal = uriToAdd !== undefined ? uriToAdd : (quickUriInputByApp[appId] || '');
+    const cleanUri = inputVal.trim();
+    if (!cleanUri) return;
+
+    if (!cleanUri.startsWith('http://localhost') && !cleanUri.startsWith('https://') && !cleanUri.startsWith('http://127.0.0.1')) {
+      showNotification('error', 'Redirect URI must start with https:// (or http://localhost for local testing)');
+      return;
+    }
+
+    if (targetApp.redirect_uris.includes(cleanUri)) {
+      showNotification('error', 'This Redirect URI is already registered for this client');
+      return;
+    }
+
+    const nextUris = [...targetApp.redirect_uris, cleanUri];
+    handleUpdateAppRedirectUris(appId, nextUris, 'added');
+    setQuickUriInputByApp(prev => ({ ...prev, [appId]: '' }));
+  };
 
   // Form Reset
   const resetForm = () => {
@@ -298,8 +451,14 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       return;
     }
 
-    setRedirectUrisList(prev => [...prev, raw]);
+    const nextList = [...redirectUrisList, raw];
+    setRedirectUrisList(nextList);
     setRedirectUrisInput('');
+
+    // If editing an existing app, sync directly to Firestore in real time!
+    if (editingAppId) {
+      handleUpdateAppRedirectUris(editingAppId, nextList, 'added');
+    }
   };
 
   // Remove Redirect URI
@@ -308,7 +467,13 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       showNotification('error', 'OAuth clients require at least one allowed Redirect URI');
       return;
     }
-    setRedirectUrisList(prev => prev.filter((_, i) => i !== index));
+    const nextList = redirectUrisList.filter((_, i) => i !== index);
+    setRedirectUrisList(nextList);
+
+    // If editing an existing app, sync directly to Firestore in real time!
+    if (editingAppId) {
+      handleUpdateAppRedirectUris(editingAppId, nextList, 'removed');
+    }
   };
 
   // Toggle Scope
@@ -351,11 +516,11 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         };
 
         if (db) {
-          await updateDoc(doc(db, 'sso_applications', editingAppId), updatedData);
+          await setDoc(doc(db, 'sso_applications', editingAppId), updatedData, { merge: true });
         }
 
         setApps(prev => prev.map(a => (a.id === editingAppId ? { ...a, ...updatedData } : a)));
-        showNotification('success', 'OAuth configuration saved successfully');
+        showNotification('success', 'OAuth configuration saved successfully in real time');
       } else {
         const randomId = Math.random().toString(36).substring(2, 10);
         const randomSecret = 'zen_sec_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -567,12 +732,252 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     }, 450);
   };
 
-  const activeSnippetApp = apps[0] || {
-    client_id: 'zenoa_oauth_your_client_id',
-    client_secret: 'zen_sec_your_client_secret',
-    redirect_uris: ['https://yourapp.com/auth/callback'],
-    scopes: ['openid', 'profile', 'email']
+  const activeSnippetApp = useMemo(() => {
+    return apps.find(a => a.id === selectedSnippetAppId) || apps[0] || {
+      id: 'mock_app',
+      client_id: 'zenoa_oauth_your_client_id',
+      client_secret: 'zen_sec_your_client_secret',
+      app_name: `${branding.app_name || 'Zenoa'} Client`,
+      redirect_uris: ['http://localhost:3000/auth/callback'],
+      scopes: ['openid', 'profile', 'email'],
+      environment: 'production' as const,
+      created_at: Date.now()
+    };
+  }, [apps, selectedSnippetAppId, branding.app_name]);
+
+  const activeSnippetRedirectUri = useMemo(() => {
+    if (snippetRedirectUri && activeSnippetApp.redirect_uris?.includes(snippetRedirectUri)) {
+      return snippetRedirectUri;
+    }
+    return activeSnippetApp.redirect_uris?.[0] || 'http://localhost:3000/auth/callback';
+  }, [snippetRedirectUri, activeSnippetApp]);
+
+  const filteredSnippetApps = useMemo(() => {
+    if (!appDropdownSearch.trim()) return apps;
+    const q = appDropdownSearch.toLowerCase();
+    return apps.filter(a =>
+      a.app_name.toLowerCase().includes(q) ||
+      a.client_id.toLowerCase().includes(q) ||
+      (a.environment && a.environment.toLowerCase().includes(q))
+    );
+  }, [apps, appDropdownSearch]);
+
+  const currentSnippet = useMemo(() => {
+    const app = activeSnippetApp;
+    const redirectUri = activeSnippetRedirectUri;
+    const clientId = app.client_id;
+    const clientSecretVal = showSnippetSecret ? `"${app.client_secret}"` : 'process.env.ZENOA_CLIENT_SECRET';
+    const authUrl = `${getAccountsAuthUrl()}?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20profile%20email`;
+    const tokenUrl = getApiTokenUrl();
+    const userinfoUrl = getApiUserInfoUrl();
+    const discoveryUrl = getOidcDiscoveryUrl();
+    const brandName = branding.app_name || 'Zenoa';
+
+    switch (docsLanguage) {
+      case 'react':
+        return `// ==============================================================================
+// Target Application: ${app.app_name} (${clientId})
+// Whitelisted Callback: ${redirectUri}
+// ==============================================================================
+
+// 1. Client-Side "Continue with ${brandName}" Button Component
+export const ZenoaLoginButton = () => {
+  const handleLogin = () => {
+    const authEndpoint = "${getAccountsAuthUrl()}";
+    const clientId = "${clientId}";
+    const redirectUri = encodeURIComponent("${redirectUri}");
+    const scope = encodeURIComponent("openid profile email");
+    
+    // Redirect to Zenoa Consent Screen
+    window.location.href = \`\${authEndpoint}?client_id=\${clientId}&redirect_uri=\${redirectUri}&response_type=code&scope=\${scope}\`;
   };
+
+  return (
+    <button
+      onClick={handleLogin}
+      className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg transition-all flex items-center gap-2"
+    >
+      Continue with ${brandName}
+    </button>
+  );
+};
+
+// 2. Next.js App Router Server Handler (app/api/auth/callback/route.ts)
+import { NextRequest, NextResponse } from 'next/server';
+
+export async function GET(request: NextRequest) {
+  const code = request.nextUrl.searchParams.get('code');
+  if (!code) {
+    return NextResponse.json({ error: 'Authorization code missing' }, { status: 400 });
+  }
+
+  // Server-to-Server Token Exchange
+  const tokenRes = await fetch('${tokenUrl}', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'authorization_code',
+      client_id: '${clientId}',
+      client_secret: ${clientSecretVal},
+      code,
+      redirect_uri: '${redirectUri}'
+    })
+  });
+
+  const tokenData = await tokenRes.json();
+  if (!tokenRes.ok) {
+    return NextResponse.json(tokenData, { status: tokenRes.status });
+  }
+
+  // Retrieve Verified Identity Claims
+  const userRes = await fetch('${userinfoUrl}', {
+    headers: { Authorization: \`Bearer \${tokenData.access_token}\` }
+  });
+  const user = await userRes.json();
+
+  // Create your session cookie or JWT here
+  return NextResponse.json({ success: true, user });
+}`;
+
+      case 'nodejs':
+        return `// ==============================================================================
+// Target Application: ${app.app_name} (${clientId})
+// Whitelisted Callback: ${redirectUri}
+// ==============================================================================
+import express from 'express';
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Step 1: Redirect user to Zenoa Consent Screen
+app.get('/auth/login', (req, res) => {
+  const authUrl = "${authUrl}";
+  res.redirect(authUrl);
+});
+
+// Step 2: Callback route to exchange authorization code for Bearer Access Token
+app.get('/auth/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).send('Authorization code missing');
+
+  try {
+    const tokenResponse = await fetch('${tokenUrl}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'authorization_code',
+        client_id: '${clientId}',
+        client_secret: ${clientSecretVal},
+        code,
+        redirect_uri: '${redirectUri}'
+      })
+    });
+
+    const tokenData = await tokenResponse.json();
+
+    // Step 3: Fetch verified user identity claims
+    const userProfileResponse = await fetch('${userinfoUrl}', {
+      headers: { Authorization: \`Bearer \${tokenData.access_token}\` }
+    });
+    const user = await userProfileResponse.json();
+
+    // User session successfully established!
+    res.json({ status: 'authenticated', user });
+  } catch (err) {
+    res.status(500).json({ error: 'OAuth exchange failed', details: String(err) });
+  }
+});
+
+app.listen(PORT, () => console.log(\`OAuth App listening on port \${PORT}\`));`;
+
+      case 'python':
+        return `# ==============================================================================
+# Target Application: ${app.app_name} (${clientId})
+# Whitelisted Callback: ${redirectUri}
+# ==============================================================================
+import os
+import httpx
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import RedirectResponse
+
+app = FastAPI()
+
+CLIENT_ID = "${clientId}"
+CLIENT_SECRET = ${showSnippetSecret ? `"${app.client_secret}"` : 'os.getenv("ZENOA_CLIENT_SECRET", "")'}
+REDIRECT_URI = "${redirectUri}"
+TOKEN_ENDPOINT = "${tokenUrl}"
+USERINFO_ENDPOINT = "${userinfoUrl}"
+
+@app.get("/auth/login")
+def login():
+    auth_url = "${authUrl}"
+    return RedirectResponse(auth_url)
+
+@app.get("/auth/callback")
+async def auth_callback(code: str):
+    async with httpx.AsyncClient() as client:
+        # Step 1: Exchange code for Bearer Token
+        token_res = await client.post(TOKEN_ENDPOINT, json={
+            "grant_type": "authorization_code",
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "code": code,
+            "redirect_uri": REDIRECT_URI
+        })
+        if token_res.status_code != 200:
+            raise HTTPException(status_code=400, detail="Token exchange failed")
+        token_data = token_res.json()
+
+        # Step 2: Query user identity claims
+        user_res = await client.get(USERINFO_ENDPOINT, headers={
+            "Authorization": f"Bearer {token_data['access_token']}"
+        })
+        return user_res.json()`;
+
+      case 'curl':
+        return `# ==============================================================================
+# Zenoa RFC 6749 cURL Protocol (${app.app_name})
+# Whitelisted Callback: ${redirectUri}
+# ==============================================================================
+
+# 1. Browser Authorization Request (Open in browser)
+# ${authUrl}
+
+# 2. Server-to-Server Token Exchange (POST authorization_code)
+curl -X POST "${tokenUrl}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "grant_type": "authorization_code",
+    "client_id": "${clientId}",
+    "client_secret": "${showSnippetSecret ? app.client_secret : '$ZENOA_CLIENT_SECRET'}",
+    "code": "zen_code_YOUR_CODE",
+    "redirect_uri": "${redirectUri}"
+  }'
+
+# 3. Fetch User Identity Claims (GET userinfo)
+curl -X GET "${userinfoUrl}" \\
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+
+# 4. OpenID Connect Discovery Document
+curl -X GET "${discoveryUrl}"`;
+
+      case 'env':
+      default:
+        return `# ==============================================================================
+# Zenoa OAuth 2.0 Client Credentials (${app.app_name})
+# Environment: ${app.environment || 'production'}
+# ==============================================================================
+ZENOA_CLIENT_ID="${clientId}"
+ZENOA_CLIENT_SECRET="${showSnippetSecret ? app.client_secret : 'YOUR_COPIED_CLIENT_SECRET_HERE'}"
+ZENOA_REDIRECT_URI="${redirectUri}"
+
+# Zenoa OpenID Connect & OAuth 2.0 Discovery Endpoints
+ZENOA_AUTH_URL="${getAccountsAuthUrl()}"
+ZENOA_TOKEN_URL="${tokenUrl}"
+ZENOA_USERINFO_URL="${userinfoUrl}"
+ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
+    }
+  }, [activeSnippetApp, activeSnippetRedirectUri, showSnippetSecret, docsLanguage, branding.app_name]);
 
   // Nav item component helper
   const renderNavItem = (id: SSOTabType, label: string, Icon: any, badge?: string) => {
@@ -1254,26 +1659,179 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                             </div>
                           </div>
 
-                          {/* Callback URIs & Scopes Summary */}
-                          <div className="mt-4 pt-3.5 border-t border-slate-100 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-[11px] font-bold text-slate-400">Redirect URIs ({app.redirect_uris?.length || 0}):</span>
-                              {app.redirect_uris?.slice(0, 2).map((uri, i) => (
-                                <span key={i} className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-mono text-[11px] text-slate-600 dark:text-slate-300 break-all">
-                                  {uri}
+                          {/* Authorized Redirect URIs Interactive Real-Time Manager */}
+                          <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
+                                  <Link2 className="w-3.5 h-3.5 text-indigo-500" />
+                                  <span>Authorized Redirect URIs</span>
+                                </div>
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                  {app.redirect_uris?.length || 0} registered
                                 </span>
-                              ))}
-                              {(app.redirect_uris?.length || 0) > 2 && (
-                                <span className="text-[10px] text-slate-400 font-bold">
-                                  +{app.redirect_uris.length - 2} more
-                                </span>
-                              )}
+
+                                {/* Real-time Sync Indicator */}
+                                {uriSavingAppId === app.id && (
+                                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 animate-pulse">
+                                    <RefreshCw className="w-3 h-3 animate-spin" />
+                                    Updating in real time...
+                                  </span>
+                                )}
+                                {uriSavedSuccessAppId === app.id && (
+                                  <motion.span
+                                    initial={{ scale: 0.9, opacity: 0 }}
+                                    animate={{ scale: 1, opacity: 1 }}
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/40"
+                                  >
+                                    <CheckCheck className="w-3.5 h-3.5" />
+                                    Saved in real time!
+                                  </motion.span>
+                                )}
+                              </div>
+
+                              {/* Action to use this app in SDK */}
+                              <button
+                                onClick={() => {
+                                  setSelectedSnippetAppId(app.id);
+                                  setSnippetRedirectUri(app.redirect_uris?.[0] || '');
+                                  setActiveTab('docs');
+                                }}
+                                className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer self-start sm:self-auto"
+                              >
+                                <Code2 className="w-3 h-3" />
+                                View SDK Snippets
+                              </button>
                             </div>
 
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-[11px] font-bold text-slate-400">Scopes:</span>
+                            {/* Animated List of Registered Redirect URIs */}
+                            <div className="space-y-1.5">
+                              <AnimatePresence initial={false}>
+                                {(app.redirect_uris || []).map((uri, idx) => (
+                                  <motion.div
+                                    key={uri}
+                                    layout
+                                    initial={{ opacity: 0, y: -6 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
+                                    className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl border text-xs font-mono transition-colors ${
+                                      isDark
+                                        ? 'bg-slate-900/80 border-slate-800/90 text-slate-200 hover:border-slate-700'
+                                        : 'bg-slate-50 border-slate-200/90 text-slate-700 hover:border-slate-300'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 shadow-xs shadow-emerald-500/50" />
+                                      <span className="truncate font-semibold text-slate-800 dark:text-slate-100">{uri}</span>
+                                    </div>
+
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCopy(uri, `uri_${app.id}_${idx}`, 'Redirect URI copied')}
+                                        className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                                        title="Copy URI"
+                                      >
+                                        {copiedKey === `uri_${app.id}_${idx}` ? (
+                                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                        ) : (
+                                          <Copy className="w-3.5 h-3.5" />
+                                        )}
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if ((app.redirect_uris?.length || 0) <= 1) {
+                                            showNotification('error', 'OAuth clients require at least one allowed Redirect URI');
+                                            return;
+                                          }
+                                          const next = app.redirect_uris.filter((_, i) => i !== idx);
+                                          handleUpdateAppRedirectUris(app.id, next, 'removed');
+                                        }}
+                                        disabled={uriSavingAppId === app.id || (app.redirect_uris?.length || 0) <= 1}
+                                        className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                          (app.redirect_uris?.length || 0) <= 1
+                                            ? 'text-slate-300 dark:text-slate-700 cursor-not-allowed'
+                                            : 'text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30'
+                                        }`}
+                                        title={(app.redirect_uris?.length || 0) <= 1 ? 'At least one Redirect URI is required' : 'Remove Redirect URI'}
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </motion.div>
+                                ))}
+                              </AnimatePresence>
+                            </div>
+
+                            {/* Quick Add URI inline form */}
+                            <div className="pt-1">
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={quickUriInputByApp[app.id] || ''}
+                                  onChange={e => setQuickUriInputByApp(prev => ({ ...prev, [app.id]: e.target.value }))}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      handleQuickAddUri(app.id);
+                                    }
+                                  }}
+                                  placeholder="Add Redirect URI (e.g. https://yourapp.com/auth/callback)"
+                                  className={`flex-1 px-3 py-1.5 text-xs font-mono rounded-xl border outline-none transition-all ${
+                                    isDark
+                                      ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white placeholder:text-slate-600'
+                                      : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900 placeholder:text-slate-400'
+                                  }`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickAddUri(app.id)}
+                                  disabled={uriSavingAppId === app.id || !(quickUriInputByApp[app.id] || '').trim()}
+                                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold rounded-xl cursor-pointer flex items-center gap-1.5 shrink-0 transition-colors shadow-xs"
+                                >
+                                  {uriSavingAppId === app.id ? (
+                                    <RefreshCw className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Plus className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>Add URI</span>
+                                </button>
+                              </div>
+
+                              {/* Quick Presets */}
+                              <div className="flex items-center gap-2 mt-2 flex-wrap text-[11px] text-slate-500">
+                                <span className="font-semibold text-[10px] text-slate-400">Quick presets:</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickAddUri(app.id, 'http://localhost:3000/auth/callback')}
+                                  className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-mono transition-colors cursor-pointer"
+                                >
+                                  + Localhost:3000
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickAddUri(app.id, window.location.origin + '/auth/callback')}
+                                  className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-mono transition-colors cursor-pointer"
+                                >
+                                  + Current Origin
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickAddUri(app.id, window.location.origin + '/auth/sso')}
+                                  className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-mono transition-colors cursor-pointer"
+                                >
+                                  + /auth/sso
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Scopes Summary */}
+                            <div className="pt-2 flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[11px] font-bold text-slate-400">Allowed Scopes:</span>
                               {(app.scopes || ['openid', 'profile']).map(s => (
-                                <span key={s} className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/40 font-semibold">
+                                <span key={s} className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/40 font-semibold">
                                   {s}
                                 </span>
                               ))}
@@ -1419,10 +1977,23 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                   {/* Authorized Redirect URIs Manager */}
                   <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                        <Link2 className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                        <span>Authorized Redirect URIs (Whitelisted Callbacks) <span className="text-rose-500">*</span></span>
-                      </label>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                          <Link2 className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                          <span>Authorized Redirect URIs (Whitelisted Callbacks) <span className="text-rose-500">*</span></span>
+                        </label>
+                        {editingAppId && uriSavingAppId === editingAppId && (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-amber-500 font-semibold animate-pulse">
+                            <RefreshCw className="w-3 h-3 animate-spin" /> Saving...
+                          </span>
+                        )}
+                        {editingAppId && uriSavedSuccessAppId === editingAppId && (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-emerald-500 font-semibold">
+                            <CheckCheck className="w-3 h-3" /> Updated in real time!
+                          </span>
+                        )}
+                      </div>
+
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <button
                           type="button"
@@ -1438,6 +2009,14 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                           className="text-[11px] text-indigo-500 hover:underline font-semibold cursor-pointer"
                         >
                           + Current Origin
+                        </button>
+                        <span className="text-slate-400">&bull;</span>
+                        <button
+                          type="button"
+                          onClick={() => handleAddRedirectUri(window.location.origin + '/auth/sso')}
+                          className="text-[11px] text-indigo-500 hover:underline font-semibold cursor-pointer"
+                        >
+                          + /auth/sso
                         </button>
                       </div>
                     </div>
@@ -1463,35 +2042,57 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
                       <button
                         type="button"
                         onClick={() => handleAddRedirectUri()}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl cursor-pointer shrink-0"
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl cursor-pointer shrink-0 transition-colors flex items-center gap-1.5"
                       >
-                        Add URI
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add URI</span>
                       </button>
                     </div>
 
-                    {/* URIs List */}
+                    {/* Animated URIs List */}
                     <div className="space-y-1.5 mt-2">
-                      {redirectUrisList.map((uri, idx) => (
-                        <div
-                          key={idx}
-                          className={`flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-mono ${
-                            isDark ? 'bg-slate-900/60 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 truncate">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                            <span className="truncate">{uri}</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveRedirectUri(idx)}
-                            className="text-slate-400 hover:text-rose-500 transition-colors p-1 cursor-pointer shrink-0"
-                            title="Remove URI"
+                      <AnimatePresence initial={false}>
+                        {redirectUrisList.map((uri, idx) => (
+                          <motion.div
+                            key={uri}
+                            layout
+                            initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95, height: 0, marginBottom: 0, transition: { duration: 0.18 } }}
+                            className={`flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-mono transition-all ${
+                              isDark ? 'bg-slate-900/60 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                            }`}
                           >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))}
+                            <div className="flex items-center gap-2 truncate">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                              <span className="truncate">{uri}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(uri, `form_uri_${idx}`, 'URI copied')}
+                                className="text-slate-400 hover:text-slate-200 p-1 cursor-pointer transition-colors"
+                                title="Copy URI"
+                              >
+                                {copiedKey === `form_uri_${idx}` ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveRedirectUri(idx)}
+                                disabled={redirectUrisList.length === 1}
+                                className={`p-1 transition-colors ${
+                                  redirectUrisList.length === 1
+                                    ? 'text-slate-300 dark:text-slate-700 cursor-not-allowed'
+                                    : 'text-slate-400 hover:text-rose-500 cursor-pointer'
+                                }`}
+                                title={redirectUrisList.length === 1 ? 'At least one Redirect URI is required' : 'Remove URI'}
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
                     </div>
                   </div>
 
@@ -1848,166 +2449,229 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
             )}
 
             {/* ========================================================================= */}
-            {/* TAB 6: MULTI-LANGUAGE SDK CODE SNIPPETS                                  */}
+            {/* TAB 6: MULTI-LANGUAGE SDK CODE SNIPPETS & CLIENT SELECTOR                 */}
             {/* ========================================================================= */}
             {activeTab === 'docs' && (
               <div className="space-y-6 animate-fade-in">
                 <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'}`}>
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100 dark:border-slate-800">
+                  {/* Top Bar: Title & Target App Selector */}
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-slate-100 dark:border-slate-800">
                     <div>
-                      <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">OAuth 2.0 Integration Handlers</h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                        Production-ready authentication routes and token exchange snippets.
+                      <div className="flex items-center gap-2">
+                        <Code2 className="w-5 h-5 text-indigo-500" />
+                        <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">
+                          OAuth 2.0 & SSO SDK Snippets
+                        </h3>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        Select a registered client to generate tailored, copy-pasteable authentication flows and token exchange code.
                       </p>
                     </div>
 
-                    {/* Language Switcher Tabs */}
-                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800 flex-wrap">
-                      {[
-                        { id: 'react', label: 'React / Next.js' },
-                        { id: 'nodejs', label: 'Node.js Express' },
-                        { id: 'python', label: 'Python FastAPI' },
-                        { id: 'curl', label: 'cURL / RFC 6749' },
-                        { id: 'env', label: '.env Config' }
-                      ].map(lang => (
-                        <button
-                          key={lang.id}
-                          onClick={() => setDocsLanguage(lang.id as any)}
-                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                            docsLanguage === lang.id
-                              ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                          }`}
-                        >
-                          {lang.label}
-                        </button>
-                      ))}
+                    {/* App Selector Dropdown */}
+                    <div className="relative z-30">
+                      <div className="text-[11px] font-bold text-slate-400 mb-1.5 flex items-center justify-between">
+                        <span>Active Client Application</span>
+                        <span className="text-indigo-500 font-normal">({apps.length} registered)</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsAppDropdownOpen(!isAppDropdownOpen)}
+                        className={`w-full sm:w-80 flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                          isDark
+                            ? 'bg-slate-950 border-slate-800 hover:border-indigo-500/60 text-white'
+                            : 'bg-slate-50 border-slate-200 hover:border-indigo-500/60 text-slate-900 shadow-xs'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                            {activeSnippetApp.app_name?.charAt(0)?.toUpperCase() || 'A'}
+                          </div>
+                          <div className="truncate">
+                            <p className="text-xs font-bold truncate leading-tight">{activeSnippetApp.app_name}</p>
+                            <p className="text-[10px] font-mono text-slate-400 truncate">{activeSnippetApp.client_id}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                            activeSnippetApp.environment === 'production'
+                              ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                              : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                          }`}>
+                            {activeSnippetApp.environment || 'prod'}
+                          </span>
+                          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isAppDropdownOpen ? 'rotate-180 text-indigo-500' : ''}`} />
+                        </div>
+                      </button>
+
+                      {/* Dropdown Menu Popup */}
+                      <AnimatePresence>
+                        {isAppDropdownOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 4, scale: 0.98 }}
+                            transition={{ duration: 0.15 }}
+                            className={`absolute right-0 mt-2 w-full sm:w-88 rounded-2xl border shadow-2xl p-2 z-50 ${
+                              isDark ? 'bg-slate-900 border-slate-800 text-white shadow-black/80' : 'bg-white border-slate-200 text-slate-900 shadow-slate-300'
+                            }`}
+                          >
+                            <div className="p-2 border-b border-slate-100 dark:border-slate-800">
+                              <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Switch Application</p>
+                              {apps.length > 2 && (
+                                <input
+                                  type="text"
+                                  value={appDropdownSearch}
+                                  onChange={e => setAppDropdownSearch(e.target.value)}
+                                  placeholder="Search registered apps..."
+                                  className={`w-full px-3 py-1.5 text-xs rounded-lg border outline-none font-medium ${
+                                    isDark ? 'bg-slate-950 border-slate-800 focus:border-indigo-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900'
+                                  }`}
+                                  autoFocus
+                                />
+                              )}
+                            </div>
+
+                            <div className="max-h-60 overflow-y-auto py-1 space-y-1">
+                              {filteredSnippetApps.map(app => {
+                                const isSelected = app.id === activeSnippetApp.id;
+                                return (
+                                  <button
+                                    key={app.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedSnippetAppId(app.id);
+                                      setSnippetRedirectUri(app.redirect_uris?.[0] || '');
+                                      setIsAppDropdownOpen(false);
+                                      setAppDropdownSearch('');
+                                      showNotification('success', `Switched SDK Snippet context to "${app.app_name}"`);
+                                    }}
+                                    className={`w-full flex items-center justify-between gap-2.5 p-2.5 rounded-xl text-left transition-colors cursor-pointer ${
+                                      isSelected
+                                        ? 'bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/60'
+                                        : 'hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
+                                        isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                      }`}>
+                                        {app.app_name?.charAt(0)?.toUpperCase() || 'A'}
+                                      </div>
+                                      <div className="truncate">
+                                        <div className="flex items-center gap-1.5">
+                                          <p className="text-xs font-bold truncate">{app.app_name}</p>
+                                          <span className="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-slate-200 dark:bg-slate-800 text-slate-500">
+                                            {app.redirect_uris?.length || 0} URIs
+                                          </span>
+                                        </div>
+                                        <p className="text-[10px] font-mono text-slate-400 truncate">{app.client_id}</p>
+                                      </div>
+                                    </div>
+                                    {isSelected && <Check className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 mt-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  resetForm();
+                                  setActiveTab('create');
+                                  setIsAppDropdownOpen(false);
+                                }}
+                                className="w-full py-2 px-3 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>Register New Application</span>
+                              </button>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
                   </div>
 
-                  {/* Code Container */}
-                  <div className="mt-4 relative rounded-2xl bg-[#090d16] border border-slate-800 p-4 font-mono text-xs text-slate-200 overflow-x-auto">
-                    <button
-                      onClick={() => handleCopy(
-                        docsLanguage === 'react' ? `// React Login Handler\nconst handleZenoaLogin = () => {\n  const authUrl = "${getAccountsAuthUrl()}?client_id=${activeSnippetApp.client_id}&redirect_uri=" + encodeURIComponent(window.location.origin + "/auth/callback");\n  window.location.href = authUrl;\n};`
-                        : docsLanguage === 'nodejs' ? `// Node.js Express Token Exchange\napp.get('/auth/callback', async (req, res) => {\n  const { code } = req.query;\n  const response = await fetch('${getApiTokenUrl()}', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      grant_type: 'authorization_code',\n      client_id: '${activeSnippetApp.client_id}',\n      client_secret: process.env.ZENOA_CLIENT_SECRET,\n      code,\n      redirect_uri: '${activeSnippetApp.redirect_uris[0]}'\n    })\n  });\n  const tokenData = await response.json();\n  res.json(tokenData);\n});`
-                        : docsLanguage === 'python' ? `# Python FastAPI OAuth Handler\nimport os\nimport httpx\nfrom fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get("/auth/callback")\nasync def auth_callback(code: str):\n    async with httpx.AsyncClient() as client:\n        resp = await client.post("${getApiTokenUrl()}", json={\n            "grant_type": "authorization_code",\n            "client_id": "${activeSnippetApp.client_id}",\n            "client_secret": os.environ.get("ZENOA_CLIENT_SECRET"),\n            "code": code,\n            "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"\n        })\n        return resp.json()`
-                        : docsLanguage === 'env' ? `# ==============================================================================\n# Zenoa OAuth 2.0 & SSO Configuration (${activeSnippetApp.app_name})\n# ==============================================================================\nZENOA_CLIENT_ID="${activeSnippetApp.client_id}"\n\n# Paste your copied confidential client secret below:\nZENOA_CLIENT_SECRET="YOUR_COPIED_CLIENT_SECRET_HERE"\n\n# OAuth Endpoints\nZENOA_AUTH_URL="${getAccountsAuthUrl()}"\nZENOA_TOKEN_URL="${getApiTokenUrl()}"\nZENOA_USERINFO_URL="${window.location.origin}/api/oauth/userinfo"`
-                        : `curl -X POST ${getApiTokenUrl()} \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "grant_type": "authorization_code",\n    "client_id": "${activeSnippetApp.client_id}",\n    "client_secret": "'"$ZENOA_CLIENT_SECRET"'",\n    "code": "zen_code_YOUR_CODE",\n    "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"\n  }'`,
-                        'code_snippet',
-                        'Code snippet copied'
+                  {/* Context Injections Toolbar: Redirect URI + Secret Toggle */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 pb-2">
+                    {/* Redirect URI Picker */}
+                    <div className="flex items-center gap-2 flex-wrap text-xs">
+                      <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
+                        <Link2 className="w-3 h-3 text-indigo-500" />
+                        Injected Callback URI:
+                      </span>
+                      {activeSnippetApp.redirect_uris && activeSnippetApp.redirect_uris.length > 1 ? (
+                        <select
+                          value={activeSnippetRedirectUri}
+                          onChange={e => setSnippetRedirectUri(e.target.value)}
+                          className={`px-2.5 py-1 text-xs font-mono rounded-lg border outline-none cursor-pointer transition-colors ${
+                            isDark ? 'bg-slate-950 border-slate-800 text-slate-200 focus:border-indigo-500' : 'bg-slate-50 border-slate-200 text-slate-800 focus:border-indigo-500'
+                          }`}
+                        >
+                          {activeSnippetApp.redirect_uris.map((uri, idx) => (
+                            <option key={idx} value={uri}>{uri}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="font-mono text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold border border-slate-200 dark:border-slate-700">
+                          {activeSnippetRedirectUri}
+                        </span>
                       )}
-                      className="absolute top-4 right-4 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-sans font-semibold flex items-center gap-1.5 cursor-pointer"
+                    </div>
+
+                    {/* Secret Reveal Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => setShowSnippetSecret(!showSnippetSecret)}
+                      className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 cursor-pointer self-start sm:self-auto"
                     >
-                      {copiedKey === 'code_snippet' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      {showSnippetSecret ? <EyeOff className="w-3.5 h-3.5 text-amber-500" /> : <Eye className="w-3.5 h-3.5" />}
+                      <span>{showSnippetSecret ? 'Hide Secret (Safe View)' : 'Reveal Secret in Snippets'}</span>
+                    </button>
+                  </div>
+
+                  {/* Language Switcher Tabs */}
+                  <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800 flex-wrap mt-3">
+                    {[
+                      { id: 'react', label: 'React / Next.js' },
+                      { id: 'nodejs', label: 'Node.js Express' },
+                      { id: 'python', label: 'Python FastAPI' },
+                      { id: 'curl', label: 'cURL / RFC 6749' },
+                      { id: 'env', label: '.env Config' }
+                    ].map(lang => (
+                      <button
+                        key={lang.id}
+                        onClick={() => setDocsLanguage(lang.id as any)}
+                        className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                          docsLanguage === lang.id
+                            ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        {lang.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Dynamic Code Container */}
+                  <div className="mt-4 relative rounded-2xl bg-[#090d16] border border-slate-800 p-4 font-mono text-xs text-slate-200 overflow-x-auto">
+                    {/* Copy Button */}
+                    <button
+                      onClick={() => handleCopy(currentSnippet, 'code_snippet', 'Code snippet copied to clipboard')}
+                      className="absolute top-4 right-4 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-sans font-semibold flex items-center gap-1.5 cursor-pointer z-10 transition-colors"
+                    >
+                      {copiedKey === 'code_snippet' ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
                       <span>Copy Snippet</span>
                     </button>
 
                     <pre className="text-[11px] leading-relaxed pt-2">
-                      {docsLanguage === 'react' && `// React / Next.js "Continue with Zenoa" Handler
-export const ZenoaLoginButton = () => {
-  const handleLogin = () => {
-    const clientId = "${activeSnippetApp.client_id}";
-    const redirectUri = encodeURIComponent(window.location.origin + "/auth/callback");
-    const authUrl = \`${getAccountsAuthUrl()}?client_id=\${clientId}&redirect_uri=\${redirectUri}&response_type=code&scope=openid profile email\`;
-    window.location.href = authUrl;
-  };
-
-  return (
-    <button onClick={handleLogin} className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold">
-      Continue with Zenoa
-    </button>
-  );
-};`}
-
-                      {docsLanguage === 'nodejs' && `// Node.js Express Server-to-Server Token Exchange
-import express from 'express';
-const app = express();
-
-app.get('/auth/callback', async (req, res) => {
-  const { code } = req.query;
-  
-  // 1. Exchange auth code for Bearer Access Token on secure backend
-  const tokenRes = await fetch('${getApiTokenUrl()}', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      grant_type: 'authorization_code',
-      client_id: '${activeSnippetApp.client_id}',
-      client_secret: process.env.ZENOA_CLIENT_SECRET, // Load from .env
-      code,
-      redirect_uri: '${activeSnippetApp.redirect_uris[0]}'
-    })
-  });
-
-  const { access_token } = await tokenRes.json();
-
-  // 2. Fetch User Claims from /api/oauth/userinfo
-  const userRes = await fetch('${window.location.origin}/api/oauth/userinfo', {
-    headers: { Authorization: \`Bearer \${access_token}\` }
-  });
-
-  const userProfile = await userRes.json();
-  res.json({ success: true, user: userProfile });
-});`}
-
-                      {docsLanguage === 'python' && `# Python FastAPI OAuth Route
-import os
-import httpx
-from fastapi import FastAPI, HTTPException
-
-app = FastAPI()
-
-@app.get("/auth/callback")
-async def oauth_callback(code: str):
-    async with httpx.AsyncClient() as client:
-        # Step 1: Exchange code for access token using environment variable
-        token_response = await client.post(
-            "${window.location.origin}/api/oauth/token",
-            json={
-                "grant_type": "authorization_code",
-                "client_id": "${activeSnippetApp.client_id}",
-                "client_secret": os.environ.get("ZENOA_CLIENT_SECRET"),
-                "code": code,
-                "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"
-            }
-        )
-        token_data = token_response.json()
-        
-        # Step 2: Fetch user profile
-        user_response = await client.get(
-            "${window.location.origin}/api/oauth/userinfo",
-            headers={"Authorization": f"Bearer {token_data['access_token']}"}
-        )
-        return user_response.json()`}
-
-                      {docsLanguage === 'curl' && `# 1. POST Code for Token (backend server request)
-curl -X POST ${window.location.origin}/api/oauth/token \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "grant_type": "authorization_code",
-    "client_id": "${activeSnippetApp.client_id}",
-    "client_secret": "'"$ZENOA_CLIENT_SECRET"'",
-    "code": "zen_code_sample_12345",
-    "redirect_uri": "${activeSnippetApp.redirect_uris[0]}"
-  }'
-
-# 2. GET User Identity Claims
-curl -X GET ${window.location.origin}/api/oauth/userinfo \\
-  -H "Authorization: Bearer zen_at_sample_token_xyz"`}
-
-                      {docsLanguage === 'env' && `# ==============================================================================
-# Zenoa OAuth 2.0 & SSO Configuration (${activeSnippetApp.app_name})
-# ==============================================================================
-ZENOA_CLIENT_ID="${activeSnippetApp.client_id}"
-
-# Paste your copied confidential client secret below:
-ZENOA_CLIENT_SECRET="YOUR_COPIED_CLIENT_SECRET_HERE"
-
-# OAuth Endpoints
-ZENOA_AUTH_URL="${getAccountsAuthUrl()}"
-ZENOA_TOKEN_URL="${getApiTokenUrl()}"
-ZENOA_USERINFO_URL="${window.location.origin}/api/oauth/userinfo"`}
+                      {currentSnippet}
                     </pre>
                   </div>
                 </div>
