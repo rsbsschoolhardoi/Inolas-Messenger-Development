@@ -101,7 +101,8 @@ import { sendRelayMessage } from './services/messageService';
 import {  
   signInWithEmailAndPassword, createUserWithEmailAndPassword, 
   signOut as firebaseSignOut, onAuthStateChanged, 
-  GoogleAuthProvider, FacebookAuthProvider, signInWithPopup, linkWithPopup, sendEmailVerification, sendPasswordResetEmail 
+  GoogleAuthProvider, FacebookAuthProvider, signInWithPopup, linkWithPopup, sendEmailVerification, sendPasswordResetEmail,
+  signInWithCustomToken 
 } from 'firebase/auth';
 
 export enum OperationType {
@@ -4307,6 +4308,53 @@ export default function App() {
       setAuthMethod(isMobileSignUp ? 'phone' : 'email');
 
       return { success: true };
+    }
+  };
+
+  const handleAuthFlowSendEmailOtp = async (email: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const response = await fetch('/api/auth/messenger/send-otp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to send verification code.');
+      }
+      return { success: true };
+    } catch (err: any) {
+      console.error("Send email OTP error:", err);
+      return { success: false, error: err.message || 'Failed to send OTP.' };
+    }
+  };
+
+  const handleAuthFlowVerifyEmailOtp = async (email: string, code: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const response = await fetch('/api/auth/messenger/verify-otp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email, code })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Verification failed.');
+      }
+
+      if (isFirebaseConfigured && auth && data.customToken) {
+        await signInWithCustomToken(auth, data.customToken);
+        confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+        return { success: true };
+      } else {
+        throw new Error('Authentication parameters are missing on client.');
+      }
+    } catch (err: any) {
+      console.error("Verify email OTP error:", err);
+      return { success: false, error: err.message || 'Invalid verification code.' };
     }
   };
 
@@ -8765,6 +8813,8 @@ export default function App() {
         onLoginSubmit={handleAuthFlowLogin}
         onRegisterSubmit={handleAuthFlowRegister}
         onVerifyOtpSubmit={handleAuthFlowVerifyOtp}
+        onSendEmailOtp={handleAuthFlowSendEmailOtp}
+        onVerifyEmailOtp={handleAuthFlowVerifyEmailOtp}
         truecallerProfile={truecallerProfile}
         onOAuthLogin={handleOAuthLogin}
         onForgotPassword={handleForgotPassword}

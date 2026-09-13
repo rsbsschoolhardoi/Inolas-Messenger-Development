@@ -66,6 +66,8 @@ interface AuthFlowProps {
     mobile_number?: string;
   }) => Promise<{ success: boolean; error?: string }>;
   onVerifyOtpSubmit: (code: string) => Promise<{ success: boolean; error?: string }>;
+  onSendEmailOtp?: (email: string) => Promise<{ success: boolean; error?: string }>;
+  onVerifyEmailOtp?: (email: string, code: string) => Promise<{ success: boolean; error?: string }>;
   onOAuthLogin: (provider: 'google' | 'facebook') => void;
   onForgotPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
   themeMode: 'light' | 'dark';
@@ -87,6 +89,8 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   onLoginSubmit,
   onRegisterSubmit,
   onVerifyOtpSubmit,
+  onSendEmailOtp,
+  onVerifyEmailOtp,
   onForgotPassword,
   themeMode,
   onToggleTheme,
@@ -179,6 +183,78 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   // OTP Verification Fallback
   const [showOtpScreen, setShowOtpScreen] = useState<boolean>(false);
 
+  // Email OTP Login States
+  const [loginMethod, setLoginMethod] = useState<'password' | 'email_otp'>('password');
+  const [loginEmail, setLoginEmail] = useState<string>('');
+  const [emailOtpSent, setEmailOtpSent] = useState<boolean>(false);
+  const [emailOtpCode, setEmailOtpCode] = useState<string>('');
+  const [emailOtpCountdown, setEmailOtpCountdown] = useState<number>(0);
+  const [emailOtpError, setEmailOtpError] = useState<string>('');
+
+  useEffect(() => {
+    let timer: any;
+    if (emailOtpCountdown > 0) {
+      timer = setTimeout(() => setEmailOtpCountdown(prev => prev - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [emailOtpCountdown]);
+
+  const handleSendEmailOtpSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setErrorMessage('');
+    setEmailOtpError('');
+    setSuccessMessage('');
+
+    const cleanMail = loginEmail.trim();
+    if (!cleanMail || !cleanMail.includes('@')) {
+      setEmailOtpError('Please enter a valid email address.');
+      return;
+    }
+
+    setIsLoading(true);
+    if (onSendEmailOtp) {
+      const res = await onSendEmailOtp(cleanMail);
+      setIsLoading(false);
+      if (res.success) {
+        setEmailOtpSent(true);
+        setEmailOtpCountdown(60);
+        setSuccessMessage('✓ Verification code sent to your email.');
+      } else {
+        setErrorMessage(res.error || 'Failed to send OTP. Please ensure the email is registered.');
+      }
+    } else {
+      setIsLoading(false);
+      setErrorMessage('Email OTP Login is not available at the moment.');
+    }
+  };
+
+  const handleVerifyEmailOtpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage('');
+    setEmailOtpError('');
+    setSuccessMessage('');
+
+    const cleanCode = emailOtpCode.trim();
+    if (cleanCode.length !== 6 || !/^\d+$/.test(cleanCode)) {
+      setEmailOtpError('Please enter a valid 6-digit code.');
+      return;
+    }
+
+    setIsLoading(true);
+    if (onVerifyEmailOtp) {
+      const res = await onVerifyEmailOtp(loginEmail.trim(), cleanCode);
+      setIsLoading(false);
+      if (res.success) {
+        if (onCompleteAuth) onCompleteAuth();
+      } else {
+        setErrorMessage(res.error || 'Invalid verification code. Please check and try again.');
+      }
+    } else {
+      setIsLoading(false);
+      setErrorMessage('Verification handler not found.');
+    }
+  };
+
   // 8-Step Form Fields
   // Step 1: Name
   const [regFullName, setRegFullName] = useState<string>(
@@ -227,6 +303,184 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   const [showLegalModal, setShowLegalModal] = useState<boolean>(false);
   const [legalModalTab, setLegalModalTab] = useState<LegalDocType>('terms');
   const [legalError, setLegalError] = useState<string>('');
+
+  // Step 5: Email Verification (Required)
+  const [regEmail, setRegEmail] = useState<string>('');
+  const [regEmailOtpSent, setRegEmailOtpSent] = useState<boolean>(false);
+  const [regEmailOtpCode, setRegEmailOtpCode] = useState<string>('');
+  const [regEmailOtpCountdown, setRegEmailOtpCountdown] = useState<number>(0);
+  const [regEmailOtpError, setRegEmailOtpError] = useState<string>('');
+  const [regEmailOtpVerified, setRegEmailOtpVerified] = useState<boolean>(false);
+
+  // Password Reset OTP States
+  const [showResetPasswordForm, setShowResetPasswordForm] = useState<boolean>(false);
+  const [resetPasswordEmail, setResetPasswordEmail] = useState<string>('');
+  const [resetPasswordCode, setResetPasswordCode] = useState<string>('');
+  const [resetPasswordNewPassword, setResetPasswordNewPassword] = useState<string>('');
+  const [showResetNewPassword, setShowResetNewPassword] = useState<boolean>(false);
+  const [resetPasswordOtpSent, setResetPasswordOtpSent] = useState<boolean>(false);
+  const [resetPasswordOtpCountdown, setResetPasswordOtpCountdown] = useState<number>(0);
+  const [resetPasswordError, setResetPasswordError] = useState<string>('');
+
+  useEffect(() => {
+    let timer: any;
+    if (regEmailOtpCountdown > 0) {
+      timer = setTimeout(() => setRegEmailOtpCountdown(prev => prev - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [regEmailOtpCountdown]);
+
+  useEffect(() => {
+    let timer: any;
+    if (resetPasswordOtpCountdown > 0) {
+      timer = setTimeout(() => setResetPasswordOtpCountdown(prev => prev - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [resetPasswordOtpCountdown]);
+
+  const handleSendRegEmailOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setRegEmailOtpError('');
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    const cleanMail = regEmail.trim();
+    if (!cleanMail || !cleanMail.includes('@')) {
+      setRegEmailOtpError('Please enter a valid email address.');
+      return;
+    }
+
+    setIsLoading(true);
+    if (onSendEmailOtp) {
+      const res = await onSendEmailOtp(cleanMail);
+      setIsLoading(false);
+      if (res.success) {
+        setRegEmailOtpSent(true);
+        setRegEmailOtpCountdown(60);
+        setSuccessMessage('✓ Verification code sent to your email.');
+      } else {
+        setRegEmailOtpError(res.error || 'Failed to send OTP.');
+      }
+    } else {
+      setIsLoading(false);
+      setRegEmailOtpError('OTP service is not available.');
+    }
+  };
+
+  const handleVerifyRegEmailOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setRegEmailOtpError('');
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    const cleanCode = regEmailOtpCode.trim();
+    if (cleanCode.length !== 6 || !/^\d+$/.test(cleanCode)) {
+      setRegEmailOtpError('Please enter a valid 6-digit code.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/auth/messenger/verify-otp-only', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: regEmail.trim(), code: cleanCode })
+      });
+      const data = await response.json();
+      setIsLoading(false);
+      if (response.ok) {
+        setRegEmailOtpVerified(true);
+        setSuccessMessage('✓ Email verified successfully!');
+        setTimeout(() => {
+          setSlideDirection(1);
+          setWizardStep(6);
+          setSuccessMessage('');
+        }, 1000);
+      } else {
+        setRegEmailOtpError(data.error || 'Verification failed. Please check the code.');
+      }
+    } catch (err: any) {
+      setIsLoading(false);
+      setRegEmailOtpError(err.message || 'An error occurred during verification.');
+    }
+  };
+
+  const handleSendResetPasswordOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setResetPasswordError('');
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    const cleanMail = resetPasswordEmail.trim();
+    if (!cleanMail || !cleanMail.includes('@')) {
+      setResetPasswordError('Please enter a valid email address.');
+      return;
+    }
+
+    setIsLoading(true);
+    if (onSendEmailOtp) {
+      const res = await onSendEmailOtp(cleanMail);
+      setIsLoading(false);
+      if (res.success) {
+        setResetPasswordOtpSent(true);
+        setResetPasswordOtpCountdown(60);
+        setSuccessMessage('✓ Verification code sent to your email.');
+      } else {
+        setResetPasswordError(res.error || 'Failed to send OTP.');
+      }
+    } else {
+      setIsLoading(false);
+      setResetPasswordError('OTP service is not available.');
+    }
+  };
+
+  const handleVerifyAndResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetPasswordError('');
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    const cleanCode = resetPasswordCode.trim();
+    if (cleanCode.length !== 6 || !/^\d+$/.test(cleanCode)) {
+      setResetPasswordError('Please enter a valid 6-digit code.');
+      return;
+    }
+
+    if (resetPasswordNewPassword.length < 8) {
+      setResetPasswordError('New password must be at least 8 characters long.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/auth/messenger/reset-password-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          email: resetPasswordEmail.trim(), 
+          code: cleanCode, 
+          newPassword: resetPasswordNewPassword 
+        })
+      });
+      const data = await response.json();
+      setIsLoading(false);
+      if (response.ok) {
+        setSuccessMessage('✓ Password reset successfully! Please sign in with your new password.');
+        setShowResetPasswordForm(false);
+        // Clear states
+        setResetPasswordEmail('');
+        setResetPasswordCode('');
+        setResetPasswordNewPassword('');
+        setResetPasswordOtpSent(false);
+        setResetPasswordOtpCountdown(0);
+      } else {
+        setResetPasswordError(data.error || 'Failed to reset password. Please verify your details.');
+      }
+    } catch (err: any) {
+      setIsLoading(false);
+      setResetPasswordError(err.message || 'An error occurred while resetting password.');
+    }
+  };
 
   // Post-Registration Profile
   const [profileAvatarUrl, setProfileAvatarUrl] = useState<string>('');
@@ -536,31 +790,47 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
       }
       setDobError('');
       setSlideDirection(1);
-      setWizardStep(5);
+      setWizardStep(5); // Email OTP Verification Step
       return;
     }
 
-    // Step 5: Mobile (Optional)
+    // Step 5: Email Verification (Mandatory)
     if (wizardStep === 5) {
+      if (!regEmailOtpVerified) {
+        if (!regEmail.trim()) {
+          setRegEmailOtpError('Please enter your email address.');
+        } else {
+          setRegEmailOtpError('Please complete your email OTP verification before continuing.');
+        }
+        return;
+      }
+      setRegEmailOtpError('');
+      setSlideDirection(1);
+      setWizardStep(6); // Mobile Recovery Step
+      return;
+    }
+
+    // Step 6: Mobile (Optional)
+    if (wizardStep === 6) {
       if (regPhoneDigits.trim() && regPhoneDigits.replace(/[^0-9]/g, '').length < 6) {
         setPhoneError('Please enter a valid mobile number or skip');
         return;
       }
       setPhoneError('');
       setSlideDirection(1);
-      setWizardStep(6);
+      setWizardStep(7); // Password Step
       return;
     }
 
-    // Step 6: Password
-    if (wizardStep === 6) {
+    // Step 7: Password
+    if (wizardStep === 7) {
       if (regPassword.length < 8) {
         setPasswordError('Password must be at least 8 characters long');
         return;
       }
       setPasswordError('');
       setSlideDirection(1);
-      setWizardStep(7);
+      setWizardStep(8); // Review Step
       return;
     }
   };
@@ -575,7 +845,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     }
   };
 
-  // Step 7: Final Registration Creation Call -> Step 8: Done State
+  // Step 8: Final Registration Creation Call -> Step 9: Done State
   const handleFinalizeRegistration = async () => {
     setErrorMessage('');
     setLegalError('');
@@ -595,7 +865,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
       : '';
 
     const res = await onRegisterSubmit({
-      email: '',
+      email: regEmail.trim(),
       fullName: cleanFullName,
       username: finalUsername,
       zenoa_id: finalZenoaId,
@@ -609,7 +879,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     if (res.success) {
       setSelectedAvatarSeed(finalUsername);
       setSlideDirection(1);
-      setWizardStep(8); // Step 8: Done (Vault provisioned)
+      setWizardStep(9); // Step 9: Done (Vault provisioned)
     } else {
       setErrorMessage(res.error || 'Registration failed. Please check your details.');
     }
@@ -834,152 +1104,358 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
           {/* ========================================================================= */}
           {mode === 'login' && !showOtpScreen && (
             <div id="zenoa_signin_surface" className="w-full">
-              {/* Confident Large Headline */}
-              <div className="mb-8">
-                <h1 className="text-[32px] sm:text-[36px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.15]">
-                  Welcome back
-                </h1>
-                <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
-                  Enter your Username or Zenoa ID and Password to Access your Zenoa Account.
-                </p>
-              </div>
-
-              {/* Minimal Clean Form with Generous Spacing */}
-              <form onSubmit={handleLogin} noValidate className="space-y-6">
-                {/* Field 1: Username or Zenoa ID */}
-                <div>
-                  <label className="block text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8] mb-2">
-                    Username or Zenoa ID
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="signin_identifier"
-                      type="text"
-                      value={loginIdentifier}
-                      onChange={e => {
-                        setLoginIdentifier(e.target.value);
-                        if (loginFieldErrors.identifier) {
-                          setLoginFieldErrors(prev => ({ ...prev, identifier: undefined }));
-                        }
-                      }}
-                      placeholder="e.g. alex or alex@zenoa"
-                      autoComplete="off"
-                      spellCheck={false}
-                      className={`w-full px-4 py-3.5 text-[15px] rounded-xl border bg-white/70 dark:bg-[#121624]/70 backdrop-blur-sm outline-none transition-all duration-200 text-[#0d253d] dark:text-white placeholder-[#a0aec0] dark:placeholder-[#4a5568] ${
-                        loginFieldErrors.identifier
-                          ? 'border-rose-400 dark:border-rose-800 focus:ring-2 focus:ring-rose-500/20'
-                          : 'border-[#e3e8ee] dark:border-[#273951] focus:border-[#533afd] dark:focus:border-[#818cf8] focus:ring-2 focus:ring-[#533afd]/15'
-                      }`}
-                    />
-                  </div>
-                  {loginFieldErrors.identifier && (
-                    <p className="text-[12px] text-rose-500 mt-1.5 flex items-center gap-1 font-medium">
-                      <AlertCircle className="h-3 w-3 shrink-0" />
-                      <span>{loginFieldErrors.identifier}</span>
+              {showResetPasswordForm ? (
+                <>
+                  {/* Password Reset Section */}
+                  <div className="mb-8">
+                    <h1 className="text-[32px] sm:text-[36px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.15]">
+                      Reset Password
+                    </h1>
+                    <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
+                      {resetPasswordOtpSent 
+                        ? "Enter the 6-digit OTP code sent to your email to define a new password." 
+                        : "Enter your registered email address to receive a verification OTP code."}
                     </p>
-                  )}
-                </div>
-
-                {/* Field 2: Password with Inline Forgot? Action */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8]">
-                      Password
-                    </label>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!loginIdentifier.trim()) {
-                          setLoginFieldErrors({ identifier: 'Enter your username or Zenoa ID first' });
-                          return;
-                        }
-                        setIsLoading(true);
-                        const res = await onForgotPassword(loginIdentifier.trim());
-                        setIsLoading(false);
-                        if (res.success) {
-                          setSuccessMessage('Password reset link sent to registered channel.');
-                        } else {
-                          setErrorMessage(res.error || 'Failed to send reset link.');
-                        }
-                      }}
-                      className="text-[12px] text-[#64748d] hover:text-[#0d253d] dark:text-[#94a3b8] dark:hover:text-white transition-colors cursor-pointer"
-                    >
-                      Forgot?
-                    </button>
                   </div>
-                  <div className="relative">
-                    <input
-                      id="signin_password"
-                      type={showLoginPassword ? 'text' : 'password'}
-                      value={loginPassword}
-                      onChange={e => {
-                        setLoginPassword(e.target.value);
-                        if (loginFieldErrors.password) {
-                          setLoginFieldErrors(prev => ({ ...prev, password: undefined }));
-                        }
-                      }}
-                      placeholder="••••••••"
-                      autoComplete="current-password"
-                      className={`w-full pl-4 pr-11 py-3.5 text-[15px] rounded-xl border bg-white/70 dark:bg-[#121624]/70 backdrop-blur-sm outline-none transition-all duration-200 text-[#0d253d] dark:text-white placeholder-[#a0aec0] dark:placeholder-[#4a5568] ${
-                        loginFieldErrors.password
-                          ? 'border-rose-400 dark:border-rose-800 focus:ring-2 focus:ring-rose-500/20'
-                          : 'border-[#e3e8ee] dark:border-[#273951] focus:border-[#533afd] dark:focus:border-[#818cf8] focus:ring-2 focus:ring-[#533afd]/15'
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowLoginPassword(!showLoginPassword)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#64748d] hover:text-[#0d253d] dark:text-[#94a3b8] dark:hover:text-white p-1 cursor-pointer transition-colors"
-                      tabIndex={-1}
-                    >
-                      {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                  {loginFieldErrors.password && (
-                    <p className="text-[12px] text-rose-500 mt-1.5 flex items-center gap-1 font-medium">
-                      <AlertCircle className="h-3 w-3 shrink-0" />
-                      <span>{loginFieldErrors.password}</span>
-                    </p>
-                  )}
-                </div>
 
-                {/* Primary Confident Full-Width CTA (Never Dead-State Disabled) */}
-                <div className="pt-2">
-                  <button
-                    id="signin_submit_btn"
-                    type="submit"
-                    className="w-full h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                  <form 
+                    onSubmit={
+                      resetPasswordOtpSent
+                        ? handleVerifyAndResetPassword
+                        : handleSendResetPasswordOtp
+                    } 
+                    noValidate 
+                    className="space-y-6"
                   >
-                    {isLoading ? (
-                      <RefreshCw className="h-4 w-4 animate-spin text-current" />
+                    {!resetPasswordOtpSent ? (
+                      <>
+                        {/* Phase 1: Enter Email to Send OTP */}
+                        <div>
+                          <label className="block text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8] mb-2">
+                            Email Address
+                          </label>
+                          <div className="relative">
+                            <input
+                              id="reset_email"
+                              type="email"
+                              value={resetPasswordEmail}
+                              onChange={e => {
+                                setResetPasswordEmail(e.target.value);
+                                if (resetPasswordError) setResetPasswordError('');
+                              }}
+                              placeholder="e.g. azadaman19s@gmail.com"
+                              autoComplete="email"
+                              className={`w-full px-4 py-3.5 text-[15px] rounded-xl border bg-white/70 dark:bg-[#121624]/70 backdrop-blur-sm outline-none transition-all duration-200 text-[#0d253d] dark:text-white placeholder-[#a0aec0] dark:placeholder-[#4a5568] ${
+                                resetPasswordError
+                                  ? 'border-rose-400 dark:border-rose-800 focus:ring-2 focus:ring-rose-500/20'
+                                  : 'border-[#e3e8ee] dark:border-[#273951] focus:border-[#533afd] dark:focus:border-[#818cf8] focus:ring-2 focus:ring-[#533afd]/15'
+                              }`}
+                            />
+                          </div>
+                          {resetPasswordError && (
+                            <p className="text-[12px] text-rose-500 mt-1.5 flex items-center gap-1 font-medium">
+                              <AlertCircle className="h-3 w-3 shrink-0" />
+                              <span>{resetPasswordError}</span>
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Submit Button */}
+                        <div className="pt-2">
+                          <button
+                            type="submit"
+                            disabled={isLoading}
+                            className="w-full h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                          >
+                            {isLoading ? (
+                              <RefreshCw className="h-4 w-4 animate-spin text-current" />
+                            ) : (
+                              <>
+                                <span>Send Verification Code</span>
+                                <ArrowRight className="h-4 w-4" />
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </>
                     ) : (
                       <>
-                        <span>Sign in</span>
-                        <ArrowRight className="h-4 w-4" />
+                        {/* Phase 2: Enter OTP Code and New Password */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8]">
+                              Verification Code
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setResetPasswordOtpSent(false);
+                                setResetPasswordCode('');
+                                setResetPasswordError('');
+                              }}
+                              className="text-[12px] text-[#533afd] hover:underline dark:text-[#818cf8] font-medium cursor-pointer"
+                            >
+                              Change Email
+                            </button>
+                          </div>
+                          <div className="relative font-mono">
+                            <input
+                              id="reset_otp_code"
+                              type="text"
+                              maxLength={6}
+                              value={resetPasswordCode}
+                              onChange={e => {
+                                const val = e.target.value.replace(/[^0-9]/g, '');
+                                setResetPasswordCode(val);
+                                if (resetPasswordError) setResetPasswordError('');
+                              }}
+                              placeholder="••••••"
+                              className={`w-full px-4 py-3.5 text-center text-2xl font-bold tracking-[8px] rounded-xl border bg-white/70 dark:bg-[#121624]/70 backdrop-blur-sm outline-none transition-all duration-200 text-[#0d253d] dark:text-white placeholder-[#a0aec0] dark:placeholder-[#4a5568] ${
+                                resetPasswordError
+                                  ? 'border-rose-400 dark:border-rose-800 focus:ring-2 focus:ring-rose-500/20'
+                                  : 'border-[#e3e8ee] dark:border-[#273951] focus:border-[#533afd] dark:focus:border-[#818cf8] focus:ring-2 focus:ring-[#533afd]/15'
+                              }`}
+                              autoFocus
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8] mb-2">
+                            Define New Password
+                          </label>
+                          <div className="relative">
+                            <input
+                              id="reset_new_password"
+                              type={showResetNewPassword ? 'text' : 'password'}
+                              value={resetPasswordNewPassword}
+                              onChange={e => {
+                                setResetPasswordNewPassword(e.target.value);
+                                if (resetPasswordError) setResetPasswordError('');
+                              }}
+                              placeholder="••••••••"
+                              className={`w-full pl-4 pr-11 py-3.5 text-[15px] rounded-xl border bg-white/70 dark:bg-[#121624]/70 backdrop-blur-sm outline-none transition-all duration-200 text-[#0d253d] dark:text-white placeholder-[#a0aec0] dark:placeholder-[#4a5568] ${
+                                resetPasswordError
+                                  ? 'border-rose-400 dark:border-rose-800 focus:ring-2 focus:ring-rose-500/20'
+                                  : 'border-[#e3e8ee] dark:border-[#273951] focus:border-[#533afd] dark:focus:border-[#818cf8] focus:ring-2 focus:ring-[#533afd]/15'
+                              }`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowResetNewPassword(!showResetNewPassword)}
+                              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#64748d] hover:text-[#0d253d] dark:text-[#94a3b8] dark:hover:text-white p-1 cursor-pointer transition-colors"
+                              tabIndex={-1}
+                            >
+                              {showResetNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        </div>
+
+                        {resetPasswordError && (
+                          <p className="text-[12px] text-rose-500 mt-1.5 flex items-center gap-1 font-medium">
+                            <AlertCircle className="h-3 w-3 shrink-0" />
+                            <span>{resetPasswordError}</span>
+                          </p>
+                        )}
+
+                        <div className="flex justify-between items-center text-xs text-[#64748d] dark:text-[#94a3b8]">
+                          <span>Didn't receive the code?</span>
+                          <button
+                            type="button"
+                            disabled={resetPasswordOtpCountdown > 0 || isLoading}
+                            onClick={() => handleSendResetPasswordOtp()}
+                            className={`font-semibold ${
+                              resetPasswordOtpCountdown > 0 
+                                ? 'opacity-50 cursor-not-allowed text-[#64748d]' 
+                                : 'text-[#533afd] hover:underline dark:text-[#818cf8] cursor-pointer'
+                            }`}
+                          >
+                            {resetPasswordOtpCountdown > 0 ? `Resend in ${resetPasswordOtpCountdown}s` : 'Resend Code'}
+                          </button>
+                        </div>
+
+                        {/* Reset Password Action Button */}
+                        <div className="pt-2">
+                          <button
+                            type="submit"
+                            disabled={isLoading || resetPasswordCode.length !== 6 || resetPasswordNewPassword.length < 8}
+                            className="w-full h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                          >
+                            {isLoading ? (
+                              <RefreshCw className="h-4 w-4 animate-spin text-current" />
+                            ) : (
+                              <>
+                                <span>Reset Password & Log In</span>
+                                <ArrowRight className="h-4 w-4" />
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </>
                     )}
-                  </button>
-                </div>
 
-                {/* Secondary De-emphasized Path: Create account */}
-                <div className="text-center pt-2">
-                  <span className="text-[14px] text-[#64748d] dark:text-[#94a3b8]">
-                    Don't have an account?{' '}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode('register');
-                      setWizardStep(1);
-                      setSlideDirection(1);
-                      setErrorMessage('');
-                    }}
-                    className="text-[14px] font-medium text-[#0d253d] dark:text-white hover:text-[#533afd] dark:hover:text-[#818cf8] underline underline-offset-4 cursor-pointer transition-colors"
+                    {/* Back to Login Link */}
+                    <div className="text-center pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowResetPasswordForm(false);
+                          setResetPasswordOtpSent(false);
+                          setResetPasswordError('');
+                        }}
+                        className="text-[14px] text-[#533afd] hover:underline dark:text-[#818cf8] font-semibold cursor-pointer"
+                      >
+                        Back to Login
+                      </button>
+                    </div>
+                  </form>
+                </>
+              ) : (
+                <>
+                  {/* Confident Large Headline */}
+                  <div className="mb-8">
+                    <h1 className="text-[32px] sm:text-[36px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.15]">
+                      Welcome back
+                    </h1>
+                    <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
+                      Enter your Username/Zenoa ID and password to access your account.
+                    </p>
+                  </div>
+
+                  {/* Minimal Clean Form with Generous Spacing */}
+                  <form 
+                    onSubmit={handleLogin} 
+                    noValidate 
+                    className="space-y-6"
                   >
-                    Create account
-                  </button>
-                </div>
-              </form>
+                    {/* Field 1: Username or Zenoa ID */}
+                    <div>
+                      <label className="block text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8] mb-2">
+                        Username or Zenoa ID
+                      </label>
+                      <div className="relative">
+                        <input
+                          id="signin_identifier"
+                          type="text"
+                          value={loginIdentifier}
+                          onChange={e => {
+                            setLoginIdentifier(e.target.value);
+                            if (loginFieldErrors.identifier) {
+                              setLoginFieldErrors(prev => ({ ...prev, identifier: undefined }));
+                            }
+                          }}
+                          placeholder="e.g. alex or alex@zenoa"
+                          autoComplete="off"
+                          spellCheck={false}
+                          className={`w-full px-4 py-3.5 text-[15px] rounded-xl border bg-white/70 dark:bg-[#121624]/70 backdrop-blur-sm outline-none transition-all duration-200 text-[#0d253d] dark:text-white placeholder-[#a0aec0] dark:placeholder-[#4a5568] ${
+                            loginFieldErrors.identifier
+                              ? 'border-rose-400 dark:border-rose-800 focus:ring-2 focus:ring-rose-500/20'
+                              : 'border-[#e3e8ee] dark:border-[#273951] focus:border-[#533afd] dark:focus:border-[#818cf8] focus:ring-2 focus:ring-[#533afd]/15'
+                          }`}
+                        />
+                      </div>
+                      {loginFieldErrors.identifier && (
+                        <p className="text-[12px] text-rose-500 mt-1.5 flex items-center gap-1 font-medium">
+                          <AlertCircle className="h-3 w-3 shrink-0" />
+                          <span>{loginFieldErrors.identifier}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Field 2: Password with Inline Forgot? Action */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8]">
+                          Password
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowResetPasswordForm(true);
+                            setResetPasswordOtpSent(false);
+                            setResetPasswordEmail('');
+                            setResetPasswordError('');
+                          }}
+                          className="text-[12px] text-[#533afd] hover:underline dark:text-[#818cf8] font-semibold cursor-pointer"
+                        >
+                          Forgot?
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <input
+                          id="signin_password"
+                          type={showLoginPassword ? 'text' : 'password'}
+                          value={loginPassword}
+                          onChange={e => {
+                            setLoginPassword(e.target.value);
+                            if (loginFieldErrors.password) {
+                              setLoginFieldErrors(prev => ({ ...prev, password: undefined }));
+                            }
+                          }}
+                          placeholder="••••••••"
+                          autoComplete="current-password"
+                          className={`w-full pl-4 pr-11 py-3.5 text-[15px] rounded-xl border bg-white/70 dark:bg-[#121624]/70 backdrop-blur-sm outline-none transition-all duration-200 text-[#0d253d] dark:text-white placeholder-[#a0aec0] dark:placeholder-[#4a5568] ${
+                            loginFieldErrors.password
+                              ? 'border-rose-400 dark:border-rose-800 focus:ring-2 focus:ring-rose-500/20'
+                              : 'border-[#e3e8ee] dark:border-[#273951] focus:border-[#533afd] dark:focus:border-[#818cf8] focus:ring-2 focus:ring-[#533afd]/15'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowLoginPassword(!showLoginPassword)}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#64748d] hover:text-[#0d253d] dark:text-[#94a3b8] dark:hover:text-white p-1 cursor-pointer transition-colors"
+                          tabIndex={-1}
+                        >
+                          {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                      {loginFieldErrors.password && (
+                        <p className="text-[12px] text-rose-500 mt-1.5 flex items-center gap-1 font-medium">
+                          <AlertCircle className="h-3 w-3 shrink-0" />
+                          <span>{loginFieldErrors.password}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Primary Confident Full-Width CTA (Never Dead-State Disabled) */}
+                    <div className="pt-2">
+                      <button
+                        id="signin_submit_btn"
+                        type="submit"
+                        className="w-full h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                      >
+                        {isLoading ? (
+                          <RefreshCw className="h-4 w-4 animate-spin text-current" />
+                        ) : (
+                          <>
+                            <span>Sign in</span>
+                            <ArrowRight className="h-4 w-4" />
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Secondary De-emphasized Path: Create account */}
+                    <div className="text-center pt-2">
+                      <span className="text-[14px] text-[#64748d] dark:text-[#94a3b8]">
+                        Don't have an account?{' '}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMode('register');
+                          setWizardStep(1);
+                          setSlideDirection(1);
+                          setErrorMessage('');
+                        }}
+                        className="text-[14px] font-medium text-[#0d253d] dark:text-white hover:text-[#533afd] dark:hover:text-[#818cf8] underline underline-offset-4 cursor-pointer transition-colors"
+                      >
+                        Create account
+                      </button>
+                    </div>
+                  </form>
+                </>
+              )}
             </div>
           )}
 
@@ -1002,10 +1478,10 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                 </button>
               </div>
 
-              {/* Subtle Segmented Progress Indicator (8 steps with checkmark micro-animation) */}
+              {/* Subtle Segmented Progress Indicator (9 steps with checkmark micro-animation) */}
               <div className="mb-8">
                 <div className="flex items-center gap-1.5 mb-3">
-                  {[1, 2, 3, 4, 5, 6, 7, 8].map((stepNumber) => {
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((stepNumber) => {
                     const isCompleted = wizardStep > stepNumber;
                     const isCurrent = wizardStep === stepNumber;
 
@@ -1025,16 +1501,17 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between text-[12px] font-medium text-[#64748d] dark:text-[#94a3b8]">
-                  <span>Step {wizardStep} of 8</span>
+                  <span>Step {wizardStep} of 9</span>
                   <span className="text-[12px] font-normal text-[#94a3b8] dark:text-[#64748d]">
                     {wizardStep === 1 && 'Name'}
                     {wizardStep === 2 && 'Username'}
                     {wizardStep === 3 && 'Zenoa ID'}
                     {wizardStep === 4 && 'About you'}
-                    {wizardStep === 5 && 'Mobile recovery'}
-                    {wizardStep === 6 && 'Password'}
-                    {wizardStep === 7 && 'Review'}
-                    {wizardStep === 8 && 'Provisioned'}
+                    {wizardStep === 5 && 'Email verification'}
+                    {wizardStep === 6 && 'Mobile recovery'}
+                    {wizardStep === 7 && 'Password'}
+                    {wizardStep === 8 && 'Review'}
+                    {wizardStep === 9 && 'Provisioned'}
                   </span>
                 </div>
               </div>
@@ -1511,10 +1988,10 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                   </motion.div>
                 )}
 
-                {/* STEP 5: MOBILE NUMBER (OPTIONAL) WITH QUIET RECOVERY NOTE */}
-                {wizardStep === 5 && (
+                {/* STEP 6: MOBILE NUMBER (OPTIONAL) WITH QUIET RECOVERY NOTE */}
+                {wizardStep === 6 && (
                   <motion.div
-                    key="step-5"
+                    key="step-6"
                     custom={slideDirection}
                     variants={stepSlideVariants}
                     initial="enter"
@@ -1676,7 +2153,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                             setRegPhoneDigits('');
                             setIsTruecallerVerified(false);
                             setSlideDirection(1);
-                            setWizardStep(6);
+                            setWizardStep(7);
                           }}
                           className="text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white underline cursor-pointer transition-colors"
                         >
@@ -1690,10 +2167,10 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                   </motion.div>
                 )}
 
-                {/* STEP 6: PASSWORD — SINGLE INPUT FIELD WITH LIVE STRENGTH INDICATOR */}
-                {wizardStep === 6 && (
+                {/* STEP 7: PASSWORD — SINGLE INPUT FIELD WITH LIVE STRENGTH INDICATOR */}
+                {wizardStep === 7 && (
                   <motion.div
-                    key="step-6"
+                    key="step-7"
                     custom={slideDirection}
                     variants={stepSlideVariants}
                     initial="enter"
@@ -1798,10 +2275,10 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                   </motion.div>
                 )}
 
-                {/* STEP 7: CONFIRMATION & FINALIZE — TWO-COLUMN KEY-VALUE RECEIPT LAYOUT */}
-                {wizardStep === 7 && (
+                {/* STEP 8: CONFIRMATION & FINALIZE — TWO-COLUMN KEY-VALUE RECEIPT LAYOUT */}
+                {wizardStep === 8 && (
                   <motion.div
-                    key="step-7"
+                    key="step-8"
                     custom={slideDirection}
                     variants={stepSlideVariants}
                     initial="enter"
@@ -1831,6 +2308,10 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                       <div className="flex justify-between items-center pb-2.5 border-b border-[#e3e8ee]/70 dark:border-[#273951]/70">
                         <span className="text-[#64748d] dark:text-[#94a3b8]">Zenoa ID</span>
                         <span className="font-mono font-medium text-[#533afd] dark:text-[#818cf8]">{activeZenoaId}</span>
+                      </div>
+                      <div className="flex justify-between items-center pb-2.5 border-b border-[#e3e8ee]/70 dark:border-[#273951]/70">
+                        <span className="text-[#64748d] dark:text-[#94a3b8]">Verified Email</span>
+                        <span className="font-semibold text-[#0d253d] dark:text-white">{regEmail}</span>
                       </div>
                       <div className="flex justify-between items-center pb-2.5 border-b border-[#e3e8ee]/70 dark:border-[#273951]/70">
                         <span className="text-[#64748d] dark:text-[#94a3b8]">Date of Birth</span>
@@ -1924,10 +2405,10 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                   </motion.div>
                 )}
 
-                {/* STEP 8: DONE — DISTINCT RESTRAINED CONFIRMATION BEFORE ENTERING APP */}
-                {wizardStep === 8 && (
+                {/* STEP 9: DONE — DISTINCT RESTRAINED CONFIRMATION BEFORE ENTERING APP */}
+                {wizardStep === 9 && (
                   <motion.div
-                    key="step-8"
+                    key="step-9"
                     custom={slideDirection}
                     variants={stepSlideVariants}
                     initial="enter"
