@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { resolveAndApplyMetadata } from '../../seoUtils';
 import { auth, db } from '../../firebaseClient';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
@@ -11,6 +12,10 @@ import { ZenoaAuthGatewayModal } from '../ZenoaAuthGatewayModal';
 type ConsoleView = 'landing' | 'mobile_setup' | 'portal';
 
 export const DeveloperConsoleStandalone: React.FC = () => {
+  useEffect(() => {
+    resolveAndApplyMetadata();
+  }, []);
+
   const [user, setUser] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<ConsoleView>('landing');

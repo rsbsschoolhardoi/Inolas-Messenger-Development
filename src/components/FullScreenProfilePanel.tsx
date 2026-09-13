@@ -103,7 +103,6 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
   const selectedUser = (users[targetUsernameLower] || Object.values(users).find(u => u?.username?.toLowerCase() === targetUsernameLower) || {}) as any;
   const isMe = targetUsernameLower === userUsername.toLowerCase();
   const amIFollowing = isFollowingUser(userUsername, targetUsernameLower, users);
-  const isPrivateAndLocked = selectedUser?.is_private && !amIFollowing && !isMe;
 
   return (
 
@@ -134,9 +133,6 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                     </button>
                     
                     <div className="flex-1 flex items-center justify-center gap-1.5 min-w-0 px-2">
-                      {selectedProfileUsername !== userUsername && users[targetUsername.toLowerCase()]?.is_private && (
-                        <Lock className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500 shrink-0" />
-                      )}
                       <span className="text-sm font-extrabold tracking-wide text-neutral-800 dark:text-neutral-200 truncate">
                         {selectedProfileUsername ? `@${selectedProfileUsername.replace(/^@/, '')}` : 'Details'}
                       </span>
@@ -153,67 +149,7 @@ export const FullScreenProfilePanel: React.FC<FullScreenProfilePanelProps> = ({
                     
                     {/* OWN PROFILE REDESIGN (When viewing self profile) */}
                     
-                    {/* PRIVATE ACCOUNT LOCKED VIEW */}
-                    {isPrivateAndLocked ? (
-                      <div className="space-y-6">
-                        <div className="bg-white dark:bg-neutral-900 rounded-3xl p-8 border border-neutral-200 dark:border-neutral-800 shadow-xl text-center space-y-6">
-                          <div className="flex flex-col items-center space-y-4">
-                            <div className="p-1 rounded-full bg-gradient-to-tr from-neutral-200 to-neutral-100 dark:from-neutral-800 dark:to-neutral-900 shadow-lg">
-                              {renderAvatar(selectedUser?.avatar_seed, selectedUser?.display_name, selectedUser?.avatar_url, 'h-24 w-24 text-3xl')}
-                            </div>
-                            <div className="space-y-1">
-                              <h2 className="text-2xl font-black text-neutral-900 dark:text-white flex items-center justify-center gap-1.5">
-                                <Lock className="h-5 w-5 text-neutral-400 shrink-0" />
-                                <span>{selectedUser?.display_name || selectedUser?.username}</span>
-                              </h2>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-3 border-y border-neutral-100 dark:border-neutral-800 py-6">
-                            <div className="text-center">
-                              <span className="text-lg font-black text-neutral-900 dark:text-white block">{getFollowersCount(targetUsername, users, userUsername)}</span>
-                              <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Followers</span>
-                            </div>
-                            <div className="text-center">
-                              <span className="text-lg font-black text-neutral-900 dark:text-white block">{getFollowingCount(targetUsername, users, userUsername)}</span>
-                              <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Following</span>
-                            </div>
-                            <div className="text-center">
-                              <span className="text-lg font-black text-neutral-900 dark:text-white block">0</span>
-                              <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Posts</span>
-                            </div>
-                          </div>
-
-                          <div className="py-8 space-y-4 flex flex-col items-center">
-                            <div className="w-16 h-16 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-neutral-400">
-                              <Lock className="h-8 w-8" />
-                            </div>
-                            <div className="space-y-2">
-                              <h3 className="text-base font-black text-neutral-900 dark:text-white">This Account is Private</h3>
-                              <p className="text-xs text-neutral-500 max-w-[280px] mx-auto leading-relaxed">
-                                This account is private. Follow this user to view their profile and activity.
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800">
-                            {followRequests.some(r => r.toId === selectedUser?.id) ? (
-                              <button className="w-full py-3.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-400 text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 cursor-default">
-                                <RefreshCw className="h-4 w-4 animate-spin-slow" />
-                                Requested
-                              </button>
-                            ) : (
-                              <button 
-                                onClick={() => handleFollow(selectedUser!)}
-                                className="w-full py-3.5 rounded-2xl bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all shadow-xl cursor-pointer"
-                              >
-                                Follow to Connect
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ) : selectedProfileUsername === userUsername ? (
+                    {selectedProfileUsername === userUsername ? (
                       <div className="space-y-6">
                         {/* Cover Banner & Identity Header */}
                         <div className="relative rounded-3xl overflow-hidden border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xl">

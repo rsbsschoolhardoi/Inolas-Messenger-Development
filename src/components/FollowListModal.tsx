@@ -31,6 +31,19 @@ export const FollowListModal: React.FC<FollowListModalProps> = ({
   if (!showFollowListModal) return null;
 
   const targetProfile = showFollowListModal.username;
+  const cleanTargetLower = (targetProfile || '').replace(/^@/, '').trim().toLowerCase();
+  const cleanUserLower = (userUsername || '').replace(/^@/, '').trim().toLowerCase();
+
+  const targetUserObj = users[cleanTargetLower] || Object.values(users).find(item => item && item.username?.toLowerCase() === cleanTargetLower);
+  const isTargetPrivate = !!targetUserObj?.is_private;
+  const amIFollowingTarget = isFollowingUser(userUsername, cleanTargetLower, users);
+  const isMeTarget = cleanTargetLower === cleanUserLower;
+
+  // Enforce privacy rule: for private accounts, list cannot be viewed unless following or self
+  if (isTargetPrivate && !amIFollowingTarget && !isMeTarget) {
+    return null;
+  }
+
   const list = showFollowListModal.type === 'followers' 
     ? getResolvedFollowers(targetProfile, users, userUsername)
     : getResolvedFollowing(targetProfile, users, userUsername);

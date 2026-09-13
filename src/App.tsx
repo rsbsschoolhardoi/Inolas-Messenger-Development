@@ -1,4 +1,5 @@
 // Forced Sync Timestamp: 0x75bcd15
+import { resolveAndApplyMetadata } from './seoUtils';
 import { FullScreenProfilePanel } from './components/FullScreenProfilePanel';
 import { FollowListModal } from './components/FollowListModal';
 import { WebLinkingPage } from './components/WebLinkingPage';
@@ -1056,6 +1057,7 @@ export default function App() {
     window.addEventListener('popstate', handleLocationSync);
     return () => window.removeEventListener('popstate', handleLocationSync);
   }, [isAuthenticated]);
+
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'phone' | 'forgot'>('login');
   const [emailInput, setEmailInput] = useState<string>('');
   const [passwordInput, setPasswordInput] = useState<string>('');
@@ -1778,6 +1780,29 @@ export default function App() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messagesByChat, activeChatId]);
+
+  // Dynamic SEO Page Title & Meta Tags Synchronization Across Domain / Subdomain / Portal Views
+  useEffect(() => {
+    const activeChatObj = chats.find(c => c.id === activeChatId);
+    resolveAndApplyMetadata({
+      activeView,
+      activeChatName: activeChatObj?.name,
+      activeChatUsername: activeChatObj?.username,
+      publicUsername: publicProfileUsername || undefined,
+      isAdmin: showAdminPanel,
+      isDocShowing: showDocumentationModal,
+      isAuthShowing: showStandardAuthFlow
+    });
+  }, [
+    activeView, 
+    activeChatId, 
+    chats, 
+    publicProfileUsername, 
+    showAdminPanel, 
+    showDocumentationModal, 
+    showStandardAuthFlow, 
+    showLandingPage
+  ]);
 
   // Mark messages as read when viewing active chat
   useEffect(() => {
@@ -3660,7 +3685,8 @@ export default function App() {
     }
 
     const targetUid = userId || pendingUserAuth?.uid || auth?.currentUser?.uid;
-    const targetEmail = userEmail || pendingUserAuth?.email || auth?.currentUser?.email || '';
+    const rawTargetEmail = userEmail || pendingUserAuth?.email || auth?.currentUser?.email || '';
+    const targetEmail = isInternalGhostEmail(rawTargetEmail) ? '' : rawTargetEmail;
 
     const checkRes = await checkUsernameIsTakenInFirestore(db, cleanUsername, targetUid, users);
     if (checkRes.isTaken) {
@@ -3675,7 +3701,7 @@ export default function App() {
     setUserBio(data.bio);
     setUserAvatarSeed(data.avatarSeed || cleanUsername);
     if (targetUid) setUserId(targetUid);
-    if (targetEmail) setUserEmail(targetEmail);
+    setUserEmail(targetEmail);
 
     if (isFirebaseConfigured && db && targetUid) {
       try {
@@ -3980,7 +4006,7 @@ export default function App() {
         }, { merge: true }).catch(err => console.warn("Session token update notice:", err));
 
         setUserId(userObj.uid);
-        setUserEmail(userObj.email || '');
+        setUserEmail(isInternalGhostEmail(userObj.email) ? '' : (userObj.email || ''));
         setAuthMethod('email');
 
         if (userSnap.exists() && userSnap.data()?.username && userSnap.data()?.display_name) {
@@ -7341,28 +7367,93 @@ export default function App() {
   };
 
   const handleAcceptFollowRequest = async (request: FollowRequest) => {
-    if (!isFirebaseConfigured || !db || !userId) return;
-    try {
-      // 1. Add to followers/following arrays
-      const targetUserRef = doc(db, 'users', request.fromId);
-      const myUserRef = doc(db, 'users', userId);
+    if (!request) return;
+    const cleanFrom = (request.fromUsername || '').replace(/^@/, '').trim().toLowerCase();
+    const cleanTo = (request.toUsername || userUsername || '').replace(/^@/, '').trim().toLowerCase();
 
+    // 1. Instantly persist to local cache maps
+    persistFollowActionLocally(cleanFrom, cleanTo, true);
+
+    // 2. Optimistically update local users state in real-time
+    setUsers(prev => {
+      const next = { ...prev };
+      
+      // Update acceptor's followers
+      const acceptorKey = cleanTo;
+      if (next[acceptorKey]) {
+        const curr = next[acceptorKey].followers || [];
+        if (!curr.some((f: string) => f.replace(/^@/, '').trim().toLowerCase() === cleanFrom)) {
+          next[acceptorKey] = {
+            ...next[acceptorKey],
+            followers: [...curr, cleanFrom, request.fromUsername]
+          };
+        }
+      }
+
+      // Update requester's following
+      const requesterKey = cleanFrom;
+      if (next[requesterKey]) {
+        const curr = next[requesterKey].following || [];
+        if (!curr.some((f: string) => f.replace(/^@/, '').trim().toLowerCase() === cleanTo)) {
+          next[requesterKey] = {
+            ...next[requesterKey],
+            following: [...curr, cleanTo, userUsername]
+          };
+        }
+      }
+
+      return next;
+    });
+
+    // 3. Remove request from local state immediately
+    setFollowRequests(prev => prev.filter(r => r.id !== request.id));
+
+    if (!isFirebaseConfigured || !db || !userId) {
+      showToast(`Accepted @${cleanFrom}`);
+      return;
+    }
+
+    try {
+      // 4. Resolve Firestore document IDs for both users
+      const requesterUserObj = users[cleanFrom] || Object.values(users).find(u => u?.username?.toLowerCase() === cleanFrom);
+      const requesterDocId = requesterUserObj?.id || request.fromId || cleanFrom;
+
+      const acceptorUserObj = users[cleanTo] || Object.values(users).find(u => u?.username?.toLowerCase() === cleanTo);
+      const acceptorDocId = acceptorUserObj?.id || userId || cleanTo;
+
+      const targetUserRef = doc(db, 'users', requesterDocId);
+      const myUserRef = doc(db, 'users', acceptorDocId);
+
+      // Add to followers of acceptor
       await setDoc(myUserRef, {
-        followers: arrayUnion(request.fromUsername)
+        followers: arrayUnion(request.fromUsername, cleanFrom)
       }, { merge: true }).catch(() => {});
       
+      // Add to following of requester
       await setDoc(targetUserRef, {
-        following: arrayUnion(userUsername)
+        following: arrayUnion(userUsername, cleanTo)
       }, { merge: true }).catch(() => {});
 
-      // 2. Delete request
-      await deleteDoc(doc(db, 'follow_requests', request.id)).catch(() => {});
+      // Sync username-keyed documents if distinct
+      if (requesterDocId !== cleanFrom) {
+        setDoc(doc(db, 'users', cleanFrom), {
+          following: arrayUnion(userUsername, cleanTo)
+        }, { merge: true }).catch(() => {});
+      }
+      if (acceptorDocId !== cleanTo) {
+        setDoc(doc(db, 'users', cleanTo), {
+          followers: arrayUnion(request.fromUsername, cleanFrom)
+        }, { merge: true }).catch(() => {});
+      }
 
-      // 3. Notify them
+      // 5. Delete request & send notification
+      await deleteDoc(doc(db, 'follow_requests', request.id)).catch(() => {});
       await createNotification(request.fromId, 'follow_accept', `follow_accept_${userId}_${request.fromId}`);
-      showToast(`Accepted ${request.fromUsername}`);
+
+      showToast(`Accepted @${cleanFrom}`);
     } catch (err) {
       console.error("Accept error:", err);
+      showToast(`Accepted @${cleanFrom}`);
     }
   };
 

@@ -159,33 +159,61 @@ export const DetailedProfilePage: React.FC<DetailedProfilePageProps> = ({
 
         {/* 3. Follower / Following Stats (Flat layout) */}
         <div className="w-full flex items-center justify-center gap-12 text-center py-1">
-          <button
-            id="detailed-profile-followers-stat"
-            onClick={() => !isLocked && onOpenFollowers(cleanTargetUsername)}
-            className="flex flex-col items-center hover:opacity-85 transition-opacity cursor-pointer group"
-          >
-            <span className="text-lg font-black text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-              {followersList.length}
-            </span>
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-0.5">
-              Followers
-            </span>
-          </button>
+          {isLocked ? (
+            <div
+              id="detailed-profile-followers-stat"
+              className="flex flex-col items-center select-none"
+            >
+              <span className="text-lg font-black text-slate-900 dark:text-white">
+                {followersList.length}
+              </span>
+              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-0.5">
+                Followers
+              </span>
+            </div>
+          ) : (
+            <button
+              id="detailed-profile-followers-stat"
+              onClick={() => onOpenFollowers(cleanTargetUsername)}
+              className="flex flex-col items-center hover:opacity-85 transition-opacity cursor-pointer group"
+            >
+              <span className="text-lg font-black text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                {followersList.length}
+              </span>
+              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-0.5">
+                Followers
+              </span>
+            </button>
+          )}
 
           <div className="h-6 w-[1px] bg-slate-200 dark:bg-slate-800" />
 
-          <button
-            id="detailed-profile-following-stat"
-            onClick={() => !isLocked && onOpenFollowing(cleanTargetUsername)}
-            className="flex flex-col items-center hover:opacity-85 transition-opacity cursor-pointer group"
-          >
-            <span className="text-lg font-black text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-              {followingList.length}
-            </span>
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-0.5">
-              Following
-            </span>
-          </button>
+          {isLocked ? (
+            <div
+              id="detailed-profile-following-stat"
+              className="flex flex-col items-center select-none"
+            >
+              <span className="text-lg font-black text-slate-900 dark:text-white">
+                {followingList.length}
+              </span>
+              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-0.5">
+                Following
+              </span>
+            </div>
+          ) : (
+            <button
+              id="detailed-profile-following-stat"
+              onClick={() => onOpenFollowing(cleanTargetUsername)}
+              className="flex flex-col items-center hover:opacity-85 transition-opacity cursor-pointer group"
+            >
+              <span className="text-lg font-black text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                {followingList.length}
+              </span>
+              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-0.5">
+                Following
+              </span>
+            </button>
+          )}
         </div>
 
         {/* 4. Bio Section (Clean plain text, no quotes) */}

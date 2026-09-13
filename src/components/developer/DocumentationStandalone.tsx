@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { resolveAndApplyMetadata } from '../../seoUtils';
 import { 
   BookOpen, Terminal, Copy, Check, ExternalLink, Code2, ShieldCheck, 
   Send, CheckCircle2, ChevronRight, Hash, ArrowRight, Search, 
@@ -23,6 +24,10 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
   onOpenConsole,
   initialSection
 }) => {
+  useEffect(() => {
+    resolveAndApplyMetadata({ isDocShowing: true });
+  }, []);
+
   const branding = useBranding();
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://api.zenoa.in';
 

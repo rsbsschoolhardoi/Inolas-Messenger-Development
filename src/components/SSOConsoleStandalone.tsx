@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { resolveAndApplyMetadata, METADATA_CONFIGS } from '../seoUtils';
 import { db } from '../firebaseClient';
 import { doc, getDoc } from 'firebase/firestore';
 import { SSOPortal } from './SSOPortal';
@@ -24,6 +25,10 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
   const [loading, setLoading] = useState(true);
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>('light');
   const [showZenoaAuthModal, setShowZenoaAuthModal] = useState(false);
+
+  useEffect(() => {
+    resolveAndApplyMetadata();
+  }, []);
 
   useEffect(() => {
     // If propUser was provided, prioritize it
