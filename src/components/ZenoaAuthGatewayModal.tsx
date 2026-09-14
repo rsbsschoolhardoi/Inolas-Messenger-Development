@@ -5,8 +5,9 @@ import {
   CheckCircle2, UserPlus, Bot, ExternalLink, X, Sparkles 
 } from 'lucide-react';
 import { UserData } from '../types';
+import { ContinueWithZenoaButton } from './common/ContinueWithZenoaButton';
 import { auth, db } from '../firebaseClient';
-import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut as firebaseSignOut } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
 interface ZenoaAuthGatewayModalProps {
@@ -49,9 +50,12 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setSavedAccounts(parsed);
-          setActiveTab('saved');
-          return;
+          const filtered = (parsed as UserData[]).filter(a => a && a.username && !a.is_service_account && !a.is_business_account && a.role !== 'service_account');
+          if (filtered.length > 0) {
+            setSavedAccounts(filtered);
+            setActiveTab('saved');
+            return;
+          }
         }
       }
       setActiveTab('credentials');
@@ -105,14 +109,26 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
     setLoading(true);
     setError(null);
     try {
+      if (account.is_service_account || account.is_business_account || account.role === 'service_account') {
+        setError('Access Denied: Service Accounts (Official & Business) cannot be logged in to Messenger independently.');
+        setLoading(false);
+        return;
+      }
+
       const freshUser = await fetchFullUserProfile(account.username, account.id);
       const userToUse = freshUser || account;
       
+      if (userToUse.is_service_account || userToUse.is_business_account || userToUse.role === 'service_account') {
+        setError('Access Denied: Service Accounts cannot be logged in independently.');
+        setLoading(false);
+        return;
+      }
+
       // Update saved browser accounts with the freshest object
       try {
         const raw = localStorage.getItem('zenoa_saved_browser_accounts');
         const existing: any[] = raw ? JSON.parse(raw) : [];
-        const filtered = existing.filter(a => a && a.username && a.username.toLowerCase() !== userToUse.username.toLowerCase());
+        const filtered = existing.filter(a => a && a.username && a.username.toLowerCase() !== userToUse.username.toLowerCase() && !a.is_service_account && !a.is_business_account && a.role !== 'service_account');
         filtered.unshift(userToUse);
         localStorage.setItem('zenoa_saved_browser_accounts', JSON.stringify(filtered.slice(0, 8)));
       } catch (e) {}
@@ -145,6 +161,13 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
       // Resolve target profile from Firestore
       let targetUserData = await fetchFullUserProfile(cleanIdent);
       
+      // BLOCK SERVICE ACCOUNTS BEFORE ANY AUTH OR PROCESSING
+      if (targetUserData && (targetUserData.is_service_account || targetUserData.is_business_account || targetUserData.role === 'service_account')) {
+        setError('Access Denied: Service Accounts (Official & Business) cannot be logged in to Messenger independently. They are managed and linked exclusively under an authenticated user identity.');
+        setLoading(false);
+        return;
+      }
+
       const candidateEmails = [
         targetUserData?.email,
         `${pureHandle}@zenoa.in`,
@@ -194,6 +217,12 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
       if (authUserUid) {
         const verifiedUser = await fetchFullUserProfile(cleanIdent, authUserUid);
         if (verifiedUser) {
+          if (verifiedUser.is_service_account || verifiedUser.is_business_account || verifiedUser.role === 'service_account') {
+            if (auth) await firebaseSignOut(auth).catch(() => {});
+            setError('Access Denied: Service Accounts (Official & Business) cannot be logged in to Messenger independently.');
+            setLoading(false);
+            return;
+          }
           targetUserData = verifiedUser;
         }
       }
@@ -419,6 +448,20 @@ export const ZenoaAuthGatewayModal: React.FC<ZenoaAuthGatewayModalProps> = ({
                 </>
               )}
             </button>
+
+            <div className="relative flex items-center justify-center my-3">
+              <div className={`w-full border-t ${isDark ? 'border-neutral-800' : 'border-neutral-200'}`} />
+              <span className={`absolute px-2 text-[10px] uppercase font-bold tracking-wider ${isDark ? 'bg-neutral-900 text-neutral-500' : 'bg-white text-neutral-400'}`}>
+                or fast sign in
+              </span>
+            </div>
+
+            <ContinueWithZenoaButton
+              portal={serviceTitle.toLowerCase().includes('developer') ? 'developer' : 'sso'}
+              size="md"
+              variant="dark"
+              className="w-full !rounded-xl text-xs"
+            />
           </form>
         )}
 

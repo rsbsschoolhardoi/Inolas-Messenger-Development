@@ -588,11 +588,92 @@ async function dispatchWebhookEvent(webhookUrl: string, secret: string, eventDat
   return outcome;
 }
 
+// Official Zenoa Platform OAuth Applications
+const OFFICIAL_OAUTH_APPS: Record<string, any> = {
+  zenoa_developer_console: {
+    id: 'zenoa_developer_console',
+    client_id: 'zenoa_developer_console',
+    name: 'Zenoa Developer Console',
+    app_name: 'Zenoa Developer Console',
+    app_description: 'Official Zenoa Developer Portal for Bot APIs, Webhooks, and Application Integration.',
+    owner: 'zenoa',
+    owner_username: 'zenoa',
+    user_id: 'sa_zenoadev',
+    bot_username: 'zenoadev',
+    tier: 'Official Platform App',
+    is_official: true,
+    is_platform_app: true,
+    verified: true,
+    client_secret: 'zen_sa_f9810a9c8b7123ef6543189abced214764839210fabc45781290384756bca910',
+    api_key: 'zen_dev_console_key',
+    redirect_uris: [
+      'https://developer.zenoa.in',
+      'https://developer.zenoa.sbs',
+      'https://zenoa.in/developer',
+      'https://zenoa.sbs/developer',
+      'http://localhost:3000/developer',
+      '/developer',
+      'http://localhost:3000/auth/sso',
+      '/auth/sso'
+    ],
+    scopes: ['openid', 'profile', 'email', 'phone', 'developer_access'],
+    created_at: 1710000000000
+  },
+  zenoa_oauth_console: {
+    id: 'zenoa_oauth_console',
+    client_id: 'zenoa_oauth_console',
+    name: 'Zenoa OAuth Console',
+    app_name: 'Zenoa OAuth Console',
+    app_description: 'Official Zenoa SSO & OAuth 2.0 Management Console for Identity Federation.',
+    owner: 'zenoa',
+    owner_username: 'zenoa',
+    user_id: 'sa_zenoasecurity',
+    bot_username: 'zenoasecurity',
+    tier: 'Official Platform App',
+    is_official: true,
+    is_platform_app: true,
+    verified: true,
+    client_secret: 'zen-oas_7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b',
+    api_key: 'zen_oauth_console_key',
+    redirect_uris: [
+      'https://console.zenoa.in',
+      'https://console.zenoa.sbs',
+      'https://zenoa.in/sso',
+      'https://zenoa.sbs/sso',
+      'http://localhost:3000/sso',
+      '/sso',
+      'http://localhost:3000/developer/sso',
+      '/developer/sso',
+      'http://localhost:3000/auth/sso',
+      '/auth/sso'
+    ],
+    scopes: ['openid', 'profile', 'email', 'phone', 'oauth_management'],
+    created_at: 1710000000000
+  }
+};
+
 // Helper to look up an SSO or Developer App across in-memory cache and Firestore collections
 async function lookupOAuthAppInternal(keyOrId: string): Promise<{ id: string; data: any; collectionName: string } | null> {
   if (!keyOrId || typeof keyOrId !== 'string') return null;
   const trimmed = keyOrId.trim();
   if (!trimmed) return null;
+
+  // Check Official Platform OAuth Apps first
+  const normalizedKey = trimmed.toLowerCase();
+  if (normalizedKey === 'zenoa_developer_console' || normalizedKey === 'dev_console' || normalizedKey === 'zenoa-dev-console') {
+    return {
+      id: 'zenoa_developer_console',
+      data: OFFICIAL_OAUTH_APPS.zenoa_developer_console,
+      collectionName: 'sso_applications'
+    };
+  }
+  if (normalizedKey === 'zenoa_oauth_console' || normalizedKey === 'oauth_console' || normalizedKey === 'zenoa-oauth-console' || normalizedKey === 'sso_console') {
+    return {
+      id: 'zenoa_oauth_console',
+      data: OFFICIAL_OAUTH_APPS.zenoa_oauth_console,
+      collectionName: 'sso_applications'
+    };
+  }
 
   // Fallback for mock/test sandbox credentials
   if (trimmed === 'zen_test_sandbox_key' || trimmed === 'default_app' || trimmed === 'zen_test_api_key') {
@@ -740,7 +821,9 @@ async function lookupOAuthApp(keyOrId: string): Promise<{ id: string; data: any;
   const result = await lookupOAuthAppInternal(keyOrId);
   if (!result) return null;
 
-  if (result.id === 'default_app') return result;
+  if (result.id === 'default_app' || result.data?.is_official || result.data?.is_platform_app || result.id.startsWith('zenoa_')) {
+    return result;
+  }
 
   if (db && result.data) {
     const ownerName = (result.data.owner || result.data.owner_username || result.data.created_by || '').toLowerCase().replace(/^@/, '');
@@ -803,7 +886,7 @@ const authenticateApiKey = async (req: any, res: any, next: any) => {
           clientSecret = p || '';
         } else if (token.startsWith('zen_client_') || token.startsWith('zen_test_') || token.startsWith('sa_')) {
           clientId = token;
-        } else if (token.startsWith('zen_sec_') || token.startsWith('zen_test_sec_')) {
+        } else if (token.startsWith('zen_sa_') || token.startsWith('zen-oas_') || token.startsWith('zen_sec_') || token.startsWith('zen_test_sec_')) {
           clientSecret = token;
         } else {
           // generic fallback
@@ -945,6 +1028,64 @@ const authenticateApiKey = async (req: any, res: any, next: any) => {
       owner: appOwner,
       bot_username: appBot
     };
+
+    // Autonomous Zenoa Developers Alert: Check for new third-party origin/client accessing this service account / app
+    try {
+      const isOfficialAccount = 
+        finalAppData.is_official === true || 
+        finalAppData.is_platform_app === true || 
+        clientId === 'zenoa_official_app' || 
+        finalAppData.id === 'sso_official_default' || 
+        appOwner === 'zenoa';
+
+      const originHeader = (req.headers.origin || req.headers.referer || req.headers['x-forwarded-host'] || req.headers.host || '').toString().trim();
+      if (!isOfficialAccount && originHeader && appOwner && finalAppData.id) {
+        const knownOrigins: string[] = Array.isArray(finalAppData.known_origins) ? finalAppData.known_origins : [];
+        const normalizedOrigin = originHeader.replace(/\/$/, '').toLowerCase();
+        
+        // Exclude direct internal calls from itself
+        const isInternalHost = normalizedOrigin.includes('localhost') || normalizedOrigin.includes('127.0.0.1') || normalizedOrigin.includes('0.0.0.0');
+        
+        if (!knownOrigins.includes(normalizedOrigin) && !isInternalHost) {
+          const updatedOrigins = [...knownOrigins, normalizedOrigin];
+          finalAppData.known_origins = updatedOrigins;
+          
+          if (db) {
+            setDoc(doc(db, 'developer_apps', finalAppData.id), {
+              known_origins: updatedOrigins,
+              last_active_origin: normalizedOrigin,
+              last_active_at: Date.now()
+            }, { merge: true }).catch(() => {});
+          }
+
+          const timeFormatted = new Date().toLocaleString([], { 
+            month: 'short', 
+            day: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          });
+
+          const alertMsg = `New Integration Origin Detected\n\nApplication: ${finalAppData.app_name || finalAppData.name || 'Service Account'}\nOrigin: ${originHeader}\nClient ID: ${clientId}\nTimestamp: ${timeFormatted}\n\nThis is an informational confirmation for developer integration records.`;
+
+          deliverBotChatMessage({
+            senderBotUsername: 'zenoadev',
+            senderAppName: 'Zenoa Developers',
+            recipientUsername: appOwner,
+            messageText: alertMsg,
+            security_event: {
+              type: 'oauth_accessed',
+              client_name: finalAppData.app_name || finalAppData.name || 'Application',
+              client_url: originHeader,
+              timestamp: Date.now(),
+              status: 'verified_by_user'
+            }
+          }).catch(err => console.warn('[ZENOADEV_ALERT] Non-blocking alert error:', err));
+        }
+      }
+    } catch (alertErr) {
+      console.warn('[ZENOADEV_ALERT] Origin check error:', alertErr);
+    }
+
     next();
   } catch (err: any) {
     console.error("Auth Middleware Exception:", err);
@@ -1121,15 +1262,116 @@ async function resolveUserRecipient(recipientInput: string): Promise<{
   return defaultResult;
 }
 
+// Helper: Ensure official Zenoa platform service accounts are autonomous, verified, and reclaimed
+async function ensureSystemOfficialServiceAccounts() {
+  if (!db) return;
+  const officialAccounts = [
+    {
+      uid: 'sa_zenoaverify',
+      username: 'zenoaverify',
+      display_name: 'Zenoa Verify',
+      bio: 'Official Zenoa Verification Service • 2FA Authentication & Security OTPs',
+      role: 'service_account',
+      verified_type: 'purple',
+      avatar_seed: 'zenoaverify'
+    },
+    {
+      uid: 'sa_zenoasecurity',
+      username: 'zenoasecurity',
+      display_name: 'Zenoa Security',
+      bio: 'Official Zenoa Security Center • Real-time Login Alerts & Account Protection',
+      role: 'service_account',
+      verified_type: 'purple',
+      avatar_seed: 'zenoasecurity'
+    },
+    {
+      uid: 'sa_zenoadev',
+      username: 'zenoadev',
+      display_name: 'Zenoa Developers',
+      bio: 'Official Zenoa Developers Engine • Third-Party API & Developer Console Alerts',
+      role: 'service_account',
+      verified_type: 'purple',
+      avatar_seed: 'zenoadev'
+    }
+  ];
+
+  for (const acc of officialAccounts) {
+    try {
+      // 1. Reclaim / bind in usernames collection exclusively for this service account
+      const usernameDocRef = doc(db, 'usernames', acc.username);
+      await setDoc(usernameDocRef, {
+        uid: acc.uid,
+        username: acc.username,
+        is_service_account: true,
+        is_official: true,
+        reclaimed_at: Date.now()
+      }, { merge: true });
+
+      // 2. Provision both under uid and canonical username for zero-regression compatibility
+      const userPayload = {
+        id: acc.uid,
+        uid: acc.uid,
+        username: acc.username,
+        name: acc.display_name,
+        display_name: acc.display_name,
+        app_name: acc.display_name,
+        bio: acc.bio,
+        role: 'service_account',
+        is_official: true,
+        is_service_account: true,
+        is_business_account: false,
+        is_bot: true,
+        is_verified: true,
+        verified_type: 'purple',
+        login_disabled: true,
+        avatar_seed: acc.avatar_seed,
+        created_at: Date.now(),
+        updated_at: Date.now()
+      };
+
+      await setDoc(doc(db, 'users', acc.uid), userPayload, { merge: true });
+      await setDoc(doc(db, 'users', acc.username), userPayload, { merge: true });
+
+      // 3. Register in service_accounts registry
+      await setDoc(doc(db, 'service_accounts', acc.uid), {
+        ...userPayload,
+        service_id: acc.uid,
+        system_reserved: true,
+        auto_provisioned: true,
+        last_provisioned: Date.now()
+      }, { merge: true });
+    } catch (err) {
+      console.warn(`[SERVICE_ACCOUNT_PROVISION] Error ensuring @${acc.username}:`, err);
+    }
+  }
+}
+
 // Helper: Deliver official Service Account Bot DM message to Zenoa user chat inbox
 async function deliverBotChatMessage(opts: {
   senderBotUsername: string;
-  senderAppName: string;
+  senderAppName?: string;
   recipientUsername: string;
   recipientZenoaId?: string;
   messageText: string;
+  action_buttons?: {
+    id: string;
+    label: string;
+    action: 'secure_account' | 'it_was_me' | 'dismiss' | 'custom';
+    style?: 'danger' | 'secondary' | 'primary';
+    acknowledged?: boolean;
+    acknowledged_at?: number;
+  }[];
+  security_event?: {
+    type: 'new_device_login' | 'password_changed' | 'oauth_accessed' | 'unauthorized_attempt';
+    device_info?: string;
+    ip_address?: string;
+    timestamp?: number;
+    status?: 'pending' | 'verified_by_user' | 'secured';
+    client_name?: string;
+    client_url?: string;
+  };
 }): Promise<{ chatId: string; messageId: string }> {
-  const { senderBotUsername, senderAppName, recipientUsername, recipientZenoaId, messageText } = opts;
+  const { senderBotUsername, senderAppName, recipientUsername, recipientZenoaId, messageText, action_buttons, security_event } = opts;
   
   const botClean = senderBotUsername.toLowerCase().replace(/^@/, '');
   const recClean = recipientUsername.toLowerCase().replace(/^@/, '');
@@ -1138,8 +1380,19 @@ async function deliverBotChatMessage(opts: {
   if (db && botClean && recClean) {
     try {
       // 1. Check if this is an official Zenoa platform service or a Developer Business bot
-      const isOfficialZenoaAccount = ['zenoa', 'sa_zenoa', 'zenoa_official', 'zenoa_security', 'zenoa_auth'].includes(botClean) || botClean.startsWith('zenoa_');
-      const resolvedDisplayName = senderAppName || (isOfficialZenoaAccount ? 'Zenoa Security' : 'Business Account');
+      const isOfficialZenoaAccount = [
+        'zenoa', 'sa_zenoa', 'zenoa_official', 'zenoa_security', 'zenoa_auth', 'zenoa_support',
+        'zenoaverify', 'zenoasecurity', 'zenoadev', 'zenoa_verify', 'zenoa_dev'
+      ].includes(botClean) || botClean.startsWith('zenoa_') || botClean.startsWith('sa_zenoa');
+
+      let resolvedDisplayName = senderAppName || '';
+      if (!resolvedDisplayName) {
+        if (botClean === 'zenoaverify' || botClean === 'zenoa_verify') resolvedDisplayName = 'Zenoa Verify';
+        else if (botClean === 'zenoasecurity' || botClean === 'zenoa_security') resolvedDisplayName = 'Zenoa Security';
+        else if (botClean === 'zenoadev' || botClean === 'zenoa_dev') resolvedDisplayName = 'Zenoa Developers';
+        else if (isOfficialZenoaAccount) resolvedDisplayName = 'Zenoa';
+        else resolvedDisplayName = 'Business Account';
+      }
       
       const botDocRef = doc(db, 'users', botClean);
       await setDoc(botDocRef, {
@@ -1147,7 +1400,7 @@ async function deliverBotChatMessage(opts: {
         display_name: resolvedDisplayName,
         name: resolvedDisplayName,
         app_name: resolvedDisplayName,
-        bio: isOfficialZenoaAccount ? 'Official Zenoa Account • Security & Verification' : 'Business Service Account • End-to-End Encrypted',
+        bio: isOfficialZenoaAccount ? 'Official Zenoa Service • Verified System Account' : 'Business Service Account • End-to-End Encrypted',
         is_service_account: true,
         is_business_account: !isOfficialZenoaAccount,
         is_official: isOfficialZenoaAccount,
@@ -1189,7 +1442,7 @@ async function deliverBotChatMessage(opts: {
       }, { merge: true });
 
       const msgRef = doc(db, 'messages', messageId);
-      batch.set(msgRef, {
+      const msgPayload: any = {
         id: messageId,
         chat_id: chatId,
         created_at: Date.now(),
@@ -1199,7 +1452,16 @@ async function deliverBotChatMessage(opts: {
         timestamp: timeStr,
         status: 'sent',
         read_by: [botClean]
-      });
+      };
+
+      if (action_buttons && action_buttons.length > 0) {
+        msgPayload.action_buttons = action_buttons;
+      }
+      if (security_event) {
+        msgPayload.security_event = security_event;
+      }
+
+      batch.set(msgRef, msgPayload);
 
       await batch.commit();
       return { chatId, messageId };
@@ -1303,10 +1565,15 @@ app.post(['/api/v1/otp/send', '/v1/otp/send'], authenticateApiKey, async (req: a
       .replace(/{expiry_mins}/g, String(expiryMinutes))
       .replace(/{timestamp}/g, nowTimeFormatted);
 
+    // For 2FA, login verification, or official Zenoa verification requests, route through zenoaverify
+    const is2FaRequest = !!(req.body?.is_2fa || templateType === '2fa_auth' || templateType === 'security_code' || req.body?.service === 'zenoaverify');
+    const effectiveSender = is2FaRequest ? 'zenoaverify' : businessSender;
+    const effectiveSenderName = is2FaRequest ? 'Zenoa Verify' : (app_name || 'Service Account');
+
     // Deliver via Direct Service Account Message to recipient's chat inbox
     const deliveryResult = await deliverBotChatMessage({
-      senderBotUsername: businessSender,
-      senderAppName: app_name || 'Service Account',
+      senderBotUsername: effectiveSender,
+      senderAppName: effectiveSenderName,
       recipientUsername: cleanRecipient,
       recipientZenoaId: resolvedUser.zenoaId,
       messageText
@@ -1981,9 +2248,9 @@ app.post('/api/v1/sso/apps/create', async (req: any, res: any) => {
     }
 
     const randomId = crypto.randomBytes(12).toString('hex');
-    const randomSec = crypto.randomBytes(24).toString('hex');
+    const randomSec = crypto.randomBytes(32).toString('hex'); // 256-bit cryptographic entropy (64 hex characters)
     const clientId = `zenoa_oauth_${randomId}`;
-    const clientSecret = `zenoa_sec_${randomSec}`;
+    const clientSecret = `zen-oas_${randomSec}`;
 
     const initialUris = Array.isArray(redirect_uris) && redirect_uris.length > 0
       ? redirect_uris
@@ -1998,7 +2265,7 @@ app.post('/api/v1/sso/apps/create', async (req: any, res: any) => {
       client_id: clientId,
       client_secret: clientSecret,
       redirect_uris: initialUris,
-      scopes: scopes || ['profile', 'email', 'phone'],
+      scopes: Array.from(new Set(['openid', 'profile', 'email', ...(Array.isArray(scopes) ? scopes : [])])),
       type: 'sso_oauth_client',
       created_at: Date.now(),
       status: 'active'
@@ -2097,7 +2364,7 @@ app.post('/api/v1/sso/apps/regenerate-secret', async (req: any, res: any) => {
       return res.status(400).json({ error: 'Application ID or client_id required' });
     }
 
-    const newSecret = `zenoa_sec_${crypto.randomBytes(24).toString('hex')}`;
+    const newSecret = `zen-oas_${crypto.randomBytes(32).toString('hex')}`;
     
     // Update in-memory
     if (inMemorySsoApps.has(targetDocId)) {
@@ -2294,18 +2561,34 @@ app.post('/api/v1/sso/authorize', async (req: any, res: any) => {
     const signature = crypto.createHmac('sha256', secret).update(JSON.stringify(ssoPayload)).digest('hex');
     const base64Payload = Buffer.from(JSON.stringify(ssoPayload)).toString('base64');
 
-    // Deliver official Zenoa Security Alert to user's chat with registered application name
-    const targetAppName = appData.app_name || appData.name || 'Application';
-    const alertTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const securityAlertText = `SECURITY ALERT: SIGN-IN AUTHORIZED\n\nYour Zenoa account was successfully authorized to sign in to:\n\nApplication: ${targetAppName}\nClient ID: ${client_id}\nAuthorized At: ${alertTimeStr}\nStatus: Active Authorization\n\nSECURITY NOTICE: If you did not authorize this login request, please open Zenoa Settings > Developer & Security to revoke access immediately.`;
+    // Deliver security alert ONLY for third-party business apps (official apps are exempt)
+    const isOfficialApp = 
+      appData.is_official === true || 
+      appData.is_platform_app === true || 
+      client_id === 'zenoa_official_app' || 
+      appId === 'sso_official_default' || 
+      client_id?.startsWith('zenoa_') ||
+      appId?.startsWith('zenoa_');
 
-    deliverBotChatMessage({
-      senderBotUsername: 'sa_zenoa',
-      senderAppName: 'Zenoa Security',
-      recipientUsername: cleanUser.username,
-      recipientZenoaId: cleanUser.id,
-      messageText: securityAlertText
-    }).catch(alertErr => console.warn('SSO Security alert dispatch note:', alertErr));
+    if (!isOfficialApp) {
+      const targetAppName = appData.app_name || appData.name || 'Application';
+      const alertTimeStr = new Date().toLocaleString([], { 
+        month: 'short', 
+        day: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
+
+      const securityAlertText = `Third-Party Application Authorized\n\nApplication: ${targetAppName}\nAccount: @${cleanUser.username}\nAccess: Profile & Verified Identity\nAuthorized: ${alertTimeStr}\n\nIf you authorized this connection to ${targetAppName}, no further action is required. If this request was unexpected, open Settings > Connected Applications to revoke access.`;
+
+      deliverBotChatMessage({
+        senderBotUsername: 'sa_zenoa',
+        senderAppName: 'Zenoa Security',
+        recipientUsername: cleanUser.username,
+        recipientZenoaId: cleanUser.id,
+        messageText: securityAlertText
+      }).catch(alertErr => console.warn('SSO Security alert dispatch note:', alertErr));
+    }
 
     // Record login log for developer
     recordDeveloperLog(appId, {
@@ -2596,7 +2879,7 @@ app.post('/api/v1/sso/verify', async (req: any, res: any) => {
 app.post('/api/v1/apps/regenerate-secret', authenticateApiKey, async (req: any, res: any) => {
   try {
     if (!db) return res.status(500).json({ error: 'Database service unavailable' });
-    const newSecret = 'zen_sec_' + crypto.randomBytes(24).toString('hex');
+    const newSecret = 'zen_sa_' + crypto.randomBytes(32).toString('hex');
     await updateDoc(doc(db, 'developer_apps', req.appData.id), {
       client_secret: newSecret
     });
@@ -3905,10 +4188,153 @@ app.post('/api/auth/messenger/reset-password-otp', async (req: any, res: any) =>
   }
 });
 
+// Autonomous Zenoa Security: Real-Time Password Change Endpoint
+app.post('/api/user/change-password', async (req: any, res: any) => {
+  try {
+    const { uid, username, email, currentPassword, newPassword } = req.body || {};
+
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ success: false, error: 'New password must be at least 8 characters long.' });
+    }
+
+    let targetUid = uid;
+    let targetUsername = (username || '').toLowerCase().replace(/^@/, '').trim();
+
+    // If targetUid is not provided, resolve by username or email
+    if (!targetUid && targetUsername && db) {
+      const usernameSnap = await getDoc(doc(db, 'usernames', targetUsername)).catch(() => null);
+      if (usernameSnap && usernameSnap.exists()) {
+        targetUid = usernameSnap.data().uid;
+      }
+    }
+
+    if (!targetUid && email) {
+      try {
+        const userRec = await getAdminAuth().getUserByEmail(email.toLowerCase().trim());
+        targetUid = userRec.uid;
+      } catch (_) {}
+    }
+
+    if (!targetUid) {
+      return res.status(400).json({ success: false, error: 'Could not resolve user account for password change.' });
+    }
+
+    // Update password in Firebase Auth via Admin SDK
+    await getAdminAuth().updateUser(targetUid, {
+      password: newPassword
+    });
+
+    const nowFormatted = new Date().toLocaleString([], { 
+      month: 'short', 
+      day: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+
+    const clientDevice = req.headers['user-agent'] ? 'Web Browser' : 'Authorized Device';
+
+    // Dispatch real-time security alert from zenoasecurity directly to user's chat inbox!
+    if (targetUsername) {
+      const alertText = `Password Changed Successfully\n\nYour Zenoa account password was updated on ${nowFormatted} from ${clientDevice}.\n\nIf you made this change, your account is safe. If you did not initiate this change, tap "Secure My Account" immediately.`;
+
+      deliverBotChatMessage({
+        senderBotUsername: 'zenoasecurity',
+        senderAppName: 'Zenoa Security',
+        recipientUsername: targetUsername,
+        recipientZenoaId: targetUid,
+        messageText: alertText,
+        action_buttons: [
+          { id: 'btn_sec_pw_' + Date.now(), label: 'Secure My Account', action: 'secure_account', style: 'danger' },
+          { id: 'btn_ack_pw_' + Date.now(), label: 'It Was Me', action: 'it_was_me', style: 'secondary' }
+        ],
+        security_event: {
+          type: 'password_changed',
+          device_info: clientDevice,
+          timestamp: Date.now(),
+          status: 'verified_by_user'
+        }
+      }).catch(err => console.warn('[ZENOASECURITY_DISPATCH] Password changed alert error:', err));
+    }
+
+    return res.json({ success: true, message: 'Password updated successfully.' });
+  } catch (err: any) {
+    console.error("Error in change-password:", err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to update password.' });
+  }
+});
+
+// Autonomous Zenoa Security: New Device / Unrecognized Login Alert Endpoint
+app.post('/api/security/login-alert', async (req: any, res: any) => {
+  try {
+    const { username, uid, deviceInfo, ipAddress, userAgent } = req.body || {};
+    const targetUsername = (username || '').toLowerCase().replace(/^@/, '').trim();
+
+    if (!targetUsername) {
+      return res.status(400).json({ success: false, error: 'Target username is required for login alert.' });
+    }
+
+    const deviceName = deviceInfo || (userAgent ? (userAgent.includes('Mobile') ? 'Mobile Device' : 'Web Desktop') : 'Unrecognized Device');
+    const nowFormatted = new Date().toLocaleString([], { 
+      month: 'short', 
+      day: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+
+    const alertText = `New Sign-In Detected\n\nYour Zenoa account was just accessed from a new device:\n\n• Device: ${deviceName}\n• Date & Time: ${nowFormatted}\n• Network / Location: ${ipAddress || 'Authorized Session'}\n\nIf this was you, you can confirm it below. If you did not initiate this sign-in, secure your account immediately.`;
+
+    const delivery = await deliverBotChatMessage({
+      senderBotUsername: 'zenoasecurity',
+      senderAppName: 'Zenoa Security',
+      recipientUsername: targetUsername,
+      recipientZenoaId: uid,
+      messageText: alertText,
+      action_buttons: [
+        { id: 'btn_sec_login_' + Date.now(), label: 'Secure My Account', action: 'secure_account', style: 'danger' },
+        { id: 'btn_ack_login_' + Date.now(), label: 'It Was Me', action: 'it_was_me', style: 'secondary' }
+      ],
+      security_event: {
+        type: 'new_device_login',
+        device_info: deviceName,
+        ip_address: ipAddress || '',
+        timestamp: Date.now(),
+        status: 'pending'
+      }
+    });
+
+    return res.json({ success: true, message: 'Login security alert delivered.', ...delivery });
+  } catch (err: any) {
+    console.error("Error in login-alert:", err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to dispatch login alert.' });
+  }
+});
+
 // Fallback for unmatched API routes to ensure they always return JSON instead of HTML
 app.use('/api', (req: any, res: any) => {
   res.status(404).json({ success: false, error: `API endpoint not found: ${req.method} ${req.originalUrl}` });
 });
+
+async function ensureSystemOfficialOAuthApps() {
+  for (const [appId, appConfig] of Object.entries(OFFICIAL_OAUTH_APPS)) {
+    inMemorySsoApps.set(appId, appConfig);
+    if (db) {
+      try {
+        const appRef = doc(db, 'sso_applications', appId);
+        const appSnap = await getDoc(appRef);
+        if (!appSnap.exists()) {
+          await setDoc(appRef, sanitizeFirestoreData({
+            ...appConfig,
+            id: appId,
+            created_at: Date.now()
+          }));
+          console.log(`[OFFICIAL_OAUTH_APPS] Autonomous registered official OAuth application: ${appConfig.name} (${appId})`);
+        }
+      } catch (err) {
+        console.warn(`[OFFICIAL_OAUTH_APPS] Firestore sync warning for ${appId}:`, err);
+      }
+    }
+  }
+}
 
 async function startServer() {
   // Vite Middleware (only loaded in development standalone node process)
@@ -3930,6 +4356,10 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Autonomous JIT bootstrap: Ensure official service accounts and official OAuth portals exist
+  ensureSystemOfficialServiceAccounts().catch(e => console.warn('[SERVICE_ACCOUNT_AUTONOMOUS] Bootstrap error:', e));
+  ensureSystemOfficialOAuthApps().catch(e => console.warn('[OFFICIAL_OAUTH_APPS] Bootstrap error:', e));
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Zenoa Server running on http://0.0.0.0:${PORT}`);

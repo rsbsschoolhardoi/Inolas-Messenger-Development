@@ -10,6 +10,7 @@ import { db } from '../../../firebaseClient';
 import { UserData } from '../../../types';
 import { useBranding } from '../../../brandingUtils';
 import { BrandLogo } from '../../common/BrandLogo';
+import { generateDevConsoleSecret } from '../../../utils/oauthSecurity';
 import { 
   generateTsSdk, generateNodeSdk, generatePythonSdk, generatePhpSdk, 
   generateGoSdk, generateJavaSdk, generateEnvConfig, generateHtmlSnippet, generateCurlSnippets 
@@ -262,10 +263,10 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
     setIsCreating(true);
     try {
       const cleanDevUser = currentUser.username.toLowerCase().replace(/[^a-z0-9._]/g, '');
-      const clientId = `zen_client_${Math.random().toString(36).substring(2,15)}`;
-      const clientSecret = `zen_sec_${Math.random().toString(36).substring(2,20)}`;
-      const testClientId = `zen_test_${Math.random().toString(36).substring(2,15)}`;
-      const testClientSecret = `zen_test_sec_${Math.random().toString(36).substring(2,20)}`;
+      const clientId = `zen_client_${Array.from(window.crypto?.getRandomValues(new Uint8Array(12)) || []).map(b => b.toString(16).padStart(2, '0')).join('') || Math.random().toString(36).substring(2,15)}`;
+      const clientSecret = generateDevConsoleSecret('live');
+      const testClientId = `zen_test_${Array.from(window.crypto?.getRandomValues(new Uint8Array(12)) || []).map(b => b.toString(16).padStart(2, '0')).join('') || Math.random().toString(36).substring(2,15)}`;
+      const testClientSecret = generateDevConsoleSecret('test');
       
       // Username allows only (a-z0-9._), while Name remains As-It-Is (e.g. "Azad")
       const rawBot = botUsername.trim().toLowerCase().replace(/^@/, '').replace(/[^a-z0-9._]/g, '');
@@ -313,7 +314,11 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
           is_verified: true,
           verified_type: 'purple',
           role: 'service_account',
+          login_disabled: true,
           owner: currentUser.username,
+          owner_id: currentUser.id || '',
+          owner_username: currentUser.username,
+          linked_user_id: currentUser.id || '',
           environment: selectedEnvOnCreate,
           is_live: selectedEnvOnCreate === 'live',
           created_at: Date.now(),
@@ -478,8 +483,8 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
 
   const handleRotateKey = async () => {
     if (!selectedApp) return;
-    const newSecret = `zen_sec_${Math.random().toString(36).substring(2, 22)}`;
-    const newClientId = `zen_client_${Math.random().toString(36).substring(2, 16)}`;
+    const newSecret = generateDevConsoleSecret(environment === 'test' ? 'test' : 'live');
+    const newClientId = `zen_client_${Array.from(window.crypto?.getRandomValues(new Uint8Array(12)) || []).map(b => b.toString(16).padStart(2, '0')).join('') || Math.random().toString(36).substring(2, 16)}`;
     
     await handleUpdateApp({
       client_id: newClientId,
@@ -504,8 +509,8 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
       ? (rawSelectedApp.test_client_id || `zen_test_${rawSelectedApp.client_id?.replace('zen_client_', '') || 'dev'}`)
       : (rawSelectedApp.client_id || rawSelectedApp.api_key),
     active_client_secret: environment === 'test'
-      ? (rawSelectedApp.test_client_secret || `zen_test_sec_sandbox_key`)
-      : (rawSelectedApp.client_secret || 'zen_sec_production')
+      ? (rawSelectedApp.test_client_secret || `zen_sa_test_sandbox_key`)
+      : (rawSelectedApp.client_secret || 'zen_sa_production_key')
   } : null;
 
   const getGeneratedCode = (): string => {
@@ -1043,7 +1048,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                             isDark ? 'bg-[#121624] border-[#273951] text-white' : 'bg-[#f6f9fc] border-[#e3e8ee] text-[#0d253d]'
                           }`}>
                             <span className="truncate text-[#64748d] dark:text-[#94a3b8] tracking-widest font-mono">
-                              {environment === 'test' ? 'zen_test_sec_••••••••••••••••••••••••' : 'zen_sec_••••••••••••••••••••••••'}
+                              {environment === 'test' ? 'zen_sa_test_••••••••••••••••••••••••' : 'zen_sa_••••••••••••••••••••••••'}
                             </span>
                             <span className="text-[10px] uppercase font-sans font-bold text-rose-500 bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 rounded ml-2 shrink-0">Protected</span>
                           </div>
@@ -1068,7 +1073,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                         </div>
                         <div className="bg-[#0c1024] text-slate-200 p-3.5 rounded-xl font-mono text-xs flex items-center justify-between overflow-x-auto border border-[#273951]">
                           <code className="text-[#818cf8]">
-                            Authorization: <span className="text-emerald-400">Bearer</span> <span className="text-[#94a3b8] tracking-wider font-mono">{environment === 'test' ? 'zen_test_sec_••••••••••••••••' : 'zen_sec_••••••••••••••••'}</span>
+                            Authorization: <span className="text-emerald-400">Bearer</span> <span className="text-[#94a3b8] tracking-wider font-mono">{environment === 'test' ? 'zen_sa_test_••••••••••••••••' : 'zen_sa_••••••••••••••••'}</span>
                           </code>
                         </div>
                       </div>

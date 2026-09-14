@@ -28,11 +28,14 @@ export interface UserData {
   is_official?: boolean;
   service_category?: string;
   owner?: string;
+  owner_id?: string;
   owner_username?: string;
+  linked_user_id?: string;
+  login_disabled?: boolean;
   is_banned?: boolean;
   ban_reason?: string;
   ban_timestamp?: number;
-  role?: 'user' | 'admin' | 'super_admin';
+  role?: 'user' | 'admin' | 'super_admin' | 'service_account';
   registered_at?: number;
   mobile_number?: string;
   phone_number?: string;
@@ -219,6 +222,23 @@ export interface Message {
   starred?: boolean;
   status?: 'sending' | 'sent' | 'delivered' | 'read';
   expires_at?: number;
+  action_buttons?: {
+    id: string;
+    label: string;
+    action: 'secure_account' | 'it_was_me' | 'dismiss' | 'custom';
+    style?: 'danger' | 'secondary' | 'primary';
+    acknowledged?: boolean;
+    acknowledged_at?: number;
+  }[];
+  security_event?: {
+    type: 'new_device_login' | 'password_changed' | 'oauth_accessed' | 'unauthorized_attempt';
+    device_info?: string;
+    ip_address?: string;
+    timestamp?: number;
+    status?: 'pending' | 'verified_by_user' | 'secured';
+    client_name?: string;
+    client_url?: string;
+  };
 }
 
 export interface Chat {

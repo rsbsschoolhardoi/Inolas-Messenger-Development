@@ -1,19 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { resolveAndApplyMetadata, METADATA_CONFIGS } from '../seoUtils';
+import { resolveAndApplyMetadata } from '../seoUtils';
 import { db } from '../firebaseClient';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { SSOPortal } from './SSOPortal';
 import { ZenoaAuthGatewayModal } from './ZenoaAuthGatewayModal';
 import { UserData } from '../types';
 import { useBranding } from '../brandingUtils';
 import { BrandLogo } from './common/BrandLogo';
+import { ContinueWithZenoaButton } from './common/ContinueWithZenoaButton';
 import { WaveArcs } from './originkit/ui/wave-arcs';
 import { 
   Shield, ArrowRight, Lock, Key, Sparkles, RefreshCw, 
   User, Mail, Terminal, ArrowLeft, LogOut, Globe, CheckCircle2,
-  Code2, Layers, ShieldCheck, Fingerprint, ExternalLink, Sun, Moon, Zap
+  Code2, Layers, ShieldCheck, Fingerprint, ExternalLink, Sun, Moon, Zap,
+  AlertTriangle, X
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface SSOConsoleStandaloneProps {
   currentUser?: UserData | null;
@@ -23,12 +25,47 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
   const branding = useBranding();
   const [user, setUser] = useState<UserData | null>(propUser || null);
   const [loading, setLoading] = useState(true);
-  const [themeMode, setThemeMode] = useState<'light' | 'dark'>('light');
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
+    try {
+      const savedTheme = localStorage.getItem('zenoa_oauth_theme') || localStorage.getItem('zenoa_theme_mode');
+      if (savedTheme === 'dark' || savedTheme === 'light') return savedTheme;
+    } catch (e) {}
+    return 'light';
+  });
   const [showZenoaAuthModal, setShowZenoaAuthModal] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   useEffect(() => {
     resolveAndApplyMetadata();
   }, []);
+
+  const fetchFullUserProfile = async (searchIdent: string, uid?: string): Promise<UserData | null> => {
+    if (!db) return null;
+    try {
+      if (uid) {
+        const uidSnap = await getDoc(doc(db, 'users', uid));
+        if (uidSnap.exists() && uidSnap.data()?.username) {
+          return { id: uidSnap.id, ...uidSnap.data() } as UserData;
+        }
+      }
+
+      const clean = searchIdent.trim().toLowerCase().replace(/^@/, '');
+      const userDoc = await getDoc(doc(db, 'users', clean));
+      if (userDoc.exists() && userDoc.data()?.username) {
+        return { id: userDoc.id, ...userDoc.data() } as UserData;
+      }
+
+      const usersRef = collection(db, 'users');
+      const uq = query(usersRef, where('username', '==', clean));
+      const uSnap = await getDocs(uq);
+      if (!uSnap.empty) {
+        return { id: uSnap.docs[0].id, ...uSnap.docs[0].data() } as UserData;
+      }
+    } catch (err) {
+      console.warn('SSO user fetch error:', err);
+    }
+    return null;
+  };
 
   useEffect(() => {
     // If propUser was provided, prioritize it
@@ -41,54 +78,94 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
       return;
     }
 
-    // Check saved theme
-    try {
-      const savedTheme = localStorage.getItem('zenoa_oauth_theme') || localStorage.getItem('zenoa_theme_mode');
-      if (savedTheme === 'light' || savedTheme === 'dark') {
-        setThemeMode(savedTheme);
+    // Check if returning from OAuth handshake with code / payload
+    const searchParams = new URLSearchParams(window.location.search);
+    const hasOAuthReturn = searchParams.has('code') || searchParams.has('payload');
+
+    if (hasOAuthReturn) {
+      try {
+        sessionStorage.removeItem('zenoa_sso_console_logged_out');
+      } catch (e) {}
+
+      // If payload is present in query, parse it as instant fallback
+      const rawPayload = searchParams.get('payload');
+      if (rawPayload) {
+        try {
+          const decoded = JSON.parse(atob(rawPayload));
+          if (decoded && (decoded.username || decoded.sub || decoded.uid)) {
+            const tempUser: UserData = {
+              id: decoded.sub || decoded.uid || `user_${decoded.username}`,
+              zenoa_id: decoded.zenoa_id || `${decoded.username}@zenoa`,
+              username: (decoded.username || 'developer').replace(/^@/, ''),
+              display_name: decoded.name || decoded.display_name || decoded.username,
+              bio: decoded.bio || 'Zenoa Identity Admin',
+              avatar_seed: decoded.avatar_seed || decoded.username || 'developer',
+              online: true,
+              last_seen: 'Just now',
+              email: decoded.email || '',
+              mobile_number: decoded.phone_number || decoded.mobile_number || '',
+              avatar_url: decoded.picture || decoded.avatar_url || '',
+              is_verified: true,
+              is_official: false
+            };
+            localStorage.setItem('zenoa_sso_console_user', JSON.stringify(tempUser));
+            setUser(tempUser);
+          }
+        } catch (e) {}
       }
-    } catch (e) {}
+
+      // Clean the query parameters from the address bar
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    // Mandatory login check: If user explicitly logged out in this session and NOT returning from fresh OAuth
+    const isLoggedOut = !hasOAuthReturn && sessionStorage.getItem('zenoa_sso_console_logged_out') === 'true';
 
     // Check if there is an active SSO Console session or main Zenoa session stored
-    try {
-      const storedSSOUser = localStorage.getItem('zenoa_sso_console_user') || localStorage.getItem('zenoa_user');
-      if (storedSSOUser) {
-        const parsed = JSON.parse(storedSSOUser);
-        if (parsed && parsed.username) {
-          setUser(parsed);
-          setLoading(false);
-          return;
+    if (!isLoggedOut) {
+      try {
+        const storedSSOUser = localStorage.getItem('zenoa_sso_console_user') || localStorage.getItem('zenoa_user');
+        if (storedSSOUser) {
+          const parsed = JSON.parse(storedSSOUser);
+          if (parsed && (parsed.username || parsed.id)) {
+            fetchFullUserProfile(parsed.username || parsed.id, parsed.id).then(profile => {
+              setUser(profile || parsed);
+              setLoading(false);
+            }).catch(() => {
+              setUser(parsed);
+              setLoading(false);
+            });
+            return;
+          }
         }
-      }
-    } catch (e) {}
+      } catch (e) {}
+    }
 
     setLoading(false);
   }, [propUser]);
 
   const handleAuthenticatedWithZenoa = async (authenticatedUser: UserData) => {
     try {
-      let freshUser = authenticatedUser;
-      if (db && authenticatedUser.username) {
-        const snap = await getDoc(doc(db, 'users', authenticatedUser.username.toLowerCase()));
-        if (snap.exists()) {
-          freshUser = { id: snap.id, ...snap.data() } as UserData;
-        }
-      }
-
+      sessionStorage.removeItem('zenoa_sso_console_logged_out');
+      const freshUser = await fetchFullUserProfile(authenticatedUser.username, authenticatedUser.id) || authenticatedUser;
       setUser(freshUser);
       localStorage.setItem('zenoa_sso_console_user', JSON.stringify(freshUser));
     } catch (err) {
       console.error('SSO session setup error:', err);
+      sessionStorage.removeItem('zenoa_sso_console_logged_out');
       setUser(authenticatedUser);
       localStorage.setItem('zenoa_sso_console_user', JSON.stringify(authenticatedUser));
     }
   };
 
-  const handleLogoutSSOConsole = () => {
+  const handleConfirmLogout = () => {
     try {
       localStorage.removeItem('zenoa_sso_console_user');
+      sessionStorage.setItem('zenoa_sso_console_logged_out', 'true');
     } catch (e) {}
     setUser(null);
+    setShowLogoutConfirm(false);
+    window.history.pushState({}, '', '/sso');
   };
 
   if (loading) {
@@ -103,7 +180,7 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
     );
   }
 
-  // 1. MANDATORY ACCESS GATE (When not authenticated)
+  // 1. MANDATORY ACCESS GATE & DEDICATED SSO LANDING PAGE (When not authenticated)
   if (!user) {
     const isDark = themeMode === 'dark';
     return (
@@ -144,6 +221,7 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
 
             <div className="flex items-center gap-3">
               <button
+                id="sso_landing_theme_toggle"
                 onClick={() => {
                   const nextTheme = themeMode === 'light' ? 'dark' : 'light';
                   setThemeMode(nextTheme);
@@ -166,13 +244,20 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
                 <span>Messenger</span>
               </a>
 
-              <button
-                onClick={() => setShowZenoaAuthModal(true)}
-                className="rounded-full px-4 py-2 bg-[#533afd] hover:bg-[#4434d4] active:bg-[#2e2b8c] text-white text-[13px] font-medium transition-all shadow-[0_1px_3px_rgba(0,55,112,0.15)] flex items-center gap-1.5 cursor-pointer active:scale-[0.98]"
+              <a
+                href="/developer"
+                className="text-xs font-semibold text-[#64748d] dark:text-[#94a3b8] hover:text-[#533afd] dark:hover:text-white transition-colors hidden sm:inline-block px-2 py-1"
               >
-                <Lock className="h-3.5 w-3.5" />
-                <span>Sign In to Console</span>
-              </button>
+                Dev Console
+              </a>
+
+              <ContinueWithZenoaButton
+                portal="sso"
+                size="sm"
+                variant="primary"
+                className="rounded-full !py-2 !px-3.5 text-xs shadow-xs"
+                showArrow={false}
+              />
             </div>
           </div>
         </header>
@@ -200,17 +285,22 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
           </p>
 
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <ContinueWithZenoaButton
+              portal="sso"
+              size="lg"
+              variant="primary"
+              className="w-full sm:w-auto shadow-lg"
+            />
             <button
               onClick={() => setShowZenoaAuthModal(true)}
-              className="w-full sm:w-auto px-7 py-3 rounded-full bg-[#533afd] hover:bg-[#4434d4] active:bg-[#2e2b8c] text-white text-[14px] font-medium transition-all shadow-[0_1px_3px_rgba(0,55,112,0.15)] flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
+              className="w-full sm:w-auto px-6 py-3.5 sm:py-4 rounded-2xl bg-white dark:bg-[#121624] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] text-[#0d253d] dark:text-white border border-[#e3e8ee] dark:border-[#273951] text-[15px] font-medium transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer"
             >
-              <Lock className="h-4 w-4" />
-              <span>Authenticate with {branding.app_name || 'Zenoa'}</span>
-              <ArrowRight className="h-4 w-4 ml-0.5" />
+              <span>Direct Sign In</span>
+              <ArrowRight className="h-4 w-4" />
             </button>
             <a
               href="/docs"
-              className="w-full sm:w-auto px-6 py-3 rounded-full bg-white dark:bg-[#121624] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] text-[#0d253d] dark:text-white border border-[#e3e8ee] dark:border-[#273951] text-[14px] font-medium transition-colors flex items-center justify-center gap-2 shadow-xs"
+              className="w-full sm:w-auto px-6 py-3.5 sm:py-4 rounded-2xl bg-white dark:bg-[#121624] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] text-[#0d253d] dark:text-white border border-[#e3e8ee] dark:border-[#273951] text-[15px] font-medium transition-colors flex items-center justify-center gap-2 shadow-xs"
             >
               OAuth Documentation
             </a>
@@ -230,7 +320,7 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
               </div>
               <h3 className="text-base font-bold mb-1.5">RFC 6749 Auth Codes</h3>
               <p className="text-xs sm:text-sm text-[#64748d] dark:text-[#94a3b8] leading-relaxed">
-                Standard authorization code flow with secure short-lived auth codes and server-to-server token exchange with PKCE support.
+                Standard authorization code flow with high-entropy 256-bit secure auth codes, PKCE S256 verification, and server-to-server token exchange.
               </p>
             </div>
 
@@ -288,19 +378,75 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
   }
 
   // 2. ACTIVE SSO PORTAL VIEW (When authenticated)
+  const isDark = themeMode === 'dark';
   return (
     <div className="min-h-screen flex flex-col font-sans">
       <SSOPortal
         themeMode={themeMode}
         currentUser={user}
-        onBack={() => {
-          handleLogoutSSOConsole();
-          window.location.href = '/';
-        }}
+        onBack={() => setShowLogoutConfirm(true)}
         onOpenConsentPreview={(clientId, redirectUri) => {
           window.open(`/auth/sso?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}`, '_blank');
         }}
       />
+
+      {/* Dedicated SSO Logout Confirmation Modal */}
+      <AnimatePresence>
+        {showLogoutConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className={`w-full max-w-md p-6 rounded-2xl border shadow-2xl relative ${
+                isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+              }`}
+            >
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center gap-3 mb-4">
+                <div className="h-10 w-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center border border-amber-500/20">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold">Sign Out of SSO Console?</h3>
+                  <p className="text-xs text-[#64748d] dark:text-[#94a3b8]">You will return to the SSO Console landing page.</p>
+                </div>
+              </div>
+
+              <p className="text-xs sm:text-sm text-[#64748d] dark:text-[#94a3b8] mb-6 leading-relaxed">
+                Signing out will safely terminate your active SSO administrative session. You will remain on this portal's landing page where you can reconnect anytime.
+              </p>
+
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowLogoutConfirm(false)}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
+                    isDark ? 'border-[#273951] hover:bg-[#1c1e54] text-[#cbd5e1]' : 'border-[#e3e8ee] hover:bg-[#f6f9fc] text-[#273951]'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmLogout}
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-colors cursor-pointer flex items-center gap-2"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

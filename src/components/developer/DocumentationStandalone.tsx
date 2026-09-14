@@ -44,9 +44,9 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
       id: 'demo_app',
       app_name: branding.app_name || 'Production Service Application',
       client_id: 'zen_live_prod_99x817a02e7b',
-      client_secret: 'zen_sec_f9810a9c8b7123ef',
+      client_secret: 'zen_sa_f9810a9c8b7123ef6543189abced214764839210fabc45781290384756bca910',
       active_client_id: 'zen_live_prod_99x817a02e7b',
-      active_client_secret: 'zen_sec_f9810a9c8b7123ef',
+      active_client_secret: 'zen_sa_f9810a9c8b7123ef6543189abced214764839210fabc45781290384756bca910',
       environment: 'live',
       rate_limit_tier: 'enterprise',
       credits_balance: 50000

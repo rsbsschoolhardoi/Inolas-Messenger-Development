@@ -1,8 +1,18 @@
 /**
  * Helper utility to generate a deterministic, symmetric chat ID for 1-on-1 direct messages.
- * Ensures that both Participant A and Participant B reference the exact same chat ID in Firestore.
+ * When immutable User IDs (UIDs) are provided, generates a UID-based deterministic chat ID: `c_dm_${sorted[uid1, uid2]}`.
+ * This guarantees 100% Zero-Leak data isolation: even if usernames are recycled, UIDs never collide!
+ * If UIDs are omitted, safely falls back to normalized username pairing for backward compatibility.
  */
-export const getDmChatId = (u1: string, u2: string): string => {
+export const getDmChatId = (u1: string, u2: string, uid1?: string, uid2?: string): string => {
+  const cleanUid1 = (uid1 || '').trim();
+  const cleanUid2 = (uid2 || '').trim();
+  
+  if (cleanUid1 && cleanUid2 && cleanUid1 !== cleanUid2) {
+    const sortedUids = [cleanUid1, cleanUid2].sort();
+    return `c_dm_${sortedUids[0]}_${sortedUids[1]}`;
+  }
+
   const clean1 = (u1 || '').trim().toLowerCase().replace(/^@/, '');
   const clean2 = (u2 || '').trim().toLowerCase().replace(/^@/, '');
   
@@ -34,8 +44,8 @@ export const buildNormalizedParticipants = (u1: string, u2?: string, u1Id?: stri
   };
   addVariant(u1);
   addVariant(u2);
-  if (u1Id) set.add(u1Id);
-  if (u2Id) set.add(u2Id);
+  if (u1Id && u1Id.trim()) set.add(u1Id.trim());
+  if (u2Id && u2Id.trim()) set.add(u2Id.trim());
   return Array.from(set);
 };
 

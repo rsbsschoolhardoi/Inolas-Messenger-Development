@@ -15,6 +15,7 @@ import { useBranding } from '../brandingUtils';
 import { BrandLogo } from './common/BrandLogo';
 import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebaseClient';
+import { generateOAuthConsoleSecret } from '../utils/oauthSecurity';
 
 export interface SSOApp {
   id: string;
@@ -217,7 +218,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       const officialApp: SSOApp = {
         id: 'sso_official_default',
         client_id: 'zenoa_official_app',
-        client_secret: 'zen_sec_official_9999',
+        client_secret: 'zen-oas_9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b',
         app_name: `${branding.app_name || 'Zenoa'} Official Client`,
         app_description: `Pre-configured official ${branding.app_name || 'Zenoa'} OAuth 2.0 client for production SSO login, token exchange, and user profile verification.`,
         website_url: window.location.origin,
@@ -523,7 +524,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         showNotification('success', 'OAuth configuration saved successfully in real time');
       } else {
         const randomId = Math.random().toString(36).substring(2, 10);
-        const randomSecret = 'zen_sec_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        const randomSecret = generateOAuthConsoleSecret();
         const clientId = `zenoa_oauth_${randomId}`;
         const newAppId = `sso_app_${Date.now()}`;
 
@@ -577,7 +578,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
   const handleRotateSecret = async () => {
     if (!secretRotateModalApp) return;
     try {
-      const newSecret = 'zen_sec_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      const newSecret = generateOAuthConsoleSecret();
       if (db) {
         await updateDoc(doc(db, 'sso_applications', secretRotateModalApp.id), {
           client_secret: newSecret,
@@ -736,7 +737,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     return apps.find(a => a.id === selectedSnippetAppId) || apps[0] || {
       id: 'mock_app',
       client_id: 'zenoa_oauth_your_client_id',
-      client_secret: 'zen_sec_your_client_secret',
+      client_secret: 'zen-oas_your_client_secret_7f8a9b1c2d3e4f5a6b7c8d9e0f1a2b3c',
       app_name: `${branding.app_name || 'Zenoa'} Client`,
       redirect_uris: ['http://localhost:3000/auth/callback'],
       scopes: ['openid', 'profile', 'email'],
@@ -2117,17 +2118,82 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                   </div>
 
                   {/* Scopes Selection Matrix */}
-                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Requested OpenID Connect Scopes
-                    </label>
+                  <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                      <div>
+                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                          <ShieldCheck className="w-4 h-4 text-indigo-500" />
+                          <span>OAuth 2.0 & OpenID Connect Permissions (Scopes)</span>
+                        </label>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          Core OIDC claims (ID, Name, Username, Email) are auto-checked. Select additional integration permissions as required.
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60 font-semibold self-start sm:self-auto">
+                        {selectedScopes.length} Scopes Configured
+                      </span>
+                    </div>
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       {[
-                        { id: 'openid', name: 'openid (Mandatory)', desc: 'User Unique Subject ID (sub) and OIDC verification', required: true },
-                        { id: 'profile', name: 'profile', desc: 'Display name, username, avatar photo, bio and status' },
-                        { id: 'email', name: 'email', desc: 'Verified user email address and email verification flag' },
-                        { id: 'phone', name: 'phone', desc: 'Phone number and mobile verification status' },
-                        { id: 'offline_access', name: 'offline_access', desc: 'Issue refresh tokens for persistent background API access' }
+                        { 
+                          id: 'openid', 
+                          name: 'openid', 
+                          category: 'Core OIDC (Mandatory)', 
+                          desc: 'User Unique Subject ID (sub) and OpenID Connect cryptographic token verification', 
+                          required: true,
+                          isCore: true
+                        },
+                        { 
+                          id: 'profile', 
+                          name: 'profile', 
+                          category: 'Core Identity (Auto-Checked)', 
+                          desc: 'Full Display Name, @username handle, profile avatar photo, and bio', 
+                          isCore: true 
+                        },
+                        { 
+                          id: 'email', 
+                          name: 'email', 
+                          category: 'Core Contact (Auto-Checked)', 
+                          desc: 'Primary registered email address and email verification status claim', 
+                          isCore: true 
+                        },
+                        { 
+                          id: 'phone', 
+                          name: 'phone', 
+                          category: 'Optional Contact', 
+                          desc: 'Registered mobile phone number and SMS verification claim' 
+                        },
+                        { 
+                          id: 'offline_access', 
+                          name: 'offline_access', 
+                          category: 'Optional Refresh', 
+                          desc: 'Issue RFC 6749 Refresh Tokens for persistent background session renewals without re-prompting' 
+                        },
+                        { 
+                          id: 'messages.read', 
+                          name: 'messages.read', 
+                          category: 'Optional Chat', 
+                          desc: 'Read access to direct chats, channels, and conversation histories' 
+                        },
+                        { 
+                          id: 'messages.send', 
+                          name: 'messages.send', 
+                          category: 'Optional Chat', 
+                          desc: 'Permission to send chat messages, replies, and service notifications on behalf of user' 
+                        },
+                        { 
+                          id: 'contacts.read', 
+                          name: 'contacts.read', 
+                          category: 'Optional Social', 
+                          desc: 'Read user contacts list, address book, and verified connections' 
+                        },
+                        { 
+                          id: 'activity.read', 
+                          name: 'activity.read', 
+                          category: 'Optional Telemetry', 
+                          desc: 'Read real-time online presence, active device, and last seen timestamp' 
+                        }
                       ].map(sc => {
                         const isChecked = selectedScopes.includes(sc.id);
                         return (
@@ -2136,20 +2202,29 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                             onClick={() => !sc.required && toggleScope(sc.id)}
                             className={`p-3.5 rounded-xl border flex items-start gap-3 transition-all cursor-pointer ${
                               isChecked
-                                ? isDark ? 'border-indigo-700 bg-indigo-950/30' : 'border-indigo-300 bg-indigo-50/50'
-                                : isDark ? 'border-slate-800 bg-slate-900/40 opacity-70' : 'border-slate-200 bg-slate-50/50 opacity-70'
+                                ? isDark ? 'border-indigo-700 bg-indigo-950/30 shadow-xs' : 'border-indigo-300 bg-indigo-50/60 shadow-xs'
+                                : isDark ? 'border-slate-800 bg-slate-900/40 opacity-70 hover:opacity-100 hover:border-slate-700' : 'border-slate-200 bg-slate-50/50 opacity-70 hover:opacity-100 hover:border-slate-300'
                             }`}
                           >
-                            <div className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
+                            <div className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center border shrink-0 transition-colors ${
                               isChecked
                                 ? 'bg-indigo-600 border-indigo-600 text-white'
                                 : 'border-slate-400 bg-transparent'
                             }`}>
                               {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
                             </div>
-                            <div className="min-w-0">
-                              <p className="text-xs font-bold font-mono text-slate-900 dark:text-white">{sc.name}</p>
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{sc.desc}</p>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                                <p className="text-xs font-bold font-mono text-slate-900 dark:text-white">{sc.name}</p>
+                                <span className={`text-[9px] font-semibold px-1.5 py-0.2 rounded ${
+                                  sc.isCore 
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' 
+                                    : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                }`}>
+                                  {sc.category}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">{sc.desc}</p>
                             </div>
                           </div>
                         );

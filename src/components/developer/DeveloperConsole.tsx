@@ -68,8 +68,73 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     let isMounted = true;
     let unsubscribe = () => {};
 
-    // Mandatory login check: If user previously logged out, do not auto-restore session
-    const isLoggedOut = sessionStorage.getItem('zenoa_dev_console_logged_out') === 'true';
+    // Check if returning from OAuth handshake with code / payload
+    const searchParams = new URLSearchParams(window.location.search);
+    const hasOAuthReturn = searchParams.has('code') || searchParams.has('payload');
+    
+    if (hasOAuthReturn) {
+      try {
+        sessionStorage.removeItem('zenoa_dev_console_logged_out');
+      } catch (e) {}
+
+      // If payload is present in query, parse it as instant fallback
+      const rawPayload = searchParams.get('payload');
+      if (rawPayload) {
+        try {
+          const decoded = JSON.parse(atob(rawPayload));
+          if (decoded && (decoded.username || decoded.sub || decoded.uid)) {
+            const tempUser: UserData = {
+              id: decoded.sub || decoded.uid || `user_${decoded.username}`,
+              zenoa_id: decoded.zenoa_id || `${decoded.username}@zenoa`,
+              username: (decoded.username || 'developer').replace(/^@/, ''),
+              display_name: decoded.name || decoded.display_name || decoded.username,
+              bio: decoded.bio || 'Zenoa Developer',
+              avatar_seed: decoded.avatar_seed || decoded.username || 'developer',
+              online: true,
+              last_seen: 'Just now',
+              email: decoded.email || '',
+              mobile_number: decoded.phone_number || decoded.mobile_number || '',
+              avatar_url: decoded.picture || decoded.avatar_url || '',
+              is_verified: true,
+              is_official: false
+            };
+            localStorage.setItem('zenoa_dev_console_user', JSON.stringify(tempUser));
+          }
+        } catch (e) {}
+      }
+
+      // Clean the query parameters from the address bar
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    // Mandatory login check: If user explicitly logged out in this session and NOT returning from fresh OAuth
+    const isLoggedOut = !hasOAuthReturn && sessionStorage.getItem('zenoa_dev_console_logged_out') === 'true';
+
+    // 1. Check if user already authorized via Zenoa OAuth / SSO session
+    if (!isLoggedOut) {
+      try {
+        const storedDevUser = localStorage.getItem('zenoa_dev_console_user') || localStorage.getItem('zenoa_user');
+        if (storedDevUser) {
+          const parsed = JSON.parse(storedDevUser);
+          if (parsed && (parsed.username || parsed.id)) {
+            fetchFullUserProfile(parsed.username || parsed.id, parsed.id).then(profile => {
+              if (isMounted) {
+                setUser(profile || parsed);
+                setView('portal');
+                setLoading(false);
+              }
+            }).catch(() => {
+              if (isMounted) {
+                setUser(parsed);
+                setView('portal');
+                setLoading(false);
+              }
+            });
+            return;
+          }
+        }
+      } catch (e) {}
+    }
 
     if (!isLoggedOut && auth) {
       unsubscribe = onAuthStateChanged(auth, async (fbUser) => {

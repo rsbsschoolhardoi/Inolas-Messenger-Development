@@ -45,8 +45,8 @@ export interface DocCategory {
 }
 
 export const generateDocsData = (app: any, baseUrl: string): DocCategory[] => {
-  const apiKey = app?.active_client_id || app?.client_id || 'zen_test_app_sample_key';
-  const secretKey = app?.active_client_secret || app?.client_secret || 'zen_sec_sample_secret';
+  const apiKey = app?.active_client_id || app?.client_id || 'zen_live_app_sample_key';
+  const secretKey = app?.active_client_secret || app?.client_secret || 'zen_sa_7f8a9b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a';
   const appName = app?.app_name || 'My Application';
   const botHandle = app?.bot_username ? (app.bot_username.startsWith('@') ? app.bot_username : `@${app.bot_username}`) : '@sa_business_bot';
 

@@ -158,7 +158,7 @@ export const registerServiceAccountHandle = (handle: string | undefined | null) 
 
 export const isOfficialAccount = (user: PresenceUser | any | undefined | null, explicitUsername?: string): boolean => {
   const uname = (explicitUsername || user?.username || '').toLowerCase().replace(/^@/, '');
-  if (['zenoa', 'sa_zenoa', 'zenoa_official', 'zenoa_security', 'zenoa_auth', 'zenoa_support', 'zenoa_updates'].includes(uname) || uname.startsWith('zenoa_') || uname.startsWith('sa_zenoa')) {
+  if (['zenoa', 'sa_zenoa', 'zenoa_official', 'zenoa_security', 'zenoa_auth', 'zenoa_support', 'zenoa_updates', 'zenoaverify', 'zenoasecurity', 'zenoadev', 'zenoa_verify', 'zenoa_dev'].includes(uname) || uname.startsWith('zenoa_') || uname.startsWith('sa_zenoa')) {
     return true;
   }
   return !!(user?.is_official || (user?.is_service_account && !user?.is_business_account));

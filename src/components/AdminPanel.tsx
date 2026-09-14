@@ -138,7 +138,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserData | null>(null);
   const [editDisplayName, setEditDisplayName] = useState<string>('');
   const [editBio, setEditBio] = useState<string>('');
-  const [editRole, setEditRole] = useState<'user' | 'admin' | 'super_admin'>('user');
+  const [editRole, setEditRole] = useState<'user' | 'admin' | 'super_admin' | 'service_account'>('user');
   const [editAvatarUrl, setEditAvatarUrl] = useState<string>('');
 
   // Verified Management Tab State
@@ -1064,7 +1064,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       is_service_account: true,
       is_business_account: false,
       service_category: saCategory,
-      registered_at: Date.now()
+      registered_at: Date.now(),
+      owner_id: currentUser?.id || 'admin',
+      owner_username: currentUser?.username || 'admin',
+      linked_user_id: currentUser?.id || 'admin',
+      login_disabled: true,
+      role: 'service_account'
     };
 
     const serviceData: ServiceAccountData = {

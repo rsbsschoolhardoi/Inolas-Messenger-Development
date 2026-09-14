@@ -5,7 +5,7 @@
  */
 
 const DB_NAME = 'zenoa_storage_v2';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export interface StorageEstimateInfo {
   usageBytes: number;
@@ -21,6 +21,7 @@ export interface StorageEstimateInfo {
 class StorageManager {
   private dbPromise: Promise<IDBDatabase> | null = null;
   private currentSessionUser: string = '';
+  private currentSessionUid: string = '';
 
   constructor() {
     if (typeof window !== 'undefined' && 'indexedDB' in window) {
@@ -29,21 +30,25 @@ class StorageManager {
   }
 
   /**
-   * Set the active authenticated session user so all local storage queries
+   * Set the active authenticated session user and immutable UID so all local storage queries
    * are strictly quarantined and partitioned per user.
    */
-  public setSessionUser(usernameOrUid: string): void {
+  public setSessionUser(usernameOrUid: string, explicitUid?: string): void {
     const clean = (usernameOrUid || '').trim().toLowerCase().replace(/^@/, '');
-    if (this.currentSessionUser && this.currentSessionUser !== clean) {
-      // Switched account in same runtime
-      this.currentSessionUser = clean;
-    } else {
-      this.currentSessionUser = clean;
+    this.currentSessionUser = clean;
+    if (explicitUid && explicitUid.trim()) {
+      this.currentSessionUid = explicitUid.trim();
+    } else if (usernameOrUid && (usernameOrUid.startsWith('u_') || usernameOrUid.length > 20)) {
+      this.currentSessionUid = usernameOrUid.trim();
     }
   }
 
   public getSessionUser(): string {
     return this.currentSessionUser;
+  }
+
+  public getSessionUid(): string {
+    return this.currentSessionUid;
   }
 
   private initDB(): Promise<IDBDatabase> {
@@ -62,6 +67,12 @@ class StorageManager {
             mediaStore.createIndex('timestamp', 'timestamp', { unique: false });
             mediaStore.createIndex('chat_id', 'chat_id', { unique: false });
             mediaStore.createIndex('owner_user', 'owner_user', { unique: false });
+            mediaStore.createIndex('owner_uid', 'owner_uid', { unique: false });
+          } else {
+            const mediaStore = request.transaction?.objectStore('media_cache');
+            if (mediaStore && !mediaStore.indexNames.contains('owner_uid')) {
+              mediaStore.createIndex('owner_uid', 'owner_uid', { unique: false });
+            }
           }
 
           // Store 2: Offline Messages
@@ -70,6 +81,12 @@ class StorageManager {
             msgStore.createIndex('chat_id', 'chat_id', { unique: false });
             msgStore.createIndex('created_at', 'created_at', { unique: false });
             msgStore.createIndex('owner_user', 'owner_user', { unique: false });
+            msgStore.createIndex('owner_uid', 'owner_uid', { unique: false });
+          } else {
+            const msgStore = request.transaction?.objectStore('messages');
+            if (msgStore && !msgStore.indexNames.contains('owner_uid')) {
+              msgStore.createIndex('owner_uid', 'owner_uid', { unique: false });
+            }
           }
 
           // Store 3: Key-Value Config / Drafts
@@ -98,7 +115,7 @@ class StorageManager {
   /**
    * Save media asset (photo, audio, video, document) into high-capacity IndexedDB
    */
-  async saveMedia(id: string, dataUrlOrBlob: string | Blob, meta?: { chat_id?: string; fileName?: string; mimeType?: string; owner_user?: string }): Promise<void> {
+  async saveMedia(id: string, dataUrlOrBlob: string | Blob, meta?: { chat_id?: string; fileName?: string; mimeType?: string; owner_user?: string; owner_uid?: string }): Promise<void> {
     try {
       const db = await this.initDB();
       const tx = db.transaction('media_cache', 'readwrite');
@@ -106,6 +123,7 @@ class StorageManager {
       
       const sizeBytes = typeof dataUrlOrBlob === 'string' ? dataUrlOrBlob.length : dataUrlOrBlob.size;
       const owner = (meta?.owner_user || this.currentSessionUser || '').toLowerCase().trim();
+      const ownerUid = (meta?.owner_uid || this.currentSessionUid || '').trim();
       
       store.put({
         id,
@@ -115,6 +133,7 @@ class StorageManager {
         fileName: meta?.fileName || '',
         mimeType: meta?.mimeType || '',
         owner_user: owner,
+        owner_uid: ownerUid,
         timestamp: Date.now()
       });
 
@@ -155,10 +174,11 @@ class StorageManager {
   /**
    * Persist messages batch to local IndexedDB with strict session-quarantining
    */
-  async saveMessages(messages: any[], explicitOwnerUser?: string): Promise<void> {
+  async saveMessages(messages: any[], explicitOwnerUser?: string, explicitOwnerUid?: string): Promise<void> {
     if (!messages || messages.length === 0) return;
     const owner = (explicitOwnerUser || this.currentSessionUser || '').toLowerCase().trim();
-    if (!owner) return; // Do not persist messages without an identified session user
+    const ownerUid = (explicitOwnerUid || this.currentSessionUid || '').trim();
+    if (!owner && !ownerUid) return; // Do not persist messages without an identified session user or UID
 
     try {
       const db = await this.initDB();
@@ -173,6 +193,9 @@ class StorageManager {
             safeMsg.sender = owner;
           }
           safeMsg.owner_user = owner;
+          if (ownerUid) {
+            safeMsg.owner_uid = ownerUid;
+          }
           store.put(safeMsg);
         }
       }
@@ -190,10 +213,12 @@ class StorageManager {
    * Load cached messages for a chat from IndexedDB, isolated strictly to the active user.
    * If minCreatedAt is provided, guarantees 0% data leakage by excluding any messages
    * timestamped before the user's account was created.
+   * If sessionUid is provided, guarantees 0% data leakage by dropping messages from prior owners of recycled usernames.
    */
-  async getMessagesForChat(chatId: string, sessionUser?: string, minCreatedAt?: number): Promise<any[]> {
+  async getMessagesForChat(chatId: string, sessionUser?: string, minCreatedAt?: number, sessionUid?: string): Promise<any[]> {
     const owner = (sessionUser || this.currentSessionUser || '').toLowerCase().trim();
-    if (!owner) return [];
+    const targetUid = (sessionUid || this.currentSessionUid || '').trim();
+    if (!owner && !targetUid) return [];
 
     try {
       const db = await this.initDB();
@@ -207,15 +232,30 @@ class StorageManager {
           const results = request.result || [];
           // Strict user-isolation filter: Only return messages saved for this owner
           const filtered = results.filter((m: any) => {
-            // Temporal isolation gate: 0% data leakage from past deleted accounts (with 5-minute clock-skew buffer)
-            if (minCreatedAt && minCreatedAt > 0 && (m.created_at || 0) < (minCreatedAt - 300000)) {
+            // 1. Temporal isolation gate: 0% data leakage from past deleted accounts (with 60-second buffer)
+            if (minCreatedAt && minCreatedAt > 0 && (m.created_at || 0) < (minCreatedAt - 60000)) {
               return false;
             }
-            const mOwner = (m.owner_user || '').toLowerCase().trim();
-            if (mOwner && mOwner === owner) return true;
-            // Backward-compat check: sender or read_by matches session user
-            if (m.sender && (m.sender.toLowerCase() === owner || m.sender === 'me')) return true;
-            if (Array.isArray(m.read_by) && m.read_by.some((r: string) => r && r.toLowerCase() === owner)) return true;
+
+            // 2. Strict UID-First Isolation Gate:
+            // If the message is tagged with an owner_uid and targetUid is present, they MUST match.
+            if (targetUid && m.owner_uid) {
+              return m.owner_uid === targetUid;
+            }
+
+            // 3. Fallback to username matching only when owner_uid was not recorded (legacy messages)
+            if (owner) {
+              const mOwner = (m.owner_user || '').toLowerCase().trim();
+              if (mOwner && mOwner === owner) {
+                if (targetUid && m.owner_uid && m.owner_uid !== targetUid) return false;
+                return true;
+              }
+              if (m.sender && (m.sender.toLowerCase() === owner || m.sender === 'me')) {
+                if (targetUid && m.sender_uid && m.sender_uid !== targetUid) return false;
+                return true;
+              }
+              if (Array.isArray(m.read_by) && m.read_by.some((r: string) => r && r.toLowerCase() === owner)) return true;
+            }
             return false;
           });
           filtered.sort((a: any, b: any) => (a.created_at || 0) - (b.created_at || 0));
@@ -232,9 +272,10 @@ class StorageManager {
    * Nuclear local purge of all records associated with a specific user.
    * Cleans messages, media cache, and KV drafts from IndexedDB.
    */
-  async wipeUserData(usernameOrUid: string): Promise<void> {
+  async wipeUserData(usernameOrUid: string, explicitUid?: string): Promise<void> {
     const clean = (usernameOrUid || '').trim().toLowerCase().replace(/^@/, '');
-    if (!clean) return;
+    const cleanUid = (explicitUid || '').trim();
+    if (!clean && !cleanUid) return;
 
     try {
       const db = await this.initDB();
@@ -250,7 +291,12 @@ class StorageManager {
           const owner = (m.owner_user || '').toLowerCase().trim();
           const sender = (m.sender || '').toLowerCase().trim();
           const recipient = (m.recipient || '').toLowerCase().trim();
-          if (owner === clean || sender === clean || recipient === clean) {
+          const ownerUid = (m.owner_uid || '').trim();
+          const senderUid = (m.sender_uid || '').trim();
+          if (
+            (clean && (owner === clean || sender === clean || recipient === clean)) ||
+            (cleanUid && (ownerUid === cleanUid || senderUid === cleanUid))
+          ) {
             msgStore.delete(m.id);
           }
         }
@@ -261,15 +307,23 @@ class StorageManager {
         const medias = mediaReq.result || [];
         for (const m of medias) {
           const owner = (m.owner_user || '').toLowerCase().trim();
-          if (owner === clean) {
+          const ownerUid = (m.owner_uid || '').trim();
+          if ((clean && owner === clean) || (cleanUid && ownerUid === cleanUid)) {
             mediaStore.delete(m.id);
           }
         }
       };
 
-      kvStore.delete(`vault_draft_${clean}`);
-      kvStore.delete(`chat_drafts_${clean}`);
-      kvStore.delete(`user_settings_${clean}`);
+      if (clean) {
+        kvStore.delete(`vault_draft_${clean}`);
+        kvStore.delete(`chat_drafts_${clean}`);
+        kvStore.delete(`user_settings_${clean}`);
+      }
+      if (cleanUid) {
+        kvStore.delete(`vault_draft_${cleanUid}`);
+        kvStore.delete(`chat_drafts_${cleanUid}`);
+        kvStore.delete(`user_settings_${cleanUid}`);
+      }
 
       return new Promise((resolve) => {
         tx.oncomplete = () => resolve();

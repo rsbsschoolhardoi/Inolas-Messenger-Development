@@ -3,7 +3,8 @@ import {
   Check, CheckCheck, MoreVertical, Maximize2, FileText, 
   MapPin, ExternalLink, Download, UserPlus, BarChart2, 
   Ban, Shield, Pin, Forward as ForwardIcon, Star, ChevronDown, ChevronUp,
-  Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, Video, VideoOff, Clock
+  Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, Video, VideoOff, Clock,
+  ShieldAlert, CheckCircle2, KeyRound
 } from 'lucide-react';
 import { Message, UserData } from '../types';
 import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
@@ -39,6 +40,8 @@ interface MessageCardProps {
   isSelected?: boolean;
   isInSelectionMode?: boolean;
   onToggleSelect?: (msgId: string, mode?: 'select' | 'unselect' | 'toggle') => void;
+  onSecureAccount?: () => void;
+  onAcknowledgeSecurityEvent?: (msgId: string) => void;
 }
 
 const EMOJIS = ['❤️', '👍', '🔥', '😂', '🎉', '👏', '😮', '🙏'];
@@ -65,6 +68,8 @@ export const MessageCard: React.FC<MessageCardProps> = ({
   isSelected = false,
   isInSelectionMode = false,
   onToggleSelect,
+  onSecureAccount,
+  onAcknowledgeSecurityEvent,
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [resolvedMediaUrl, setResolvedMediaUrl] = useState<string | null>(null);
@@ -719,6 +724,42 @@ export const MessageCard: React.FC<MessageCardProps> = ({
                   onToast={onToast}
                   maxTextLength={MAX_TEXT_LENGTH}
                 />
+              )}
+
+              {/* INTERACTIVE ACTION BUTTONS (Clean Enterprise Security Actions) */}
+              {((msg.action_buttons && msg.action_buttons.length > 0) || senderUsername === 'zenoasecurity' || msg.security_event) && (
+                <div className="mt-2.5 pt-2 border-t border-black/10 dark:border-white/10 flex flex-col sm:flex-row gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onSecureAccount) onSecureAccount();
+                    }}
+                    className="flex-1 py-1.5 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 active:scale-[0.98] text-slate-800 dark:text-slate-200 font-medium text-xs flex items-center justify-center gap-1.5 border border-slate-300 dark:border-slate-700 transition-all cursor-pointer shadow-2xs"
+                  >
+                    <KeyRound className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
+                    <span>Secure Account</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!(msg.security_event?.status === 'verified_by_user' || (typeof window !== 'undefined' && localStorage.getItem(`zenoa_ack_${msg.id}`)))}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const isAck = !!(msg.security_event?.status === 'verified_by_user' || (typeof window !== 'undefined' && localStorage.getItem(`zenoa_ack_${msg.id}`)));
+                      if (!isAck && onAcknowledgeSecurityEvent) {
+                        onAcknowledgeSecurityEvent(msg.id);
+                      }
+                    }}
+                    className={`flex-1 py-1.5 px-3 rounded-lg font-medium text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer shadow-2xs ${
+                      (msg.security_event?.status === 'verified_by_user' || (typeof window !== 'undefined' && localStorage.getItem(`zenoa_ack_${msg.id}`)))
+                        ? 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 cursor-default'
+                        : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white active:scale-[0.98] border-slate-900 dark:border-slate-100 text-white dark:text-slate-900'
+                    }`}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <span>{(msg.security_event?.status === 'verified_by_user' || (typeof window !== 'undefined' && localStorage.getItem(`zenoa_ack_${msg.id}`))) ? 'Confirmed' : 'Confirm'}</span>
+                  </button>
+                </div>
               )}
 
               {/* MESSAGE FOOTER: TIMESTAMP, EDITED & TICKS */}

@@ -45,13 +45,13 @@ export const PurpleVerifiedBadge: React.FC<PurpleVerifiedBadgeProps> = ({
             y2="22"
             gradientUnits="userSpaceOnUse"
           >
-            <stop offset="0%" stopColor="#A855F7" />
-            <stop offset="50%" stopColor="#8B5CF6" />
-            <stop offset="100%" stopColor="#6D28D9" />
+            <stop offset="0%" stopColor="#6366F1" />
+            <stop offset="50%" stopColor="#4F46E5" />
+            <stop offset="100%" stopColor="#4338CA" />
           </linearGradient>
 
-          <filter id={glowId} x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow dx="0" dy="1" stdDeviation="1.5" floodColor="#7E22CE" floodOpacity="0.4" />
+          <filter id={glowId} x="-10%" y="-10%" width="120%" height="120%">
+            <feDropShadow dx="0" dy="0.5" stdDeviation="0.8" floodColor="#312E81" floodOpacity="0.25" />
           </filter>
         </defs>
 

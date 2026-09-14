@@ -5,6 +5,7 @@ import { FollowListModal } from './components/FollowListModal';
 import { WebLinkingPage } from './components/WebLinkingPage';
 import { LinkDeviceModal } from './components/LinkDeviceModal';
 import { ServiceAccountModal } from './components/ServiceAccountModal';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
 // Inolas Messenger - Verified UTF-8 Source Code
 import { SSOConsoleStandalone } from "./components/SSOConsoleStandalone";
 import { SSOLogin } from "./components/SSOLogin";
@@ -1732,6 +1733,7 @@ export default function App() {
   const [selectedProfileUsername, setSelectedProfileUsername] = useState<string>('');
   const [selectedServiceAccountUser, setSelectedServiceAccountUser] = useState<any>(null);
   const [showServiceAccountModal, setShowServiceAccountModal] = useState<boolean>(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState<boolean>(false);
 
   // Active URL route state with automatic popstate listening
   const [currentPathname, setCurrentPathname] = useState<string>(() => {
@@ -2184,21 +2186,32 @@ export default function App() {
             const participants = Array.isArray(c.participants) ? c.participants : [];
             const participantIds = Array.isArray(c.participant_ids) ? c.participant_ids : [];
             
-            // Resilient Zero-Trust Privacy Gate: Verify user is a participant or group member (Case-Insensitive)
+            // 1. Strict UID-First Validation:
+            // If the chat document has participant_ids, the current user's UID (userId) MUST be present.
+            // If participant_ids exists and userId is NOT in it, this chat belongs to a DIFFERENT user who previously held this username. DROP IT!
+            if (participantIds.length > 0 && userId) {
+              if (!participantIds.includes(userId)) {
+                return; // DROP: Belongs to previous owner of this username!
+              }
+            }
+
+            // 2. Zero-Trust Isolation Gate for Recycled / Fresh Accounts:
+            // If the chat document was created or updated BEFORE this account was registered (outside 60s clock-skew margin),
+            // and does not explicitly have this user's UID, it belongs to an old, deleted incarnation of this username. Drop it completely!
+            if (userAccountCreatedAt > 0) {
+              const chatTimestamp = c.updated_at || c.created_at || 0;
+              if (chatTimestamp > 0 && chatTimestamp < (userAccountCreatedAt - 60000)) {
+                if (!userId || !participantIds.includes(userId)) {
+                  return; // DROP: Old legacy chat from deleted account
+                }
+              }
+            }
+
+            // 3. Resilient Zero-Trust Privacy Gate: Verify user is a participant or group member (Case-Insensitive)
             const isParticipant = participants.some((p: string) => isSenderMe(p) || p.toLowerCase() === userUsername.toLowerCase() || p.toLowerCase() === cleanSelfUsername || (userId && p === userId)) ||
                                   participantIds.some((p: string) => (userId && p === userId) || p.toLowerCase() === userUsername.toLowerCase() || p.toLowerCase() === cleanSelfUsername);
             if (!isParticipant) {
               return; // DROP: Current user is NOT a participant of this chat
-            }
-
-            // Zero-Trust Isolation Gate for Recycled / Fresh Accounts:
-            // If the chat document was created or updated BEFORE this account was registered (outside 5min clock-skew margin),
-            // it belongs to an old, deleted incarnation of this username. Drop it completely!
-            if (userAccountCreatedAt > 0) {
-              const chatTimestamp = c.updated_at || c.created_at || 0;
-              if (chatTimestamp > 0 && chatTimestamp < (userAccountCreatedAt - 300000)) {
-                return; // DROP: Old legacy chat from deleted account
-              }
             }
 
             const otherUser = participants.find((p: string) => !isSenderMe(p) && p.toLowerCase() !== userUsername.toLowerCase() && p.toLowerCase() !== cleanSelfUsername && p !== userId) || (c.username?.toLowerCase() !== userUsername.toLowerCase() ? c.username : '') || '';
@@ -2466,7 +2479,7 @@ export default function App() {
   useEffect(() => {
     if (!activeChatId || !userUsername) return;
     let isCurrent = true;
-    storageManager.getMessagesForChat(activeChatId, userUsername, userAccountCreatedAt).then(localMsgs => {
+    storageManager.getMessagesForChat(activeChatId, userUsername, userAccountCreatedAt, userId).then(localMsgs => {
       if (isCurrent && localMsgs && localMsgs.length > 0) {
         setMessagesByChat(prev => ({
           ...prev,
@@ -2477,7 +2490,7 @@ export default function App() {
     return () => {
       isCurrent = false;
     };
-  }, [activeChatId, userUsername, userAccountCreatedAt]);
+  }, [activeChatId, userUsername, userAccountCreatedAt, userId]);
 
   // Global Zero-Cloud Ephemeral Relay Inbox Listener (Processes and purges messages across all chats)
   useEffect(() => {
@@ -2495,16 +2508,35 @@ export default function App() {
         if (!m || !m.chat_id) continue;
 
         // Drop legacy messages from prior incarnation of deleted account
-        if (userAccountCreatedAt > 0 && m.created_at && m.created_at < (userAccountCreatedAt - 300000)) {
+        if (userAccountCreatedAt > 0 && m.created_at && m.created_at < (userAccountCreatedAt - 60000)) {
           continue;
         }
 
         const mSender = (m.sender || '').toLowerCase().trim().replace(/^@/, '');
-        const isFromMe = mSender === userUsername.toLowerCase() || mSender === cleanSelf;
+        const mSenderId = (m.sender_id || m.sender_uid || '').trim();
+        const isFromMe = (userId && mSenderId && mSenderId === userId) || mSender === userUsername.toLowerCase() || mSender === cleanSelf;
 
         // If message is from partner/other user destined for this user
         if (!isFromMe) {
           const chatId = m.chat_id;
+
+          // ZERO-LEAK VERIFICATION: Verify message is actually destined for this user/chat
+          const isTargetRecipient = (m.recipient_id && m.recipient_id === userId) ||
+                                    (m.recipient && (m.recipient.toLowerCase() === userUsername.toLowerCase() || m.recipient.toLowerCase() === cleanSelf)) ||
+                                    (Array.isArray(m.recipients) && (m.recipients.includes(userId) || m.recipients.includes(cleanSelf)));
+
+          const isKnownChatParticipant = chats.some(c => c.id === chatId && (
+            (Array.isArray(c.participant_ids) && c.participant_ids.includes(userId)) ||
+            (Array.isArray(c.participants) && c.participants.some(p => p && (p.toLowerCase() === cleanSelf || p.toLowerCase() === userUsername.toLowerCase() || p === userId)))
+          ));
+
+          const isChatIdMatch = (userId && chatId.includes(userId)) ||
+                                chatId.toLowerCase().includes(`_${cleanSelf}`) ||
+                                chatId.toLowerCase().includes(`${cleanSelf}_`);
+
+          if (!isTargetRecipient && !isKnownChatParticipant && !isChatIdMatch) {
+            continue; // Not destined for current user! Do not intercept or delete!
+          }
           
           let clearText = m.text || '';
           if (clearText) {
@@ -2560,7 +2592,7 @@ export default function App() {
 
       if (incomingToSave.length > 0) {
         // 1. Securely persist to local device IndexedDB / SQLite store
-        await storageManager.saveMessages(incomingToSave, userUsername).catch(err => console.warn("Local storage write error:", err));
+        await storageManager.saveMessages(incomingToSave, userUsername, userId).catch(err => console.warn("Local storage write error:", err));
 
         // 2. Strict Ephemeral Rule: Zero Cloud Storage. Immediately purge document from Firestore cloud once written to IndexedDB!
         for (const docId of docsToDelete) {
@@ -2729,8 +2761,8 @@ export default function App() {
         const activeMsgs = decryptedDocs
           .filter((msg): msg is Exclude<typeof msg, null> => msg !== null)
           .filter((msg) => {
-            // Zero-Trust Isolation: Never display messages from deleted legacy incarnation of this account (5min margin for clock-skews)
-            if (userAccountCreatedAt > 0 && (msg.created_at || 0) < (userAccountCreatedAt - 300000)) {
+            // Zero-Trust Isolation: Never display messages from deleted legacy incarnation of this account (60s margin for clock-skews)
+            if (userAccountCreatedAt > 0 && (msg.created_at || 0) < (userAccountCreatedAt - 60000)) {
               return false;
             }
             const chat = chatsRef.current.find(c => c.id === activeChatId);
@@ -2742,7 +2774,7 @@ export default function App() {
 
         if (activeMsgs.length > 0) {
           // 1. Save all incoming messages to local device IndexedDB (awaited to guarantee write sequencing)
-          await storageManager.saveMessages(activeMsgs, userUsername).catch(() => {});
+          await storageManager.saveMessages(activeMsgs, userUsername, userId).catch(() => {});
 
           // 2. Strict Ephemeral Deletion: If incoming message belongs to recipient, delete from Firestore cloud immediately!
           const cleanSelf = userUsername.toLowerCase().trim().replace(/^@/, '');
@@ -6796,6 +6828,52 @@ export default function App() {
     }
   };
 
+  // Acknowledge official Zenoa security alerts ("It Was Me")
+  const handleAcknowledgeSecurityEvent = async (messageId: string) => {
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`zenoa_ack_${messageId}`, 'true');
+      }
+      showToast('Recognized • Session confirmed as authorized by you.');
+
+      // Update in-memory messages state for active chat
+      setMessagesByChat(prev => {
+        const chatMsgs = prev[activeChatId] || [];
+        const updated = chatMsgs.map(m => {
+          if (m.id === messageId) {
+            return {
+              ...m,
+              action_buttons: m.action_buttons?.map(b => ({
+                ...b,
+                acknowledged: true,
+                acknowledged_at: Date.now()
+              })),
+              security_event: m.security_event ? {
+                ...m.security_event,
+                status: 'verified_by_user' as const
+              } : undefined
+            };
+          }
+          return m;
+        });
+        return { ...prev, [activeChatId]: updated };
+      });
+
+      // Persist acknowledgment status in Firestore if available
+      if (db) {
+        try {
+          const msgRef = doc(db, 'messages', messageId);
+          await updateDoc(msgRef, {
+            'security_event.status': 'verified_by_user',
+            'security_event.acknowledged_at': Date.now()
+          }).catch(() => {});
+        } catch (_) {}
+      }
+    } catch (err) {
+      console.warn('handleAcknowledgeSecurityEvent error:', err);
+    }
+  };
+
   // Reaction action
   const handleReactToMessage = async (messageId: string, emoji: string) => {
     const selfName = userUsername || 'me';
@@ -7255,22 +7333,43 @@ export default function App() {
   const handleStartChatWithUser = async (user: UserData) => {
     const selfName = userUsername || 'me';
     const targetUserClean = (user.username || '').trim().toLowerCase();
-    const canonicalChatId = getDmChatId(selfName, user.username || '');
+    const targetUid = (user.id || (user as any).uid || '').trim();
+    // Deterministic UID-first chat ID prevents any recycled-username collisions
+    const canonicalChatId = getDmChatId(selfName, user.username || '', userId, targetUid);
+    const legacyChatId = getDmChatId(selfName, user.username || '');
     
-    // Check if chat already exists by participant, username, or previous usernames
+    // Check if chat already exists by participant IDs or canonical ID
     const existingChat = chats.find(c => {
       if (c.id === canonicalChatId) return true;
-      if (c.id === `c_${user.username}`) return true;
+      if (userId && targetUid && Array.isArray(c.participant_ids)) {
+        if (c.participant_ids.includes(userId) && c.participant_ids.includes(targetUid)) return true;
+      }
+      if (c.id === legacyChatId || c.id === `c_${user.username}`) {
+        if (!c.participant_ids || c.participant_ids.length === 0 || (userId && c.participant_ids.includes(userId))) {
+          return true;
+        }
+      }
       if (c.type === 'dm') {
-        if (c.username?.toLowerCase() === targetUserClean) return true;
-        if (c.participants?.some(p => p && p.toLowerCase() === targetUserClean)) return true;
-        if (user.previous_usernames?.some(prev => c.participants?.includes(prev) || c.username === prev)) return true;
+        if (userId && targetUid && Array.isArray(c.participant_ids) && c.participant_ids.includes(userId) && c.participant_ids.includes(targetUid)) {
+          return true;
+        }
+        if (c.username?.toLowerCase() === targetUserClean) {
+          if (!c.participant_ids || c.participant_ids.length === 0 || (userId && c.participant_ids.includes(userId))) {
+            return true;
+          }
+        }
+        if (user.previous_usernames?.some(prev => c.participants?.includes(prev) || c.username === prev)) {
+          if (!c.participant_ids || c.participant_ids.length === 0 || (userId && c.participant_ids.includes(userId))) {
+            return true;
+          }
+        }
       }
       return false;
     });
 
     const targetChatId = existingChat ? existingChat.id : canonicalChatId;
-    const normalizedParts = buildNormalizedParticipants(selfName, user.username, userId, user.id);
+    const normalizedParts = buildNormalizedParticipants(selfName, user.username, userId, targetUid);
+    const participantIds = [userId, targetUid].filter(Boolean);
 
     if (!existingChat) {
       const newChat: Chat = {
@@ -7281,6 +7380,7 @@ export default function App() {
         avatar_seed: user.avatar_seed || user.username,
         avatar_url: user.avatar_url,
         participants: normalizedParts,
+        participant_ids: participantIds,
         unread: 0,
         last_message: '',
         last_time: 'now',
@@ -9784,9 +9884,8 @@ export default function App() {
                           <Phone className="h-3 w-3 inline" /> in audio call...
                         </span>
                       ) : isOfficialAccount(users[activeChat?.username], activeChat?.username) ? (
-                        <span className="inline-flex items-center gap-1 font-bold text-[10px] tracking-wide text-purple-600 dark:text-purple-400">
-                          <ShieldCheck className="h-3 w-3 inline" />
-                          <span>Official Zenoa Account</span>
+                        <span className="inline-flex items-center gap-1 font-medium text-[11px] tracking-normal text-slate-500 dark:text-slate-400">
+                          <span>Official Account</span>
                         </span>
                       ) : isBusinessAccount(users[activeChat?.username], activeChat?.username) ? (
                         <span className="inline-flex items-center gap-1 font-semibold text-[10px] tracking-wide text-blue-600 dark:text-blue-400">
@@ -10016,14 +10115,13 @@ export default function App() {
                 {/* Automatic Top Privacy & Encryption Banner (Zenoa zero-knowledge) */}
                 <div className="flex justify-center my-3 px-2 select-none">
                   {isOfficialAccount(users[activeChat?.username], activeChat?.username) ? (
-                    <div className="max-w-md w-full border rounded-2xl p-3 text-center shadow-2xs backdrop-blur-xs bg-purple-50/60 dark:bg-purple-950/20 border-purple-200/80 dark:border-purple-800/50">
-                      <div className="flex items-center justify-center gap-1.5 font-bold text-xs mb-1 text-purple-900 dark:text-purple-300">
-                        <ShieldCheck className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                    <div className="max-w-md w-full border rounded-2xl p-3 text-center shadow-2xs backdrop-blur-xs bg-slate-50/80 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80">
+                      <div className="flex items-center justify-center gap-1.5 font-semibold text-xs mb-1 text-slate-800 dark:text-slate-200">
                         <span>Official Zenoa Account</span>
                         <PurpleVerifiedBadge size="xs" />
                       </div>
-                      <p className="text-[11px] leading-relaxed font-medium text-purple-950/80 dark:text-purple-200/80">
-                        This is an official Zenoa account verified by Zenoa. System notifications, authentication alerts, and direct communications are authenticated and securely delivered.
+                      <p className="text-[11px] leading-relaxed font-normal text-slate-600 dark:text-slate-400">
+                        This is an official Zenoa account. System notifications and platform communications are authenticated and securely delivered.
                       </p>
                     </div>
                   ) : isBusinessAccount(users[activeChat?.username], activeChat?.username) ? (
@@ -10122,6 +10220,8 @@ export default function App() {
                           onOpenMediaPlayer={(type, url, meta) => openInMediaPlayer(type, url, meta)}
                           onToast={(text) => showToast(text)}
                           driveAccessToken={driveAccessToken}
+                          onSecureAccount={() => setShowChangePasswordModal(true)}
+                          onAcknowledgeSecurityEvent={handleAcknowledgeSecurityEvent}
                         />
 
                       </React.Fragment>
@@ -13490,6 +13590,19 @@ export default function App() {
           }}
         />
       )}
+
+      {/* REAL-TIME CHANGE PASSWORD / SECURE ACCOUNT MODAL */}
+      <ChangePasswordModal
+        isOpen={showChangePasswordModal}
+        onClose={() => setShowChangePasswordModal(false)}
+        userEmail={userEmail}
+        userUsername={userUsername}
+        userUid={userId}
+        onToast={showToast}
+        onPasswordChanged={() => {
+          showToast('Account successfully secured with new password.');
+        }}
+      />
 
       {/* IN-APP API & SYSTEM DOCUMENTATION MODAL */}
       {showDocumentationModal && (

@@ -3,6 +3,7 @@ import { ArrowRight, ShieldCheck, Zap, Key, Sun, Moon, ArrowLeft, Terminal, Lock
 import { UserData } from '../../../types';
 import { useBranding } from '../../../brandingUtils';
 import { BrandLogo } from '../../common/BrandLogo';
+import { ContinueWithZenoaButton } from '../../common/ContinueWithZenoaButton';
 import { WaveArcs } from '../../originkit/ui/wave-arcs';
 
 interface LandingViewProps {
@@ -101,13 +102,13 @@ export const LandingView: React.FC<LandingViewProps> = ({
                 <ArrowRight className="h-3.5 w-3.5" />
               </button>
             ) : (
-              <button 
-                onClick={onShowAuth} 
-                className="rounded-full px-4 py-2 bg-[#533afd] hover:bg-[#4434d4] active:bg-[#2e2b8c] text-white text-[13px] font-medium transition-all shadow-[0_1px_3px_rgba(0,55,112,0.15)] flex items-center gap-1.5 cursor-pointer active:scale-[0.98]"
-              >
-                <span>Sign In</span>
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
+              <ContinueWithZenoaButton
+                portal="developer"
+                size="sm"
+                variant="primary"
+                className="rounded-full !py-2 !px-3.5 text-xs shadow-xs"
+                showArrow={false}
+              />
             )}
           </div>
         </div>
@@ -161,16 +162,15 @@ export const LandingView: React.FC<LandingViewProps> = ({
               </>
             ) : (
               <>
-                <button 
-                  onClick={onShowAuth} 
-                  className="w-full sm:w-auto px-7 py-3 rounded-full bg-[#533afd] hover:bg-[#4434d4] active:bg-[#2e2b8c] text-white text-[14px] font-medium transition-all shadow-[0_1px_3px_rgba(0,55,112,0.15)] flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
-                >
-                  <span>Get Started Free</span>
-                  <ArrowRight className="h-4 w-4" />
-                </button>
+                <ContinueWithZenoaButton
+                  portal="developer"
+                  size="lg"
+                  variant="primary"
+                  className="w-full sm:w-auto shadow-lg"
+                />
                 <a 
                   href="/docs" 
-                  className="w-full sm:w-auto px-6 py-3 rounded-full bg-white dark:bg-[#121624] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] text-[#0d253d] dark:text-white border border-[#e3e8ee] dark:border-[#273951] text-[14px] font-medium transition-colors flex items-center justify-center gap-2 shadow-xs"
+                  className="w-full sm:w-auto px-6 py-3.5 sm:py-4 rounded-2xl bg-white dark:bg-[#121624] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] text-[#0d253d] dark:text-white border border-[#e3e8ee] dark:border-[#273951] text-[15px] font-medium transition-colors flex items-center justify-center gap-2 shadow-xs"
                 >
                   Explore API Docs
                 </a>

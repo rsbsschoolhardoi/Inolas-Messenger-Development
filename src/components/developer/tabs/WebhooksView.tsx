@@ -39,7 +39,7 @@ export const WebhooksView: React.FC<WebhooksViewProps> = ({
   const [retryingId, setRetryingId] = useState<string | null>(null);
 
   const apiKey = app?.client_id || app?.api_key || '';
-  const signingSecret = app?.client_secret || 'zen_sec_webhook_signing';
+  const signingSecret = app?.client_secret || 'zen_sa_webhook_signing_7f8a9b1c2d3e4f5a';
 
   const fetchDeliveries = async () => {
     if (!apiKey) return;
@@ -262,7 +262,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
                 <div className={`w-full rounded-xl px-4 py-2.5 text-xs font-mono select-all flex items-center justify-between tracking-widest border ${
                   isDark ? 'bg-[#121624] border-[#273951] text-[#94a3b8]' : 'bg-[#f6f9fc] border-[#e3e8ee] text-slate-400'
                 }`}>
-                  <span>zen_sec_••••••••••••••••••••••••••••••••</span>
+                  <span>zen_sa_••••••••••••••••••••••••••••••••</span>
                   <span className="text-[10px] uppercase font-sans font-bold text-rose-500 bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 rounded tracking-normal">Protected</span>
                 </div>
               </div>

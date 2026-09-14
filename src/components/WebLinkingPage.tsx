@@ -50,35 +50,16 @@ export const WebLinkingPage: React.FC<WebLinkingPageProps> = ({
   const [syncProgress, setSyncProgress] = useState<number>(0);
   const [syncStatusText, setSyncStatusText] = useState<string>('Establishing zero-cloud encrypted handshake...');
 
-  // Mobile Desktop Site Detection & Toggle (supports both native desktop and mobile desktop site mode)
+  // Mobile Desktop Site Detection & Universal QR Pairing:
+  // Always provide QR Code Pairing UI on mobile, desktop, and tablet (including mobile "Desktop Site" mode).
   const checkDesktopMode = (): boolean => {
-    if (typeof window === 'undefined') return true;
-    try {
-      const saved = sessionStorage.getItem('zenoa_web_desktop_mode');
-      if (saved !== null) return saved === 'true';
-    } catch (e) {}
-
-    const ua = navigator.userAgent || '';
-    const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-    // When Chrome/Safari on mobile has "Desktop Site" enabled, it drops "Mobile" and reports desktop platform
-    const hasDesktopUA = !/Mobile|Android.*Mobile|iPhone|iPod/i.test(ua);
-    const wideViewport = window.innerWidth >= 768;
-
-    return wideViewport || (isTouch && hasDesktopUA);
+    return true;
   };
 
-  const [isDesktopMode, setIsDesktopMode] = useState<boolean>(checkDesktopMode);
+  const [isDesktopMode, setIsDesktopMode] = useState<boolean>(true);
 
   useEffect(() => {
-    const handleResize = () => {
-      if (typeof window !== 'undefined') {
-        if (window.innerWidth >= 768) {
-          setIsDesktopMode(true);
-        }
-      }
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    setIsDesktopMode(true);
   }, []);
 
   const toggleDesktopMode = (enabled: boolean) => {
