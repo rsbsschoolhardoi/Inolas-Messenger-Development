@@ -16,7 +16,8 @@ import {
   LogIn,
   Sun,
   Moon,
-  Zap
+  Zap,
+  Monitor
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import QRCode from 'qrcode';
@@ -49,21 +50,43 @@ export const WebLinkingPage: React.FC<WebLinkingPageProps> = ({
   const [syncProgress, setSyncProgress] = useState<number>(0);
   const [syncStatusText, setSyncStatusText] = useState<string>('Establishing zero-cloud encrypted handshake...');
 
-  // Big screen desktop detection (>= 1024px)
-  const [isBigScreenDesktop, setIsBigScreenDesktop] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return window.innerWidth >= 1024;
-  });
+  // Mobile Desktop Site Detection & Toggle (supports both native desktop and mobile desktop site mode)
+  const checkDesktopMode = (): boolean => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const saved = sessionStorage.getItem('zenoa_web_desktop_mode');
+      if (saved !== null) return saved === 'true';
+    } catch (e) {}
+
+    const ua = navigator.userAgent || '';
+    const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    // When Chrome/Safari on mobile has "Desktop Site" enabled, it drops "Mobile" and reports desktop platform
+    const hasDesktopUA = !/Mobile|Android.*Mobile|iPhone|iPod/i.test(ua);
+    const wideViewport = window.innerWidth >= 768;
+
+    return wideViewport || (isTouch && hasDesktopUA);
+  };
+
+  const [isDesktopMode, setIsDesktopMode] = useState<boolean>(checkDesktopMode);
 
   useEffect(() => {
     const handleResize = () => {
       if (typeof window !== 'undefined') {
-        setIsBigScreenDesktop(window.innerWidth >= 1024);
+        if (window.innerWidth >= 768) {
+          setIsDesktopMode(true);
+        }
       }
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  const toggleDesktopMode = (enabled: boolean) => {
+    setIsDesktopMode(enabled);
+    try {
+      sessionStorage.setItem('zenoa_web_desktop_mode', String(enabled));
+    } catch (e) {}
+  };
   
   const pollTimerRef = useRef<any>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -256,8 +279,8 @@ export const WebLinkingPage: React.FC<WebLinkingPageProps> = ({
     }
   };
 
-  // On Mobile / Non-Big Desktop Screens (< 1024px), render Read-Only Zenoa Messenger Showcase
-  if (!isBigScreenDesktop) {
+  // On Mobile / Non-Desktop Screens, render Read-Only Zenoa Messenger Showcase (unless user or browser requested Desktop Mode)
+  if (!isDesktopMode) {
     return (
       <div className="min-h-screen w-full bg-slate-950 text-white flex flex-col font-sans selection:bg-indigo-600 selection:text-white">
         {/* Top Header */}
@@ -273,7 +296,16 @@ export const WebLinkingPage: React.FC<WebLinkingPageProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              onClick={() => toggleDesktopMode(true)}
+              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md shadow-indigo-600/20 transition-all cursor-pointer"
+              title="Open Web QR Pairing / Desktop Mode"
+            >
+              <QrCode className="h-4 w-4" />
+              <span className="hidden xs:inline">QR Code Pairing</span>
+              <span className="xs:hidden">QR Link</span>
+            </button>
             {onToggleTheme && (
               <button
                 onClick={onToggleTheme}
@@ -353,12 +385,29 @@ export const WebLinkingPage: React.FC<WebLinkingPageProps> = ({
           {/* Action Callout Box */}
           <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-indigo-900/40 to-slate-900 border border-indigo-500/30 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="space-y-1 text-center sm:text-left">
-              <h4 className="text-sm font-extrabold text-white">Ready to start chatting?</h4>
+              <h4 className="text-sm font-extrabold text-white">Using Mobile Browser or Desktop Mode?</h4>
               <p className="text-xs text-slate-300">
-                Sign in or register directly to use Zenoa Messenger on mobile devices.
+                You can pair and login using QR code directly on any browser or when Desktop Site mode is turned on.
               </p>
             </div>
-
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <button
+                onClick={() => toggleDesktopMode(true)}
+                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition-all cursor-pointer"
+              >
+                <Monitor className="h-4 w-4" />
+                <span>Open QR Code Pairing</span>
+              </button>
+              {onSwitchToDirectLogin && (
+                <button
+                  onClick={onSwitchToDirectLogin}
+                  className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 border border-slate-700 transition-colors cursor-pointer"
+                >
+                  <LogIn className="h-4 w-4" />
+                  <span>Direct Login</span>
+                </button>
+              )}
+            </div>
           </div>
 
         </main>
@@ -386,6 +435,23 @@ export const WebLinkingPage: React.FC<WebLinkingPageProps> = ({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          <button
+            onClick={() => toggleDesktopMode(false)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 text-xs font-semibold transition-colors cursor-pointer"
+            title="Switch to Mobile Showcase"
+          >
+            <Smartphone className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Showcase View</span>
+          </button>
+          {onSwitchToDirectLogin && (
+            <button
+              onClick={onSwitchToDirectLogin}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-200/80 dark:bg-neutral-800 hover:bg-neutral-300 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 text-xs font-semibold transition-colors cursor-pointer"
+            >
+              <LogIn className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Direct Login</span>
+            </button>
+          )}
           {/* System Theme Toggle if available */}
           {onToggleTheme && (
             <button

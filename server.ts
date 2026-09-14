@@ -59,7 +59,7 @@ const PORT = 3000;
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-API-Key', 'Accept']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-API-Key', 'X-Client-Id', 'X-Client-Secret', 'X-SA-Client-Id', 'X-SA-Client-Secret', 'Accept', '*']
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -129,7 +129,7 @@ app.use((req: any, res: any, next: any) => {
   }
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS,PATCH");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-API-Key, Accept");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-API-Key, X-Client-Id, X-Client-Secret, X-SA-Client-Id, X-SA-Client-Secret, Accept, *");
 
   // Agent Discovery RFC 8288 Link headers (scored by Cloudflare isitagentready / agent-ready.dev)
   res.header(

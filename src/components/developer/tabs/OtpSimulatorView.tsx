@@ -37,8 +37,8 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const isSandbox = app?.environment === 'test' || !app?.is_live;
-  const clientId = isSandbox ? (app?.test_client_id || app?.client_id || '') : (app?.client_id || app?.test_client_id || '');
-  const clientSecret = isSandbox ? (app?.test_client_secret || app?.client_secret || '') : (app?.client_secret || app?.test_client_secret || '');
+  const clientId = app?.active_client_id || (isSandbox ? (app?.test_client_id || app?.client_id || '') : (app?.client_id || app?.test_client_id || ''));
+  const clientSecret = app?.active_client_secret || (isSandbox ? (app?.test_client_secret || app?.client_secret || '') : (app?.client_secret || app?.test_client_secret || ''));
 
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
@@ -52,6 +52,11 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({
     e.preventDefault();
     if (!recipient.trim()) {
       showToast('Please enter a recipient username or phone number.');
+      return;
+    }
+
+    if (!clientId || !clientSecret) {
+      showToast('Active API credentials not found. Please ensure an application is selected with valid keys.');
       return;
     }
 
@@ -79,12 +84,19 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({
         })
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`Server returned unexpected response (${res.status}): ${text.slice(0, 100) || 'Empty body'}`);
+      }
+
       if (res.ok && data.success) {
         setActiveOtpResponse(data);
         showToast('OTP dispatched successfully to recipient DM!');
       } else {
-        showToast(`Send Error: ${data.error || 'Failed to dispatch OTP'}`);
+        showToast(`Send Error: ${data.error || data.message || 'Failed to dispatch OTP'}`);
       }
     } catch (err: any) {
       showToast('Dispatch error: ' + err.message);
@@ -98,6 +110,11 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({
     e.preventDefault();
     if (!verifyCodeInput.trim()) {
       showToast('Please enter the 6-digit code to verify.');
+      return;
+    }
+
+    if (!clientId || !clientSecret) {
+      showToast('Active API credentials not found.');
       return;
     }
 
@@ -121,12 +138,19 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({
         })
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`Server returned unexpected response (${res.status}): ${text.slice(0, 100) || 'Empty body'}`);
+      }
+
       setVerifyOutcome(data);
       if (res.ok && data.verified) {
         showToast('OTP verified successfully!');
       } else {
-        showToast(data.error || 'Verification code invalid.');
+        showToast(data.error || data.message || 'Verification code invalid.');
       }
     } catch (err: any) {
       showToast('Verification error: ' + err.message);
@@ -139,6 +163,11 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({
   const handleRunAutoPipeline = async () => {
     if (!recipient.trim()) {
       showToast('Please enter a target recipient username or mobile number.');
+      return;
+    }
+
+    if (!clientId || !clientSecret) {
+      showToast('Active API credentials not found.');
       return;
     }
 
@@ -163,12 +192,19 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({
         })
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`Server returned unexpected response (${res.status}): ${text.slice(0, 100) || 'Empty body'}`);
+      }
+
       if (res.ok && data.success) {
         setAutoPipelineTimeline(data.timeline || []);
         showToast('Automated verification pipeline completed successfully!');
       } else {
-        showToast(`Simulation Error: ${data.error || 'Failed to simulate pipeline'}`);
+        showToast(`Simulation Error: ${data.error || data.message || 'Failed to simulate pipeline'}`);
       }
     } catch (err: any) {
       showToast('Simulation error: ' + err.message);
