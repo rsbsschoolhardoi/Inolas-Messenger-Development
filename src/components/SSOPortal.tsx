@@ -764,10 +764,9 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
 
   const currentSnippet = useMemo(() => {
     const app = activeSnippetApp;
-    const redirectUri = activeSnippetRedirectUri;
+    const defaultExampleUri = app.redirect_uris?.[0] || 'http://localhost:3000/auth/callback';
     const clientId = app.client_id;
     const clientSecretVal = showSnippetSecret ? `"${app.client_secret}"` : 'process.env.ZENOA_CLIENT_SECRET';
-    const authUrl = `${getAccountsAuthUrl()}?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20profile%20email`;
     const tokenUrl = getApiTokenUrl();
     const userinfoUrl = getApiUserInfoUrl();
     const discoveryUrl = getOidcDiscoveryUrl();
@@ -776,8 +775,11 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     switch (docsLanguage) {
       case 'react':
         return `// ==============================================================================
-// Target Application: ${app.app_name} (${clientId})
-// Whitelisted Callback: ${redirectUri}
+// Target Application: ${app.app_name}
+// Client ID: ${clientId}
+// Authorized Callback URIs:
+${app.redirect_uris.map(uri => `//   - ${uri}`).join('\n')}
+// NOTE: All authorized callback URIs share the exact same Client ID and Secret!
 // ==============================================================================
 
 // 1. Client-Side "Continue with ${brandName}" Button Component
@@ -785,7 +787,9 @@ export const ZenoaLoginButton = () => {
   const handleLogin = () => {
     const authEndpoint = "${getAccountsAuthUrl()}";
     const clientId = "${clientId}";
-    const redirectUri = encodeURIComponent("${redirectUri}");
+    
+    // Read whichever authorized redirect URI is active in your current environment (e.g., localhost, staging, production)
+    const redirectUri = encodeURIComponent(process.env.REACT_APP_ZENOA_REDIRECT_URI || "${defaultExampleUri}");
     const scope = encodeURIComponent("openid profile email");
     
     // Redirect to Zenoa Consent Screen
@@ -811,6 +815,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Authorization code missing' }, { status: 400 });
   }
 
+  // Load active authorized redirect_uri for current environment
+  const redirectUri = process.env.ZENOA_REDIRECT_URI || "${defaultExampleUri}";
+
   // Server-to-Server Token Exchange
   const tokenRes = await fetch('${tokenUrl}', {
     method: 'POST',
@@ -820,7 +827,7 @@ export async function GET(request: NextRequest) {
       client_id: '${clientId}',
       client_secret: ${clientSecretVal},
       code,
-      redirect_uri: '${redirectUri}'
+      redirect_uri: redirectUri
     })
   });
 
@@ -841,17 +848,23 @@ export async function GET(request: NextRequest) {
 
       case 'nodejs':
         return `// ==============================================================================
-// Target Application: ${app.app_name} (${clientId})
-// Whitelisted Callback: ${redirectUri}
+// Target Application: ${app.app_name}
+// Client ID: ${clientId}
+// Authorized Callback URIs:
+${app.redirect_uris.map(uri => `//   - ${uri}`).join('\n')}
+// NOTE: All authorized callback URIs share the exact same Client ID and Secret!
 // ==============================================================================
 import express from 'express';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Load active authorized redirect_uri for current environment
+const REDIRECT_URI = process.env.ZENOA_REDIRECT_URI || "${defaultExampleUri}";
+
 // Step 1: Redirect user to Zenoa Consent Screen
 app.get('/auth/login', (req, res) => {
-  const authUrl = "${authUrl}";
+  const authUrl = \`${getAccountsAuthUrl()}?client_id=${clientId}&redirect_uri=\${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=openid%20profile%20email\`;
   res.redirect(authUrl);
 });
 
@@ -869,7 +882,7 @@ app.get('/auth/callback', async (req, res) => {
         client_id: '${clientId}',
         client_secret: ${clientSecretVal},
         code,
-        redirect_uri: '${redirectUri}'
+        redirect_uri: REDIRECT_URI
       })
     });
 
@@ -892,8 +905,11 @@ app.listen(PORT, () => console.log(\`OAuth App listening on port \${PORT}\`));`;
 
       case 'python':
         return `# ==============================================================================
-# Target Application: ${app.app_name} (${clientId})
-# Whitelisted Callback: ${redirectUri}
+# Target Application: ${app.app_name}
+# Client ID: ${clientId}
+# Authorized Callback URIs:
+${app.redirect_uris.map(uri => `#   - ${uri}`).join('\n')}
+# NOTE: All authorized callback URIs share the exact same Client ID and Secret!
 # ==============================================================================
 import os
 import httpx
@@ -904,13 +920,14 @@ app = FastAPI()
 
 CLIENT_ID = "${clientId}"
 CLIENT_SECRET = ${showSnippetSecret ? `"${app.client_secret}"` : 'os.getenv("ZENOA_CLIENT_SECRET", "")'}
-REDIRECT_URI = "${redirectUri}"
+# Load active authorized redirect_uri for current environment
+REDIRECT_URI = os.getenv("ZENOA_REDIRECT_URI", "${defaultExampleUri}")
 TOKEN_ENDPOINT = "${tokenUrl}"
 USERINFO_ENDPOINT = "${userinfoUrl}"
 
 @app.get("/auth/login")
 def login():
-    auth_url = "${authUrl}"
+    auth_url = f"${getAccountsAuthUrl()}?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&response_type=code&scope=openid%20profile%20email"
     return RedirectResponse(auth_url)
 
 @app.get("/auth/callback")
@@ -937,11 +954,11 @@ async def auth_callback(code: str):
       case 'curl':
         return `# ==============================================================================
 # Zenoa RFC 6749 cURL Protocol (${app.app_name})
-# Whitelisted Callback: ${redirectUri}
+# NOTE: All authorized callback URIs share the exact same Client ID and Secret!
 # ==============================================================================
 
 # 1. Browser Authorization Request (Open in browser)
-# ${authUrl}
+# ${getAccountsAuthUrl()}?client_id=${clientId}&redirect_uri=${encodeURIComponent(defaultExampleUri)}&response_type=code&scope=openid%20profile%20email
 
 # 2. Server-to-Server Token Exchange (POST authorization_code)
 curl -X POST "${tokenUrl}" \\
@@ -951,7 +968,7 @@ curl -X POST "${tokenUrl}" \\
     "client_id": "${clientId}",
     "client_secret": "${showSnippetSecret ? app.client_secret : '$ZENOA_CLIENT_SECRET'}",
     "code": "zen_code_YOUR_CODE",
-    "redirect_uri": "${redirectUri}"
+    "redirect_uri": "'"$ZENOA_REDIRECT_URI"'"
   }'
 
 # 3. Fetch User Identity Claims (GET userinfo)
@@ -966,10 +983,13 @@ curl -X GET "${discoveryUrl}"`;
         return `# ==============================================================================
 # Zenoa OAuth 2.0 Client Credentials (${app.app_name})
 # Environment: ${app.environment || 'production'}
+# NOTE: All authorized callback URIs share the exact same Client ID and Secret!
 # ==============================================================================
 ZENOA_CLIENT_ID="${clientId}"
 ZENOA_CLIENT_SECRET="${showSnippetSecret ? app.client_secret : 'YOUR_COPIED_CLIENT_SECRET_HERE'}"
-ZENOA_REDIRECT_URI="${redirectUri}"
+
+# Whitelist any authorized callback URI registered for this app (e.g., localhost or production)
+ZENOA_REDIRECT_URI="${defaultExampleUri}"
 
 # Zenoa OpenID Connect & OAuth 2.0 Discovery Endpoints
 ZENOA_AUTH_URL="${getAccountsAuthUrl()}"
@@ -977,7 +997,7 @@ ZENOA_TOKEN_URL="${tokenUrl}"
 ZENOA_USERINFO_URL="${userinfoUrl}"
 ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
     }
-  }, [activeSnippetApp, activeSnippetRedirectUri, showSnippetSecret, docsLanguage, branding.app_name]);
+  }, [activeSnippetApp, showSnippetSecret, docsLanguage, branding.app_name]);
 
   // Nav item component helper
   const renderNavItem = (id: SSOTabType, label: string, Icon: any, badge?: string) => {
@@ -2596,29 +2616,19 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
 
                   {/* Context Injections Toolbar: Redirect URI + Secret Toggle */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 pb-2">
-                    {/* Redirect URI Picker */}
+                    {/* Redirect URIs Info (No specific URI snippet exists as all share the same Client ID & Secret) */}
                     <div className="flex items-center gap-2 flex-wrap text-xs">
                       <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
                         <Link2 className="w-3 h-3 text-indigo-500" />
-                        Injected Callback URI:
+                        Authorized Redirect URIs:
                       </span>
-                      {activeSnippetApp.redirect_uris && activeSnippetApp.redirect_uris.length > 1 ? (
-                        <select
-                          value={activeSnippetRedirectUri}
-                          onChange={e => setSnippetRedirectUri(e.target.value)}
-                          className={`px-2.5 py-1 text-xs font-mono rounded-lg border outline-none cursor-pointer transition-colors ${
-                            isDark ? 'bg-slate-950 border-slate-800 text-slate-200 focus:border-indigo-500' : 'bg-slate-50 border-slate-200 text-slate-800 focus:border-indigo-500'
-                          }`}
-                        >
-                          {activeSnippetApp.redirect_uris.map((uri, idx) => (
-                            <option key={idx} value={uri}>{uri}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="font-mono text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold border border-slate-200 dark:border-slate-700">
-                          {activeSnippetRedirectUri}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {(activeSnippetApp.redirect_uris || []).map((uri, idx) => (
+                          <span key={idx} className="font-mono text-[10px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium border border-slate-200 dark:border-slate-700">
+                            {uri}
+                          </span>
+                        ))}
+                      </div>
                     </div>
 
                     {/* Secret Reveal Toggle */}
