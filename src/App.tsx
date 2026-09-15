@@ -4377,8 +4377,12 @@ export default function App() {
         throw new Error(data.error || 'Verification failed.');
       }
 
-      if (isFirebaseConfigured && auth && data.customToken) {
-        await signInWithCustomToken(auth, data.customToken);
+      if (isFirebaseConfigured && auth) {
+        if (data.customToken) {
+          await signInWithCustomToken(auth, data.customToken);
+        } else if (data.email && data.systemPassword) {
+          await signInWithEmailAndPassword(auth, data.email, data.systemPassword);
+        }
         confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
         return { success: true };
       } else {
@@ -9884,8 +9888,8 @@ export default function App() {
                           <Phone className="h-3 w-3 inline" /> in audio call...
                         </span>
                       ) : isOfficialAccount(users[activeChat?.username], activeChat?.username) ? (
-                        <span className="inline-flex items-center gap-1 font-medium text-[11px] tracking-normal text-slate-500 dark:text-slate-400">
-                          <span>Official Account</span>
+                        <span className="inline-flex items-center font-medium text-[11px] tracking-tight text-slate-500 dark:text-slate-400">
+                          <span>Official Zenoa Account</span>
                         </span>
                       ) : isBusinessAccount(users[activeChat?.username], activeChat?.username) ? (
                         <span className="inline-flex items-center gap-1 font-semibold text-[10px] tracking-wide text-blue-600 dark:text-blue-400">

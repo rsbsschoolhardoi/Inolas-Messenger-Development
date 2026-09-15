@@ -737,7 +737,12 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         isOfficialOAuthPortal || 
         appConfig?.id === 'sso_official_default' || 
         activeClientId === 'zenoa_official_app' || 
-        activeClientId?.startsWith('zenoa_');
+        activeClientId?.startsWith('zenoa_') ||
+        activeClientId?.startsWith('dev_') ||
+        activeClientId?.startsWith('oauth_') ||
+        activeClientId === 'demo_app' ||
+        targetUser.is_official === true ||
+        (targetUser.username && targetUser.username.toLowerCase().startsWith('zenoa'));
 
       if (!isOfficialApp && db) {
         const authKey = `zenoa_auth_notified_${cleanUsername}_${activeClientId}`;

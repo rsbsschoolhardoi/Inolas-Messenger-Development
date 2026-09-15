@@ -362,8 +362,25 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
         setRegEmailOtpError(res.error || 'Failed to send OTP.');
       }
     } else {
-      setIsLoading(false);
-      setRegEmailOtpError('OTP service is not available.');
+      try {
+        const response = await fetch('/api/auth/messenger/send-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: cleanMail })
+        });
+        const data = await response.json();
+        setIsLoading(false);
+        if (response.ok) {
+          setRegEmailOtpSent(true);
+          setRegEmailOtpCountdown(60);
+          setSuccessMessage('✓ Verification code sent to your email.');
+        } else {
+          setRegEmailOtpError(data.error || 'Failed to send verification code.');
+        }
+      } catch (err: any) {
+        setIsLoading(false);
+        setRegEmailOtpError(err.message || 'Error sending verification code.');
+      }
     }
   };
 
@@ -380,15 +397,10 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     }
 
     setIsLoading(true);
-    try {
-      const response = await fetch('/api/auth/messenger/verify-otp-only', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: regEmail.trim(), code: cleanCode })
-      });
-      const data = await response.json();
+    if (onVerifyEmailOtp) {
+      const res = await onVerifyEmailOtp(regEmail.trim(), cleanCode);
       setIsLoading(false);
-      if (response.ok) {
+      if (res.success) {
         setRegEmailOtpVerified(true);
         setSuccessMessage('✓ Email verified successfully!');
         setTimeout(() => {
@@ -397,11 +409,32 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
           setSuccessMessage('');
         }, 1000);
       } else {
-        setRegEmailOtpError(data.error || 'Verification failed. Please check the code.');
+        setRegEmailOtpError(res.error || 'Verification failed. Please check the code.');
       }
-    } catch (err: any) {
-      setIsLoading(false);
-      setRegEmailOtpError(err.message || 'An error occurred during verification.');
+    } else {
+      try {
+        const response = await fetch('/api/auth/messenger/verify-otp-only', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: regEmail.trim(), code: cleanCode })
+        });
+        const data = await response.json();
+        setIsLoading(false);
+        if (response.ok) {
+          setRegEmailOtpVerified(true);
+          setSuccessMessage('✓ Email verified successfully!');
+          setTimeout(() => {
+            setSlideDirection(1);
+            setWizardStep(6);
+            setSuccessMessage('');
+          }, 1000);
+        } else {
+          setRegEmailOtpError(data.error || 'Verification failed. Please check the code.');
+        }
+      } catch (err: any) {
+        setIsLoading(false);
+        setRegEmailOtpError(err.message || 'An error occurred during verification.');
+      }
     }
   };
 
@@ -797,11 +830,19 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     // Step 5: Email Verification (Mandatory)
     if (wizardStep === 5) {
       if (!regEmailOtpVerified) {
-        if (!regEmail.trim()) {
-          setRegEmailOtpError('Please enter your email address.');
-        } else {
-          setRegEmailOtpError('Please complete your email OTP verification before continuing.');
+        if (!regEmail.trim() || !regEmail.includes('@')) {
+          setRegEmailOtpError('Please enter a valid email address.');
+          return;
         }
+        if (!regEmailOtpSent) {
+          handleSendRegEmailOtp();
+          return;
+        }
+        if (regEmailOtpCode.trim().length === 6) {
+          handleVerifyRegEmailOtp();
+          return;
+        }
+        setRegEmailOtpError('Please enter the 6-digit verification code sent to your email.');
         return;
       }
       setRegEmailOtpError('');
@@ -1982,6 +2023,167 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                         className="flex-1 h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
                       >
                         <span>Continue</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* STEP 5: EMAIL ADDRESS & OTP VERIFICATION */}
+                {wizardStep === 5 && (
+                  <motion.div
+                    key="step-5"
+                    custom={slideDirection}
+                    variants={stepSlideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    className="space-y-6"
+                  >
+                    <div>
+                      <h2 className="text-[32px] sm:text-[38px] font-medium tracking-tight text-[#0d253d] dark:text-white leading-[1.18]">
+                        Email Verification
+                      </h2>
+                      <p className="text-[15px] sm:text-[16px] text-[#64748d] dark:text-[#94a3b8] font-normal leading-relaxed mt-2">
+                        Enter your primary email address. We will send a 6-digit passcode to verify ownership.
+                      </p>
+                    </div>
+
+                    <div className="space-y-4">
+                      {/* Email Address Input Group */}
+                      <div>
+                        <label className="block text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8] mb-2">
+                          Email Address
+                        </label>
+                        <div className="flex gap-2.5">
+                          <div className="relative flex-1">
+                            <input
+                              id="signup_email_input"
+                              type="email"
+                              value={regEmail}
+                              disabled={regEmailOtpVerified || isLoading}
+                              onChange={e => {
+                                setRegEmail(e.target.value);
+                                if (regEmailOtpError) setRegEmailOtpError('');
+                              }}
+                              placeholder="you@domain.com"
+                              className="w-full h-12 px-4 text-[15px] rounded-xl border border-[#e3e8ee] dark:border-[#273951] bg-white/70 dark:bg-[#121624]/70 outline-none focus:border-[#533afd] dark:focus:border-[#818cf8] text-[#0d253d] dark:text-white disabled:opacity-60 transition-colors"
+                            />
+                            {regEmailOtpVerified && (
+                              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-md">
+                                <Check className="h-3.5 w-3.5" />
+                                <span>Verified</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {!regEmailOtpVerified && (
+                            <button
+                              id="signup_send_otp_btn"
+                              type="button"
+                              onClick={handleSendRegEmailOtp}
+                              disabled={isLoading || regEmailOtpCountdown > 0 || !regEmail.trim()}
+                              className="h-12 px-4 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] disabled:bg-[#e3e8ee] dark:disabled:bg-[#1e293b] disabled:text-[#94a3b8] text-white font-medium text-[14px] transition-all cursor-pointer shrink-0 flex items-center justify-center gap-2"
+                            >
+                              {isLoading ? (
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                              ) : regEmailOtpCountdown > 0 ? (
+                                <span>Resend in {regEmailOtpCountdown}s</span>
+                              ) : (
+                                <span>{regEmailOtpSent ? 'Resend Code' : 'Send OTP'}</span>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* OTP Input Section (Rendered when OTP is sent or being verified) */}
+                      {(regEmailOtpSent || regEmailOtpVerified) && !regEmailOtpVerified && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="pt-2 space-y-3"
+                        >
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <label className="block text-[13px] font-medium text-[#64748d] dark:text-[#94a3b8]">
+                                6-Digit Verification Code
+                              </label>
+                              <span className="text-[12px] text-[#64748d] dark:text-[#94a3b8]">
+                                Code sent to {regEmail}
+                              </span>
+                            </div>
+
+                            <div className="flex gap-2.5">
+                              <input
+                                id="signup_otp_code_input"
+                                type="text"
+                                maxLength={6}
+                                value={regEmailOtpCode}
+                                onChange={e => {
+                                  const val = e.target.value.replace(/[^0-9]/g, '');
+                                  setRegEmailOtpCode(val);
+                                  if (regEmailOtpError) setRegEmailOtpError('');
+                                }}
+                                placeholder="000000"
+                                autoFocus
+                                className="flex-1 h-12 px-4 text-[18px] tracking-[6px] text-center font-mono font-semibold rounded-xl border border-[#e3e8ee] dark:border-[#273951] bg-white/70 dark:bg-[#121624]/70 outline-none focus:border-[#533afd] dark:focus:border-[#818cf8] text-[#0d253d] dark:text-white"
+                              />
+
+                              <button
+                                id="signup_verify_otp_btn"
+                                type="button"
+                                onClick={handleVerifyRegEmailOtp}
+                                disabled={isLoading || regEmailOtpCode.trim().length !== 6}
+                                className="h-12 px-5 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] text-white font-medium text-[14px] disabled:opacity-50 transition-all cursor-pointer shrink-0 flex items-center justify-center gap-2"
+                              >
+                                {isLoading ? (
+                                  <RefreshCw className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <>
+                                    <span>Verify OTP</span>
+                                    <CheckCircle2 className="h-4 w-4" />
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {/* Error & Success Messages */}
+                      {regEmailOtpError && (
+                        <p className="text-[12px] text-rose-500 flex items-center gap-1 font-medium">
+                          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                          <span>{regEmailOtpError}</span>
+                        </p>
+                      )}
+
+                      {successMessage && (
+                        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[13px] font-medium flex items-center gap-2">
+                          <CheckCircle2 className="h-4 w-4 shrink-0" />
+                          <span>{successMessage}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-2 flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleWizardBack}
+                        className="h-12 px-4 rounded-xl border border-[#e3e8ee] dark:border-[#273951] text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer flex items-center justify-center shrink-0"
+                        title="Back"
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                      </button>
+
+                      <button
+                        id="signup_step5_continue_btn"
+                        type="button"
+                        onClick={handleWizardNext}
+                        className="flex-1 h-12 rounded-xl bg-[#0d253d] hover:bg-[#1c2e42] text-white dark:bg-white dark:text-[#0d253d] dark:hover:bg-[#f1f5f9] font-medium text-[15px] flex items-center justify-center gap-2 shadow-[0_2px_8px_rgba(13,37,61,0.12)] active:scale-[0.99] transition-all cursor-pointer"
+                      >
+                        <span>{regEmailOtpVerified ? 'Continue' : regEmailOtpSent ? 'Verify & Continue' : 'Send OTP & Continue'}</span>
                         <ArrowRight className="h-4 w-4" />
                       </button>
                     </div>
