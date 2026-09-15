@@ -3492,13 +3492,21 @@ app.get('/api/v1/link-device/session/:sessionId', async (req: any, res: any) => 
 app.post('/api/v1/link-device/scan', async (req: any, res: any) => {
   try {
     const { sessionId } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ success: false, error: 'sessionId is required' });
+    }
+
     let session = activeLinkSessions.get(sessionId);
 
     if (!session && db) {
-      const snap = await getDoc(doc(db, 'device_link_sessions', sessionId));
-      if (snap.exists()) {
-        session = snap.data() as EphemeralLinkSession;
-        activeLinkSessions.set(sessionId, session);
+      try {
+        const snap = await getDoc(doc(db, 'device_link_sessions', sessionId));
+        if (snap.exists()) {
+          session = snap.data() as EphemeralLinkSession;
+          activeLinkSessions.set(sessionId, session);
+        }
+      } catch (fErr: any) {
+        console.warn('Scan Firestore query notice:', fErr?.message || fErr);
       }
     }
 
@@ -3519,7 +3527,11 @@ app.post('/api/v1/link-device/scan', async (req: any, res: any) => {
     activeLinkSessions.set(sessionId, session);
 
     if (db) {
-      await setDoc(doc(db, 'device_link_sessions', sessionId), { status: 'scanned' }, { merge: true }).catch(() => {});
+      try {
+        await setDoc(doc(db, 'device_link_sessions', sessionId), { status: 'scanned' }, { merge: true });
+      } catch (fErr: any) {
+        console.warn('Scan Firestore status update notice:', fErr?.message || fErr);
+      }
     }
 
     res.json({
@@ -3544,10 +3556,14 @@ app.post('/api/v1/link-device/verify-and-sync', async (req: any, res: any) => {
     let session = activeLinkSessions.get(sessionId);
 
     if (!session && db) {
-      const snap = await getDoc(doc(db, 'device_link_sessions', sessionId));
-      if (snap.exists()) {
-        session = snap.data() as EphemeralLinkSession;
-        activeLinkSessions.set(sessionId, session);
+      try {
+        const snap = await getDoc(doc(db, 'device_link_sessions', sessionId));
+        if (snap.exists()) {
+          session = snap.data() as EphemeralLinkSession;
+          activeLinkSessions.set(sessionId, session);
+        }
+      } catch (fErr: any) {
+        console.warn('Verify-and-sync Firestore query notice:', fErr?.message || fErr);
       }
     }
 
@@ -3620,12 +3636,16 @@ app.post('/api/v1/link-device/verify-and-sync', async (req: any, res: any) => {
     activeLinkSessions.set(sessionId, session);
 
     if (db) {
-      await setDoc(doc(db, 'device_link_sessions', sessionId), sanitizeFirestoreData({
-        status: 'authenticated',
-        linkedUser: session.linkedUser,
-        syncedDataPayload: session.syncedDataPayload,
-        authenticatedAt: Date.now()
-      }), { merge: true }).catch(() => {});
+      try {
+        await setDoc(doc(db, 'device_link_sessions', sessionId), sanitizeFirestoreData({
+          status: 'authenticated',
+          linkedUser: session.linkedUser,
+          syncedDataPayload: session.syncedDataPayload,
+          authenticatedAt: Date.now()
+        }), { merge: true });
+      } catch (fErr: any) {
+        console.warn('Verify-and-sync Firestore status update notice:', fErr?.message || fErr);
+      }
     }
 
     res.json({
