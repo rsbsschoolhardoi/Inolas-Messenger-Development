@@ -117,9 +117,14 @@ Disallow: /admin
 
 # Sitemaps & Agent Protocol Manifests (Cloudflare isitagentready.com 90+ Score Compliant)
 Sitemap: https://zenoa.in/sitemap.xml
+Agentmap: https://zenoa.in/.well-known/ai-catalog.json
+Agentmap: https://zenoa.in/.well-known/ard.json
 # LLMs specification file for AI assistants & autonomous agents
 LLMs: https://zenoa.in/llms.txt
 LLMs-Full: https://zenoa.in/llms-full.txt
 OpenAPI: https://zenoa.in/openapi.json
+Agent-Card: https://zenoa.in/.well-known/agent-card.json
+MCP: https://zenoa.in/.well-known/mcp/server-card.json
+
 
 

@@ -9,6 +9,7 @@ export default function handler(req: any, res: any) {
     'Access-Control-Allow-Headers',
     'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, X-API-Key, X-Client-Id, X-Client-Secret, X-SA-Client-Id, X-SA-Client-Secret, *'
   );
+  res.setHeader('Access-Control-Expose-Headers', 'Link, WWW-Authenticate, Content-Type, Vary, x-markdown-tokens');
 
   if (req.method === 'OPTIONS') {
     res.status(200).end();
@@ -21,7 +22,21 @@ export default function handler(req: any, res: any) {
     req.url = forwardedUri;
   }
 
-  if (req.url && !req.url.startsWith('/api') && !req.url.startsWith('/v1')) {
+  const acceptHeader = String(req.headers['accept'] || '').toLowerCase();
+  const formatQuery = String(req.query?.format || req.query?.markdown || '').toLowerCase();
+  const isMarkdownReq = acceptHeader.includes('text/markdown') || 
+                        acceptHeader.includes('text/x-markdown') || 
+                        formatQuery === 'markdown' ||
+                        formatQuery === 'true' ||
+                        formatQuery === 'md';
+
+  const isExcludedFromApiPrefix = isMarkdownReq || 
+                                  req.url === '/' || 
+                                  req.url === '' || 
+                                  req.url.startsWith('/docs') || 
+                                  req.url.startsWith('/.well-known');
+
+  if (!isExcludedFromApiPrefix && req.url && !req.url.startsWith('/api') && !req.url.startsWith('/v1')) {
     req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
   }
 

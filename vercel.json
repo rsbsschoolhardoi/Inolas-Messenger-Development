@@ -2,23 +2,61 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "header",
+          "key": "accept",
+          "value": ".*text/markdown.*"
+        }
+      ],
+      "destination": "/api/index"
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "header",
+          "key": "accept",
+          "value": ".*text/x-markdown.*"
+        }
+      ],
+      "destination": "/api/index"
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "query",
+          "key": "format",
+          "value": "markdown"
+        }
+      ],
+      "destination": "/api/index"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/index"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|\\.well-known/|robots\\.txt|sitemap\\.xml|llms\\.txt|llms-full\\.txt|openapi\\.json|auth\\.md).*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
     {
-      "source": "/api/(.*)",
+      "source": "/(.*)",
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },
         { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,DELETE,OPTIONS,PATCH" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization, X-Requested-With, X-API-Key, Accept" }
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization, X-Requested-With, X-API-Key, Accept, *" },
+        { "key": "Access-Control-Expose-Headers", "value": "Link, WWW-Authenticate, Content-Type, Vary, x-markdown-tokens" },
+        { "key": "Vary", "value": "Accept, Accept-Encoding" },
+        {
+          "key": "Link",
+          "value": "</.well-known/api-catalog>; rel=\"api-catalog\"; type=\"application/linkset+json\", </.well-known/oauth-authorization-server>; rel=\"oauth-authorization-server\"; type=\"application/json\", </.well-known/oauth-protected-resource>; rel=\"oauth-protected-resource\"; type=\"application/json\", </.well-known/mcp/server-card.json>; rel=\"mcp-server-card\"; type=\"application/json\", </.well-known/agent-card.json>; rel=\"agent-card\"; type=\"application/json\", </.well-known/agent-skills/index.json>; rel=\"agent-skills\"; type=\"application/json\", </.well-known/ai-catalog.json>; rel=\"ai-catalog\"; type=\"application/json\", </openapi.json>; rel=\"service-desc\"; type=\"application/json\", </auth.md>; rel=\"author-authorization\"; type=\"text/markdown\", </llms.txt>; rel=\"alternate\"; type=\"text/markdown\", </llms-full.txt>; rel=\"alternate\"; type=\"text/markdown\", </docs>; rel=\"service-doc\""
+        }
       ]
     }
   ]
 }
-

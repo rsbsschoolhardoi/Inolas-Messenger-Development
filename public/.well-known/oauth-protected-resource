@@ -1,5 +1,5 @@
 {
-  "resource": "https://zenoa.in/api/v1",
+  "resource": "https://zenoa.in",
   "authorization_servers": [
     "https://zenoa.in"
   ],

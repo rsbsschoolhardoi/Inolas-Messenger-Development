@@ -186,6 +186,7 @@ app.use((req: any, res: any, next: any) => {
       '</.well-known/oauth-authorization-server>; rel="oauth-authorization-server"; type="application/json"',
       '</.well-known/oauth-protected-resource>; rel="oauth-protected-resource"; type="application/json"',
       '</.well-known/mcp/server-card.json>; rel="mcp-server-card"; type="application/json"',
+      '</.well-known/agent-card.json>; rel="agent-card"; type="application/json"',
       '</.well-known/agent-skills/index.json>; rel="agent-skills"; type="application/json"',
       '</.well-known/ai-catalog.json>; rel="ai-catalog"; type="application/json"',
       '</docs>; rel="service-doc"',
@@ -198,25 +199,35 @@ app.use((req: any, res: any, next: any) => {
   );
 
   // Content negotiation for AI agents & markdown clients (Accept: text/markdown)
-  if (req.method === 'GET' && !req.path.startsWith('/api/') && !req.path.startsWith('/v1/')) {
+  const acceptHeader = String(req.headers['accept'] || '').toLowerCase();
+  const formatQuery = String(req.query?.format || req.query?.markdown || '').toLowerCase();
+  const acceptsMarkdown = acceptHeader.includes('text/markdown') || 
+                          acceptHeader.includes('text/x-markdown') || 
+                          formatQuery === 'markdown' || 
+                          formatQuery === 'true' || 
+                          formatQuery === 'md';
+
+  const isTargetingPage = req.path === '/' || 
+                          req.path === '/api/index' || 
+                          req.path.startsWith('/docs') || 
+                          req.path.startsWith('/developer') || 
+                          req.path.startsWith('/features') || 
+                          (!req.path.startsWith('/api/v1/') && !req.path.startsWith('/v1/'));
+
+  if ((req.method === 'GET' || req.method === 'HEAD') && acceptsMarkdown && isTargetingPage) {
     const isStaticAsset = req.path.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|json|xml|woff|woff2|ttf|map)$/i);
     if (!isStaticAsset) {
-      const acceptHeader = String(req.headers['accept'] || '').toLowerCase();
-      const formatQuery = String(req.query?.format || req.query?.markdown || '').toLowerCase();
-      const acceptsMarkdown = acceptHeader.includes('text/markdown') || 
-                              acceptHeader.includes('text/x-markdown') || 
-                              formatQuery === 'markdown' || 
-                              formatQuery === 'true' || 
-                              formatQuery === 'md';
-
-      if (acceptsMarkdown) {
-        const mdContent = getMarkdownResponseForPath(req.path);
-        const tokenEstimate = Math.max(1, Math.ceil(mdContent.length / 4));
-        res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
-        res.setHeader('Vary', 'Accept');
-        res.setHeader('x-markdown-tokens', String(tokenEstimate));
-        return res.status(200).send(mdContent);
+      const forwarded = (req.headers['x-forwarded-uri'] || req.headers['x-original-url'] || req.path) as string;
+      const targetPath = (forwarded === '/api/index' || !forwarded) ? '/' : forwarded;
+      const mdContent = getMarkdownResponseForPath(targetPath);
+      const tokenEstimate = Math.max(1, Math.ceil(mdContent.length / 4));
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.setHeader('Vary', 'Accept');
+      res.setHeader('x-markdown-tokens', String(tokenEstimate));
+      if (req.method === 'HEAD') {
+        return res.status(200).end();
       }
+      return res.status(200).send(mdContent);
     }
   }
 
@@ -360,11 +371,53 @@ app.get('/.well-known/oauth-protected-resource', (req, res) => {
     res.send(fs.readFileSync(protectedPath, 'utf8'));
   } else {
     res.json({
-      resource: "https://zenoa.in/api/v1",
+      resource: "https://zenoa.in",
       authorization_servers: ["https://zenoa.in"],
       scopes_supported: ["openid", "profile", "email", "zenoa:read", "zenoa:write", "zenoa:messages"]
     });
   }
+});
+
+// A2A Protocol Agent Card (Google A2A / Linux Foundation Agent Card v1.0)
+app.get(['/.well-known/agent-card.json', '/.well-known/agent.json'], (req, res) => {
+  const cardPath = path.join(process.cwd(), 'public', '.well-known', 'agent-card.json');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (fs.existsSync(cardPath)) {
+    res.send(fs.readFileSync(cardPath, 'utf8'));
+  } else {
+    res.json({
+      version: "1.0.0",
+      name: "Zenoa Agent",
+      description: "Autonomous AI Agent & Sovereign Bridge for Zenoa Private Messenger",
+      url: "https://zenoa.in"
+    });
+  }
+});
+
+// Web Bot Auth HTTP Message Signatures Directory (RFC 9421 / WBA)
+app.get('/.well-known/http-message-signatures-directory', (req, res) => {
+  const dirPath = path.join(process.cwd(), 'public', '.well-known', 'http-message-signatures-directory');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (fs.existsSync(dirPath)) {
+    res.send(fs.readFileSync(dirPath, 'utf8'));
+  } else {
+    res.json({ keys: [] });
+  }
+});
+
+// Commerce Protocol Discovery Profiles (UCP / ACP)
+app.get('/.well-known/ucp', (req, res) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.json({ version: "1.0", commerce: false, note: "Zenoa is a zero-fee sovereign communications platform" });
+});
+
+app.get('/.well-known/acp.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.json({ version: "1.0", commerce: false, note: "Zenoa is a zero-fee sovereign communications platform" });
 });
 
 // JWKS Endpoint

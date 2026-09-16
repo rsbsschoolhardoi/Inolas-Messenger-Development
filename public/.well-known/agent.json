@@ -1,0 +1,24 @@
+{
+  "version": "1.0.0",
+  "name": "Zenoa Agent",
+  "description": "Autonomous AI Agent & Sovereign Bridge for Zenoa Private Messenger & Developer Ecosystem",
+  "url": "https://zenoa.in",
+  "provider": {
+    "name": "Inolas Nexus",
+    "url": "https://zenoa.in"
+  },
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": true,
+    "stateTransition": true
+  },
+  "authentication": {
+    "schemes": [
+      "Bearer",
+      "OAuth2",
+      "ApiKey"
+    ],
+    "oauth_metadata": "https://zenoa.in/.well-known/oauth-authorization-server",
+    "protected_resource": "https://zenoa.in/.well-known/oauth-protected-resource"
+  }
+}

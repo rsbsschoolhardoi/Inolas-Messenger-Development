@@ -39,7 +39,10 @@
   ],
   "service_documentation": "https://zenoa.in/docs",
   "agent_auth": {
+    "skill": "https://zenoa.in/auth.md",
     "register_uri": "https://zenoa.in/api/v1/agents/register",
+    "claim_uri": "https://zenoa.in/api/v1/agents/claim",
+    "revocation_uri": "https://zenoa.in/api/v1/agents/revoke",
     "supported_identity_types": [
       "ephemeral_key",
       "agent_did",
@@ -50,7 +53,9 @@
       "mcp_token",
       "api_key"
     ],
-    "claim_uri": "https://zenoa.in/api/v1/agents/claim",
-    "revocation_uri": "https://zenoa.in/api/v1/agents/revoke"
+    "supported_flows": [
+      "agent_verified",
+      "user_claimed"
+    ]
   }
 }

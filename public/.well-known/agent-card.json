@@ -1,0 +1,78 @@
+{
+  "version": "1.0.0",
+  "name": "Zenoa Agent",
+  "description": "Autonomous AI Agent & Sovereign Bridge for Zenoa Private Messenger & Developer Ecosystem",
+  "url": "https://zenoa.in",
+  "provider": {
+    "name": "Inolas Nexus",
+    "url": "https://zenoa.in"
+  },
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": true,
+    "stateTransition": true
+  },
+  "authentication": {
+    "schemes": [
+      "Bearer",
+      "OAuth2",
+      "ApiKey"
+    ],
+    "oauth_metadata": "https://zenoa.in/.well-known/oauth-authorization-server",
+    "protected_resource": "https://zenoa.in/.well-known/oauth-protected-resource"
+  },
+  "skills": [
+    {
+      "id": "urn:a2a:zenoa.in:skill:send_message",
+      "name": "Send Sovereign Message",
+      "description": "Send zero-knowledge encrypted or developer automated messages to any sovereign Zenoa identity.",
+      "tags": [
+        "messaging",
+        "chat",
+        "privacy",
+        "notifications"
+      ],
+      "input_modes": [
+        "text",
+        "json"
+      ],
+      "output_modes": [
+        "json"
+      ]
+    },
+    {
+      "id": "urn:a2a:zenoa.in:skill:verify_identity",
+      "name": "Verify Zenoa Identity",
+      "description": "Cryptographically verify and resolve any Zenoa sovereign DID or handle.",
+      "tags": [
+        "identity",
+        "did",
+        "verification",
+        "security"
+      ],
+      "input_modes": [
+        "text",
+        "json"
+      ],
+      "output_modes": [
+        "json"
+      ]
+    },
+    {
+      "id": "urn:a2a:zenoa.in:skill:mcp_tools",
+      "name": "Model Context Protocol Tools",
+      "description": "Execute Model Context Protocol tools exposed by Zenoa MCP server.",
+      "tags": [
+        "mcp",
+        "tools",
+        "automation"
+      ],
+      "input_modes": [
+        "json"
+      ],
+      "output_modes": [
+        "json"
+      ]
+    }
+  ]
+}
