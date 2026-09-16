@@ -123,6 +123,50 @@ function getMarkdownResponseForPath(reqPath: string): string {
     }
   }
 
+  if (cleanPath === '/features') {
+    return `---
+title: Zenoa Features | Sovereign Private Messenger
+description: Core architectural features of Zenoa zero-cloud encrypted private messaging platform by Inolas Nexus.
+date: 2026-09-16
+url: https://zenoa.in/features
+---
+
+# Zenoa Architecture & Features
+
+Zenoa is engineered by Inolas Nexus from the ground up for strict privacy, cryptographic sovereignty, and developer velocity.
+
+## 1. Zero-Cloud Retention (0ms TTL)
+Messages exist only in ephemeral memory relays while in transit. Once delivered, payloads are wiped instantly with zero logs, zero database writes, and zero residual traces.
+
+## 2. Client-Side WebCrypto Primitives
+End-to-end cryptographic handshakes are performed locally in the client browser using modern WebCrypto (AES-256-GCM / X25519) and IndexedDB private keystores.
+
+## 3. Sovereign DIDs & Decentralized Handles
+Users own their cryptographic identity without requiring phone numbers, personal emails, or centralized corporate harvesting.
+
+## 4. Developer-First Ecosystem
+Native Model Context Protocol (MCP) server, A2A Agent Card, OpenAPI 3.1 specifications, and enterprise webhooks.
+`;
+  }
+
+  if (cleanPath === '/security') {
+    return `---
+title: Zenoa Security Architecture & Cryptographic Primitives
+description: In-depth technical security architecture of Zenoa sovereign messaging and zero-knowledge relays.
+date: 2026-09-16
+url: https://zenoa.in/security
+---
+
+# Zenoa Cryptographic Security Architecture
+
+Built on zero-trust principles, Zenoa guarantees that even if relays or infrastructure are compromised, ciphertexts remain cryptographically opaque.
+
+- **Ephemeral Relay Mesh**: 0ms Time-To-Live memory buffers.
+- **Key Isolation**: Ed25519 authentication keys and X25519 key-exchange pairs remain strictly in client memory and encrypted IndexedDB.
+- **Independent Verification**: Fully auditable OpenAPI specifications, machine-readable manifests, and RFC 8288 discovery.
+`;
+  }
+
   // Use public/llms.txt or root llms.txt
   const llmsPublicPath = path.join(process.cwd(), 'public', 'llms.txt');
   const llmsRootPath = path.join(process.cwd(), 'llms.txt');
