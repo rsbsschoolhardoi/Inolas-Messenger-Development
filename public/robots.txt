@@ -2,10 +2,16 @@
 # Privacy-first communication platform & Developer APIs
 
 # Content Signals for AI content usage preferences (RFC / Content Signals standard)
-Content-Signal: ai-train=no, search=yes, ai-input=no
+# Explicitly allowing AI search, agent input, and contextual reasoning
+Content-Signal: ai-train=no, search=yes, ai-input=yes
 
 User-agent: *
 Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+Allow: /openapi.json
+Allow: /auth.md
+Allow: /.well-known/
 Allow: /developer
 Allow: /docs
 Allow: /features
@@ -14,7 +20,9 @@ Allow: /privacy
 Allow: /terms
 Allow: /security
 Allow: /apps
-Disallow: /api/
+Allow: /api/v1/docs
+Allow: /api/openapi.json
+Allow: /api/health
 Disallow: /admin
 Disallow: /console/
 Disallow: /auth/
@@ -24,7 +32,11 @@ Disallow: /sso/
 # Major Search Engines
 User-agent: Googlebot
 Allow: /
-Disallow: /api/
+Allow: /llms.txt
+Allow: /llms-full.txt
+Allow: /openapi.json
+Allow: /auth.md
+Allow: /.well-known/
 Disallow: /admin
 Disallow: /oauth/
 
@@ -34,35 +46,37 @@ Allow: /
 
 User-agent: Bingbot
 Allow: /
-Disallow: /api/
+Allow: /llms.txt
+Allow: /llms-full.txt
+Allow: /openapi.json
+Allow: /.well-known/
 Disallow: /admin
 
 User-agent: Slurp
 Allow: /
-Disallow: /api/
 Disallow: /admin
 
 User-agent: DuckDuckBot
 Allow: /
-Disallow: /api/
 Disallow: /admin
 
 User-agent: Baiduspider
 Allow: /
-Disallow: /api/
 Disallow: /admin
 
 User-agent: YandexBot
 Allow: /
-Disallow: /api/
 Disallow: /admin
 
-# AI Search & Crawlers (Allow public content and docs indexing)
+# AI Search & Crawlers (Full indexing permitted for public content, agent discovery, and docs)
 User-agent: GPTBot
 Allow: /
-Disallow: /api/
+Allow: /llms.txt
+Allow: /llms-full.txt
+Allow: /openapi.json
+Allow: /auth.md
+Allow: /.well-known/
 Disallow: /admin
-Disallow: /oauth/
 
 User-agent: ChatGPT-User
 Allow: /
@@ -72,12 +86,15 @@ Allow: /
 
 User-agent: Applebot
 Allow: /
-Disallow: /api/
 Disallow: /admin
 
 User-agent: ClaudeBot
 Allow: /
-Disallow: /api/
+Allow: /llms.txt
+Allow: /llms-full.txt
+Allow: /openapi.json
+Allow: /auth.md
+Allow: /.well-known/
 Disallow: /admin
 
 User-agent: anthropic-ai
@@ -85,19 +102,24 @@ Allow: /
 
 User-agent: PerplexityBot
 Allow: /
-Disallow: /api/
+Allow: /llms.txt
+Allow: /llms-full.txt
+Allow: /openapi.json
+Allow: /auth.md
+Allow: /.well-known/
 
 User-agent: Cohere-ai
 Allow: /
 
 User-agent: CCBot
 Allow: /
-Disallow: /api/
+Disallow: /admin
 
 # Sitemaps & Agent Protocol Manifests (Cloudflare isitagentready.com 90+ Score Compliant)
 Sitemap: https://zenoa.in/sitemap.xml
 # LLMs specification file for AI assistants & autonomous agents
-# LLMs: https://zenoa.in/llms.txt
-# LLMs-Full: https://zenoa.in/llms-full.txt
-# OpenAPI: https://zenoa.in/openapi.json
+LLMs: https://zenoa.in/llms.txt
+LLMs-Full: https://zenoa.in/llms-full.txt
+OpenAPI: https://zenoa.in/openapi.json
+
 

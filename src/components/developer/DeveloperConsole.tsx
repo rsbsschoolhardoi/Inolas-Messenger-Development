@@ -7,7 +7,7 @@ import { UserData } from '../../types';
 import { LandingView } from './views/LandingView';
 import { MobileSetupView } from './views/MobileSetupView';
 import { PortalDashboard } from './views/PortalDashboard';
-import { ZenoaAuthGatewayModal } from '../ZenoaAuthGatewayModal';
+import { buildSecureOAuthUrl } from '../../utils/oauthSecurity';
 
 type ConsoleView = 'landing' | 'mobile_setup' | 'portal';
 
@@ -19,7 +19,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
   const [user, setUser] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<ConsoleView>('landing');
-  const [showZenoaAuthModal, setShowZenoaAuthModal] = useState(false);
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
     try {
       const saved = localStorage.getItem('zenoa_dev_theme') || localStorage.getItem('zenoa_theme_mode');
@@ -175,6 +174,24 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     }
   };
 
+  const redirectToAccountsAuth = () => {
+    const host = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+    let redirectUri = `${window.location.origin}/developer`;
+    if (host.includes('developer.zenoa.in')) {
+      redirectUri = 'https://developer.zenoa.in/developer';
+    } else if (host.includes('developer.zenoa.sbs')) {
+      redirectUri = 'https://developer.zenoa.sbs/developer';
+    }
+
+    const secureUrl = buildSecureOAuthUrl({
+      clientId: 'zenoa_developer_console',
+      redirectUri,
+      scope: 'openid profile email phone developer_access',
+      prompt: 'select_account'
+    });
+    window.location.href = secureUrl;
+  };
+
   const handleLogout = () => {
     try {
       localStorage.removeItem('zenoa_dev_console_user');
@@ -201,7 +218,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
         <LandingView 
           user={user} 
           onOpenConsole={() => setView('portal')} 
-          onShowAuth={() => setShowZenoaAuthModal(true)} 
+          onShowAuth={redirectToAccountsAuth} 
           onSwitchAccount={handleLogout}
           themeMode={themeMode}
           onToggleTheme={toggleTheme}
@@ -226,16 +243,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
           onToggleTheme={toggleTheme}
         />
       )}
-      
-      <ZenoaAuthGatewayModal
-        isOpen={showZenoaAuthModal}
-        onClose={() => setShowZenoaAuthModal(false)}
-        serviceTitle="Developer Console"
-        serviceDescription="Manage developer applications, bots, and API credentials."
-        onAuthenticated={handleAuthenticatedWithZenoa}
-        themeMode={themeMode}
-        disableSavedAccounts={true}
-      />
     </>
   );
 };

@@ -1,7 +1,7 @@
 ---
 title: Zenoa Full Specification | Inolas Nexus Sovereign Platform
 description: Complete architectural specification, API endpoints, SDK examples, and zero-retention routing directory for Zenoa by Inolas Nexus.
-date: 2026-09-12
+date: 2026-09-16
 url: https://zenoa.in/
 ---
 
@@ -17,51 +17,122 @@ Unlike traditional communications providers that retain messages, contact graphs
 - **Zenoa OAuth / Single Sign-On**: Privacy-first authentication layer allowing apps to authenticate users via their sovereign `@zenoa` or `@zenoa.in` identity without harvesting emails or phone numbers.
 - **Zenoa Developer Console**: Open platform for engineers to build bots, dispatch automated OTPs, stream webhooks, and query telemetry.
 
-## Explore this site
-
-- [Zenoa Private Messenger](https://zenoa.in/): Decentralized, ephemeral private chat with zero cloud message storage.
-- [App Direct Messenger](https://app.zenoa.in/): Standalone browser messenger with direct instant authentication.
-- [Web Companion QR Messenger](https://web.zenoa.in/): Cryptographic zero-knowledge QR code device pairing.
-- [Zenoa Developer Console](https://zenoa.in/developer): Application management, API key generation, and webhook configurations.
-- [Interactive API Documentation](https://zenoa.in/docs): REST & WebSocket API reference in TypeScript, Python, Go, and cURL.
-- [Zenoa OAuth & SSO Console](https://zenoa.in/sso): Identity gateway protecting user privacy with zero data harvesting.
-- [Security Architecture Whitepaper](https://zenoa.in/security): Cryptographic specifications, X25519 key exchanges, and AES-256-GCM vaulting.
-- [Privacy Policy](https://zenoa.in/privacy): Complete zero-knowledge data protection commitments.
-- [Terms of Service](https://zenoa.in/terms): User agreement and open developer API guidelines.
-
 ---
 
-## Complete Route Directory
+## Complete Route & API Directory
 
 ### 1. Public Portals
 - **Homepage / Messenger**: [https://zenoa.in/](https://zenoa.in/)
-  - Real-time client-side chat application with zero-cloud storage.
 - **App Direct Messenger**: [https://app.zenoa.in/](https://app.zenoa.in/)
-  - Standalone instant login without pairing delays.
 - **Web QR Companion**: [https://web.zenoa.in/](https://web.zenoa.in/)
-  - Instant mobile-to-browser paired communication via cryptographic QR codes.
 
 ### 2. Developer & Enterprise APIs
 - **Developer Console**: [https://zenoa.in/developer](https://zenoa.in/developer)
-  - Application dashboard, secret generation, webhook URL subscriptions, and delivery metrics.
 - **API Documentation**: [https://zenoa.in/docs](https://zenoa.in/docs)
-  - Machine-readable endpoints, code snippets in TypeScript, Python, Go, Node.js, PHP, Java, and cURL.
 - **OpenAPI 3.1 Spec**: [https://zenoa.in/openapi.json](https://zenoa.in/openapi.json)
-  - Full OpenAPI schema for AI agents, LangChain, Claude, GPT, and custom SDK generators.
 
-### 3. Identity, SSO & Security
-- **Zenoa OAuth & SSO Console**: [https://zenoa.in/sso](https://zenoa.in/sso)
-  - Manage OAuth 2.0 client credentials, redirect URIs, and scopes (`profile:read`, `messages:send`).
-- **OAuth Authorization Endpoint**: `https://accounts.zenoa.in/auth/sso`
-  - Consent screen and authentication gate.
-- **OAuth Token Endpoint**: `https://accounts.zenoa.in/api/oauth/token`
-  - Secure code-for-token exchange.
-- **Security Whitepaper**: [https://zenoa.in/security](https://zenoa.in/security)
-  - Zero-knowledge encryption, threat modeling, and cryptographic benchmarks.
-- **Privacy Policy**: [https://zenoa.in/privacy](https://zenoa.in/privacy)
-  - Detailed zero-retention audit and data protection policies.
-- **Terms of Service**: [https://zenoa.in/terms](https://zenoa.in/terms)
-  - Fair usage and open developer terms.
+### 3. API Endpoints Table
+- `GET /api/health` — Checks system health & uptime.
+- `POST /api/v1/messages/send` — Sends automated bot messages to users (`X-Client-Id` & `X-Client-Secret`).
+- `POST /api/v1/otp/send` — Dispatches 6-digit cryptographic OTP (`X-Client-Id` & `X-Client-Secret`).
+- `POST /api/v1/otp/verify` — Validates user-submitted OTP codes.
+- `POST /api/v1/sso/token` — OAuth 2.0 token exchange (`authorization_code` or `client_credentials`).
+- `GET /api/v1/sso/userinfo` — Returns user sovereign profile (`Bearer <access_token>`).
+
+---
+
+## Integration Guide for AI Agents & Vibe Coding
+
+### TypeScript SDK Wrapper Example
+```typescript
+import axios from 'axios';
+
+export class ZenoaClient {
+  private clientId: string;
+  private clientSecret: string;
+  private baseUrl: string;
+
+  constructor(clientId: string, clientSecret: string, baseUrl = 'https://zenoa.in') {
+    this.clientId = clientId;
+    this.clientSecret = clientSecret;
+    this.baseUrl = baseUrl;
+  }
+
+  private get headers() {
+    return {
+      'Content-Type': 'application/json',
+      'X-Client-Id': this.clientId,
+      'X-Client-Secret': this.clientSecret,
+    };
+  }
+
+  async sendMessage(recipient: string, message: string, mediaUrl?: string) {
+    const res = await axios.post(
+      `${this.baseUrl}/api/v1/messages/send`,
+      { recipient, message, media_url: mediaUrl },
+      { headers: this.headers }
+    );
+    return res.data;
+  }
+
+  async sendOtp(recipient: string, expiryMinutes = 10) {
+    const res = await axios.post(
+      `${this.baseUrl}/api/v1/otp/send`,
+      { recipient, expiry_mins: expiryMinutes },
+      { headers: this.headers }
+    );
+    return res.data;
+  }
+
+  async verifyOtp(recipient: string, code: string) {
+    const res = await axios.post(
+      `${this.baseUrl}/api/v1/otp/verify`,
+      { recipient, code },
+      { headers: this.headers }
+    );
+    return res.data;
+  }
+}
+```
+
+### Python SDK Wrapper Example
+```python
+import os
+import requests
+
+class ZenoaClient:
+    def __init__(self, client_id=None, client_secret=None, base_url="https://zenoa.in"):
+        self.client_id = client_id or os.getenv("ZENOA_CLIENT_ID")
+        self.client_secret = client_secret or os.getenv("ZENOA_CLIENT_SECRET")
+        self.base_url = base_url
+        self.headers = {
+            "Content-Type": "application/json",
+            "X-Client-Id": self.client_id,
+            "X-Client-Secret": self.client_secret
+        }
+
+    def send_message(self, recipient: str, message: str, media_url: str = None) -> dict:
+        url = f"{self.base_url}/api/v1/messages/send"
+        payload = {"recipient": recipient, "message": message}
+        if media_url:
+            payload["media_url"] = media_url
+        resp = requests.post(url, json=payload, headers=self.headers)
+        resp.raise_for_status()
+        return resp.json()
+
+    def send_otp(self, recipient: str, expiry_mins: int = 10) -> dict:
+        url = f"{self.base_url}/api/v1/otp/send"
+        payload = {"recipient": recipient, "expiry_mins": expiry_mins}
+        resp = requests.post(url, json=payload, headers=self.headers)
+        resp.raise_for_status()
+        return resp.json()
+
+    def verify_otp(self, recipient: str, code: str) -> bool:
+        url = f"{self.base_url}/api/v1/otp/verify"
+        payload = {"recipient": recipient, "code": code}
+        resp = requests.post(url, json=payload, headers=self.headers)
+        return resp.status_code == 200 and resp.json().get("success", False)
+```
 
 ---
 
@@ -76,6 +147,6 @@ Unlike traditional communications providers that retain messages, contact graphs
 
 ## Organization & Lineage
 - **Product**: Zenoa (Zenoa Messenger)
-- **Company / Parent**: Inolas Nexus
+- **Parent Enterprise**: Inolas Nexus
 - **Platform Scope**: Global Sovereign Communication Protocol & Developer Ecosystem
 - **License**: Sovereign Privacy & Open Developer Protocol

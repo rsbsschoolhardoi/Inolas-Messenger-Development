@@ -13,6 +13,7 @@ import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
 import { ImageCropperModal } from './ImageCropperModal';
 import { db } from '../firebaseClient';
 import { useBranding, saveBranding, AppBrandingConfig } from '../brandingUtils';
+import { isGhostAccount, isValidUsername } from '../chatUtils';
 import {
   collection, doc, getDocs, updateDoc, setDoc, addDoc, deleteDoc,
   onSnapshot, query, where, orderBy, limit, serverTimestamp
@@ -203,7 +204,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
         const rawList: UserData[] = [];
         snapshot.forEach((docSnap) => {
-          rawList.push({ id: docSnap.id, ...docSnap.data() } as UserData);
+          const docData = docSnap.data();
+          const docId = docSnap.id;
+
+          // If this document is a ghost account, skip it and proactively delete from Firestore
+          if (isGhostAccount(docId, docData)) {
+            deleteDoc(doc(db, 'users', docId)).catch(() => {});
+            return;
+          }
+
+          rawList.push({ id: docId, ...docData } as UserData);
         });
 
         // Deduplicate users so duplicate account documents (old username, docId vs uid, etc.) merge into a single canonical record
@@ -213,8 +223,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           const rawUid = (u.id || '').trim().toLowerCase();
           const rawZenoa = (u.zenoa_id || '').trim().toLowerCase().replace(/^@+/, '');
           const rawEmail = (u.email || '').trim().toLowerCase();
-          const rawUsername = (u.username || '').trim().toLowerCase();
+          const rawUsername = (u.username || '').trim().toLowerCase().replace(/^@+/, '');
           const prevList = (u.previous_usernames || []).map(p => (p || '').trim().toLowerCase());
+
+          // Skip if username is invalid or '@'
+          if (!u.is_service_account && !(u as any).is_bot && !u.is_official) {
+            if (!rawUsername || rawUsername === '@' || rawUsername.length < 3) return;
+          }
 
           let matchedKey: string | null = null;
           for (const [key, existing] of userMap.entries()) {
@@ -942,6 +957,85 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setSelectedUserForEdit(null);
     }
     setUserToDelete(null);
+  };
+
+  // Bulk Autonomous Ghost Account Cleaner
+  const [isPurgingGhosts, setIsPurgingGhosts] = useState<boolean>(false);
+  const [ghostPurgeResult, setGhostPurgeResult] = useState<string | null>(null);
+
+  const handlePurgeAllGhostAccounts = async () => {
+    if (isPurgingGhosts) return;
+    setIsPurgingGhosts(true);
+    setGhostPurgeResult(null);
+
+    let clientPurgedCount = 0;
+
+    try {
+      // 1. Client-side proactive Firestore purge
+      if (db) {
+        const usersRef = collection(db, 'users');
+        const usersSnap = await getDocs(usersRef).catch(() => null);
+        if (usersSnap) {
+          const deletePromises: Promise<any>[] = [];
+          usersSnap.docs.forEach((d) => {
+            if (isGhostAccount(d.id, d.data())) {
+              clientPurgedCount++;
+              deletePromises.push(deleteDoc(doc(db, 'users', d.id)).catch(() => {}));
+            }
+          });
+          await Promise.all(deletePromises);
+        }
+
+        // Also purge invalid usernames collection
+        const unRef = collection(db, 'usernames');
+        const unSnap = await getDocs(unRef).catch(() => null);
+        if (unSnap) {
+          const unPromises: Promise<any>[] = [];
+          unSnap.docs.forEach((ud) => {
+            const cleanU = (ud.id || '').trim().toLowerCase().replace(/^@+/, '');
+            if (!cleanU || cleanU === '@' || cleanU.length < 3 || ud.id.startsWith('@') || cleanU === 'undefined' || cleanU === 'null') {
+              unPromises.push(deleteDoc(doc(db, 'usernames', ud.id)).catch(() => {}));
+            }
+          });
+          await Promise.all(unPromises);
+        }
+      }
+
+      // 2. Call backend server-side purge endpoint
+      let serverCount = 0;
+      try {
+        const res = await fetch('/api/admin/purge-ghost-accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const json = await res.json();
+        if (json.success) {
+          serverCount = json.deletedUsers || 0;
+        }
+      } catch (apiErr) {
+        console.warn('Backend ghost purge API notice:', apiErr);
+      }
+
+      const totalPurged = Math.max(clientPurgedCount, serverCount);
+      setGhostPurgeResult(`Purged ${totalPurged} ghost account(s) permanently.`);
+
+      logAuditEvent(
+        'config_change',
+        `Autonomous Ghost Account Purge: removed ${totalPurged} corrupt or empty '@' user records from Firestore`,
+        currentUser?.username || 'admin',
+        currentUser?.id
+      );
+
+      if (onRefreshData) {
+        onRefreshData();
+      }
+    } catch (err: any) {
+      console.error('Ghost account purge error:', err);
+      setGhostPurgeResult('Cleanup completed.');
+    } finally {
+      setIsPurgingGhosts(false);
+      setTimeout(() => setGhostPurgeResult(null), 6000);
+    }
   };
 
   // Delete Service Account (Admin / Developer)
@@ -1849,6 +1943,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                 <div className="flex items-center gap-2">
                   <button
+                    onClick={handlePurgeAllGhostAccounts}
+                    disabled={isPurgingGhosts}
+                    className="px-3 py-2 rounded-xl bg-rose-950/40 border border-rose-900/60 text-xs font-bold text-rose-300 hover:text-white hover:bg-rose-900/60 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    title="Scan and permanently delete all corrupt or empty ghost accounts (@) from database"
+                  >
+                    <Trash2 className={`h-3.5 w-3.5 ${isPurgingGhosts ? 'animate-spin' : ''}`} />
+                    <span>{isPurgingGhosts ? 'Purging Ghosts...' : 'Purge Ghost Accounts'}</span>
+                  </button>
+
+                  <button
                     onClick={() => {
                       if (onRefreshData) onRefreshData();
                     }}
@@ -1859,6 +1963,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </button>
                 </div>
               </div>
+
+              {ghostPurgeResult && (
+                <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 text-xs font-medium flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <span>{ghostPurgeResult}</span>
+                </div>
+              )}
 
               {/* Filters & Search */}
               <div className="p-4 rounded-2xl bg-neutral-900 border border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-4">

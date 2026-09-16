@@ -1,11 +1,11 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Zenoa Developer & Inolas Nexus API",
-    "version": "1.0.0",
-    "description": "Public developer APIs for Zenoa Messenger by Inolas Nexus. Provides endpoints for Bot messaging, OAuth 2.0 Single Sign-On, OTP authentication, and Webhook dispatching.",
+    "title": "Zenoa Developer & Sovereign Communication API",
+    "version": "1.0.4",
+    "description": "Production REST API for Zenoa Messenger by Inolas Nexus. Supports automated bot messaging, cryptographic OTP generation & verification, and OAuth 2.0 Single Sign-On (SSO).",
     "contact": {
-      "name": "Zenoa Developer Platform",
+      "name": "Zenoa Developer Operations",
       "url": "https://zenoa.in/developer",
       "email": "support@zenoa.in"
     }
@@ -16,18 +16,18 @@
       "description": "Production Server"
     },
     {
-      "url": "https://developer.zenoa.in",
-      "description": "Developer Console & Services"
+      "url": "http://localhost:3000",
+      "description": "Local Development Server"
     }
   ],
   "paths": {
     "/api/health": {
       "get": {
-        "summary": "System Health Status",
-        "description": "Checks the health and uptime of Zenoa Developer Services.",
+        "summary": "System Health Check",
+        "description": "Returns operational uptime and API health status.",
         "responses": {
           "200": {
-            "description": "Successful health check",
+            "description": "Service is healthy and responding",
             "content": {
               "application/json": {
                 "schema": {
@@ -35,7 +35,7 @@
                   "properties": {
                     "status": { "type": "string", "example": "ok" },
                     "service": { "type": "string", "example": "zenoa-developer-api" },
-                    "timestamp": { "type": "string" }
+                    "timestamp": { "type": "string", "example": "2026-09-16T12:00:00.000Z" }
                   }
                 }
               }
@@ -44,37 +44,15 @@
         }
       }
     },
-    "/api/developer/send-message": {
+    "/api/v1/messages/send": {
       "post": {
-        "summary": "Send Bot Message",
-        "description": "Dispatches an automated business bot message or notification to a Zenoa user or channel.",
-        "security": [{ "ApiKeyAuth": [] }],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["recipient", "text"],
-                "properties": {
-                  "recipient": { "type": "string", "description": "Target Zenoa username or @zenoa address", "example": "azad1" },
-                  "text": { "type": "string", "description": "Message body to deliver", "example": "Your security code is 849201" }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": { "description": "Message dispatched successfully" },
-          "401": { "description": "Unauthorized - Invalid API credentials" }
-        }
-      }
-    },
-    "/api/developer/send-otp": {
-      "post": {
-        "summary": "Dispatch Multi-Factor OTP",
-        "description": "Generates and delivers a cryptographically secure one-time verification code via Zenoa private relay.",
-        "security": [{ "ApiKeyAuth": [] }],
+        "summary": "Send Bot Message to User",
+        "description": "Dispatches a verified bot message to any Zenoa user DM. Requires Service Account client credentials.",
+        "security": [
+          { "ClientIdSecretAuth": [] },
+          { "BasicAuth": [] },
+          { "BearerAuth": [] }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -83,32 +61,165 @@
                 "type": "object",
                 "required": ["recipient"],
                 "properties": {
-                  "recipient": { "type": "string", "example": "azad1" }
+                  "recipient": {
+                    "type": "string",
+                    "description": "Target Zenoa username (e.g. 'azad1' or '@azad1') or mobile number.",
+                    "example": "azad1"
+                  },
+                  "message": {
+                    "type": "string",
+                    "description": "Text content of the message. (Aliases: 'text', 'content')",
+                    "example": "Hello from your automated bot!"
+                  },
+                  "media_url": {
+                    "type": "string",
+                    "description": "Optional image or file URL attachment.",
+                    "example": "https://images.unsplash.com/photo-1579202673506-ca3ce28943ef"
+                  }
                 }
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "OTP generated and delivered" }
+          "200": {
+            "description": "Message dispatched successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string", "example": "Message delivered successfully to user DM." },
+                    "recipient": { "type": "string", "example": "azad1" },
+                    "chat_id": { "type": "string", "example": "dm_bot_azad1" },
+                    "message_id": { "type": "string", "example": "msg_89f2a7b1c3" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Bad Request: Missing recipient or message body" },
+          "401": { "description": "Unauthorized: Invalid or missing client_id/client_secret" },
+          "404": { "description": "Recipient user not found on Zenoa" }
         }
       }
     },
-    "/api/oauth/token": {
+    "/api/v1/otp/send": {
       "post": {
-        "summary": "OAuth 2.0 Token Exchange",
-        "description": "Exchanges authorization code for an OAuth 2.0 access token under Zenoa OAuth / Inolas Nexus.",
+        "summary": "Send One-Time Passcode (OTP)",
+        "description": "Dispatches a cryptographically secure verification OTP code via verified Zenoa bot DM.",
+        "security": [
+          { "ClientIdSecretAuth": [] },
+          { "BasicAuth": [] }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["client_id", "client_secret", "code"],
+                "required": ["recipient"],
+                "properties": {
+                  "recipient": {
+                    "type": "string",
+                    "description": "Target username or registered phone number",
+                    "example": "azad1"
+                  },
+                  "expiry_mins": {
+                    "type": "integer",
+                    "description": "Expiration time in minutes (default: 10, max: 1440)",
+                    "example": 10
+                  },
+                  "custom_code": {
+                    "type": "string",
+                    "description": "Optional custom 4-8 digit OTP. If omitted, system generates random 6-digit PIN.",
+                    "example": "492015"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OTP generated and delivered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string", "example": "OTP dispatched successfully" },
+                    "recipient": { "type": "string", "example": "azad1" },
+                    "expires_in_minutes": { "type": "integer", "example": 10 }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" }
+        }
+      }
+    },
+    "/api/v1/otp/verify": {
+      "post": {
+        "summary": "Verify One-Time Passcode (OTP)",
+        "description": "Validates an OTP submitted by the end-user.",
+        "security": [
+          { "ClientIdSecretAuth": [] },
+          { "BasicAuth": [] }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["recipient", "code"],
+                "properties": {
+                  "recipient": { "type": "string", "example": "azad1" },
+                  "code": { "type": "string", "description": "The OTP code to verify", "example": "492015" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OTP verified successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string", "example": "OTP verified successfully" },
+                    "verified": { "type": "boolean", "example": true }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid or expired OTP" }
+        }
+      }
+    },
+    "/api/v1/sso/token": {
+      "post": {
+        "summary": "OAuth 2.0 / SSO Token Exchange",
+        "description": "Exchanges an authorization code or client credentials for an access token.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["client_id", "client_secret"],
                 "properties": {
                   "client_id": { "type": "string" },
                   "client_secret": { "type": "string" },
-                  "code": { "type": "string" },
+                  "code": { "type": "string", "description": "Authorization code from /sso flow" },
                   "grant_type": { "type": "string", "example": "authorization_code" }
                 }
               }
@@ -116,17 +227,67 @@
           }
         },
         "responses": {
-          "200": { "description": "Token issued" }
+          "200": {
+            "description": "Access token granted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "access_token": { "type": "string" },
+                    "token_type": { "type": "string", "example": "Bearer" },
+                    "expires_in": { "type": "integer", "example": 3600 }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sso/userinfo": {
+      "get": {
+        "summary": "Get User Profile (SSO)",
+        "description": "Retrieves the authenticated user's sovereign profile information using Bearer token.",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "User profile data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sub": { "type": "string", "example": "azad1" },
+                    "username": { "type": "string", "example": "azad1" },
+                    "display_name": { "type": "string", "example": "Aman Azad" },
+                    "avatar_url": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
   },
   "components": {
     "securitySchemes": {
-      "ApiKeyAuth": {
+      "ClientIdSecretAuth": {
         "type": "apiKey",
         "in": "header",
-        "name": "X-API-Key"
+        "name": "X-Client-Id",
+        "description": "Provide X-Client-Id and X-Client-Secret headers simultaneously."
+      },
+      "BasicAuth": {
+        "type": "http",
+        "scheme": "basic",
+        "description": "Basic authentication using client_id:client_secret encoded in base64."
+      },
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Bearer token authentication (OAuth access token or Bearer client_id:client_secret)."
       }
     }
   }

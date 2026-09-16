@@ -85,13 +85,32 @@ export interface BuildOAuthUrlOptions {
   codeChallengeMethod?: 'S256' | 'plain';
   prompt?: 'consent' | 'select_account' | 'none';
   authPath?: string;
+  baseUrl?: string;
   customParams?: Record<string, string>;
+}
+
+/**
+ * Returns the canonical, dedicated accounts authentication base URL.
+ * Automatically resolves to accounts.zenoa.in or accounts.zenoa.sbs in production,
+ * and falls back cleanly to the current origin on local or preview environments.
+ */
+export function getAccountsBaseUrl(): string {
+  if (typeof window === 'undefined') return 'https://accounts.zenoa.in/auth/sso';
+  const host = window.location.hostname.toLowerCase();
+  if (host.endsWith('zenoa.in')) {
+    return 'https://accounts.zenoa.in/auth/sso';
+  }
+  if (host.endsWith('zenoa.sbs')) {
+    return 'https://accounts.zenoa.sbs/auth/sso';
+  }
+  return `${window.location.origin}/auth/sso`;
 }
 
 /**
  * Builds a comprehensive, long, cryptographically secure OAuth 2.0 authorization URL.
  * Includes client_id, redirect_uri, response_type, scope, state, nonce, code_challenge,
  * request security fingerprint, timestamp, and versioning to prevent brute-force attacks.
+ * Directly routes to the dedicated accounts authentication URL.
  */
 export function buildSecureOAuthUrl(options: BuildOAuthUrlOptions): string {
   const {
@@ -103,12 +122,12 @@ export function buildSecureOAuthUrl(options: BuildOAuthUrlOptions): string {
     codeChallenge = `zen_pkce_${generateCryptographicEntropy(32)}`,
     codeChallengeMethod = 'S256',
     prompt = 'select_account',
-    authPath = '/auth/sso',
+    baseUrl,
     customParams = {}
   } = options;
 
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://zenoa.in';
-  const url = new URL(authPath, origin);
+  const targetBase = baseUrl || getAccountsBaseUrl();
+  const url = new URL(targetBase);
 
   // Standard RFC 6749 & OIDC Parameters
   url.searchParams.set('client_id', clientId);
@@ -132,5 +151,5 @@ export function buildSecureOAuthUrl(options: BuildOAuthUrlOptions): string {
     if (v) url.searchParams.set(k, v);
   });
 
-  return url.pathname + url.search;
+  return url.toString();
 }

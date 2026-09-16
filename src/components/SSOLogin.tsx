@@ -5,7 +5,7 @@ import {
   Key, Lock, UserPlus, User, ShieldAlert, ArrowLeft, Terminal, 
   Ban, ChevronRight, MoreVertical, Trash2, Cpu, ShieldCheck, Loader2,
   Mail, Smartphone, RefreshCw, MessageSquare, Send, Users, Activity,
-  Fingerprint, Sparkles, HelpCircle, Eye, Info
+  Fingerprint, Sparkles, HelpCircle, Eye, EyeOff, Info
 } from 'lucide-react';
 import { UserData } from '../types';
 import { db } from '../firebaseClient';
@@ -17,7 +17,12 @@ interface SSOLoginProps {
   themeMode: 'light' | 'dark';
   currentUser: UserData | null;
   onLoginRequest: () => void;
-  onInlineLogin?: (identifier: string, pass: string) => Promise<{ success: boolean; error?: string }>;
+  onInlineLogin?: (identifier: string, pass: string) => Promise<{ success: boolean; error?: string; user?: UserData }>;
+  onInlineRegister?: (data: {
+    fullName: string;
+    email: string;
+    password: string;
+  }) => Promise<{ success: boolean; error?: string; user?: UserData }>;
   onLogout: () => void;
 }
 
@@ -33,7 +38,8 @@ interface SecurityBlockDetails {
 export const SSOLogin: React.FC<SSOLoginProps> = ({ 
   currentUser, 
   onLoginRequest,
-  onInlineLogin
+  onInlineLogin,
+  onInlineRegister
 }) => {
   const branding = useBranding();
   const activeLogo = branding.oauth_logo || branding.public_logo;
@@ -53,10 +59,20 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
   const [savedAccounts, setSavedAccounts] = useState<UserData[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<UserData | null>(currentUser);
   const [showInlineLoginForm, setShowInlineLoginForm] = useState(false);
+  const [inlineAuthMode, setInlineAuthMode] = useState<'login' | 'register'>('login');
+  
+  // Login form state
   const [inlineIdentifier, setInlineIdentifier] = useState('');
   const [inlinePassword, setInlinePassword] = useState('');
+  const [inlineShowPassword, setInlineShowPassword] = useState(false);
   const [inlineLoginLoading, setInlineLoginLoading] = useState(false);
   const [inlineLoginError, setInlineLoginError] = useState<string | null>(null);
+
+  // Register form state (JIT Account Creation for OAuth)
+  const [regFullName, setRegFullName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regShowPassword, setRegShowPassword] = useState(false);
   
   // Callback Result State (When redirect_uri is /auth/sso for test inspection)
   const [callbackData, setCallbackData] = useState<{ 
@@ -486,6 +502,10 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
           setInlineLoginLoading(false);
           return;
         }
+        if (result.user) {
+          setSelectedAccount(result.user);
+          setSavedAccounts(prev => [result.user!, ...prev.filter(a => a.id !== result.user!.id && a.username !== result.user!.username)]);
+        }
         setShowInlineLoginForm(false);
         setWizardStep(2);
       } else {
@@ -493,6 +513,58 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
       }
     } catch (err: any) {
       setInlineLoginError(err.message || 'Login failed.');
+    } finally {
+      setInlineLoginLoading(false);
+    }
+  };
+
+  const handleInlineRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = regFullName.trim();
+    const cleanMail = regEmail.trim();
+
+    if (!cleanName) {
+      setInlineLoginError('Please enter your full display name.');
+      return;
+    }
+
+    if (!cleanMail || !cleanMail.includes('@') || !cleanMail.includes('.')) {
+      setInlineLoginError('Please enter a valid email address.');
+      return;
+    }
+
+    if (!regPassword || regPassword.length < 6) {
+      setInlineLoginError('Password must be at least 6 characters.');
+      return;
+    }
+
+    setInlineLoginLoading(true);
+    setInlineLoginError(null);
+
+    try {
+      if (onInlineRegister) {
+        const result = await onInlineRegister({
+          fullName: cleanName,
+          email: cleanMail,
+          password: regPassword
+        });
+
+        if (!result.success || !result.user) {
+          setInlineLoginError(result.error || 'Failed to create your account.');
+          setInlineLoginLoading(false);
+          return;
+        }
+
+        // Successfully created JIT OAuth account
+        setSelectedAccount(result.user);
+        setSavedAccounts(prev => [result.user!, ...prev.filter(a => a.id !== result.user!.id && a.username !== result.user!.username)]);
+        setShowInlineLoginForm(false);
+        setWizardStep(2);
+      } else {
+        setInlineLoginError('Direct registration is not available. Please sign in with an existing account.');
+      }
+    } catch (err: any) {
+      setInlineLoginError(err.message || 'Registration failed.');
     } finally {
       setInlineLoginLoading(false);
     }
@@ -523,6 +595,127 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
 
     return Array.from(scopeSet);
   }, [appConfig?.scopes]);
+
+  // Dynamically generate clean, human-readable permissions requested by the application owner
+  const cleanScopeItems = useMemo(() => {
+    const items: Array<{
+      id: string;
+      title: string;
+      description: string;
+      icon: React.ComponentType<{ className?: string }>;
+    }> = [];
+    const scopeSet = new Set(effectiveScopes.map(s => s.toLowerCase().trim()));
+
+    // 1. Name & Profile (covers openid & profile)
+    if (scopeSet.has('profile') || scopeSet.has('openid')) {
+      items.push({
+        id: 'profile',
+        title: 'Name and profile',
+        description: 'See your full name, username handle, and profile picture',
+        icon: User
+      });
+    }
+
+    // 2. Email ID
+    if (scopeSet.has('email')) {
+      items.push({
+        id: 'email',
+        title: 'Your email ID',
+        description: 'See the verified email address associated with your Zenoa account',
+        icon: Mail
+      });
+    }
+
+    // 3. Mobile Number
+    if (scopeSet.has('phone')) {
+      items.push({
+        id: 'phone',
+        title: 'Your phone number',
+        description: 'See your verified mobile contact number',
+        icon: Smartphone
+      });
+    }
+
+    // 4. Developer Console Access
+    if (scopeSet.has('developer_access')) {
+      items.push({
+        id: 'developer_access',
+        title: 'Developer console access',
+        description: 'Manage applications, bot webhooks, and API keys',
+        icon: Terminal
+      });
+    }
+
+    // 5. OAuth & SSO Management
+    if (scopeSet.has('oauth_management')) {
+      items.push({
+        id: 'oauth_management',
+        title: 'OAuth & SSO management',
+        description: 'Register OAuth clients, credentials, and callback URIs',
+        icon: Key
+      });
+    }
+
+    // 6. Direct Messages (read)
+    if (scopeSet.has('messages.read')) {
+      items.push({
+        id: 'messages.read',
+        title: 'Read direct messages',
+        description: 'Access conversation histories and chat channels',
+        icon: MessageSquare
+      });
+    }
+
+    // 7. Direct Messages (send)
+    if (scopeSet.has('messages.send')) {
+      items.push({
+        id: 'messages.send',
+        title: 'Send messages on your behalf',
+        description: 'Post messages, replies, and notifications',
+        icon: Send
+      });
+    }
+
+    // 8. Contacts
+    if (scopeSet.has('contacts.read')) {
+      items.push({
+        id: 'contacts.read',
+        title: 'Your contact connections',
+        description: 'Discover and match your verified Zenoa contacts',
+        icon: Users
+      });
+    }
+
+    // 9. Activity / Presence
+    if (scopeSet.has('activity.read')) {
+      items.push({
+        id: 'activity.read',
+        title: 'Online presence and activity',
+        description: 'View active online and last-seen status',
+        icon: Activity
+      });
+    }
+
+    // 10. Dynamic fallback for any other scopes registered by application owner
+    effectiveScopes.forEach(s => {
+      const norm = s.toLowerCase().trim();
+      if (!norm) return;
+      if (['openid', 'profile', 'email', 'phone', 'developer_access', 'oauth_management', 'messages.read', 'messages.send', 'contacts.read', 'activity.read', 'offline_access'].includes(norm)) {
+        return;
+      }
+      const formattedTitle = norm
+        .replace(/[._]/g, ' ')
+        .replace(/\b\w/g, c => c.toUpperCase());
+      items.push({
+        id: norm,
+        title: formattedTitle,
+        description: `Permission privilege requested by application (${norm})`,
+        icon: Shield
+      });
+    });
+
+    return items;
+  }, [effectiveScopes]);
 
   // Helper to resolve user-friendly metadata for each requested permission scope
   const getScopeMetadata = (scopeKey: string, user: UserData | null) => {
@@ -848,26 +1041,10 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
     }
   };
 
-  // When user taps on an account card
+  // When user taps on an account card, advance to permission review
   const handleAccountCardClick = (account: UserData) => {
     setSelectedAccount(account);
-    const activeCid = (clientId || new URLSearchParams(window.location.search).get('client_id') || '').toLowerCase();
-    const isOfficialPortal = 
-      appConfig?.is_official || 
-      activeCid === 'zenoa_developer_console' || 
-      activeCid === 'dev_console' ||
-      activeCid === 'zenoa-dev-console' ||
-      activeCid === 'zenoa_oauth_console' || 
-      activeCid === 'oauth_console' || 
-      activeCid === 'sso_console';
-
-    // Official developer and SSO portals allow 1-tap instant login
-    if (isOfficialPortal) {
-      executeAuthorizationGrant(account);
-    } else {
-      // 3rd-party apps display scopes consent review
-      setWizardStep(2);
-    }
+    setWizardStep(2);
   };
 
   const handleExchangeToken = async () => {
@@ -1259,12 +1436,14 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
           </div>
 
           {/* Destination Portal/App Badge */}
-          <div className="mb-4">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#533afd]/8 border border-[#533afd]/20 text-[11px] font-semibold text-[#533afd]">
-              <Lock className="h-3 w-3" />
-              <span>Continue to {appConfig?.app_name || appConfig?.name || 'Zenoa Platform'}</span>
+          {wizardStep === 1 && (
+            <div className="mb-4">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#533afd]/8 border border-[#533afd]/20 text-[11px] font-semibold text-[#533afd]">
+                <Lock className="h-3 w-3" />
+                <span>Continue to {appConfig?.app_name || appConfig?.name || 'Zenoa Platform'}</span>
+              </div>
             </div>
-          </div>
+          )}
 
           {error && (
             <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-700 flex items-start gap-2">
@@ -1284,25 +1463,59 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
               {/* Confident Headline */}
               <div className="mb-6">
                 <h1 className="text-[28px] sm:text-[32px] font-medium tracking-tight text-[#0d253d] leading-[1.15]">
-                  Choose an account
+                  {showInlineLoginForm 
+                    ? (inlineAuthMode === 'register' ? 'Create a Zenoa account' : 'Sign in to Zenoa') 
+                    : 'Choose an account'}
                 </h1>
                 <p className="text-[14px] sm:text-[15px] text-[#64748d] font-normal leading-relaxed mt-2">
-                  Tap your profile to sign in instantly without entering a password.
+                  {showInlineLoginForm 
+                    ? (inlineAuthMode === 'register' 
+                        ? `Create a sovereign account to authorize ${appConfig?.app_name || 'this app'} instantly.` 
+                        : `Sign in to authorize ${appConfig?.app_name || 'this app'}.`) 
+                    : 'Tap your profile to sign in instantly without entering a password.'}
                 </p>
               </div>
 
               {showInlineLoginForm ? (
-                /* Inline sign-in form */
-                <form onSubmit={handleInlineLoginSubmit} className="space-y-3.5 p-4 sm:p-5 bg-neutral-50/80 rounded-2xl border border-[#e3e8ee]">
-                  <div className="flex items-center justify-between pb-1">
-                    <span className="text-xs font-bold text-[#0d253d]">Sign in with Zenoa</span>
+                /* Inline sign-in / registration form */
+                <div className="p-4 sm:p-5 bg-neutral-50/80 rounded-2xl border border-[#e3e8ee] space-y-4">
+                  {/* Top Bar with Mode Switch and Cancel */}
+                  <div className="flex items-center justify-between">
+                    {/* Tab Switcher */}
+                    <div className="flex p-1 bg-neutral-200/80 rounded-xl">
+                      <button
+                        type="button"
+                        onClick={() => { setInlineAuthMode('login'); setInlineLoginError(null); }}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                          inlineAuthMode === 'login'
+                            ? 'bg-white text-[#0d253d] shadow-sm'
+                            : 'text-[#64748d] hover:text-[#0d253d]'
+                        }`}
+                      >
+                        <User className="h-3.5 w-3.5" />
+                        <span>Sign In</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setInlineAuthMode('register'); setInlineLoginError(null); }}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                          inlineAuthMode === 'register'
+                            ? 'bg-white text-[#0d253d] shadow-sm'
+                            : 'text-[#64748d] hover:text-[#0d253d]'
+                        }`}
+                      >
+                        <UserPlus className="h-3.5 w-3.5" />
+                        <span>Create Account</span>
+                      </button>
+                    </div>
+
                     {savedAccounts.length > 0 && (
                       <button 
                         type="button" 
                         onClick={() => setShowInlineLoginForm(false)}
                         className="text-[11px] text-[#533afd] font-semibold hover:underline cursor-pointer"
                       >
-                        Use Saved Accounts
+                        Use Saved
                       </button>
                     )}
                   </div>
@@ -1313,42 +1526,162 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
                     </div>
                   )}
 
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] mb-1">Username or Email</label>
-                    <input
-                      type="text"
-                      value={inlineIdentifier}
-                      onChange={(e) => setInlineIdentifier(e.target.value)}
-                      placeholder="e.g. username or email"
-                      className="w-full px-3.5 py-2.5 bg-white border border-[#e3e8ee] rounded-xl text-xs text-[#0d253d] focus:outline-none focus:border-[#533afd] font-sans"
-                      required
-                    />
-                  </div>
+                  {inlineAuthMode === 'login' ? (
+                    /* Existing User Sign-in Form */
+                    <form onSubmit={handleInlineLoginSubmit} className="space-y-3.5">
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] mb-1">Username or Email</label>
+                        <input
+                          type="text"
+                          value={inlineIdentifier}
+                          onChange={(e) => setInlineIdentifier(e.target.value)}
+                          placeholder="e.g. username or email"
+                          className="w-full px-3.5 py-2.5 bg-white border border-[#e3e8ee] rounded-xl text-xs text-[#0d253d] focus:outline-none focus:border-[#533afd] font-sans"
+                          required
+                        />
+                      </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] mb-1">Password</label>
-                    <input
-                      type="password"
-                      value={inlinePassword}
-                      onChange={(e) => setInlinePassword(e.target.value)}
-                      placeholder="Enter your password"
-                      className="w-full px-3.5 py-2.5 bg-white border border-[#e3e8ee] rounded-xl text-xs text-[#0d253d] focus:outline-none focus:border-[#533afd] font-sans"
-                      required
-                    />
-                  </div>
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] mb-1">Password</label>
+                        <div className="relative flex items-center">
+                          <input
+                            type={inlineShowPassword ? "text" : "password"}
+                            value={inlinePassword}
+                            onChange={(e) => setInlinePassword(e.target.value)}
+                            placeholder="Enter your password"
+                            className="w-full pl-3.5 pr-10 py-2.5 bg-white border border-[#e3e8ee] rounded-xl text-xs text-[#0d253d] focus:outline-none focus:border-[#533afd] font-sans"
+                            required
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setInlineShowPassword(!inlineShowPassword)}
+                            className="absolute right-3 text-[#64748d] hover:text-[#0d253d] cursor-pointer"
+                          >
+                            {inlineShowPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      </div>
 
-                  <button
-                    type="submit"
-                    disabled={inlineLoginLoading}
-                    className="w-full py-3.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-1"
-                  >
-                    {inlineLoginLoading ? (
-                      <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : (
-                      <span>Sign In & Continue</span>
-                    )}
-                  </button>
-                </form>
+                      <button
+                        type="submit"
+                        disabled={inlineLoginLoading}
+                        className="w-full py-3.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-1"
+                      >
+                        {inlineLoginLoading ? (
+                          <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : (
+                          <span>Sign In & Continue</span>
+                        )}
+                      </button>
+
+                      <div className="pt-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => { setInlineAuthMode('register'); setInlineLoginError(null); }}
+                          className="text-[12px] text-[#533afd] font-semibold hover:underline cursor-pointer"
+                        >
+                          Don't have a Zenoa account? Create one
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    /* New User JIT OAuth Registration Form */
+                    <form onSubmit={handleInlineRegisterSubmit} className="space-y-3.5">
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] mb-1">
+                          Full Display Name <span className="text-rose-500">*</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <User className="absolute left-3.5 h-4 w-4 text-[#64748d]" />
+                          <input
+                            type="text"
+                            value={regFullName}
+                            onChange={(e) => setRegFullName(e.target.value)}
+                            placeholder="e.g. Aman Azad"
+                            className="w-full pl-10 pr-4 py-2.5 bg-white border border-[#e3e8ee] rounded-xl text-xs text-[#0d253d] focus:outline-none focus:border-[#533afd] font-sans"
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] mb-1">
+                          Email Address <span className="text-rose-500">*</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <Mail className="absolute left-3.5 h-4 w-4 text-[#64748d]" />
+                          <input
+                            type="email"
+                            value={regEmail}
+                            onChange={(e) => setRegEmail(e.target.value)}
+                            placeholder="you@example.com"
+                            className="w-full pl-10 pr-4 py-2.5 bg-white border border-[#e3e8ee] rounded-xl text-xs text-[#0d253d] focus:outline-none focus:border-[#533afd] font-sans"
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] mb-1">
+                          Password <span className="text-rose-500">*</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <Lock className="absolute left-3.5 h-4 w-4 text-[#64748d]" />
+                          <input
+                            type={regShowPassword ? "text" : "password"}
+                            value={regPassword}
+                            onChange={(e) => setRegPassword(e.target.value)}
+                            placeholder="At least 6 characters"
+                            className="w-full pl-10 pr-10 py-2.5 bg-white border border-[#e3e8ee] rounded-xl text-xs text-[#0d253d] focus:outline-none focus:border-[#533afd] font-sans"
+                            required
+                            minLength={6}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setRegShowPassword(!regShowPassword)}
+                            className="absolute right-3 text-[#64748d] hover:text-[#0d253d] cursor-pointer"
+                          >
+                            {regShowPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Progressive Profiling Info Badge */}
+                      <div className="p-3 bg-indigo-50/70 border border-indigo-200/60 rounded-xl text-[11px] text-indigo-800 leading-relaxed">
+                        <span className="font-bold flex items-center gap-1.5 mb-0.5">
+                          <Sparkles className="h-3.5 w-3.5 text-[#533afd]" />
+                          <span>Instant Sovereign Registration</span>
+                        </span>
+                        Your account is created immediately to authorize <strong>{appConfig?.app_name || 'this app'}</strong>. When you next log in to Zenoa Messenger, you can choose your permanent @username, Zenoa ID, and profile details.
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={inlineLoginLoading}
+                        className="w-full py-3.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-1"
+                      >
+                        {inlineLoginLoading ? (
+                          <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : (
+                          <>
+                            <UserPlus className="h-4 w-4" />
+                            <span>Create Account & Authorize</span>
+                          </>
+                        )}
+                      </button>
+
+                      <div className="pt-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => { setInlineAuthMode('login'); setInlineLoginError(null); }}
+                          className="text-[12px] text-[#533afd] font-semibold hover:underline cursor-pointer"
+                        >
+                          Already have a Zenoa account? Sign in
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
               ) : savedAccounts.length > 0 ? (
                 /* List of Saved Accounts matching Screenshot */
                 <div className="space-y-3">
@@ -1412,163 +1745,172 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
                     })}
                   </div>
 
-                  {/* Clean Divider & Use Another Account Button */}
-                  <div className="pt-6 mt-6 border-t border-[#e3e8ee]/80">
+                  {/* Clean Actions: Use Another Account or Create New */}
+                  <div className="pt-6 mt-6 border-t border-[#e3e8ee]/80 space-y-2.5">
                     <button
                       id="sso-use-another-account-btn"
                       type="button"
-                      onClick={() => setShowInlineLoginForm(true)}
-                      className="w-full py-3.5 px-4 rounded-xl border border-[#e3e8ee] bg-white/70 hover:bg-[#533afd]/5 hover:border-[#533afd]/30 text-[14px] font-medium text-[#0d253d] flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs active:scale-[0.985]"
+                      onClick={() => {
+                        setInlineAuthMode('login');
+                        setShowInlineLoginForm(true);
+                      }}
+                      className="w-full py-3 px-4 rounded-xl border border-[#e3e8ee] bg-white/70 hover:bg-[#533afd]/5 hover:border-[#533afd]/30 text-[13px] font-medium text-[#0d253d] flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs active:scale-[0.985]"
                     >
-                      <UserPlus className="h-4 w-4 text-[#533afd]" />
-                      <span>Use another account</span>
+                      <User className="h-4 w-4 text-[#533afd]" />
+                      <span>Sign in with another account</span>
+                    </button>
+
+                    <button
+                      id="sso-create-new-account-btn"
+                      type="button"
+                      onClick={() => {
+                        setInlineAuthMode('register');
+                        setShowInlineLoginForm(true);
+                      }}
+                      className="w-full py-3 px-4 rounded-xl border border-dashed border-[#533afd]/40 bg-[#533afd]/5 hover:bg-[#533afd]/10 text-[13px] font-semibold text-[#533afd] flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.985]"
+                    >
+                      <UserPlus className="h-4 w-4" />
+                      <span>Create a new Zenoa account</span>
                     </button>
                   </div>
                 </div>
               ) : (
-                /* No accounts yet - Direct sign in */
+                /* No accounts yet - Direct sign in or register options */
                 <div className="space-y-4">
-                  <div className="p-5 bg-neutral-50 rounded-2xl border border-[#e3e8ee] text-center">
-                    <p className="text-xs text-[#64748d] mb-4 leading-relaxed">
-                      No saved Zenoa accounts found on this device. Sign in to authorize <strong className="text-[#0d253d]">{appConfig?.app_name || 'this app'}</strong>.
+                  <div className="p-5 bg-neutral-50 rounded-2xl border border-[#e3e8ee] text-center space-y-3">
+                    <p className="text-xs text-[#64748d] leading-relaxed">
+                      No saved Zenoa accounts found on this device. Sign in or create an account to authorize <strong className="text-[#0d253d]">{appConfig?.app_name || 'this app'}</strong>.
                     </p>
-                    <button
-                      onClick={() => setShowInlineLoginForm(true)}
-                      className="w-full py-3.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2"
-                    >
-                      <User className="h-4 w-4" />
-                      <span>Sign In with Zenoa</span>
-                    </button>
+
+                    <div className="space-y-2 pt-1">
+                      <button
+                        onClick={() => {
+                          setInlineAuthMode('register');
+                          setShowInlineLoginForm(true);
+                        }}
+                        className="w-full py-3 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <UserPlus className="h-4 w-4" />
+                        <span>Create a Zenoa Account</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setInlineAuthMode('login');
+                          setShowInlineLoginForm(true);
+                        }}
+                        className="w-full py-3 bg-white hover:bg-neutral-100 text-[#0d253d] border border-[#e3e8ee] rounded-xl text-xs font-semibold shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <User className="h-4 w-4 text-[#533afd]" />
+                        <span>Sign In with Existing Account</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
             </motion.div>
           ) : (
-            /* STEP 2: PERMISSIONS CONSENT REVIEW FOR 3RD PARTY APPS */
+            /* STEP 2: MINIMAL & CLEAN PERMISSIONS CONSENT */
             <motion.div
               key="step-2-consent"
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.16 }}
-              className="space-y-4"
+              className="space-y-6"
             >
-              <div className="flex items-center justify-between pb-1">
-                <button 
-                  onClick={() => setWizardStep(1)}
-                  className="px-3 py-1.5 bg-neutral-100 hover:bg-neutral-200 rounded-xl text-[#0d253d] text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <ArrowLeft className="h-3.5 w-3.5" />
-                  <span>Change Account</span>
-                </button>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-bold text-[#64748d] uppercase tracking-wider">Review Permissions</span>
-                  <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-[#533afd]/10 text-[#533afd]">
-                    {effectiveScopes.length} Requested
-                  </span>
-                </div>
-              </div>
-
-              {/* Selected Account Card */}
+              {/* Clean Account Selector / Switcher */}
               {effectiveActiveUser && (
-                <div className="p-3 bg-neutral-50/90 rounded-2xl border border-[#e3e8ee] flex items-center gap-3 shadow-xs">
-                  <div className="h-10 w-10 rounded-full bg-[#1c202a] text-white flex items-center justify-center font-bold text-sm shadow-xs overflow-hidden shrink-0">
-                    {effectiveActiveUser.avatar_url ? (
-                      <img src={effectiveActiveUser.avatar_url} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                    ) : (
-                      (effectiveActiveUser.display_name || effectiveActiveUser.username || 'U').charAt(0).toUpperCase()
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <h4 className="font-semibold text-xs text-[#0d253d] truncate">
-                        {effectiveActiveUser.display_name || effectiveActiveUser.username}
-                      </h4>
-                      {effectiveActiveUser.is_verified && (
-                        <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
-                          Verified
-                        </span>
+                <div className="flex items-center justify-between pb-3 border-b border-[#e3e8ee]/80">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="h-8 w-8 rounded-full bg-[#1c202a] text-white flex items-center justify-center font-bold text-xs shadow-xs overflow-hidden shrink-0">
+                      {effectiveActiveUser.avatar_url ? (
+                        <img src={effectiveActiveUser.avatar_url} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        (effectiveActiveUser.display_name || effectiveActiveUser.username || 'U').charAt(0).toUpperCase()
                       )}
                     </div>
-                    <p className="text-[11px] text-[#64748d] font-mono truncate">@{effectiveActiveUser.username}</p>
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-semibold text-[#0d253d] truncate leading-tight">
+                        {effectiveActiveUser.display_name || effectiveActiveUser.username}
+                      </p>
+                      <p className="text-[11px] text-[#64748d] truncate leading-tight mt-0.5">
+                        @{effectiveActiveUser.username?.replace(/^@/, '')}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 bg-emerald-50/80 px-2 py-1 rounded-xl border border-emerald-200/80 shrink-0">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Selected</span>
-                  </div>
+
+                  <button 
+                    type="button"
+                    onClick={() => setWizardStep(1)}
+                    className="text-[12px] font-medium text-[#533afd] hover:text-[#432ec4] hover:underline cursor-pointer shrink-0 ml-2"
+                  >
+                    Change
+                  </button>
                 </div>
               )}
 
-              {/* Application Permissions Header */}
-              <div className="pt-1">
-                <p className="text-xs text-[#0d253d] font-semibold flex items-center gap-1.5">
-                  <Shield className="h-3.5 w-3.5 text-[#533afd]" />
-                  <span>
-                    <strong className="text-[#0d253d]">{appConfig?.app_name || appConfig?.name || 'This Application'}</strong> is requesting access to:
-                  </span>
+              {/* Minimal Clear Statement */}
+              <div>
+                <h1 className="text-[22px] sm:text-[25px] font-semibold text-[#0d253d] tracking-tight leading-snug">
+                  Zenoa will allow <span className="text-[#533afd] font-bold">{appConfig?.app_name || appConfig?.name || 'this application'}</span> to access:
+                </h1>
+                <p className="text-[13px] text-[#64748d] mt-1.5 leading-relaxed">
+                  The application will receive the following verified information from your Zenoa account:
                 </p>
               </div>
 
-              {/* Dynamic Real-Time Scopes Permissions List */}
-              <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
-                {effectiveScopes.map((scopeKey) => {
-                  const meta = getScopeMetadata(scopeKey, effectiveActiveUser);
-                  const IconComp = meta.icon;
+              {/* Dynamic Permissions List (Derived from Registered Scopes) */}
+              <div className="space-y-4 pt-1 pb-2">
+                {cleanScopeItems.map((item) => {
+                  const Icon = item.icon;
                   return (
-                    <div 
-                      key={scopeKey}
-                      className="p-3 bg-white hover:bg-neutral-50/80 rounded-2xl border border-[#e3e8ee] transition-all text-xs space-y-1.5 shadow-2xs"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="h-6 w-6 rounded-lg bg-neutral-100 flex items-center justify-center shrink-0">
-                            <IconComp className="h-3.5 w-3.5 text-[#533afd]" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-semibold text-xs text-[#0d253d] truncate">{meta.name}</p>
-                            <p className="text-[10px] font-mono text-[#64748d]">{meta.id}</p>
-                          </div>
-                        </div>
-                        <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${meta.categoryClass}`}>
-                          {meta.category}
-                        </span>
+                    <div key={item.id} className="flex items-start gap-3.5">
+                      <div className="h-9 w-9 rounded-full bg-[#533afd]/8 text-[#533afd] flex items-center justify-center shrink-0 mt-0.5">
+                        <Icon className="h-4 w-4" />
                       </div>
-
-                      <p className="text-[11px] text-[#64748d] leading-relaxed pl-8">
-                        {meta.desc}
-                      </p>
-
-                      {meta.preview && (
-                        <div className="pl-8 pt-0.5">
-                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-neutral-100/90 border border-neutral-200/60 text-[10px] font-mono text-[#0d253d]">
-                            <span className="text-[#64748d]">Live Claim:</span>
-                            <span className="font-semibold truncate max-w-[200px]">{meta.preview}</span>
-                          </div>
-                        </div>
-                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[15px] font-semibold text-[#0d253d] leading-snug">
+                          {item.title}
+                        </p>
+                        <p className="text-[13px] text-[#64748d] leading-normal mt-0.5">
+                          {item.description}
+                        </p>
+                      </div>
                     </div>
                   );
                 })}
               </div>
 
-              {/* Authorize Button */}
-              <button 
-                onClick={() => effectiveActiveUser && executeAuthorizationGrant(effectiveActiveUser)}
-                disabled={isAuthorizing}
-                className="w-full py-3.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2 active:scale-[0.99]"
-              >
-                {isAuthorizing ? (
-                  <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <>
-                    <span>Authorize & Continue</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </>
-                )}
-              </button>
+              {/* Minimal Actions */}
+              <div className="pt-5 border-t border-[#e3e8ee]/80 space-y-2.5">
+                <button 
+                  type="button"
+                  id="sso-allow-permissions-btn"
+                  onClick={() => effectiveActiveUser && executeAuthorizationGrant(effectiveActiveUser)}
+                  disabled={isAuthorizing}
+                  className="w-full py-3.5 bg-[#533afd] hover:bg-[#432ec4] active:bg-[#3422a8] text-white rounded-2xl text-[15px] font-medium shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-[0.985]"
+                >
+                  {isAuthorizing ? (
+                    <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <span>Allow & Continue</span>
+                  )}
+                </button>
 
-              <div className="text-[11px] text-[#64748d] leading-relaxed text-center mt-1 border-t border-[#e3e8ee] pt-3 font-sans">
-                By clicking <strong>Authorize & Continue</strong>, you permit <strong className="text-[#0d253d]">{appConfig?.app_name || 'this application'}</strong> to access your selected Zenoa profile attributes in accordance with their privacy policy and Zenoa Security Standards.
+                <button
+                  type="button"
+                  id="sso-cancel-permissions-btn"
+                  onClick={() => setWizardStep(1)}
+                  disabled={isAuthorizing}
+                  className="w-full py-2.5 text-[#64748d] hover:text-[#0d253d] text-[14px] font-medium transition-colors cursor-pointer text-center"
+                >
+                  Cancel
+                </button>
               </div>
+
+              <p className="text-[12px] text-[#94a3b8] text-center mt-2 leading-relaxed">
+                You can review or revoke access at any time in your Zenoa settings.
+              </p>
             </motion.div>
           )}
 

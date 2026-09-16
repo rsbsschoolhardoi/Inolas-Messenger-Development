@@ -66,15 +66,17 @@ export const MobileSetupView: React.FC<MobileSetupViewProps> = ({
       const formattedMobile = `${countryCode}${activeNumber}`;
       try {
         if (user && db) {
-          const primaryZenoaId = user.id || user.username.toLowerCase();
-          await setDoc(doc(db, 'users', primaryZenoaId), {
-            mobile_number: formattedMobile,
-            phone_number: formattedMobile,
-            is_business_verified: true,
-            is_truecaller_verified: true,
-            phone_verified_at: Date.now(),
-            updated_at: Date.now()
-          }, { merge: true });
+          const primaryZenoaId = (user.id || user.username || '').toLowerCase().replace(/^@+/, '').trim();
+          if (primaryZenoaId && primaryZenoaId !== '@' && !primaryZenoaId.startsWith('@')) {
+            await setDoc(doc(db, 'users', primaryZenoaId), {
+              mobile_number: formattedMobile,
+              phone_number: formattedMobile,
+              is_business_verified: true,
+              is_truecaller_verified: true,
+              phone_verified_at: Date.now(),
+              updated_at: Date.now()
+            }, { merge: true });
+          }
         }
 
         const updatedUser: UserData = {
@@ -102,15 +104,17 @@ export const MobileSetupView: React.FC<MobileSetupViewProps> = ({
     
     try {
       if (user && db) {
-        const primaryZenoaId = user.id || user.username.toLowerCase();
-        await setDoc(doc(db, 'users', primaryZenoaId), {
-          mobile_number: formattedMobile,
-          phone_number: formattedMobile,
-          is_business_verified: true,
-          is_truecaller_verified: true,
-          phone_verified_at: Date.now(),
-          updated_at: Date.now()
-        }, { merge: true });
+        const primaryZenoaId = (user.id || user.username || '').toLowerCase().replace(/^@+/, '').trim();
+        if (primaryZenoaId && primaryZenoaId !== '@' && !primaryZenoaId.startsWith('@')) {
+          await setDoc(doc(db, 'users', primaryZenoaId), {
+            mobile_number: formattedMobile,
+            phone_number: formattedMobile,
+            is_business_verified: true,
+            is_truecaller_verified: true,
+            phone_verified_at: Date.now(),
+            updated_at: Date.now()
+          }, { merge: true });
+        }
       }
 
       const updatedUser: UserData = {

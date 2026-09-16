@@ -3,7 +3,6 @@ import { resolveAndApplyMetadata } from '../seoUtils';
 import { db } from '../firebaseClient';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { SSOPortal } from './SSOPortal';
-import { ZenoaAuthGatewayModal } from './ZenoaAuthGatewayModal';
 import { UserData } from '../types';
 import { useBranding } from '../brandingUtils';
 import { BrandLogo } from './common/BrandLogo';
@@ -32,7 +31,6 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
     } catch (e) {}
     return 'light';
   });
-  const [showZenoaAuthModal, setShowZenoaAuthModal] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   useEffect(() => {
@@ -291,13 +289,6 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
               variant="primary"
               className="w-full sm:w-auto shadow-lg"
             />
-            <button
-              onClick={() => setShowZenoaAuthModal(true)}
-              className="w-full sm:w-auto px-6 py-3.5 sm:py-4 rounded-2xl bg-white dark:bg-[#121624] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] text-[#0d253d] dark:text-white border border-[#e3e8ee] dark:border-[#273951] text-[15px] font-medium transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer"
-            >
-              <span>Direct Sign In</span>
-              <ArrowRight className="h-4 w-4" />
-            </button>
             <a
               href="/docs"
               className="w-full sm:w-auto px-6 py-3.5 sm:py-4 rounded-2xl bg-white dark:bg-[#121624] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] text-[#0d253d] dark:text-white border border-[#e3e8ee] dark:border-[#273951] text-[15px] font-medium transition-colors flex items-center justify-center gap-2 shadow-xs"
@@ -363,16 +354,6 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
             </div>
           </div>
         </footer>
-
-        {/* Unified "Continue with Zenoa" Modal */}
-        <ZenoaAuthGatewayModal
-          isOpen={showZenoaAuthModal}
-          onClose={() => setShowZenoaAuthModal(false)}
-          serviceTitle={`${branding.app_name || 'Zenoa'} OAuth & Identity Console`}
-          serviceDescription="Manage OAuth 2.0 client applications, credentials, and allowed callback URIs."
-          onAuthenticated={handleAuthenticatedWithZenoa}
-          themeMode={themeMode}
-        />
       </div>
     );
   }

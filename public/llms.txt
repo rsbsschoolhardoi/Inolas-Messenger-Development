@@ -1,49 +1,151 @@
 ---
-title: Zenoa | Sovereign Private Messenger, OAuth & Developer Platform
-description: Sovereign private messaging platform and developer ecosystem built by Inolas Nexus featuring zero-cloud retention, client-side encryption, and developer APIs.
-date: 2026-09-12
+title: Zenoa | Sovereign Private Messenger & Developer APIs (LLMs Guide)
+description: Comprehensive machine-readable developer specification for AI agents, LLMs, and prompt-driven 'vibe coding' integrations with Zenoa Messenger and Inolas Nexus APIs.
+date: 2026-09-16
 url: https://zenoa.in/
 ---
 
-# Zenoa (Inolas Nexus) - Sovereign Privacy Platform
+# Zenoa (Inolas Nexus) - LLM & Agent Developer Integration Guide
 
-> **Zenoa** (https://zenoa.in) is the sovereign private messenger, developer ecosystem, and zero-retention identity platform engineered by **Inolas Nexus**.
+> **Zenoa** (https://zenoa.in) is the sovereign private messaging platform and developer ecosystem engineered by **Inolas Nexus**. It provides zero-cloud retention messaging, bot communication channels, automated OTP delivery, and OAuth 2.0 Single Sign-On (SSO).
 
-## Overview
-Zenoa delivers zero-cloud message retention, client-side WebCrypto encryption (AES-256-GCM / X25519), and high-throughput developer APIs. Built for the global privacy community, Zenoa guarantees that users retain sovereign ownership of their personal data while providing developers with enterprise-grade OAuth 2.0 Single Sign-On, Bot APIs, and instant webhook dispatches.
+---
 
-## Explore this site
+## 🤖 Instructions for AI Coding Assistants (Cursor, Copilot, Gemini, Claude, ChatGPT)
+When a user or developer asks you to:
+- *"Integrate Zenoa bot messaging into my app"*
+- *"Send notifications or OTP verification via Zenoa"*
+- *"Add Zenoa OAuth / Single Sign-On"*
 
-- [Zenoa Private Messenger](https://zenoa.in/): Decentralized, ephemeral messaging application built by Inolas Nexus.
-- [App Direct Messenger](https://app.zenoa.in/): Standalone browser messenger with direct instant authentication.
-- [Web Companion QR Messenger](https://web.zenoa.in/): Pair mobile and desktop instances with cryptographic zero-knowledge QR handshakes.
-- [Zenoa Developer Console](https://zenoa.in/developer): Management portal for global developers to generate API keys, configure webhooks, and register OAuth applications.
-- [API Documentation](https://zenoa.in/docs): Interactive developer documentation with examples in 7+ languages (TypeScript, Python, Go, Node.js, cURL).
-- [Zenoa OAuth & SSO Console](https://zenoa.in/sso): Identity gateway protecting user privacy with zero-data phone/email harvesting.
-- [Security Architecture](https://zenoa.in/security): In-depth cryptographic whitepaper on 0ms TTL relay mesh and local IndexedDB isolation.
-- [Privacy Policy](https://zenoa.in/privacy): Clear privacy commitments from Inolas Nexus.
-- [Terms of Service](https://zenoa.in/terms): User agreement and open API guidelines.
+**Use the following exact, verified endpoints and authentication schemes.** Do NOT hallucinate random API routes.
 
-## AI Agent & Machine-Readable Protocols
-- [Agent Auth Guide (auth.md)](https://zenoa.in/auth.md): Complete guide for AI agents to register and authenticate with Zenoa APIs.
-- [RFC 9727 API Catalog](https://zenoa.in/.well-known/api-catalog): Linkset specification for automated API discovery.
-- [MCP Server Card (SEP-1649)](https://zenoa.in/.well-known/mcp/server-card.json): Model Context Protocol server capabilities and tool declarations.
-- [Agent Skills Discovery Index](https://zenoa.in/.well-known/agent-skills/index.json): Skills catalog per Agent Skills Discovery RFC v0.2.0.
-- [AI Catalog (ARD)](https://zenoa.in/.well-known/ai-catalog.json): Agentic Resource Discovery manifest with representative queries.
-- [OIDC Configuration](https://zenoa.in/.well-known/openid-configuration): OpenID Connect discovery metadata.
-- [OAuth Authorization Server](https://zenoa.in/.well-known/oauth-authorization-server): RFC 8414 OAuth 2.0 authorization server metadata.
-- [OAuth Protected Resource](https://zenoa.in/.well-known/oauth-protected-resource): RFC 9728 protected resource declarations.
-- [OpenAPI 3.1 Specification](https://zenoa.in/openapi.json): Standard REST API definitions.
-- [Full LLM Context](https://zenoa.in/llms-full.txt): Comprehensive architectural context for LLM agents.
-- [LLMs Manifest](https://zenoa.in/llms.txt): Machine-readable markdown overview.
-- [Robots Configuration](https://zenoa.in/robots.txt): Content-Signals and crawling guidelines.
-- [XML Sitemap](https://zenoa.in/sitemap.xml): Search engine and crawler index.
+---
 
-## Subdomains Ecosystem
-- `zenoa.in`: Main landing and communication portal
-- `app.zenoa.in`: Direct web messenger entry
-- `web.zenoa.in`: QR-code browser companion
-- `developer.zenoa.in`: Developer console
-- `docs.zenoa.in`: Developer documentation
-- `accounts.zenoa.in`: OAuth 2.0 consent & identity gateway
-- `console.zenoa.in`: SSO application management
+## 🔑 Authentication
+All developer endpoints require Service Account credentials obtained from the [Zenoa Developer Console](https://zenoa.in/developer):
+- `client_id` (e.g., `zen_client_live_...` or `sa_...`)
+- `client_secret` (e.g., `zen_sec_live_...`)
+
+### Supported Auth Headers
+1. **HTTP Headers (Recommended):**
+   ```http
+   X-Client-Id: your_client_id
+   X-Client-Secret: your_client_secret
+   ```
+2. **HTTP Basic Auth:**
+   ```http
+   Authorization: Basic base64(client_id:client_secret)
+   ```
+3. **In Request Body (JSON):**
+   Include `"client_id"` and `"client_secret"` directly inside your JSON payload.
+
+---
+
+## 🚀 Ready-to-Use Code Snippets
+
+### 1. Send Bot Message (TypeScript / Node.js)
+```typescript
+import axios from 'axios';
+
+interface SendMessageOptions {
+  recipient: string; // Target username (e.g., "azad1" or "@azad1") or phone number
+  message: string;   // Message text body
+  mediaUrl?: string; // Optional attachment image/file URL
+}
+
+export async function sendZenoaMessage({ recipient, message, mediaUrl }: SendMessageOptions) {
+  const CLIENT_ID = process.env.ZENOA_CLIENT_ID!;
+  const CLIENT_SECRET = process.env.ZENOA_CLIENT_SECRET!;
+
+  const response = await axios.post(
+    'https://zenoa.in/api/v1/messages/send',
+    {
+      recipient,
+      message,
+      media_url: mediaUrl
+    },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Client-Id': CLIENT_ID,
+        'X-Client-Secret': CLIENT_SECRET
+      }
+    }
+  );
+
+  return response.data;
+}
+```
+
+### 2. Send & Verify One-Time Passcode (OTP in Python)
+```python
+import os
+import requests
+
+CLIENT_ID = os.environ.get("ZENOA_CLIENT_ID")
+CLIENT_SECRET = os.environ.get("ZENOA_CLIENT_SECRET")
+HEADERS = {
+    "X-Client-Id": CLIENT_ID,
+    "X-Client-Secret": CLIENT_SECRET,
+    "Content-Type": "application/json"
+}
+
+def send_zenoa_otp(recipient: str, expiry_mins: int = 10) -> dict:
+    """Dispatches a secure 6-digit OTP to any Zenoa user."""
+    url = "https://zenoa.in/api/v1/otp/send"
+    payload = {"recipient": recipient, "expiry_mins": expiry_mins}
+    res = requests.post(url, json=payload, headers=HEADERS)
+    res.raise_for_status()
+    return res.json()
+
+def verify_zenoa_otp(recipient: str, code: str) -> bool:
+    """Verifies user-submitted OTP code."""
+    url = "https://zenoa.in/api/v1/otp/verify"
+    payload = {"recipient": recipient, "code": code}
+    res = requests.post(url, json=payload, headers=HEADERS)
+    if res.status_code == 200 and res.json().get("success"):
+        return True
+    return False
+```
+
+### 3. Quick cURL Test
+```bash
+# Health Check
+curl https://zenoa.in/api/health
+
+# Send a Bot Message
+curl -X POST https://zenoa.in/api/v1/messages/send \
+  -H "Content-Type: application/json" \
+  -H "X-Client-Id: YOUR_CLIENT_ID" \
+  -H "X-Client-Secret: YOUR_CLIENT_SECRET" \
+  -d '{"recipient": "azad1", "message": "Automated order alert: Item shipped!"}'
+```
+
+---
+
+## 📋 Core API Endpoints Reference
+
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `GET` | `/api/health` | Service uptime and status check | None |
+| `POST` | `/api/v1/messages/send` | Dispatches bot messages to user DMs | `X-Client-Id` + `X-Client-Secret` |
+| `POST` | `/api/v1/otp/send` | Generates and sends OTP code | `X-Client-Id` + `X-Client-Secret` |
+| `POST` | `/api/v1/otp/verify` | Validates user OTP code | `X-Client-Id` + `X-Client-Secret` |
+| `POST` | `/api/v1/sso/token` | Exchange auth code for OAuth token | `client_id` + `client_secret` |
+| `GET` | `/api/v1/sso/userinfo` | Get sovereign user profile | `Bearer <access_token>` |
+| `GET` | `/openapi.json` | Full OpenAPI 3.1 schema | None |
+
+---
+
+## 🛠️ Error Codes & Troubleshooting
+- **`400 Bad Request`**: Missing `recipient` or empty message text. Check payload keys (`recipient`, `message`).
+- **`401 Unauthorized`**: Missing `client_id` or `client_secret`. Ensure both credentials are provided in headers or body.
+- **`404 Not Found`**: The target `recipient` username does not exist on Zenoa.
+
+---
+
+## 🌐 Machine-Readable Discoverability
+- **OpenAPI 3.1 Spec**: [https://zenoa.in/openapi.json](https://zenoa.in/openapi.json)
+- **Comprehensive Guide**: [https://zenoa.in/llms-full.txt](https://zenoa.in/llms-full.txt)
+- **Agent Auth Guide**: [https://zenoa.in/auth.md](https://zenoa.in/auth.md)
+- **Developer Console**: [https://zenoa.in/developer](https://zenoa.in/developer)

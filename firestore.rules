@@ -139,6 +139,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // 14. Messenger Email OTP Verification Sessions
+    match /messenger_otps/{otpId} {
+      allow read, write: if true;
+    }
+
     // Default catch-all: Deny all unmatched paths
     match /{document=**} {
       allow read, write: if false;

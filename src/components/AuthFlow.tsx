@@ -66,7 +66,7 @@ interface AuthFlowProps {
     mobile_number?: string;
   }) => Promise<{ success: boolean; error?: string }>;
   onVerifyOtpSubmit: (code: string) => Promise<{ success: boolean; error?: string }>;
-  onSendEmailOtp?: (email: string) => Promise<{ success: boolean; error?: string }>;
+  onSendEmailOtp?: (email: string, purpose?: string) => Promise<{ success: boolean; error?: string }>;
   onVerifyEmailOtp?: (email: string, code: string) => Promise<{ success: boolean; error?: string }>;
   onOAuthLogin: (provider: 'google' | 'facebook') => void;
   onForgotPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
@@ -213,7 +213,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
     setIsLoading(true);
     if (onSendEmailOtp) {
-      const res = await onSendEmailOtp(cleanMail);
+      const res = await onSendEmailOtp(cleanMail, 'login');
       setIsLoading(false);
       if (res.success) {
         setEmailOtpSent(true);
@@ -352,7 +352,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
     setIsLoading(true);
     if (onSendEmailOtp) {
-      const res = await onSendEmailOtp(cleanMail);
+      const res = await onSendEmailOtp(cleanMail, 'registration');
       setIsLoading(false);
       if (res.success) {
         setRegEmailOtpSent(true);
@@ -366,7 +366,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
         const response = await fetch('/api/auth/messenger/send-otp', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: cleanMail })
+          body: JSON.stringify({ email: cleanMail, purpose: 'registration' })
         });
         const data = await response.json();
         setIsLoading(false);
@@ -452,7 +452,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
     setIsLoading(true);
     if (onSendEmailOtp) {
-      const res = await onSendEmailOtp(cleanMail);
+      const res = await onSendEmailOtp(cleanMail, 'password_reset');
       setIsLoading(false);
       if (res.success) {
         setResetPasswordOtpSent(true);

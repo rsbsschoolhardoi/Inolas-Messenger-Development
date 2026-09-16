@@ -45,9 +45,24 @@ export const ContinueWithZenoaButton: React.FC<ContinueWithZenoaButtonProps> = (
     }
 
     if (!targetRedirect) {
-      targetRedirect = portal === 'developer' 
-        ? `${window.location.origin}/developer` 
-        : `${window.location.origin}/sso`;
+      const host = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+      if (portal === 'developer') {
+        if (host.includes('developer.zenoa.in')) {
+          targetRedirect = 'https://developer.zenoa.in/developer';
+        } else if (host.includes('developer.zenoa.sbs')) {
+          targetRedirect = 'https://developer.zenoa.sbs/developer';
+        } else {
+          targetRedirect = `${window.location.origin}/developer`;
+        }
+      } else {
+        if (host.includes('console.zenoa.in') || host.includes('sso.zenoa.in')) {
+          targetRedirect = 'https://console.zenoa.in/sso';
+        } else if (host.includes('console.zenoa.sbs') || host.includes('sso.zenoa.sbs')) {
+          targetRedirect = 'https://console.zenoa.sbs/sso';
+        } else {
+          targetRedirect = `${window.location.origin}/sso`;
+        }
+      }
     }
 
     const secureOAuthUrl = buildSecureOAuthUrl({

@@ -6,7 +6,17 @@ interface AccountSetupProps {
   initialFullName?: string;
   initialUsername?: string;
   initialEmail?: string;
-  onComplete: (data: { fullName: string; username: string; bio: string; avatarSeed: string }) => Promise<{ success: boolean; error?: string }>;
+  initialDob?: string;
+  initialGender?: string;
+  onComplete: (data: { 
+    fullName: string; 
+    username: string; 
+    zenoa_id: string;
+    dob: string;
+    gender: string;
+    bio: string; 
+    avatarSeed: string;
+  }) => Promise<{ success: boolean; error?: string }>;
   checkUsernameAvailability: (username: string) => Promise<{ isTaken: boolean; reason?: string }>;
   themeMode: 'light' | 'dark';
   onSignOut?: () => void;
@@ -16,6 +26,8 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
   initialFullName = '',
   initialUsername = '',
   initialEmail = '',
+  initialDob = '',
+  initialGender = '',
   onComplete,
   checkUsernameAvailability,
   themeMode,
@@ -23,6 +35,8 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
 }) => {
   const [fullName, setFullName] = useState(initialFullName);
   const [username, setUsername] = useState(() => initialUsername.toLowerCase().replace(/[^a-z0-9_.]/g, ''));
+  const [dob, setDob] = useState(initialDob);
+  const [gender, setGender] = useState(initialGender || 'prefer_not_to_say');
   const [bio, setBio] = useState('Hey there! I am using Zenoa Messenger.');
   const [avatarSeed, setAvatarSeed] = useState(() => initialUsername || 'zenoa');
 
@@ -93,6 +107,8 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
     return () => clearTimeout(timer);
   }, [username, checkUsernameAvailability]);
 
+  const zenoaIdPreview = username ? `@${username.toLowerCase()}@zenoa` : '@yourname@zenoa';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
@@ -115,10 +131,23 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
       return;
     }
 
+    if (!dob) {
+      setErrorMessage('Please select your Date of Birth.');
+      return;
+    }
+
+    if (!gender) {
+      setErrorMessage('Please select your gender.');
+      return;
+    }
+
     setIsLoading(true);
     const result = await onComplete({
       fullName: cleanFullName,
       username: cleanUsername,
+      zenoa_id: `${cleanUsername}@zenoa`,
+      dob,
+      gender,
       bio: bio.trim(),
       avatarSeed: avatarSeed || cleanUsername
     });
@@ -129,6 +158,13 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
     }
   };
 
+  const genderOptions = [
+    { id: 'male', label: 'Male' },
+    { id: 'female', label: 'Female' },
+    { id: 'other', label: 'Other' },
+    { id: 'prefer_not_to_say', label: 'Prefer not to say' }
+  ];
+
   return (
     <div className={`min-h-screen w-full flex items-center justify-center p-4 sm:p-6 font-['Inter'] transition-colors ${
       themeMode === 'dark' ? 'bg-neutral-950 text-neutral-100' : 'bg-neutral-50 text-neutral-900'
@@ -136,7 +172,7 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
       <motion.div 
         initial={{ opacity: 0, scale: 0.98 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-md p-6 sm:p-8 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-2xl relative"
+        className="w-full max-w-lg p-6 sm:p-8 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-2xl relative max-h-[90vh] overflow-y-auto"
       >
         {/* Brand Header */}
         <div className="flex items-center justify-between mb-6 border-b border-neutral-100 dark:border-neutral-800/80 pb-4">
@@ -149,7 +185,7 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
                 Zenoa
               </h2>
               <p className="text-[11px] text-neutral-500 font-medium mt-0.5">
-                Mandatory Account Setup
+                Complete Sovereign Profile
               </p>
             </div>
           </div>
@@ -167,13 +203,13 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
         </div>
 
         {/* Security / Mandatory Banner */}
-        <div className="p-3 mb-5 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-xs space-y-1">
-          <p className="font-bold flex items-center gap-1.5">
+        <div className="p-3.5 mb-5 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-xs space-y-1">
+          <p className="font-bold flex items-center gap-1.5 text-xs">
             <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
-            <span>Set your unique Zenoa identity</span>
+            <span>Welcome to Zenoa Messenger!</span>
           </p>
           <p className="text-[11px] leading-relaxed text-neutral-600 dark:text-neutral-400">
-            Every Zenoa user must have a verified Full Name and a unique @username to ensure account security and private messaging.
+            Your sovereign account is verified. Finalize your permanent @username, Zenoa ID, and profile details to begin messaging securely.
           </p>
         </div>
 
@@ -220,7 +256,7 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
             </div>
           </div>
 
-          {/* Unique Username */}
+          {/* Unique Username & Zenoa ID */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-300">
@@ -256,9 +292,53 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
                 required
               />
             </div>
-            <p className="text-[10px] text-neutral-400 mt-1">
-              3-20 characters. Lowercase letters, numbers, and underscores only.
-            </p>
+
+            {/* Permanent Zenoa ID Preview Badge */}
+            <div className="mt-2 flex items-center justify-between px-3 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800/60 border border-neutral-200/80 dark:border-neutral-700/60">
+              <span className="text-[10px] font-semibold text-neutral-500 dark:text-neutral-400">
+                Sovereign Zenoa ID:
+              </span>
+              <span className="text-[11px] font-mono font-bold text-neutral-900 dark:text-white">
+                {zenoaIdPreview}
+              </span>
+            </div>
+          </div>
+
+          {/* Date of Birth & Gender Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+            {/* DOB */}
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5 text-neutral-600 dark:text-neutral-300">
+                Date of Birth <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="date"
+                value={dob}
+                max={new Date().toISOString().split('T')[0]}
+                onChange={e => setDob(e.target.value)}
+                className="w-full px-3.5 py-2.5 text-xs rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/40 outline-none focus:border-indigo-500 transition-colors text-neutral-900 dark:text-white font-medium"
+                required
+              />
+            </div>
+
+            {/* Gender Selection */}
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5 text-neutral-600 dark:text-neutral-300">
+                Gender <span className="text-rose-500">*</span>
+              </label>
+              <select
+                value={gender}
+                onChange={e => setGender(e.target.value)}
+                className="w-full px-3.5 py-2.5 text-xs rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/40 outline-none focus:border-indigo-500 transition-colors text-neutral-900 dark:text-white font-medium cursor-pointer"
+                required
+              >
+                {genderOptions.map(opt => (
+                  <option key={opt.id} value={opt.id} className="bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white">
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* About / Bio */}
@@ -278,7 +358,7 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={isLoading || isCheckingUsername || !usernameStatus.isAvailable || !fullName.trim()}
+            disabled={isLoading || isCheckingUsername || !usernameStatus.isAvailable || !fullName.trim() || !dob}
             className="w-full py-3.5 bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 disabled:opacity-50 text-white dark:text-neutral-900 text-xs font-bold rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer mt-4"
           >
             {isLoading ? (
@@ -286,7 +366,7 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
             ) : (
               <>
                 <Check className="h-4 w-4" />
-                <span>Complete Account & Enter Zenoa</span>
+                <span>Complete Profile & Enter Zenoa</span>
               </>
             )}
           </button>

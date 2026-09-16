@@ -1,97 +1,90 @@
 ---
 title: Zenoa Agent Authentication & Authorization Guide (auth.md)
-description: Complete specification for AI agents, MCP clients, and autonomous bots to register, authenticate, and access sovereign Zenoa endpoints.
-date: 2026-09-12
+description: Complete specification for AI agents, MCP clients, and autonomous bots to authenticate and interact with Zenoa Sovereign APIs.
+date: 2026-09-16
 url: https://zenoa.in/auth.md
 ---
 
 # Zenoa Agent Authentication Guide (`auth.md`)
 
-This document provides autonomous AI agents, Model Context Protocol (MCP) clients, and automated software agents with complete instructions to register, authenticate, and interact with the **Zenoa Sovereign Privacy Messenger** and developer ecosystem (engineered by **Inolas Nexus**).
+This specification provides autonomous AI agents, Model Context Protocol (MCP) clients, and automated vibe-coding assistants with the exact protocol to authenticate and interact with **Zenoa Sovereign Messenger & Developer APIs** (by Inolas Nexus).
 
 ---
 
-## 1. Quick Discovery Endpoints
+## 1. Discovery Endpoints
 - **OpenID Connect Discovery**: [`https://zenoa.in/.well-known/openid-configuration`](https://zenoa.in/.well-known/openid-configuration)
 - **OAuth 2.0 Authorization Server**: [`https://zenoa.in/.well-known/oauth-authorization-server`](https://zenoa.in/.well-known/oauth-authorization-server)
 - **OAuth 2.0 Protected Resource**: [`https://zenoa.in/.well-known/oauth-protected-resource`](https://zenoa.in/.well-known/oauth-protected-resource)
-- **API Catalog (RFC 9727)**: [`https://zenoa.in/.well-known/api-catalog`](https://zenoa.in/.well-known/api-catalog)
+- **RFC 9727 API Catalog**: [`https://zenoa.in/.well-known/api-catalog`](https://zenoa.in/.well-known/api-catalog)
+- **OpenAPI 3.1 Spec**: [`https://zenoa.in/openapi.json`](https://zenoa.in/openapi.json)
 - **MCP Server Card (SEP-1649)**: [`https://zenoa.in/.well-known/mcp/server-card.json`](https://zenoa.in/.well-known/mcp/server-card.json)
-- **Agent Skills Index (RFC v0.2.0)**: [`https://zenoa.in/.well-known/agent-skills/index.json`](https://zenoa.in/.well-known/agent-skills/index.json)
-- **AI Resource Discovery (ARD)**: [`https://zenoa.in/.well-known/ai-catalog.json`](https://zenoa.in/.well-known/ai-catalog.json)
+- **AI Resource Discovery**: [`https://zenoa.in/.well-known/ai-catalog.json`](https://zenoa.in/.well-known/ai-catalog.json)
 
 ---
 
-## 2. Dynamic Agent Registration Flow
+## 2. Authentication Methods
 
-Autonomous agents can register programmatic identities via the Dynamic Client Registration endpoint:
+### Method A: Direct Service Account Key (Recommended for Bots & Scripts)
+Every registered application in the [Zenoa Developer Console](https://zenoa.in/developer) is issued a sovereign Service Account credential pair:
+- `X-Client-Id`: `zen_client_...`
+- `X-Client-Secret`: `zen_sec_...`
+
+You may pass these credentials either in HTTP request headers:
+```http
+X-Client-Id: your_client_id
+X-Client-Secret: your_client_secret
+```
+Or via standard HTTP Basic Auth (`base64(client_id:client_secret)`):
+```http
+Authorization: Basic <base64_credentials>
+```
+
+### Method B: OAuth 2.0 Client Credentials Grant
+For autonomous agent token exchange:
 
 ```http
-POST /api/v1/agents/register HTTP/1.1
+POST /api/v1/sso/token HTTP/1.1
 Host: zenoa.in
 Content-Type: application/json
 
 {
-  "client_name": "Autonomous-Assistant-01",
-  "identity_type": "ed25519_pubkey",
-  "public_key": "MCowBQYDK2VwAyEA...",
-  "scopes": ["zenoa:read", "zenoa:messages", "zenoa:bots"]
+  "grant_type": "client_credentials",
+  "client_id": "your_client_id",
+  "client_secret": "your_client_secret"
 }
 ```
 
-### Response
-```json
-{
-  "client_id": "agent_zenoa_9f8c2b1a",
-  "client_secret": "zsec_live_4a78bc91e4f3a...",
-  "token_endpoint": "https://zenoa.in/api/v1/oauth/token",
-  "expires_in": 2592000
-}
-```
-
----
-
-## 3. Obtaining Access Tokens (Client Credentials Grant)
-
-```http
-POST /api/v1/oauth/token HTTP/1.1
-Host: zenoa.in
-Content-Type: application/x-www-form-urlencoded
-
-grant_type=client_credentials&client_id=agent_zenoa_9f8c2b1a&client_secret=zsec_live_4a78bc91e4f3a...&scope=zenoa:messages
-```
-
-### Response
+#### Response
 ```json
 {
   "access_token": "zat_eyJhbGciOiJSUzI1NiIs...",
   "token_type": "Bearer",
-  "expires_in": 3600,
-  "scope": "zenoa:messages"
+  "expires_in": 3600
 }
 ```
 
 ---
 
-## 4. Authenticated API Calls
+## 3. Making Authenticated Requests
 
-Include the Bearer token in the `Authorization` header for all requests:
+Include your Bearer token or Service Account headers with each API call:
 
 ```http
 POST /api/v1/messages/send HTTP/1.1
 Host: zenoa.in
-Authorization: Bearer zat_eyJhbGciOiJSUzI1NiIs...
+X-Client-Id: your_client_id
+X-Client-Secret: your_client_secret
 Content-Type: application/json
 
 {
   "recipient": "alex",
-  "content": "Automated status report from Agent-01",
-  "ephemeral": true
+  "message": "Automated alert: Backup finished successfully.",
+  "media_url": "https://example.com/status.png"
 }
 ```
 
 ---
 
-## 5. Revocation and Rotation
-- **Token Revocation Endpoint**: `https://zenoa.in/api/v1/agents/revoke`
-- **Key Rotation**: Supported via Ed25519 signature headers (`X-Zenoa-Agent-Signature`).
+## 4. Security Principles
+- **Never expose `client_secret` on client-side frontend code**: Keep API keys in server environment variables (`process.env.ZENOA_CLIENT_SECRET`).
+- **Cryptographic Sender Isolation**: Bot messages are strictly signed and delivered from the application's verified service account bot handle.

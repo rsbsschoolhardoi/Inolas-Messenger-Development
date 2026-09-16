@@ -70,7 +70,7 @@ import { getThemeById, DEFAULT_THEME_ID } from './chatThemes';
 import { getMessageDateKey, formatChatDateDivider, formatChatListTime, formatCleanChatPreview, formatMessageTime } from './dateUtils';
 import { encryptMessageText, decryptMessageText, encryptFile, decryptFile } from './cryptoUtils';
 import { storageManager } from './storageManager';
-import { getDmChatId, buildNormalizedParticipants, isInternalGhostEmail } from './chatUtils';
+import { getDmChatId, buildNormalizedParticipants, isInternalGhostEmail, isGhostAccount, isValidUsername } from './chatUtils';
 import { OpeningAnimation } from './components/OpeningAnimation';
 import { useBranding, initBrandingSync } from './brandingUtils';
 import {  encryptVault, decryptVault } from './utils/crypto';
@@ -858,8 +858,88 @@ export default function App() {
     sessionStorage.setItem('zenoa_active_session_created_at', String(now));
     return now;
   });
+  const currentSessionTokenRef = useRef<string>(currentSessionToken);
+  const currentSessionCreatedAtRef = useRef<number>(currentSessionCreatedAt);
+
+  useEffect(() => {
+    currentSessionTokenRef.current = currentSessionToken;
+  }, [currentSessionToken]);
+
+  useEffect(() => {
+    currentSessionCreatedAtRef.current = currentSessionCreatedAt;
+  }, [currentSessionCreatedAt]);
+
   const [showConcurrentLoginModal, setShowConcurrentLoginModal] = useState<boolean>(false);
   const [concurrentLogoutCountdown, setConcurrentLogoutCountdown] = useState<number>(5);
+
+  // Authoritative Single-Session Claim Handler:
+  // When a new device logs in, it registers a fresh token with a newer timestamp in Firestore.
+  // This guarantees the NEW device stays active, while any OLD device detects the newer timestamp and terminates.
+  const claimActiveSession = async (targetUid: string, targetUsername: string) => {
+    if (!targetUid) return;
+    const isLinkedClient = sessionStorage.getItem('zenoa_is_linked_client') === 'true';
+    if (isLinkedClient) return;
+
+    const freshToken = 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+    const freshTime = Date.now();
+
+    sessionStorage.setItem('zenoa_active_session_token', freshToken);
+    sessionStorage.setItem('zenoa_active_session_created_at', String(freshTime));
+    sessionStorage.removeItem('zenoa_is_explicit_login');
+    
+    currentSessionTokenRef.current = freshToken;
+    currentSessionCreatedAtRef.current = freshTime;
+    setCurrentSessionToken(freshToken);
+    setCurrentSessionCreatedAt(freshTime);
+    setShowConcurrentLoginModal(false);
+    setKickoutData(null);
+
+    const cleanUsername = (targetUsername || '').toLowerCase().trim();
+    if (cleanUsername) {
+      try {
+        localStorage.setItem(`zenoa_active_account_${cleanUsername}`, JSON.stringify({
+          sessionId: freshToken,
+          username: targetUsername,
+          timestamp: freshTime
+        }));
+      } catch (e) {}
+
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          const channel = new BroadcastChannel('zenoa_account_auth_channel');
+          channel.postMessage({
+            type: 'ACCOUNT_LOGIN_TAKEOVER',
+            username: cleanUsername,
+            sessionId: freshToken,
+            timestamp: freshTime
+          });
+          setTimeout(() => channel.close(), 1000);
+
+          const sessionBc = new BroadcastChannel(`zenoa_session_sync_${cleanUsername}`);
+          sessionBc.postMessage({
+            type: 'NEW_LOGIN',
+            sessionToken: freshToken,
+            createdAt: freshTime
+          });
+          setTimeout(() => sessionBc.close(), 1000);
+        }
+      } catch (bcErr) {}
+    }
+
+    if (isFirebaseConfigured && db) {
+      try {
+        const userDocRef = doc(db, 'users', targetUid);
+        await setDoc(userDocRef, {
+          active_session_token: freshToken,
+          active_session_created_at: freshTime,
+          last_login_device: navigator.userAgent || 'Web Browser',
+          last_login_at: freshTime
+        }, { merge: true });
+      } catch (err) {
+        console.warn("Session token claim notice in Firestore:", err);
+      }
+    }
+  };
 
   // Inbuilt Production Media Player State
   const [mediaPlayer, setMediaPlayer] = useState<{
@@ -1078,6 +1158,8 @@ export default function App() {
   const [userDisplayName, setUserDisplayName] = useState<string>('');
   const [userUsername, setUserUsername] = useState<string>('');
   const [userZenoaId, setUserZenoaId] = useState<string>('');
+  const [userDob, setUserDob] = useState<string>('');
+  const [userGender, setUserGender] = useState<string>('');
   const [userBio, setUserBio] = useState<string>('');
   const [userAvatarSeed, setUserAvatarSeed] = useState<string>('');
   const [userAvatarUrl, setUserAvatarUrl] = useState<string>('');
@@ -1186,7 +1268,7 @@ export default function App() {
         type: 'ACCOUNT_LOGIN_TAKEOVER',
         username: cleanUsername,
         sessionId: currentSessionId,
-        timestamp: Date.now()
+        timestamp: currentSessionCreatedAtRef.current
       });
 
       channel.onmessage = (event) => {
@@ -1197,11 +1279,14 @@ export default function App() {
           event.data.sessionId !== currentSessionId &&
           !event.data.isLinkedCompanion
         ) {
-          // This account was opened/logged in on another primary tab! Trigger Kickout Modal with 5s countdown
-          setKickoutData({
-            username: userUsername,
-            countdown: 5
-          });
+          const remoteTime = Number(event.data.timestamp) || 0;
+          // Strictly kick out ONLY if the incoming session timestamp is newer than this tab's session
+          if (remoteTime > currentSessionCreatedAtRef.current) {
+            setKickoutData({
+              username: userUsername,
+              countdown: 5
+            });
+          }
         }
       };
 
@@ -1211,7 +1296,8 @@ export default function App() {
           const raw = localStorage.getItem(`zenoa_active_account_${cleanUsername}`);
           if (raw) {
             const parsed = JSON.parse(raw);
-            if (parsed.sessionId && parsed.sessionId !== currentSessionId) {
+            const remoteTime = Number(parsed.timestamp) || 0;
+            if (parsed.sessionId && parsed.sessionId !== currentSessionId && remoteTime > currentSessionCreatedAtRef.current) {
               setKickoutData({
                 username: userUsername,
                 countdown: 5
@@ -1219,14 +1305,15 @@ export default function App() {
             }
           }
         } catch (e) {}
-      }, 1500);
+      }, 2000);
 
       // Storage event listener for instant cross-tab sync
       const handleStorage = (e: StorageEvent) => {
         if (e.key === `zenoa_active_account_${cleanUsername}` && e.newValue) {
           try {
             const parsed = JSON.parse(e.newValue);
-            if (parsed.sessionId && parsed.sessionId !== currentSessionId) {
+            const remoteTime = Number(parsed.timestamp) || 0;
+            if (parsed.sessionId && parsed.sessionId !== currentSessionId && remoteTime > currentSessionCreatedAtRef.current) {
               setKickoutData({
                 username: userUsername,
                 countdown: 5
@@ -1875,16 +1962,18 @@ export default function App() {
               }
 
               const p = docSnap.data();
-              // If document has no user attributes whatsoever, skip
-              if (!p.username && !p.display_name && !p.email && !p.mobile_number && !p.is_service_account) {
+
+              // Strictly reject and auto-purge any ghost accounts (@, empty, or corrupt documents)
+              if (isGhostAccount(docId, p)) {
+                if (db) {
+                  deleteDoc(doc(db, 'users', docId)).catch(() => {});
+                }
                 return;
               }
 
-              const rawUsername = (p.username || (p.email ? p.email.split('@')[0] : '') || p.display_name?.toLowerCase().replace(/[^a-z0-9_]/g, '') || docId)
-                .trim()
-                .replace(/^@+/, '');
+              const rawUsername = (p.username || '').trim().replace(/^@+/, '');
 
-              if (!rawUsername || (rawUsername === 'system' && !p.is_service_account)) {
+              if (!rawUsername || rawUsername === '@' || (rawUsername === 'system' && !p.is_service_account)) {
                 return;
               }
 
@@ -1940,7 +2029,7 @@ export default function App() {
               // Store canonical entry by username (both lower and original) and docId
               fetchedUsers[rawLower] = userObj;
               fetchedUsers[rawUsername] = userObj;
-              if (docId) {
+              if (docId && docId !== '@') {
                 fetchedUsers[docId.toLowerCase()] = userObj;
                 fetchedUsers[docId] = userObj;
               }
@@ -2017,9 +2106,37 @@ export default function App() {
                     setUserAccountCreatedAt(accCreatedAt);
                     sessionStorage.setItem('zenoa_account_created_at', String(accCreatedAt));
                   }
+
+                  // Progressive Profiling Check:
+                  // If user created an account via JIT OAuth flow, prompt for mandatory setup when entering Messenger!
+                  const isCurrentlyOnOAuthConsent = typeof window !== 'undefined' && (
+                    window.location.pathname.startsWith('/auth/sso') || 
+                    window.location.pathname.startsWith('/oauth') || 
+                    window.location.hostname.startsWith('accounts.') || 
+                    new URLSearchParams(window.location.search).has('client_id')
+                  );
+                  const isProfileIncomplete = profile.profile_completed === false || (!profile.dob && !profile.created_via_mobile) || (!profile.gender && !profile.created_via_mobile);
+
+                  if (isProfileIncomplete && !isCurrentlyOnOAuthConsent) {
+                    setPendingUserAuth(userObj);
+                    setUserDisplayName(dName || userObj.displayName || '');
+                    setUserUsername(uName || '');
+                    setUserZenoaId(profile.zenoa_id || (uName ? `${uName}@zenoa` : ''));
+                    setUserDob(profile.dob || '');
+                    setUserGender(profile.gender || '');
+                    setUserBio(profile.bio || '');
+                    setUserAvatarSeed(profile.avatar_seed || uName || 'zenoa');
+                    setIsNewUserSetupPending(true);
+                    setIsAuthenticated(false);
+                    setIsAuthResolving(false);
+                    return;
+                  }
+
                   setUserUsername(uName);
                   setUserDisplayName(dName);
                   setUserZenoaId(profile.zenoa_id || `${uName}@zenoa`);
+                  setUserDob(profile.dob || '');
+                  setUserGender(profile.gender || '');
                   setUserPhone(uPhone);
                   setUserBio(profile.bio || '');
                   setUserAvatarSeed(profile.avatar_seed || uName);
@@ -2032,6 +2149,11 @@ export default function App() {
                   setAuthMethod(userObj.providerData[0]?.providerId || 'email');
                   setIsAuthenticated(true);
                   setIsNewUserSetupPending(false);
+
+                  const existingSessionToken = sessionStorage.getItem('zenoa_active_session_token');
+                  if (!existingSessionToken) {
+                    claimActiveSession(userObj.uid, uName);
+                  }
         // 3. Notification listener
         if (userObj) {
           unsubscribeNotifications = onSnapshot(
@@ -2925,36 +3047,11 @@ export default function App() {
 
   // Register Active Session Token in Firestore & Listen for Multi-Device / Concurrent Login
   useEffect(() => {
-    if (!isFirebaseConfigured || !db || !userUsername || !currentSessionToken || !userId) {
+    if (!isFirebaseConfigured || !db || !userUsername || !userId) {
       return;
     }
 
     const userDocRef = doc(db, 'users', userId);
-
-    // Only register session token if this tab explicitly initiated login or if no session token exists yet
-    const isExplicitLogin = sessionStorage.getItem('zenoa_is_explicit_login') === 'true';
-    if (isExplicitLogin) {
-      sessionStorage.removeItem('zenoa_is_explicit_login');
-      const now = Date.now();
-      setDoc(userDocRef, {
-        active_session_token: currentSessionToken,
-        active_session_created_at: now,
-        last_login_device: navigator.userAgent || 'Web Browser'
-      }, { merge: true }).catch(err => console.warn("Session token registration notice:", err));
-
-      // Broadcast NEW_LOGIN to invalidate older tabs on the same device
-      try {
-        if (typeof BroadcastChannel !== 'undefined') {
-          const sessionBc = new BroadcastChannel(`zenoa_session_sync_${userUsername.toLowerCase()}`);
-          sessionBc.postMessage({
-            type: 'NEW_LOGIN',
-            sessionToken: currentSessionToken,
-            createdAt: now
-          });
-          setTimeout(() => sessionBc.close(), 1000);
-        }
-      } catch {}
-    }
 
     let broadcastChannel: BroadcastChannel | null = null;
     let unsubscribeUserDoc: () => void = () => {};
@@ -2965,10 +3062,12 @@ export default function App() {
         broadcastChannel = new BroadcastChannel(`zenoa_session_sync_${userUsername.toLowerCase()}`);
         broadcastChannel.onmessage = (event) => {
           const data = event.data;
-          if (data && data.type === 'NEW_LOGIN' && data.sessionToken && data.sessionToken !== currentSessionToken) {
+          const activeToken = currentSessionTokenRef.current;
+          const activeCreatedAt = currentSessionCreatedAtRef.current;
+          if (data && data.type === 'NEW_LOGIN' && data.sessionToken && data.sessionToken !== activeToken) {
             const remoteCreatedAt = Number(data.createdAt) || 0;
             // Never terminate if this session is newer or equal
-            if (remoteCreatedAt > currentSessionCreatedAt) {
+            if (remoteCreatedAt > activeCreatedAt) {
               console.warn("Newer session started elsewhere! Terminating this older session.");
               setShowConcurrentLoginModal(true);
               setKickoutData({ username: userUsername, countdown: 5 });
@@ -2994,16 +3093,19 @@ export default function App() {
           return;
         }
 
+        const activeToken = currentSessionTokenRef.current;
+        const activeCreatedAt = currentSessionCreatedAtRef.current;
+
         // If the token in Firestore matches our own token, we are active
-        if (data.active_session_token === currentSessionToken) {
+        if (data.active_session_token === activeToken) {
           return;
         }
 
         const remoteCreatedAt = Number(data.active_session_created_at) || 0;
         // Strictly terminate ONLY if Firestore has a session created AFTER this current session
-        // and grace period of 4 seconds has passed since our session was born
-        if (remoteCreatedAt > currentSessionCreatedAt && (Date.now() - currentSessionCreatedAt > 4000)) {
-          console.warn("Newer concurrent login session detected on another device/browser! Terminating this superseded session.", data.active_session_token, currentSessionToken);
+        // (i.e. remoteCreatedAt > activeCreatedAt) and grace period has passed.
+        if (remoteCreatedAt > activeCreatedAt && (Date.now() - activeCreatedAt > 2000)) {
+          console.warn("Newer concurrent login session detected on another device/browser! Terminating this superseded session.", data.active_session_token, activeToken);
           setShowConcurrentLoginModal(true);
           setKickoutData({ username: userUsername, countdown: 5 });
         }
@@ -3017,7 +3119,7 @@ export default function App() {
       unsubscribeUserDoc();
       if (broadcastChannel) broadcastChannel.close();
     };
-  }, [isFirebaseConfigured, db, userUsername, userId, currentSessionToken, currentSessionCreatedAt]);
+  }, [isFirebaseConfigured, db, userUsername, userId]);
 
   // Remote Revocation Watcher for Linked Web Companion Sessions (Zenoa Web)
   useEffect(() => {
@@ -3704,17 +3806,30 @@ export default function App() {
   const handleCompleteMandatoryAccountSetup = async (data: {
     fullName: string;
     username: string;
+    zenoa_id?: string;
+    dob?: string;
+    gender?: string;
     bio: string;
     avatarSeed: string;
   }): Promise<{ success: boolean; error?: string }> => {
     const cleanFullName = data.fullName.trim();
-    const cleanUsername = data.username.trim().toLowerCase();
+    const cleanUsername = data.username.trim().toLowerCase().replace(/^@/, '');
+    const cleanZenoaId = (data.zenoa_id || '').trim().toLowerCase().replace(/^@/, '') || `${cleanUsername}@zenoa`;
 
     if (!cleanFullName) {
       return { success: false, error: 'Full Display Name is required.' };
     }
     if (!cleanUsername || cleanUsername.length < 3) {
       return { success: false, error: 'Username must be at least 3 characters.' };
+    }
+    if (!isValidUsername(cleanUsername)) {
+      return { success: false, error: 'Username contains invalid characters or pattern.' };
+    }
+    if (!data.dob) {
+      return { success: false, error: 'Date of birth is required.' };
+    }
+    if (!data.gender) {
+      return { success: false, error: 'Gender is required.' };
     }
 
     const targetUid = userId || pendingUserAuth?.uid || auth?.currentUser?.uid;
@@ -3729,6 +3844,9 @@ export default function App() {
     const now = Date.now();
     setUserDisplayName(cleanFullName);
     setUserUsername(cleanUsername);
+    setUserZenoaId(cleanZenoaId);
+    setUserDob(data.dob);
+    setUserGender(data.gender);
     setSavedDisplayName(cleanFullName);
     setSavedUsername(cleanUsername);
     setUserBio(data.bio);
@@ -3737,15 +3855,34 @@ export default function App() {
     setUserEmail(targetEmail);
 
     if (isFirebaseConfigured && db && targetUid) {
+      // Find if user had a previous temporary username to cleanup
+      try {
+        const existingDoc = await getDoc(doc(db, 'users', targetUid));
+        if (existingDoc.exists()) {
+          const oldU = existingDoc.data()?.username;
+          const oldZ = existingDoc.data()?.zenoa_id;
+          if (oldU && oldU !== cleanUsername) {
+            await deleteDoc(doc(db, 'usernames', oldU)).catch(() => {});
+          }
+          if (oldZ && oldZ !== cleanZenoaId) {
+            await deleteDoc(doc(db, 'zenoa_ids', oldZ)).catch(() => {});
+          }
+        }
+      } catch (_) {}
+
       try {
         await setDoc(doc(db, 'users', targetUid), {
           id: targetUid,
           email: targetEmail,
           display_name: cleanFullName,
           username: cleanUsername,
+          zenoa_id: cleanZenoaId,
+          dob: data.dob,
+          gender: data.gender,
           bio: data.bio || 'Hey there! I am using Zenoa Messenger.',
           avatar_seed: data.avatarSeed || cleanUsername,
-          created_at: now,
+          profile_completed: true,
+          updated_at: now,
           name_change_timestamps: [now],
           username_change_timestamps: [now],
           online: true,
@@ -3759,6 +3896,13 @@ export default function App() {
         await setDoc(doc(db, 'usernames', cleanUsername), {
           uid: targetUid,
           username: cleanUsername,
+          zenoa_id: cleanZenoaId,
+          created_at: now
+        });
+        await setDoc(doc(db, 'zenoa_ids', cleanZenoaId), {
+          uid: targetUid,
+          username: cleanUsername,
+          zenoa_id: cleanZenoaId,
           created_at: now
         });
       } catch (err: any) {
@@ -3766,11 +3910,179 @@ export default function App() {
       }
     }
 
+    // Save updated user to local browser accounts
+    try {
+      const savedRaw = localStorage.getItem('zenoa_saved_browser_accounts');
+      let savedList: UserData[] = [];
+      if (savedRaw) savedList = JSON.parse(savedRaw);
+      const updatedUser: UserData = {
+        id: targetUid || 'u_' + cleanUsername,
+        zenoa_id: cleanZenoaId,
+        username: cleanUsername,
+        display_name: cleanFullName,
+        email: targetEmail,
+        dob: data.dob || '',
+        gender: data.gender || '',
+        bio: data.bio || 'Hey there! I am using Zenoa Messenger.',
+        avatar_seed: data.avatarSeed || cleanUsername,
+        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanUsername}`,
+        followers: [],
+        following: [],
+        is_verified: false,
+        is_official: false,
+        mobile_number: '',
+        online: true,
+        last_seen: 'Online'
+      };
+      const updated = [updatedUser, ...savedList.filter(a => a.id !== targetUid && a.username !== cleanUsername)];
+      localStorage.setItem('zenoa_saved_browser_accounts', JSON.stringify(updated));
+    } catch (_) {}
+
     setIsNewUserSetupPending(false);
     setPendingUserAuth(null);
     setIsAuthenticated(true);
     showToast('Account setup complete! Welcome to Zenoa.');
     return { success: true };
+  };
+
+  const handleInlineOAuthRegister = async (data: {
+    fullName: string;
+    email: string;
+    password: string;
+  }): Promise<{ success: boolean; error?: string; user?: UserData }> => {
+    const cleanEmail = data.email.trim().toLowerCase();
+    const cleanFullName = data.fullName.trim();
+    const password = data.password;
+
+    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      return { success: false, error: 'Please enter a valid email address.' };
+    }
+    if (!password || password.length < 6) {
+      return { success: false, error: 'Password must be at least 6 characters.' };
+    }
+    if (!cleanFullName) {
+      return { success: false, error: 'Please enter your full name.' };
+    }
+
+    // Auto-derive a valid initial username
+    let emailPrefix = cleanEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '');
+    if (emailPrefix.length < 3) {
+      emailPrefix = `user_${emailPrefix}`;
+    }
+    if (emailPrefix.length > 14) {
+      emailPrefix = emailPrefix.slice(0, 14);
+    }
+    let candidateUsername = `${emailPrefix}_${Math.floor(1000 + Math.random() * 9000)}`;
+    if (!isValidUsername(candidateUsername)) {
+      candidateUsername = `user_${Date.now().toString().slice(-6)}`;
+    }
+    const candidateZenoaId = `${candidateUsername}@zenoa`;
+
+    const now = Date.now();
+    let newUid = '';
+
+    if (isFirebaseConfigured && auth && db) {
+      try {
+        const userQ = query(collection(db, 'users'), where('email', '==', cleanEmail));
+        const userSnap = await getDocs(userQ);
+        if (!userSnap.empty) {
+          return { success: false, error: 'An account with this email already exists. Please sign in instead.' };
+        }
+
+        const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+        newUid = cred.user.uid;
+
+        const newUserData: UserData = {
+          id: newUid,
+          zenoa_id: candidateZenoaId,
+          username: candidateUsername,
+          display_name: cleanFullName,
+          email: cleanEmail,
+          dob: '',
+          gender: '',
+          bio: 'Hey there! I am using Zenoa Messenger.',
+          avatar_seed: candidateUsername,
+          avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${candidateUsername}`,
+          created_at: now,
+          registered_at: now,
+          created_via: 'oauth',
+          profile_completed: false, // JIT: Triggers mandatory AccountSetup on Messenger login
+          followers: [],
+          following: [],
+          is_verified: false,
+          is_official: false,
+          mobile_number: '',
+          online: true,
+          last_seen: 'Online'
+        };
+
+        await setDoc(doc(db, 'users', newUid), newUserData);
+        await setDoc(doc(db, 'usernames', candidateUsername), {
+          uid: newUid,
+          username: candidateUsername,
+          zenoa_id: candidateZenoaId,
+          created_at: now
+        });
+        await setDoc(doc(db, 'zenoa_ids', candidateZenoaId), {
+          uid: newUid,
+          username: candidateUsername,
+          zenoa_id: candidateZenoaId,
+          created_at: now
+        });
+
+        // Add to saved accounts on device
+        try {
+          const savedRaw = localStorage.getItem('zenoa_saved_browser_accounts');
+          let savedList: UserData[] = [];
+          if (savedRaw) savedList = JSON.parse(savedRaw);
+          const updatedList = [newUserData, ...savedList.filter(a => a.id !== newUid && a.username !== candidateUsername)];
+          localStorage.setItem('zenoa_saved_browser_accounts', JSON.stringify(updatedList));
+        } catch (_) {}
+
+        return { success: true, user: newUserData };
+      } catch (err: any) {
+        console.error("Inline OAuth registration error:", err);
+        if (err.code === 'auth/email-already-in-use') {
+          return { success: false, error: 'An account with this email already exists. Please switch to Sign In.' };
+        }
+        return { success: false, error: err.message || 'Failed to create account.' };
+      }
+    } else {
+      newUid = 'usr_' + Math.random().toString(36).substring(2, 11);
+      const localUserData: UserData = {
+        id: newUid,
+        zenoa_id: candidateZenoaId,
+        username: candidateUsername,
+        display_name: cleanFullName,
+        email: cleanEmail,
+        dob: '',
+        gender: '',
+        bio: 'Hey there! I am using Zenoa Messenger.',
+        avatar_seed: candidateUsername,
+        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${candidateUsername}`,
+        created_at: now,
+        registered_at: now,
+        created_via: 'oauth',
+        profile_completed: false,
+        followers: [],
+        following: [],
+        is_verified: false,
+        is_official: false,
+        mobile_number: '',
+        online: true,
+        last_seen: 'Online'
+      };
+
+      try {
+        const savedRaw = localStorage.getItem('zenoa_saved_browser_accounts');
+        let savedList: UserData[] = [];
+        if (savedRaw) savedList = JSON.parse(savedRaw);
+        const updatedList = [localUserData, ...savedList.filter(a => a.id !== newUid && a.username !== candidateUsername)];
+        localStorage.setItem('zenoa_saved_browser_accounts', JSON.stringify(updatedList));
+      } catch (_) {}
+
+      return { success: true, user: localUserData };
+    }
   };
 
   const handleOAuthLogin = async (provider: string) => {
@@ -3850,6 +4162,7 @@ export default function App() {
           setUserUsernameChanges(profile.username_change_timestamps || []);
           setSavedDisplayName(dName);
           setSavedUsername(uName);
+          await claimActiveSession(userObj.uid, uName);
           setIsAuthenticated(true);
           setIsNewUserSetupPending(false);
 
@@ -3915,7 +4228,7 @@ export default function App() {
     }
   };
 
-  const handleAuthFlowLogin = async (identifier: string, pass: string): Promise<{ success: boolean; requiresOtp?: boolean; error?: string }> => {
+  const handleAuthFlowLogin = async (identifier: string, pass: string): Promise<{ success: boolean; requiresOtp?: boolean; error?: string; user?: UserData }> => {
     const rawInput = identifier.trim();
     const cleanId = rawInput.toLowerCase().replace(/^@/, '').trim();
     if (cleanId.startsWith('sa_')) {
@@ -4022,57 +4335,84 @@ export default function App() {
           return { success: true };
         }
 
-        // Establish strictly active new session token & timestamp
-        const freshToken = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
-        const freshTime = Date.now();
-        sessionStorage.setItem('zenoa_active_session_token', freshToken);
-        sessionStorage.setItem('zenoa_active_session_created_at', String(freshTime));
-        sessionStorage.removeItem('zenoa_is_explicit_login');
-        setCurrentSessionToken(freshToken);
-        setCurrentSessionCreatedAt(freshTime);
-        setShowConcurrentLoginModal(false);
-
-        await setDoc(userDocRef, {
-          active_session_token: freshToken,
-          active_session_created_at: freshTime,
-          last_login_device: navigator.userAgent || 'Web Browser'
-        }, { merge: true }).catch(err => console.warn("Session token update notice:", err));
-
         setUserId(userObj.uid);
         setUserEmail(isInternalGhostEmail(userObj.email) ? '' : (userObj.email || ''));
         setAuthMethod('email');
 
         if (userSnap.exists() && userSnap.data()?.username && userSnap.data()?.display_name) {
           const profile = userSnap.data();
-          setUserUsername(profile.username);
-          setUserDisplayName(profile.display_name);
-          setUserBio(profile.bio || '');
-          setUserAvatarSeed(profile.avatar_seed || profile.username);
-          setUserAvatarUrl(profile.avatar_url || '');
-          setIsAuthenticated(true);
-          setIsNewUserSetupPending(false);
+          const matchedUser: UserData = {
+            id: userObj.uid,
+            zenoa_id: profile.zenoa_id || `${profile.username}@zenoa`,
+            username: profile.username,
+            display_name: profile.display_name,
+            email: profile.email || userObj.email || '',
+            dob: profile.dob || '',
+            gender: profile.gender || '',
+            avatar_seed: profile.avatar_seed || profile.username,
+            avatar_url: profile.avatar_url || '',
+            bio: profile.bio || '',
+            followers: profile.followers || [],
+            following: profile.following || [],
+            is_verified: !!profile.is_verified,
+            is_official: !!profile.is_official,
+            mobile_number: profile.mobile_number || '',
+            online: true,
+            last_seen: 'Online'
+          };
 
-          // Broadcast to immediately invalidate any older session on same machine
+          // Save to device quick accounts
           try {
-            if (typeof BroadcastChannel !== 'undefined') {
-              const sessionBc = new BroadcastChannel(`zenoa_session_sync_${profile.username.toLowerCase()}`);
-              sessionBc.postMessage({
-                type: 'NEW_LOGIN',
-                sessionToken: freshToken,
-                createdAt: freshTime
-              });
-              setTimeout(() => sessionBc.close(), 1000);
-            }
-          } catch {}
+            const savedRaw = localStorage.getItem('zenoa_saved_browser_accounts');
+            let savedList: UserData[] = [];
+            if (savedRaw) savedList = JSON.parse(savedRaw);
+            const updated = [matchedUser, ...savedList.filter(a => a.id !== matchedUser.id && a.username !== matchedUser.username)];
+            localStorage.setItem('zenoa_saved_browser_accounts', JSON.stringify(updated));
+          } catch (_) {}
+
+          const isCurrentlyOnOAuthConsent = typeof window !== 'undefined' && (
+            window.location.pathname.startsWith('/auth/sso') || 
+            window.location.pathname.startsWith('/oauth') || 
+            window.location.hostname.startsWith('accounts.') || 
+            new URLSearchParams(window.location.search).has('client_id')
+          );
+          const isProfileIncomplete = profile.profile_completed === false || (!profile.dob && !profile.created_via_mobile) || (!profile.gender && !profile.created_via_mobile);
+
+          if (isProfileIncomplete && !isCurrentlyOnOAuthConsent) {
+            setPendingUserAuth(userObj);
+            setUserDisplayName(profile.display_name || userObj.displayName || '');
+            setUserUsername(profile.username || '');
+            setUserZenoaId(profile.zenoa_id || `${profile.username}@zenoa`);
+            setUserDob(profile.dob || '');
+            setUserGender(profile.gender || '');
+            setUserBio(profile.bio || '');
+            setUserAvatarSeed(profile.avatar_seed || profile.username || 'zenoa');
+            setIsNewUserSetupPending(true);
+            setIsAuthenticated(false);
+          } else {
+            setUserUsername(profile.username);
+            setUserDisplayName(profile.display_name);
+            setUserZenoaId(profile.zenoa_id || `${profile.username}@zenoa`);
+            setUserDob(profile.dob || '');
+            setUserGender(profile.gender || '');
+            setUserBio(profile.bio || '');
+            setUserAvatarSeed(profile.avatar_seed || profile.username);
+            setUserAvatarUrl(profile.avatar_url || '');
+            await claimActiveSession(userObj.uid, profile.username);
+            setIsAuthenticated(true);
+            setIsNewUserSetupPending(false);
+          }
+
+          showToast(`Welcome back!`);
+          return { success: true, user: matchedUser };
         } else {
           setPendingUserAuth(userObj);
           setUserDisplayName(userObj.displayName || '');
           setIsNewUserSetupPending(true);
           setIsAuthenticated(false);
+          showToast(`Welcome back!`);
+          return { success: true };
         }
-
-        showToast(`Welcome back!`);
-        return { success: true };
       } catch (err: any) {
         console.warn("Login auth error:", err);
         const code = err.code || (err.message && err.message.includes('/') ? err.message : '');
@@ -4094,15 +4434,35 @@ export default function App() {
       setCurrentSessionCreatedAt(freshTime);
       setShowConcurrentLoginModal(false);
 
-      setUserId('u_' + Math.random().toString(36).substring(2, 9));
+      const localUser: UserData = {
+        id: 'u_' + Math.random().toString(36).substring(2, 9),
+        zenoa_id: `${resolvedUsername}@zenoa`,
+        username: resolvedUsername,
+        display_name: resolvedUsername ? (resolvedUsername.charAt(0).toUpperCase() + resolvedUsername.slice(1)) : "User",
+        email: emailToUse,
+        dob: '',
+        gender: '',
+        bio: '',
+        avatar_seed: resolvedUsername,
+        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${resolvedUsername}`,
+        followers: [],
+        following: [],
+        is_verified: false,
+        is_official: false,
+        mobile_number: '',
+        online: true,
+        last_seen: 'Online'
+      };
+
+      setUserId(localUser.id || '');
       setUserEmail(emailToUse);
       setUserUsername(resolvedUsername);
-      setUserDisplayName(resolvedUsername ? (resolvedUsername.charAt(0).toUpperCase() + resolvedUsername.slice(1)) : "User");
+      setUserDisplayName(localUser.display_name);
       setUserAvatarSeed(resolvedUsername);
       setAuthMethod('email');
       setIsAuthenticated(true);
       showToast(`Welcome back!`);
-      return { success: true };
+      return { success: true, user: localUser };
     }
   };
 
@@ -4343,14 +4703,14 @@ export default function App() {
     }
   };
 
-  const handleAuthFlowSendEmailOtp = async (email: string): Promise<{ success: boolean; error?: string }> => {
+  const handleAuthFlowSendEmailOtp = async (email: string, purpose?: string): Promise<{ success: boolean; error?: string }> => {
     try {
       const response = await fetch('/api/auth/messenger/send-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ email })
+        body: JSON.stringify({ email, purpose })
       });
       const data = await response.json();
       if (!response.ok) {
@@ -4378,15 +4738,72 @@ export default function App() {
       }
 
       if (isFirebaseConfigured && auth) {
+        let authSuccess = false;
+        let finalUid = data.user?.uid || '';
+        const finalUsername = data.user?.username || data.username || email.split('@')[0];
+
         if (data.customToken) {
-          await signInWithCustomToken(auth, data.customToken);
-        } else if (data.email && data.systemPassword) {
-          await signInWithEmailAndPassword(auth, data.email, data.systemPassword);
+          try {
+            const cred = await signInWithCustomToken(auth, data.customToken);
+            if (cred?.user?.uid) {
+              finalUid = cred.user.uid;
+              authSuccess = true;
+            }
+          } catch (customErr) {
+            console.warn("Notice: signInWithCustomToken fallback:", customErr);
+          }
         }
+
+        if (!authSuccess && data.email && data.systemPassword) {
+          try {
+            const cred = await signInWithEmailAndPassword(auth, data.email, data.systemPassword);
+            if (cred?.user?.uid) {
+              finalUid = cred.user.uid;
+              authSuccess = true;
+            }
+          } catch (signInErr: any) {
+            if (
+              signInErr?.code === 'auth/user-not-found' || 
+              signInErr?.code === 'auth/invalid-credential' || 
+              signInErr?.code === 'auth/wrong-password'
+            ) {
+              try {
+                const newCred = await createUserWithEmailAndPassword(auth, data.email, data.systemPassword);
+                if (newCred?.user?.uid) {
+                  finalUid = newCred.user.uid;
+                  authSuccess = true;
+                }
+              } catch (createErr) {
+                console.warn("Notice: client createUser fallback:", createErr);
+              }
+            }
+          }
+        }
+
+        if (finalUid) {
+          await claimActiveSession(finalUid, finalUsername);
+        }
+
+        if (data.user) {
+          setUserId(finalUid || data.user.uid);
+          setUserEmail(data.user.email || email);
+          setUserDisplayName(data.user.display_name || finalUsername);
+          setUserUsername(data.user.username || finalUsername);
+        }
+
+        setIsAuthenticated(true);
         confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
         return { success: true };
       } else {
-        throw new Error('Authentication parameters are missing on client.');
+        if (data.user) {
+          setUserId(data.user.uid);
+          setUserEmail(data.user.email || email);
+          setUserDisplayName(data.user.display_name || email.split('@')[0]);
+          setUserUsername(data.user.username || email.split('@')[0]);
+        }
+        setIsAuthenticated(true);
+        confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+        return { success: true };
       }
     } catch (err: any) {
       console.error("Verify email OTP error:", err);
@@ -4843,10 +5260,7 @@ export default function App() {
     setUserEmail(account.email || '');
     setUserBio(account.bio || '');
     setUserPhone(account.mobile_number || '');
-    if (account.sessionToken) {
-      setCurrentSessionToken(account.sessionToken);
-      sessionStorage.setItem('zenoa_active_session_token', account.sessionToken);
-    }
+    await claimActiveSession(account.userId || cleanU, cleanU);
     sessionStorage.setItem('zenoa_account_created_at', String(account.savedAt || Date.now()));
     
     setIsAuthenticated(true);
@@ -7568,33 +7982,22 @@ export default function App() {
     try {
       // 4. Resolve Firestore document IDs for both users
       const requesterUserObj = users[cleanFrom] || Object.values(users).find(u => u?.username?.toLowerCase() === cleanFrom);
-      const requesterDocId = requesterUserObj?.id || request.fromId || cleanFrom;
+      const requesterDocId = requesterUserObj?.id || request.fromId;
 
       const acceptorUserObj = users[cleanTo] || Object.values(users).find(u => u?.username?.toLowerCase() === cleanTo);
-      const acceptorDocId = acceptorUserObj?.id || userId || cleanTo;
+      const acceptorDocId = acceptorUserObj?.id || userId;
 
-      const targetUserRef = doc(db, 'users', requesterDocId);
-      const myUserRef = doc(db, 'users', acceptorDocId);
-
-      // Add to followers of acceptor
-      await setDoc(myUserRef, {
-        followers: arrayUnion(request.fromUsername, cleanFrom)
-      }, { merge: true }).catch(() => {});
-      
-      // Add to following of requester
-      await setDoc(targetUserRef, {
-        following: arrayUnion(userUsername, cleanTo)
-      }, { merge: true }).catch(() => {});
-
-      // Sync username-keyed documents if distinct
-      if (requesterDocId !== cleanFrom) {
-        setDoc(doc(db, 'users', cleanFrom), {
-          following: arrayUnion(userUsername, cleanTo)
+      if (acceptorDocId && acceptorDocId !== '@') {
+        const myUserRef = doc(db, 'users', acceptorDocId);
+        await setDoc(myUserRef, {
+          followers: arrayUnion(request.fromUsername, cleanFrom)
         }, { merge: true }).catch(() => {});
       }
-      if (acceptorDocId !== cleanTo) {
-        setDoc(doc(db, 'users', cleanTo), {
-          followers: arrayUnion(request.fromUsername, cleanFrom)
+      
+      if (requesterDocId && requesterDocId !== '@') {
+        const targetUserRef = doc(db, 'users', requesterDocId);
+        await setDoc(targetUserRef, {
+          following: arrayUnion(userUsername, cleanTo)
         }, { merge: true }).catch(() => {});
       }
 
@@ -7750,25 +8153,19 @@ export default function App() {
     // 2. Persistent Local Fallback Cache
     persistFollowActionLocally(userUsername, targetUser.username || targetUsername, willBeFollowing);
 
-    // 3. Persistent Firestore Synchronization
-    const targetUserId = targetUser.id || (Object.entries(users).find(([k, v]) => v?.username?.toLowerCase() === cleanTarget && k !== cleanTarget)?.[0]) || cleanTarget;
-    const myUserId = userId || myUserData?.id || cleanMy;
+    // 3. Persistent Firestore Synchronization (strictly write only to validated UIDs, never phantom docs)
+    const targetUserId = targetUser.id || (Object.entries(users).find(([k, v]) => v?.username?.toLowerCase() === cleanTarget && k !== cleanTarget && !k.startsWith('@'))?.[0]);
+    const myUserId = userId || myUserData?.id;
     
     try {
-      if (isFirebaseConfigured && db && myUserId) {
+      if (isFirebaseConfigured && db && myUserId && myUserId !== '@') {
         const myDocRef = doc(db, 'users', myUserId);
         const storedTargetUsername = targetUser.username || targetUsername;
         
         if (willBeFollowing) {
           await setDoc(myDocRef, { following: arrayUnion(storedTargetUsername) }, { merge: true }).catch(() => {});
-          if (cleanMy && cleanMy !== myUserId) {
-            await setDoc(doc(db, 'users', cleanMy), { following: arrayUnion(storedTargetUsername) }, { merge: true }).catch(() => {});
-          }
-          if (targetUserId) {
+          if (targetUserId && targetUserId !== '@') {
             await setDoc(doc(db, 'users', targetUserId), { followers: arrayUnion(userUsername) }, { merge: true }).catch(() => {});
-            if (cleanTarget && cleanTarget !== targetUserId) {
-              await setDoc(doc(db, 'users', cleanTarget), { followers: arrayUnion(userUsername) }, { merge: true }).catch(() => {});
-            }
             
             // Deterministic notification ID prevents duplicate notifications
             const notifId = `new_follower_${myUserId}_${targetUserId}`;
@@ -7776,14 +8173,8 @@ export default function App() {
           }
         } else {
           await setDoc(myDocRef, { following: arrayRemove(storedTargetUsername) }, { merge: true }).catch(() => {});
-          if (cleanMy && cleanMy !== myUserId) {
-            await setDoc(doc(db, 'users', cleanMy), { following: arrayRemove(storedTargetUsername) }, { merge: true }).catch(() => {});
-          }
-          if (targetUserId) {
+          if (targetUserId && targetUserId !== '@') {
             await setDoc(doc(db, 'users', targetUserId), { followers: arrayRemove(userUsername) }, { merge: true }).catch(() => {});
-            if (cleanTarget && cleanTarget !== targetUserId) {
-              await setDoc(doc(db, 'users', cleanTarget), { followers: arrayRemove(userUsername) }, { merge: true }).catch(() => {});
-            }
           }
         }
       }
@@ -8549,43 +8940,6 @@ export default function App() {
     );
   }
 
-  // Authentication & Mandatory Setup UI Render
-  if (isNewUserSetupPending || (isAuthenticated && (!userDisplayName || !userUsername))) {
-    return (
-      <AccountSetup
-        initialFullName={pendingUserAuth?.displayName || userDisplayName || ''}
-        initialUsername={userUsername || ''}
-        initialEmail={pendingUserAuth?.email || userEmail || ''}
-        onComplete={handleCompleteMandatoryAccountSetup}
-        checkUsernameAvailability={handleCheckUsernameAvailability}
-        themeMode={themeMode}
-        onSignOut={handleLogout}
-      />
-    );
-  }
-
-  const dbUserObj = userUsername ? users[userUsername.toLowerCase()] : null;
-
-  const currentUserObj: UserData | null = isAuthenticated ? {
-    id: userId,
-    zenoa_id: userZenoaId || dbUserObj?.zenoa_id || (userUsername ? `${userUsername}@zenoa` : ''),
-    username: userUsername,
-    display_name: dbUserObj?.display_name || userDisplayName,
-    email: userEmail,
-    bio: dbUserObj?.bio || userBio,
-    avatar_seed: dbUserObj?.avatar_seed || userAvatarSeed,
-    avatar_url: dbUserObj?.avatar_url || userAvatarUrl,
-    mobile_number: userPhone,
-    online: true,
-    last_seen: 'Online',
-    is_verified: dbUserObj?.is_verified ?? false,
-    verified_type: dbUserObj?.verified_type ?? null,
-    is_official: dbUserObj?.is_official ?? false,
-    followers: dbUserObj?.followers || [],
-    following: dbUserObj?.following || [],
-    is_private: dbUserObj?.is_private ?? false
-  } : null;
-
   // 1. DEDICATED STANDALONE SERVICES & SUBDOMAIN ROUTING (Independent identities & "Continue with Zenoa" gateways)
   const currentHostname = typeof window !== "undefined" ? window.location.hostname.toLowerCase() : "";
   const currentSearchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
@@ -8606,20 +8960,33 @@ export default function App() {
 
   // A. Accounts / OAuth 2.0 Consent Screen (accounts.zenoa.in, /auth/sso, /oauth, or client_id query param)
   const isSSOAuthConsent = isAccountsSubdomain || currentPathname === "/auth/sso" || currentPathname === "/oauth" || currentSearchParams.has("client_id") || currentSearchParams.has("redirect_uri");
+
+  const dbUserObj = userUsername ? users[userUsername.toLowerCase()] : null;
+
+  const currentUserObj: UserData | null = isAuthenticated ? {
+    id: userId,
+    zenoa_id: userZenoaId || dbUserObj?.zenoa_id || (userUsername ? `${userUsername}@zenoa` : ''),
+    username: userUsername,
+    display_name: dbUserObj?.display_name || userDisplayName,
+    email: userEmail,
+    dob: userDob || dbUserObj?.dob || '',
+    gender: userGender || dbUserObj?.gender || '',
+    bio: dbUserObj?.bio || userBio,
+    avatar_seed: dbUserObj?.avatar_seed || userAvatarSeed,
+    avatar_url: dbUserObj?.avatar_url || userAvatarUrl,
+    mobile_number: userPhone,
+    online: true,
+    last_seen: 'Online',
+    is_verified: dbUserObj?.is_verified ?? false,
+    verified_type: dbUserObj?.verified_type ?? null,
+    is_official: dbUserObj?.is_official ?? false,
+    followers: dbUserObj?.followers || [],
+    following: dbUserObj?.following || [],
+    is_private: dbUserObj?.is_private ?? false
+  } : null;
+
+  // A. Render Accounts / OAuth 2.0 Consent Screen
   if (isSSOAuthConsent) {
-    if (onboardingStep > 0 && onboardingStep < 3 && isAuthenticated) {
-      return (
-        <AccountSetup
-          initialFullName={userDisplayName}
-          initialUsername={userUsername}
-          initialEmail={userEmail}
-          onComplete={handleCompleteMandatoryAccountSetup}
-          checkUsernameAvailability={handleCheckUsernameAvailability}
-          themeMode={themeMode}
-          onSignOut={handleLogout}
-        />
-      );
-    }
     return (
       <SSOLogin 
         themeMode={themeMode}
@@ -8630,9 +8997,27 @@ export default function App() {
         }}
         onInlineLogin={async (identifier, pass) => {
           const res = await handleAuthFlowLogin(identifier, pass);
-          return { success: res.success, error: res.error };
+          return { success: res.success, error: res.error, user: res.user };
         }}
+        onInlineRegister={handleInlineOAuthRegister}
         onLogout={handleLogout}
+      />
+    );
+  }
+
+  // Authentication & Mandatory Setup UI Render (Zenoa Messenger Onboarding)
+  if (isNewUserSetupPending || (isAuthenticated && (!userDisplayName || !userUsername))) {
+    return (
+      <AccountSetup
+        initialFullName={pendingUserAuth?.displayName || userDisplayName || ''}
+        initialUsername={userUsername || ''}
+        initialEmail={pendingUserAuth?.email || userEmail || ''}
+        initialDob={userDob || ''}
+        initialGender={userGender || ''}
+        onComplete={handleCompleteMandatoryAccountSetup}
+        checkUsernameAvailability={handleCheckUsernameAvailability}
+        themeMode={themeMode}
+        onSignOut={handleLogout}
       />
     );
   }

@@ -43,6 +43,8 @@ export interface UserData {
   is_truecaller_verified?: boolean;
   dob?: string;
   gender?: string;
+  created_via?: string;
+  profile_completed?: boolean;
 }
 
 export interface SavedDeviceAccount {

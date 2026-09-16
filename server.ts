@@ -52,6 +52,52 @@ if (resend) {
   console.log("Resend API key missing; operating in dev email simulation mode");
 }
 
+// In-Memory Dual-Layer Fallback Store for OTP Sessions to prevent race conditions or transient storage issues
+interface OtpSession {
+  email: string;
+  code: string;
+  created_at: number;
+  expires_at: number;
+  attempts: number;
+}
+const memoryOtpStore = new Map<string, OtpSession>();
+
+// Helper to get active OTP session across Memory & Firestore
+async function getActiveOtpSession(cleanEmail: string): Promise<{ data: OtpSession | null; source: 'memory' | 'firestore' | null }> {
+  // 1. Check in-memory store first (ultra-fast, zero permission latency)
+  const memOtp = memoryOtpStore.get(cleanEmail);
+  if (memOtp && Date.now() < memOtp.expires_at) {
+    return { data: memOtp, source: 'memory' };
+  }
+
+  // 2. Check Firestore
+  if (db) {
+    try {
+      const otpDocRef = doc(db, 'messenger_otps', cleanEmail);
+      const otpSnap = await getDoc(otpDocRef);
+      if (otpSnap.exists()) {
+        const fireData = otpSnap.data() as OtpSession;
+        return { data: fireData, source: 'firestore' };
+      }
+    } catch (fsErr) {
+      console.warn("Notice: Firestore OTP read check:", fsErr);
+    }
+  }
+
+  return { data: null, source: null };
+}
+
+// Helper to clear active OTP session
+async function clearActiveOtpSession(cleanEmail: string) {
+  memoryOtpStore.delete(cleanEmail);
+  if (db) {
+    try {
+      const otpDocRef = doc(db, 'messenger_otps', cleanEmail);
+      await deleteDoc(otpDocRef);
+    } catch (_) {}
+  }
+}
+
 export const app = express();
 const PORT = 3000;
 
@@ -188,15 +234,19 @@ app.get('/google47f3905eac1338b5.html', (req, res) => {
 // Explicit SEO Endpoints (robots.txt & sitemap.xml for Google, AI crawlers, and search engines)
 app.get('/robots.txt', (req, res) => {
   const robotsPath = path.join(process.cwd(), 'public', 'robots.txt');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
   if (fs.existsSync(robotsPath)) {
     res.type('text/plain; charset=UTF-8').sendFile(robotsPath);
   } else {
-    res.type('text/plain; charset=UTF-8').send('Content-Signal: ai-train=no, search=yes, ai-input=no\n\nUser-agent: *\nAllow: /\nSitemap: https://zenoa.in/sitemap.xml\n');
+    res.type('text/plain; charset=UTF-8').send('Content-Signal: ai-train=no, search=yes, ai-input=yes\n\nUser-agent: *\nAllow: /\nSitemap: https://zenoa.in/sitemap.xml\n');
   }
 });
 
 app.get('/sitemap.xml', (req, res) => {
   const sitemapPath = path.join(process.cwd(), 'public', 'sitemap.xml');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
   if (fs.existsSync(sitemapPath)) {
     res.type('application/xml; charset=UTF-8').sendFile(sitemapPath);
   } else {
@@ -209,6 +259,8 @@ app.get('/llms.txt', (req, res) => {
   const llmsPublicPath = path.join(process.cwd(), 'public', 'llms.txt');
   const llmsRootPath = path.join(process.cwd(), 'llms.txt');
   const targetPath = fs.existsSync(llmsPublicPath) ? llmsPublicPath : llmsRootPath;
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
   if (fs.existsSync(targetPath)) {
     res.type('text/markdown; charset=UTF-8').sendFile(targetPath);
   } else {
@@ -221,6 +273,8 @@ app.get('/llms-full.txt', (req, res) => {
   const llmsFullPublicPath = path.join(process.cwd(), 'public', 'llms-full.txt');
   const llmsFullRootPath = path.join(process.cwd(), 'llms-full.txt');
   const targetPath = fs.existsSync(llmsFullPublicPath) ? llmsFullPublicPath : llmsFullRootPath;
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
   if (fs.existsSync(targetPath)) {
     res.type('text/markdown; charset=UTF-8').sendFile(targetPath);
   } else {
@@ -233,6 +287,8 @@ app.get('/auth.md', (req, res) => {
   const authPublicPath = path.join(process.cwd(), 'public', 'auth.md');
   const authRootPath = path.join(process.cwd(), 'auth.md');
   const targetPath = fs.existsSync(authPublicPath) ? authPublicPath : authRootPath;
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
   if (fs.existsSync(targetPath)) {
     res.type('text/markdown; charset=UTF-8').sendFile(targetPath);
   } else {
@@ -390,6 +446,8 @@ app.get('/.well-known/dns-aid.json', (req, res) => {
 // Machine-readable OpenAPI 3.1 specification for AI bots and developer agents
 app.get(['/openapi.json', '/api/openapi.json'], (req, res) => {
   const openApiPath = path.join(process.cwd(), 'public', 'openapi.json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
   if (fs.existsSync(openApiPath)) {
     res.type('application/json; charset=UTF-8').sendFile(openApiPath);
   } else {
@@ -913,8 +971,26 @@ const authenticateApiKey = async (req: any, res: any, next: any) => {
     if (!clientSecret && req.query?.client_secret) clientSecret = String(req.query.client_secret).trim();
 
     // Fallback legacy headers if still provided
-    if (!clientId && req.headers['x-api-key']) clientId = (req.headers['x-api-key'] as string).trim();
-    if (!clientId && req.query?.api_key) clientId = String(req.query.api_key).trim();
+    if (!clientId && req.headers['x-api-key']) {
+      const rawVal = (req.headers['x-api-key'] as string).trim();
+      if (rawVal.includes(':')) {
+        const [u, p] = rawVal.split(':');
+        clientId = u.trim();
+        if (!clientSecret) clientSecret = p.trim();
+      } else {
+        clientId = rawVal;
+      }
+    }
+    if (!clientId && req.query?.api_key) {
+      const rawVal = String(req.query.api_key).trim();
+      if (rawVal.includes(':')) {
+        const [u, p] = rawVal.split(':');
+        clientId = u.trim();
+        if (!clientSecret) clientSecret = p.trim();
+      } else {
+        clientId = rawVal;
+      }
+    }
 
     // STRICT VALIDATION: Developer Console Service Account actions REQUIRE BOTH client_id and client_secret
     if (!clientId) {
@@ -1474,7 +1550,7 @@ async function deliverBotChatMessage(opts: {
 }
 
 // 1. Send OTP Endpoint with Auto-Verification and Template Support
-app.post(['/api/v1/otp/send', '/v1/otp/send'], authenticateApiKey, async (req: any, res: any) => {
+app.post(['/api/v1/otp/send', '/v1/otp/send', '/api/developer/send-otp'], authenticateApiKey, async (req: any, res: any) => {
   try {
     const recipientInput = req.body?.recipient ?? req.body?.to ?? req.body?.phone ?? req.body?.mobile ?? req.body?.phoneNumber ?? req.body?.mobileNumber ?? req.body?.phone_number ?? req.body?.mobile_number ?? req.body?.username ?? req.body?.user ?? req.body?.target ?? req.body?.email ?? req.query?.recipient ?? req.query?.to ?? req.query?.phone ?? req.query?.mobile ?? req.query?.username;
 
@@ -1971,8 +2047,8 @@ app.post('/api/v1/bot/broadcast', authenticateApiKey, async (req: any, res: any)
   }
 });
 
-// 8. Send Message Endpoint (Direct Bot to User) - Supports both /api/v1/messages/send and /api/v1/bot/send
-app.post(['/api/v1/messages/send', '/api/v1/bot/send', '/v1/messages/send', '/v1/bot/send'], authenticateApiKey, async (req: any, res: any) => {
+// 8. Send Message Endpoint (Direct Bot to User) - Supports both /api/v1/messages/send, /api/developer/send-message, and /api/v1/bot/send
+app.post(['/api/v1/messages/send', '/api/v1/bot/send', '/v1/messages/send', '/v1/bot/send', '/api/developer/send-message'], authenticateApiKey, async (req: any, res: any) => {
   try {
     const recipientInput = req.body?.recipient ?? req.body?.to ?? req.body?.phone ?? req.body?.mobile ?? req.body?.phoneNumber ?? req.body?.mobileNumber ?? req.body?.phone_number ?? req.body?.mobile_number ?? req.body?.username ?? req.body?.user ?? req.body?.target ?? req.body?.email ?? req.query?.recipient ?? req.query?.to ?? req.query?.username;
     const messageInput = req.body?.message ?? req.body?.text ?? req.body?.content ?? req.body?.body ?? req.query?.message ?? req.query?.text;
@@ -3841,48 +3917,264 @@ app.post('/api/v1/link-device/revoke', async (req: any, res: any) => {
   }
 });
 
+// Corporate Standard HTML Email Generator for Zenoa OTPs (Tier-1 Enterprise / Stripe & Linear Standard)
+function generateProfessionalOtpEmailHtml(params: {
+  email: string;
+  otpCode: string;
+  purpose?: string;
+}): { subject: string; html: string } {
+  const { email, otpCode, purpose = 'login' } = params;
+  const cleanPurpose = (purpose || 'login').toLowerCase().trim();
+
+  interface PurposeConfig {
+    subject: string;
+    headline: string;
+    bodyText: string;
+  }
+
+  const purposeMap: Record<string, PurposeConfig> = {
+    login: {
+      subject: `${otpCode} is your Zenoa verification code`,
+      headline: `Sign in to Zenoa`,
+      bodyText: `Use the verification code below to sign in to your Zenoa account. This code is intended for single use only.`
+    },
+    '2fa': {
+      subject: `${otpCode} is your two-factor authentication code`,
+      headline: `Two-Factor Authentication`,
+      bodyText: `A two-factor authentication challenge was triggered for your account. Enter the verification code below to continue.`
+    },
+    password_reset: {
+      subject: `${otpCode} is your password reset code`,
+      headline: `Reset your password`,
+      bodyText: `We received a request to reset your Zenoa account password. Enter the code below to verify your identity and choose a new password.`
+    },
+    registration: {
+      subject: `${otpCode} is your Zenoa verification code`,
+      headline: `Verify your email address`,
+      bodyText: `Thank you for signing up for Zenoa. Please confirm your email address by entering the verification code below.`
+    },
+    signup: {
+      subject: `${otpCode} is your Zenoa verification code`,
+      headline: `Verify your email address`,
+      bodyText: `Thank you for signing up for Zenoa. Please confirm your email address by entering the verification code below.`
+    },
+    email_change: {
+      subject: `${otpCode} is your email confirmation code`,
+      headline: `Confirm your new email address`,
+      bodyText: `Use the code below to verify this email address as your new primary contact for Zenoa.`
+    }
+  };
+
+  const config = purposeMap[cleanPurpose] || {
+    subject: `${otpCode} is your Zenoa verification code`,
+    headline: `Verification code`,
+    bodyText: `Use the verification code below to authorize your request in Zenoa.`
+  };
+
+  const currentYear = new Date().getFullYear();
+
+  const html = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="supported-color-schemes" content="light dark" />
+  <title>${config.subject}</title>
+  <style type="text/css">
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #f6f8fa;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -webkit-text-size-adjust: 100%;
+    }
+    table {
+      border-collapse: collapse;
+      mso-table-lspace: 0pt;
+      mso-table-rspace: 0pt;
+    }
+    td {
+      padding: 0;
+    }
+    img {
+      border: 0;
+      outline: none;
+      text-decoration: none;
+      display: block;
+    }
+    a {
+      color: #0969da;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    @media only screen and (max-width: 600px) {
+      .container {
+        width: 100% !important;
+        border-radius: 0 !important;
+        border-left: 0 !important;
+        border-right: 0 !important;
+      }
+      .content-padding {
+        padding: 32px 20px !important;
+      }
+      .otp-text {
+        font-size: 28px !important;
+        letter-spacing: 6px !important;
+      }
+    }
+  </style>
+</head>
+<body style="margin: 0; padding: 40px 12px; background-color: #f6f8fa;">
+  <center>
+    <!--[if (gte mso 9)|(IE)]>
+    <table width="520" align="center" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td>
+    <![endif]-->
+    <table class="container" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e1e4e8; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);">
+      
+      <!-- Brand Header -->
+      <tr>
+        <td class="content-padding" style="padding: 36px 40px 24px 40px; border-bottom: 1px solid #f0f2f5;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%">
+            <tr>
+              <td>
+                <table cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="vertical-align: middle; padding-right: 12px;">
+                      <!-- Clean corporate monochrome brand mark -->
+                      <div style="width: 32px; height: 32px; background-color: #0f172a; border-radius: 8px; text-align: center; line-height: 32px;">
+                        <span style="color: #ffffff; font-size: 16px; font-weight: 700; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">Z</span>
+                      </div>
+                    </td>
+                    <td style="vertical-align: middle;">
+                      <span style="font-size: 18px; font-weight: 700; color: #0f172a; letter-spacing: -0.2px;">Zenoa</span>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+
+      <!-- Body Content -->
+      <tr>
+        <td class="content-padding" style="padding: 32px 40px 36px 40px;">
+          
+          <h1 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.4; letter-spacing: -0.2px;">
+            ${config.headline}
+          </h1>
+
+          <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #475569;">
+            ${config.bodyText}
+          </p>
+
+          <!-- OTP Code Box -->
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 0 0 24px 0;">
+            <tr>
+              <td align="center" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px 16px; text-align: center;">
+                <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-bottom: 8px;">
+                  Verification Code
+                </div>
+                <div class="otp-text" style="font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #0f172a; line-height: 1.2; padding-left: 8px;">
+                  ${otpCode}
+                </div>
+              </td>
+            </tr>
+          </table>
+
+          <p style="margin: 0 0 12px 0; font-size: 13px; line-height: 1.5; color: #64748b;">
+            This code will expire in <strong>5 minutes</strong>. If you did not make this request, you can safely disregard this message.
+          </p>
+
+          <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #64748b;">
+            Never share this code with anyone. Zenoa staff will never ask for your verification code.
+          </p>
+
+        </td>
+      </tr>
+
+      <!-- Corporate Footer -->
+      <tr>
+        <td style="padding: 24px 40px; background-color: #fafbfc; border-top: 1px solid #f0f2f5;">
+          <p style="margin: 0 0 6px 0; font-size: 12px; line-height: 1.5; color: #64748b;">
+            Sent by <strong>Zenoa</strong> • Developed by Inolas Nexus
+          </p>
+          <p style="margin: 0 0 8px 0; font-size: 11px; line-height: 1.5; color: #94a3b8;">
+            This email was sent to <span style="color: #475569;">${email}</span> for account security verification.
+          </p>
+          <p style="margin: 0; font-size: 11px; line-height: 1.5; color: #94a3b8;">
+            © ${currentYear} Zenoa Inc. All rights reserved.
+          </p>
+        </td>
+      </tr>
+
+    </table>
+    <!--[if (gte mso 9)|(IE)]>
+        </td>
+      </tr>
+    </table>
+    <![endif]-->
+  </center>
+</body>
+</html>`.trim();
+
+  return { subject: config.subject, html };
+}
+
 // Send OTP for Messenger Login using verified Resend API or Simulation Fallback
 app.post('/api/auth/messenger/send-otp', async (req: any, res: any) => {
   try {
-    const { email } = req.body;
+    const { email, purpose } = req.body;
     if (!email || !email.trim()) {
       return res.status(400).json({ error: 'Email address is required.' });
     }
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // Check database offline check
-    if (!db) {
-      return res.status(500).json({ error: 'Database connection is currently offline.' });
-    }
-
     // Rate limiting: Check if OTP was sent recently (last 60 seconds)
-    const otpDocRef = doc(db, 'messenger_otps', cleanEmail);
-    const otpSnap = await getDoc(otpDocRef).catch(() => null);
-    if (otpSnap && otpSnap.exists()) {
-      const data = otpSnap.data();
-      if (data && Date.now() - data.created_at < 60000) {
-        return res.status(429).json({ error: 'Please wait 60 seconds before requesting another verification code.' });
-      }
+    const existing = await getActiveOtpSession(cleanEmail);
+    if (existing.data && Date.now() - existing.data.created_at < 60000) {
+      return res.status(429).json({ error: 'Please wait 60 seconds before requesting another verification code.' });
     }
 
     // Generate 6-digit OTP code
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes validity
-
-    // Store in firestore under messenger_otps
-    await setDoc(otpDocRef, {
+    const otpPayload: OtpSession = {
       email: cleanEmail,
       code: otpCode,
       created_at: Date.now(),
       expires_at: expiresAt,
       attempts: 0
+    };
+
+    // 1. Store in memory store (instant, synchronous guarantee)
+    memoryOtpStore.set(cleanEmail, otpPayload);
+
+    // 2. Also persist to Firestore if available
+    if (db) {
+      const otpDocRef = doc(db, 'messenger_otps', cleanEmail);
+      await setDoc(otpDocRef, otpPayload).catch((fsErr) => {
+        console.warn("Notice: Firestore OTP setDoc non-blocking warning:", fsErr);
+      });
+    }
+
+    // Generate high-end professional email template
+    const emailTemplate = generateProfessionalOtpEmailHtml({
+      email: cleanEmail,
+      otpCode,
+      purpose: purpose || 'login'
     });
 
     // Send email using Resend
     if (!resend) {
-      // In development/test mode without API Key, let's log the OTP in the backend console or simulate it gracefully
-      console.log(`[SIMULATED EMAIL] To: ${cleanEmail} | OTP Code: ${otpCode}`);
+      console.log(`[SIMULATED EMAIL] To: ${cleanEmail} | Purpose: ${purpose || 'login'} | OTP Code: ${otpCode}`);
       return res.json({ 
         success: true, 
         message: 'Verification code sent successfully (simulated in development console).' 
@@ -3893,25 +4185,12 @@ app.post('/api/auth/messenger/send-otp', async (req: any, res: any) => {
       await resend.emails.send({
         from: 'Zenoa Messenger <no-reply@zenoa.in>',
         to: cleanEmail,
-        subject: 'Zenoa Messenger - Verification Code',
-        html: `
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; border: 1px solid #f1f5f9; border-radius: 16px; background-color: #ffffff; color: #0f172a;">
-            <div style="text-align: center; margin-bottom: 24px;">
-              <span style="font-size: 24px; font-weight: 700; color: #0d253d;">Zenoa</span>
-            </div>
-            <h2 style="font-size: 20px; font-weight: 600; line-height: 1.3; color: #0f172a; margin: 0 0 12px 0;">Verify your login</h2>
-            <p style="font-size: 15px; line-height: 1.6; color: #475569; margin: 0 0 24px 0;">Use the following 6-digit verification code to complete your login to Zenoa Messenger. This code is valid for 5 minutes.</p>
-            <div style="background-color: #f8fafc; border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 24px;">
-              <span style="font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #0d253d; font-family: monospace;">${otpCode}</span>
-            </div>
-            <p style="font-size: 12px; line-height: 1.5; color: #94a3b8; margin: 0; text-align: center;">If you did not request this code, you can safely ignore this email.</p>
-          </div>
-        `
+        subject: emailTemplate.subject,
+        html: emailTemplate.html
       });
-      console.log(`[RESEND] Successfully sent OTP to ${cleanEmail}`);
+      console.log(`[RESEND] Successfully sent OTP (${purpose || 'login'}) to ${cleanEmail}`);
     } catch (sendErr: any) {
       console.error("Resend API send failure, falling back to simulator:", sendErr);
-      // Fallback if API key fails, so the app remains resilient
       return res.json({ 
         success: true, 
         message: 'Verification code sent successfully (simulated due to provider check).' 
@@ -3936,44 +4215,45 @@ app.post('/api/auth/messenger/verify-otp', async (req: any, res: any) => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanCode = code.trim();
 
-    if (!db) {
-      return res.status(500).json({ error: 'Database connection is currently offline.' });
-    }
-
-    const otpDocRef = doc(db, 'messenger_otps', cleanEmail);
-    const otpSnap = await getDoc(otpDocRef).catch(() => null);
-
-    if (!otpSnap || !otpSnap.exists()) {
+    const activeSession = await getActiveOtpSession(cleanEmail);
+    if (!activeSession.data) {
       return res.status(400).json({ error: 'No active OTP verification session found for this email. Please request a new code.' });
     }
 
-    const otpData = otpSnap.data();
+    const otpData = activeSession.data;
 
     // Check expiration
     if (Date.now() > otpData.expires_at) {
-      await deleteDoc(otpDocRef).catch(() => {});
+      await clearActiveOtpSession(cleanEmail);
       return res.status(400).json({ error: 'Verification code has expired. Please request a new one.' });
     }
 
     // Check attempts (brute-force protection)
     if (otpData.attempts >= 5) {
-      await deleteDoc(otpDocRef).catch(() => {});
+      await clearActiveOtpSession(cleanEmail);
       return res.status(400).json({ error: 'Too many incorrect attempts. Please request a new verification code.' });
     }
 
     // Verify code
     if (otpData.code !== cleanCode) {
-      // Increment attempts
-      await updateDoc(otpDocRef, {
-        attempts: increment(1)
-      }).catch(() => {});
+      otpData.attempts = (otpData.attempts || 0) + 1;
+      memoryOtpStore.set(cleanEmail, otpData);
+      if (db) {
+        try {
+          const otpDocRef = doc(db, 'messenger_otps', cleanEmail);
+          await updateDoc(otpDocRef, { attempts: increment(1) });
+        } catch (_) {}
+      }
       return res.status(400).json({ error: 'Invalid verification code. Please check and try again.' });
     }
 
-    // Success! Delete the OTP document
-    await deleteDoc(otpDocRef).catch(() => {});
+    // Success! Clear the OTP session
+    await clearActiveOtpSession(cleanEmail);
 
     // Find the user's document to get their UID
+    if (!db) {
+      return res.status(500).json({ error: 'Database connection is currently offline.' });
+    }
     const usersRef = collection(db, 'users');
     const q = query(usersRef, where('email', '==', cleanEmail));
     const querySnap = await getDocs(q);
@@ -3987,7 +4267,6 @@ app.post('/api/auth/messenger/verify-otp', async (req: any, res: any) => {
     if (querySnap.empty) {
       console.log(`Email OTP login: Email ${cleanEmail} is not registered in Firestore. Starting auto-registration...`);
       try {
-        // Attempt to create user in Firebase Auth
         const userRecord = await getAdminAuth().createUser({
           email: cleanEmail,
           emailVerified: true
@@ -3995,12 +4274,15 @@ app.post('/api/auth/messenger/verify-otp', async (req: any, res: any) => {
         uid = userRecord.uid;
       } catch (authErr: any) {
         if (authErr.code === 'auth/email-already-exists') {
-          // If already in auth but not firestore, get their UID
-          const existingUser = await getAdminAuth().getUserByEmail(cleanEmail);
-          uid = existingUser.uid;
+          try {
+            const existingUser = await getAdminAuth().getUserByEmail(cleanEmail);
+            uid = existingUser.uid;
+          } catch (_) {
+            uid = 'usr_' + crypto.createHash('sha256').update(cleanEmail).digest('hex').substring(0, 20);
+          }
         } else {
-          console.error("Auth user creation failed:", authErr);
-          return res.status(500).json({ error: 'Failed to create user authentication record.' });
+          console.warn("Notice: Admin Auth user creation unavailable. Using deterministic UID fallback:", authErr?.message || authErr);
+          uid = 'usr_' + crypto.createHash('sha256').update(cleanEmail).digest('hex').substring(0, 20);
         }
       }
 
@@ -4062,7 +4344,7 @@ app.post('/api/auth/messenger/verify-otp', async (req: any, res: any) => {
       try {
         customToken = await getAdminAuth().createCustomToken(uid);
       } catch (tokenErr: any) {
-        console.warn("Notice: createCustomToken unavailable (iam.serviceAccounts.signBlob permission restricted). Utilizing secure fallback:", tokenErr?.message || tokenErr);
+        console.warn("Notice: createCustomToken unavailable:", tokenErr?.message || tokenErr);
       }
 
       return res.json({
@@ -4096,7 +4378,7 @@ app.post('/api/auth/messenger/verify-otp', async (req: any, res: any) => {
     try {
       customToken = await getAdminAuth().createCustomToken(uid);
     } catch (tokenErr: any) {
-      console.warn("Notice: createCustomToken unavailable (iam.serviceAccounts.signBlob permission restricted). Utilizing secure fallback:", tokenErr?.message || tokenErr);
+      console.warn("Notice: createCustomToken unavailable:", tokenErr?.message || tokenErr);
     }
 
     return res.json({ 
@@ -4129,41 +4411,40 @@ app.post('/api/auth/messenger/verify-otp-only', async (req: any, res: any) => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanCode = code.trim();
 
-    if (!db) {
-      return res.status(500).json({ error: 'Database connection is currently offline.' });
-    }
-
-    const otpDocRef = doc(db, 'messenger_otps', cleanEmail);
-    const otpSnap = await getDoc(otpDocRef).catch(() => null);
-
-    if (!otpSnap || !otpSnap.exists()) {
+    const activeSession = await getActiveOtpSession(cleanEmail);
+    if (!activeSession.data) {
       return res.status(400).json({ error: 'No active OTP verification session found for this email. Please request a new code.' });
     }
 
-    const otpData = otpSnap.data();
+    const otpData = activeSession.data;
 
     // Check expiration
     if (Date.now() > otpData.expires_at) {
-      await deleteDoc(otpDocRef).catch(() => {});
+      await clearActiveOtpSession(cleanEmail);
       return res.status(400).json({ error: 'Verification code has expired. Please request a new one.' });
     }
 
     // Check attempts (brute-force protection)
     if (otpData.attempts >= 5) {
-      await deleteDoc(otpDocRef).catch(() => {});
+      await clearActiveOtpSession(cleanEmail);
       return res.status(400).json({ error: 'Too many incorrect attempts. Please request a new verification code.' });
     }
 
     // Verify code
     if (otpData.code !== cleanCode) {
-      await updateDoc(otpDocRef, {
-        attempts: increment(1)
-      }).catch(() => {});
+      otpData.attempts = (otpData.attempts || 0) + 1;
+      memoryOtpStore.set(cleanEmail, otpData);
+      if (db) {
+        try {
+          const otpDocRef = doc(db, 'messenger_otps', cleanEmail);
+          await updateDoc(otpDocRef, { attempts: increment(1) });
+        } catch (_) {}
+      }
       return res.status(400).json({ error: 'Invalid verification code. Please check and try again.' });
     }
 
-    // Success! Delete the OTP document
-    await deleteDoc(otpDocRef).catch(() => {});
+    // Success! Clear the OTP session
+    await clearActiveOtpSession(cleanEmail);
 
     return res.json({ success: true, message: 'Email address verified successfully.' });
   } catch (err: any) {
@@ -4183,42 +4464,41 @@ app.post('/api/auth/messenger/reset-password-otp', async (req: any, res: any) =>
     const cleanEmail = email.trim().toLowerCase();
     const cleanCode = code.trim();
 
-    if (!db) {
-      return res.status(500).json({ error: 'Database connection is currently offline.' });
-    }
-
     // Verify OTP first
-    const otpDocRef = doc(db, 'messenger_otps', cleanEmail);
-    const otpSnap = await getDoc(otpDocRef).catch(() => null);
-
-    if (!otpSnap || !otpSnap.exists()) {
+    const activeSession = await getActiveOtpSession(cleanEmail);
+    if (!activeSession.data) {
       return res.status(400).json({ error: 'No active OTP verification session found for this email. Please request a new code.' });
     }
 
-    const otpData = otpSnap.data();
+    const otpData = activeSession.data;
 
     // Check expiration
     if (Date.now() > otpData.expires_at) {
-      await deleteDoc(otpDocRef).catch(() => {});
+      await clearActiveOtpSession(cleanEmail);
       return res.status(400).json({ error: 'Verification code has expired. Please request a new one.' });
     }
 
     // Check attempts
     if (otpData.attempts >= 5) {
-      await deleteDoc(otpDocRef).catch(() => {});
+      await clearActiveOtpSession(cleanEmail);
       return res.status(400).json({ error: 'Too many incorrect attempts. Please request a new verification code.' });
     }
 
     // Verify code
     if (otpData.code !== cleanCode) {
-      await updateDoc(otpDocRef, {
-        attempts: increment(1)
-      }).catch(() => {});
+      otpData.attempts = (otpData.attempts || 0) + 1;
+      memoryOtpStore.set(cleanEmail, otpData);
+      if (db) {
+        try {
+          const otpDocRef = doc(db, 'messenger_otps', cleanEmail);
+          await updateDoc(otpDocRef, { attempts: increment(1) });
+        } catch (_) {}
+      }
       return res.status(400).json({ error: 'Invalid verification code. Please check and try again.' });
     }
 
-    // OTP Verified! Delete the OTP document
-    await deleteDoc(otpDocRef).catch(() => {});
+    // OTP Verified! Clear the OTP session
+    await clearActiveOtpSession(cleanEmail);
 
     // Now, find the user's Auth UID using firebase-admin Auth
     let uid;
@@ -4363,6 +4643,99 @@ app.post('/api/security/login-alert', async (req: any, res: any) => {
   }
 });
 
+// Autonomous Ghost Account Purge Helper Function
+async function purgeGhostAccountsFromFirestore(): Promise<{ deletedUsers: number; deletedUsernames: number; details: string[] }> {
+  if (!db) return { deletedUsers: 0, deletedUsernames: 0, details: [] };
+  let deletedUsers = 0;
+  let deletedUsernames = 0;
+  const details: string[] = [];
+
+  try {
+    const usersSnap = await getDocs(collection(db, 'users'));
+    for (const docSnap of usersSnap.docs) {
+      const docId = docSnap.id;
+      const data = docSnap.data();
+
+      const cleanId = (docId || '').trim().toLowerCase();
+      const rawUsername = (data?.username || '').trim().replace(/^@+/, '');
+      const rawDisplayName = (data?.display_name || data?.fullName || '').trim().replace(/^@+/, '');
+      const rawEmail = (data?.email || '').trim().toLowerCase();
+
+      const isGhost = (
+        cleanId === '@' ||
+        cleanId === '@zenoa' ||
+        cleanId === 'undefined@zenoa' ||
+        cleanId === 'null@zenoa' ||
+        cleanId === 'user@zenoa' ||
+        cleanId.startsWith('@') ||
+        cleanId === 'undefined' ||
+        cleanId === 'null' ||
+        cleanId === 'user' ||
+        // Check if regular user has invalid/corrupted/empty username or '@'
+        ((!data?.is_service_account && !data?.is_official && !data?.is_bot) && (
+          !rawUsername ||
+          rawUsername === '@' ||
+          rawUsername.length < 3 ||
+          rawUsername === 'undefined' ||
+          rawUsername === 'null' ||
+          !rawDisplayName ||
+          rawDisplayName === '@' ||
+          (!data?.display_name && !data?.email && !data?.mobile_number && !data?.phone_number && !data?.created_at)
+        ))
+      );
+
+      if (isGhost) {
+        console.log(`[PURGE_GHOSTS] Purging ghost user doc: ${docId} (username: "${data?.username}")`);
+        await deleteDoc(doc(db, 'users', docId)).catch(() => {});
+        details.push(`Deleted user: ${docId} (@${rawUsername || 'none'})`);
+        deletedUsers++;
+      }
+    }
+
+    // Purge invalid usernames collection docs
+    const usernamesSnap = await getDocs(collection(db, 'usernames'));
+    for (const uSnap of usernamesSnap.docs) {
+      const uId = uSnap.id;
+      const cleanU = (uId || '').trim().toLowerCase().replace(/^@+/, '');
+      if (
+        !cleanU ||
+        cleanU === '@' ||
+        cleanU.length < 3 ||
+        uId.startsWith('@') ||
+        cleanU === 'undefined' ||
+        cleanU === 'null' ||
+        cleanU === 'user'
+      ) {
+        console.log(`[PURGE_GHOSTS] Purging invalid username doc: ${uId}`);
+        await deleteDoc(doc(db, 'usernames', uId)).catch(() => {});
+        details.push(`Deleted username doc: ${uId}`);
+        deletedUsernames++;
+      }
+    }
+
+    console.log(`[PURGE_GHOSTS] Ghost account cleanup complete. Removed ${deletedUsers} ghost user documents and ${deletedUsernames} invalid usernames.`);
+  } catch (err) {
+    console.warn('[PURGE_GHOSTS] Error during ghost purge execution:', err);
+  }
+
+  return { deletedUsers, deletedUsernames, details };
+}
+
+// API endpoint to trigger Ghost Account purge manually from Admin Panel or Maintenance tools
+app.post('/api/admin/purge-ghost-accounts', async (req: any, res: any) => {
+  try {
+    const result = await purgeGhostAccountsFromFirestore();
+    return res.json({
+      success: true,
+      message: `Successfully purged ${result.deletedUsers} ghost account(s) and ${result.deletedUsernames} invalid username document(s).`,
+      ...result
+    });
+  } catch (err: any) {
+    console.error("Error in purge-ghost-accounts:", err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to purge ghost accounts.' });
+  }
+});
+
 // Fallback for unmatched API routes to ensure they always return JSON instead of HTML
 app.use('/api', (req: any, res: any) => {
   res.status(404).json({ success: false, error: `API endpoint not found: ${req.method} ${req.originalUrl}` });
@@ -4414,6 +4787,7 @@ async function startServer() {
   // Autonomous JIT bootstrap: Ensure official service accounts and official OAuth portals exist
   ensureSystemOfficialServiceAccounts().catch(e => console.warn('[SERVICE_ACCOUNT_AUTONOMOUS] Bootstrap error:', e));
   ensureSystemOfficialOAuthApps().catch(e => console.warn('[OFFICIAL_OAUTH_APPS] Bootstrap error:', e));
+  purgeGhostAccountsFromFirestore().catch(e => console.warn('[PURGE_GHOSTS] Startup purge error:', e));
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Zenoa Server running on http://0.0.0.0:${PORT}`);

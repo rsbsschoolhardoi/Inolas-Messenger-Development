@@ -75,3 +75,68 @@ export const isInternalGhostEmail = (email?: string | null): boolean => {
     clean.startsWith('phone_')
   );
 };
+
+/**
+ * Validates if a given string is a genuine, non-ghost username.
+ * Usernames must be 3-30 chars, alphanumeric with underscore and dot, and cannot be '@' or start/end with dot/underscore.
+ */
+export const isValidUsername = (username?: string | null): boolean => {
+  if (!username) return false;
+  const clean = username.trim().toLowerCase().replace(/^@+/, '');
+  if (!clean || clean.length < 3 || clean.length > 30) return false;
+  if (clean === '@' || clean === 'undefined' || clean === 'null' || clean === 'user') return false;
+  return /^[a-z0-9][a-z0-9._]*[a-z0-9]$/.test(clean) || /^[a-z0-9]{3,}$/.test(clean);
+};
+
+/**
+ * Identifies ghost accounts in Firestore users collection.
+ * Ghost accounts include:
+ * - Documents with ID '@', '@zenoa', empty, or malformed
+ * - Documents with username missing, empty, '@', or less than 3 chars
+ * - Documents with display_name missing, '@', or empty
+ * - Orphan stub documents with only followers/following without profile attributes
+ */
+export const isGhostAccount = (docId: string, data?: any): boolean => {
+  if (!docId) return true;
+  const cleanId = docId.trim().toLowerCase();
+  
+  if (
+    cleanId === '@' ||
+    cleanId === '@zenoa' ||
+    cleanId === 'undefined@zenoa' ||
+    cleanId === 'null@zenoa' ||
+    cleanId === 'user@zenoa' ||
+    cleanId === 'undefined' ||
+    cleanId === 'null' ||
+    cleanId === 'user' ||
+    cleanId.startsWith('@')
+  ) {
+    return true;
+  }
+
+  if (!data || typeof data !== 'object') return true;
+
+  const rawUsername = (data.username || '').trim().replace(/^@+/, '');
+  const rawDisplayName = (data.display_name || data.fullName || '').trim().replace(/^@+/, '');
+
+  // Official / Service accounts have explicit flags and valid usernames
+  if (data.is_service_account || data.is_bot || data.is_official) {
+    if (!rawUsername || rawUsername === '@' || rawUsername.length < 2) return true;
+    return false;
+  }
+
+  // If username is empty, '@', or less than 3 characters
+  if (!rawUsername || rawUsername === '@' || rawUsername.length < 3) return true;
+  if (rawUsername.includes(' ') || !/^[a-z0-9._]+$/i.test(rawUsername)) return true;
+
+  // If display_name is empty or just '@'
+  if (!rawDisplayName || rawDisplayName === '@') return true;
+
+  // If document is an orphaned stub (e.g., only has following/followers and no user info)
+  if (!data.display_name && !data.email && !data.mobile_number && !data.phone_number && !data.created_at) {
+    return true;
+  }
+
+  return false;
+};
+
