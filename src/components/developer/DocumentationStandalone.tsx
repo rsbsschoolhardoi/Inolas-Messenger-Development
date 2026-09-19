@@ -12,12 +12,31 @@ import {
 import { generateDocsData, DocEndpoint, DocCategory } from './docs/docsData';
 import { ApiPlayground } from './docs/ApiPlayground';
 import { useBranding } from '../../brandingUtils';
+import { MarkdownRenderer, renderInlineFormatting } from './docs/MarkdownRenderer';
 
 interface DocumentationStandaloneProps {
   onBackToApp?: () => void;
   onOpenConsole?: () => void;
   initialSection?: string;
 }
+
+const getMethodBadgeClass = (method: string) => {
+  switch (method) {
+    case 'GET':
+      return 'bg-[#0f1d2e] text-[#93c5fd] border border-[#1e3a5f]';
+    case 'POST':
+      return 'bg-[#0e2318] text-[#86efac] border border-[#1b4330]';
+    case 'PUT':
+      return 'bg-[#241a0d] text-[#fde047] border border-[#483318]';
+    case 'DELETE':
+      return 'bg-[#241014] text-[#fca5a5] border border-[#481f26]';
+    case 'PATCH':
+      return 'bg-[#0d2122] text-[#5eead4] border border-[#1a3d3f]';
+    case 'GUIDE':
+    default:
+      return 'bg-[#19142b] text-[#c4b5fd] border border-[#352a5c]';
+  }
+};
 
 export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = ({ 
   onBackToApp,
@@ -175,7 +194,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-[#0a0d14] text-white flex flex-col font-sans selection:bg-indigo-500/30 selection:text-white">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-[9999] px-4 py-3 bg-indigo-600 text-white rounded-xl shadow-2xl flex items-center gap-2 text-sm font-semibold animate-fade-in border border-indigo-400/30">
@@ -185,16 +204,16 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
       )}
 
       {/* Global Header */}
-      <header className="h-16 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40 px-4 md:px-8 flex items-center justify-between">
+      <header className="h-16 border-b border-[#1c2433] bg-[#0c1017]/95 backdrop-blur-md sticky top-0 z-40 px-4 md:px-8 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-inner">
+            <div className="h-9 w-9 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-inner">
               <BookOpen className="h-5 w-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-bold text-base tracking-tight text-white">{branding.app_name || 'Zenoa'}</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-indigo-900/60 text-indigo-300 border border-indigo-700/50">
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[#19142b] text-[#c4b5fd] border border-[#352a5c]">
                   Docs
                 </span>
               </div>
@@ -202,11 +221,11 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
             </div>
           </div>
 
-          <div className="hidden lg:flex items-center gap-1 ml-6 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
+          <div className="hidden lg:flex items-center gap-1 ml-6 bg-[#111722] p-1 rounded-xl border border-[#1e2736] text-xs">
             <button
               onClick={() => setActiveTabMode('api')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
-                activeTabMode === 'api' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                activeTabMode === 'api' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
               }`}
             >
               API Reference
@@ -214,7 +233,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
             <button
               onClick={() => setActiveTabMode('architecture')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
-                activeTabMode === 'architecture' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                activeTabMode === 'architecture' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
               }`}
             >
               System Architecture
@@ -222,7 +241,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
             <button
               onClick={() => setActiveTabMode('sdks')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
-                activeTabMode === 'sdks' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                activeTabMode === 'sdks' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
               }`}
             >
               SDKs & Libraries
@@ -237,7 +256,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
             className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
               showPlayground 
                 ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/20' 
-                : 'bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700'
+                : 'bg-[#151c28] hover:bg-[#1a2332] text-slate-200 border border-[#222d40]'
             }`}
           >
             <Play className="h-3.5 w-3.5 fill-current" />
@@ -246,14 +265,14 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
 
           <button
             onClick={handleCopyMarkdown}
-            className="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-3 py-2 rounded-xl text-xs font-semibold bg-[#151c28] hover:bg-[#1a2332] text-slate-200 border border-[#222d40] flex items-center gap-1.5 transition-colors cursor-pointer"
             title="Copy full documentation as Markdown"
           >
             <Copy className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Copy Docs</span>
           </button>
 
-          <div className="h-6 w-px bg-slate-800 mx-1 hidden sm:block" />
+          <div className="h-6 w-px bg-[#1c2433] mx-1 hidden sm:block" />
 
           {onOpenConsole ? (
             <button
@@ -276,7 +295,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
           {onBackToApp ? (
             <button
               onClick={onBackToApp}
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors"
+              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#151c28] transition-colors"
               title="Return to Main App"
             >
               <Home className="h-4 w-4" />
@@ -284,7 +303,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
           ) : (
             <a
               href="/"
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors"
+              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#151c28] transition-colors"
               title="Return to Main App"
             >
               <Home className="h-4 w-4" />
@@ -296,9 +315,9 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
       {/* Main Layout Grid */}
       <div className="flex-1 flex overflow-hidden">
         {/* LEFT NAVIGATION SIDEBAR */}
-        <aside className="w-80 border-r border-slate-800 bg-slate-950/60 flex flex-col shrink-0 overflow-hidden">
+        <aside className="w-80 border-r border-[#1c2433] bg-[#0c1017]/95 flex flex-col shrink-0 overflow-hidden">
           {/* Search Box */}
-          <div className="p-4 border-b border-slate-800/80">
+          <div className="p-4 border-b border-[#1c2433]">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
               <input
@@ -306,7 +325,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search endpoints, guides, codes..."
-                className="w-full pl-9 pr-8 py-2 text-xs bg-slate-900 border border-slate-800 rounded-xl text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all"
+                className="w-full pl-9 pr-8 py-2 text-xs bg-[#111722] border border-[#1e2736] rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all"
               />
               {searchQuery && (
                 <button
@@ -327,7 +346,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                 <div key={cat.id} className="space-y-1">
                   <button
                     onClick={() => toggleCategory(cat.id)}
-                    className="w-full flex items-center justify-between px-2.5 py-1.5 text-xs font-bold text-slate-400 hover:text-slate-200 transition-colors group cursor-pointer"
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 text-xs font-bold text-slate-400 hover:text-white transition-colors group cursor-pointer"
                   >
                     <span className="uppercase tracking-wider text-[11px] flex items-center gap-2">
                       {cat.name}
@@ -336,7 +355,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                   </button>
 
                   {isExpanded && (
-                    <div className="space-y-0.5 pl-1.5 border-l border-slate-800/60 ml-2">
+                    <div className="space-y-0.5 pl-1.5 border-l border-[#1c2433] ml-2">
                       {cat.sections.map(sec => {
                         const isSelected = selectedEndpointId === sec.id;
                         return (
@@ -345,20 +364,12 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                             onClick={() => handleSelectEndpoint(sec.id)}
                             className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left transition-all cursor-pointer ${
                               isSelected
-                                ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 font-semibold'
-                                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                                ? 'bg-[#151c28] text-white border border-[#2b394e] font-semibold shadow-xs'
+                                : 'text-slate-400 hover:text-white hover:bg-[#111724]'
                             }`}
                           >
                             <span
-                              className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0 ${
-                                sec.method === 'GET'
-                                  ? 'bg-sky-950 text-sky-400 border border-sky-800/40'
-                                  : sec.method === 'POST'
-                                  ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/40'
-                                  : sec.method === 'DELETE'
-                                  ? 'bg-rose-950 text-rose-400 border border-rose-800/40'
-                                  : 'bg-indigo-950 text-indigo-400 border border-indigo-800/40'
-                              }`}
+                              className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0 ${getMethodBadgeClass(sec.method)}`}
                             >
                               {sec.method}
                             </span>
@@ -374,8 +385,8 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
           </div>
 
           {/* Quick Base URL Widget */}
-          <div className="p-3 border-t border-slate-800/80 bg-slate-950">
-            <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1">
+          <div className="p-3 border-t border-[#1c2433] bg-[#0c1017]">
+            <div className="p-2.5 rounded-xl bg-[#111722] border border-[#1e2736] space-y-1">
               <div className="flex items-center justify-between text-[10px] font-bold uppercase text-slate-400">
                 <span>Base Endpoint</span>
                 <span className="text-emerald-400 flex items-center gap-1">
@@ -383,7 +394,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                   Live
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-1 font-mono text-[11px] text-slate-300">
+              <div className="flex items-center justify-between gap-1 font-mono text-[11px] text-slate-200">
                 <span className="truncate">{baseUrl}</span>
                 <button
                   onClick={() => handleCopy(baseUrl, 'Base URL')}
@@ -398,13 +409,13 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
         </aside>
 
         {/* CENTER CONTENT & DETAILS VIEW */}
-        <main className="flex-1 overflow-y-auto bg-slate-900/40 p-6 md:p-10">
+        <main className="flex-1 overflow-y-auto bg-[#0a0d14] p-6 md:p-10">
           <div className="max-w-4xl mx-auto space-y-10">
             
             {/* IN-DOCUMENT SANDBOX PLAYGROUND */}
             {showPlayground && (
-              <div className="p-6 rounded-3xl bg-slate-950 border border-indigo-500/40 shadow-2xl space-y-4 animate-fade-in">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="p-6 rounded-3xl bg-[#0c1017] border border-indigo-500/30 shadow-2xl space-y-4 animate-fade-in">
+                <div className="flex items-center justify-between border-b border-[#1c2433] pb-3">
                   <div className="flex items-center gap-2">
                     <div className="h-7 w-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
                       <Play className="h-4 w-4 fill-current" />
@@ -416,7 +427,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                   </div>
                   <button
                     onClick={() => setShowPlayground(false)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#151c28] transition-colors"
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -431,36 +442,35 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
             )}
 
             {/* SECTION 1: HEADER & METHOD BADGE */}
-            <div className="space-y-3 pb-6 border-b border-slate-800">
+            <div className="space-y-3 pb-6 border-b border-[#1c2433]">
               <div className="flex flex-wrap items-center gap-2.5">
                 <span
-                  className={`text-xs font-mono font-bold px-2.5 py-1 rounded-lg uppercase tracking-wider ${
-                    currentEndpoint.method === 'GET'
-                      ? 'bg-sky-950 text-sky-400 border border-sky-700/60'
-                      : currentEndpoint.method === 'POST'
-                      ? 'bg-emerald-950 text-emerald-400 border border-emerald-700/60'
-                      : currentEndpoint.method === 'DELETE'
-                      ? 'bg-rose-950 text-rose-400 border border-rose-700/60'
-                      : 'bg-indigo-950 text-indigo-400 border border-indigo-700/60'
-                  }`}
+                  className={`text-xs font-mono font-bold px-2.5 py-1 rounded-lg uppercase tracking-wider ${getMethodBadgeClass(currentEndpoint.method)}`}
                 >
                   {currentEndpoint.method}
                 </span>
-                <span className="font-mono text-sm text-slate-300 bg-slate-950 px-3 py-1 rounded-lg border border-slate-800">
+                <span className="font-mono text-sm text-slate-200 bg-[#0d121c] px-3 py-1 rounded-lg border border-[#1e2736]">
                   {currentEndpoint.path}
                 </span>
                 {currentEndpoint.authRequired && (
-                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-amber-950/60 text-amber-300 border border-amber-800/40 flex items-center gap-1">
-                    <Lock className="h-3 w-3" /> Bearer Auth
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-[#241a0d] text-[#fde047] border border-[#483318] flex items-center gap-1">
+                    <Lock className="h-3 w-3" /> Dual Credential Required
                   </span>
                 )}
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-800 text-slate-300">
-                  Rate Limit: {currentEndpoint.rateLimit}
-                </span>
+                {currentEndpoint.method === 'GUIDE' || currentEndpoint.rateLimit?.startsWith('N/A') ? (
+                  <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-md bg-[#131926] text-[#93c5fd] border border-[#1e293b] flex items-center gap-1.5">
+                    <Sparkles className="h-3 w-3 text-indigo-400" />
+                    {currentEndpoint.rateLimit || 'N/A (Policy Specification)'}
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-md bg-[#111827] text-slate-300 border border-[#1f2937]">
+                    Rate Limit: {currentEndpoint.rateLimit}
+                  </span>
+                )}
               </div>
 
               <h1 className="text-3xl font-extrabold text-white tracking-tight">{currentEndpoint.title}</h1>
-              <p className="text-base text-slate-400 leading-relaxed">{currentEndpoint.summary}</p>
+              <p className="text-base text-slate-300 leading-relaxed">{currentEndpoint.summary}</p>
             </div>
 
             {/* SECTION 2: LONG DESCRIPTION / GUIDE CONTENT */}
@@ -469,8 +479,8 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                 <FileText className="h-4 w-4 text-indigo-400" />
                 Overview & Detailed Specifications
               </h3>
-              <div className="prose prose-invert max-w-none text-sm text-slate-300 leading-relaxed bg-slate-950/60 p-6 rounded-2xl border border-slate-800 whitespace-pre-line">
-                {currentEndpoint.description}
+              <div className="bg-[#0d121c] p-6 rounded-2xl border border-[#1e2736] shadow-xs">
+                <MarkdownRenderer content={currentEndpoint.description} isDark={true} />
               </div>
             </div>
 
@@ -481,22 +491,22 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                   <ShieldCheck className="h-4 w-4 text-emerald-400" />
                   Required HTTP Headers
                 </h3>
-                <div className="border border-slate-800 rounded-2xl overflow-hidden bg-slate-950">
+                <div className="border border-[#1e2736] rounded-2xl overflow-hidden bg-[#0d121c]">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400">
-                        <th className="p-3 font-semibold">Header Name</th>
-                        <th className="p-3 font-semibold">Sample Value</th>
-                        <th className="p-3 font-semibold">Description</th>
-                        <th className="p-3 font-semibold">Required</th>
+                      <tr className="bg-[#111724] border-b border-[#1e2736] text-slate-300 font-semibold">
+                        <th className="p-3">Header Name</th>
+                        <th className="p-3">Sample Value</th>
+                        <th className="p-3">Description</th>
+                        <th className="p-3">Required</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/60 font-mono text-slate-300">
+                    <tbody className="divide-y divide-[#1e2736] font-mono text-slate-300">
                       {currentEndpoint.headers.map((h, i) => (
-                        <tr key={i} className="hover:bg-slate-900/40">
-                          <td className="p-3 font-bold text-indigo-400">{h.name}</td>
+                        <tr key={i} className="hover:bg-[#111724]/60">
+                          <td className="p-3 font-bold text-indigo-300">{h.name}</td>
                           <td className="p-3 text-slate-400 truncate max-w-[200px]">{h.value}</td>
-                          <td className="p-3 font-sans text-slate-300">{h.desc}</td>
+                          <td className="p-3 font-sans text-slate-200">{h.desc}</td>
                           <td className="p-3 font-sans">
                             {h.required ? (
                               <span className="text-rose-400 font-bold">Yes</span>
@@ -519,36 +529,36 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                   <Sliders className="h-4 w-4 text-sky-400" />
                   Parameters & Payload Attributes
                 </h3>
-                <div className="border border-slate-800 rounded-2xl overflow-hidden bg-slate-950">
+                <div className="border border-[#1e2736] rounded-2xl overflow-hidden bg-[#0d121c]">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400">
-                        <th className="p-3 font-semibold">Field Name</th>
-                        <th className="p-3 font-semibold">Data Type</th>
-                        <th className="p-3 font-semibold">Required</th>
-                        <th className="p-3 font-semibold">Description & Validation Rules</th>
+                      <tr className="bg-[#111724] border-b border-[#1e2736] text-slate-300 font-semibold">
+                        <th className="p-3">Field Name</th>
+                        <th className="p-3">Data Type</th>
+                        <th className="p-3">Required</th>
+                        <th className="p-3">Description & Validation Rules</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/60 font-mono text-slate-300">
+                    <tbody className="divide-y divide-[#1e2736] font-mono text-slate-300">
                       {currentEndpoint.params.map((p, i) => (
-                        <tr key={i} className="hover:bg-slate-900/40">
+                        <tr key={i} className="hover:bg-[#111724]/60">
                           <td className="p-3 font-bold text-white">{p.name}</td>
-                          <td className="p-3 text-indigo-400">{p.type}</td>
+                          <td className="p-3 text-indigo-300">{p.type}</td>
                           <td className="p-3 font-sans">
                             {p.required ? (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-800/40">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#241014] text-[#fca5a5] border border-[#481f26]">
                                 Required
                               </span>
                             ) : (
                               <span className="text-slate-500 font-sans text-xs">Optional</span>
                             )}
                           </td>
-                          <td className="p-3 font-sans text-slate-300 leading-relaxed">
+                          <td className="p-3 font-sans text-slate-200 leading-relaxed">
                             {p.desc}
                             {p.enum && (
                               <div className="mt-1 flex flex-wrap gap-1 font-mono text-[10px]">
                                 {p.enum.map((en, idx) => (
-                                  <span key={idx} className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-300">
+                                  <span key={idx} className="bg-[#161f30] px-1.5 py-0.5 rounded text-slate-300">
                                     "{en}"
                                   </span>
                                 ))}
@@ -570,7 +580,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                   <Code2 className="h-4 w-4 text-purple-400" />
                   Implementation Snippet
                 </h3>
-                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+                <div className="flex items-center gap-1 bg-[#0c1017] p-1 rounded-xl border border-[#1c2433] text-xs">
                   {(['curl', 'node', 'python', 'php', 'go', 'java'] as const).map(lang => (
                     <button
                       key={lang}
@@ -578,7 +588,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                       className={`px-2.5 py-1 rounded-lg uppercase text-[11px] font-bold transition-all ${
                         selectedLang === lang
                           ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-slate-400 hover:text-slate-200'
+                          : 'text-slate-400 hover:text-white'
                       }`}
                     >
                       {lang}
@@ -587,12 +597,12 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                 </div>
               </div>
 
-              <div className="relative rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+              <div className="relative rounded-2xl bg-[#080c14] border border-[#1e2736] overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2.5 bg-[#0e1420] border-b border-[#1e2736] text-xs font-mono text-slate-300">
                   <span>Language: {selectedLang.toUpperCase()}</span>
                   <button
                     onClick={() => handleCopy(currentEndpoint.snippets[selectedLang], 'Code snippet')}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#151c28] hover:bg-[#1a2332] text-slate-200 transition-colors cursor-pointer border border-[#222d40]"
                   >
                     {copiedLabel === 'Code snippet' ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
                     <span>{copiedLabel === 'Code snippet' ? 'Copied' : 'Copy Code'}</span>
@@ -609,7 +619,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
               {/* Success Response */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase text-emerald-400 flex items-center gap-1.5">
+                  <span className="text-xs font-bold uppercase text-[#86efac] flex items-center gap-1.5">
                     <CheckCircle2 className="h-4 w-4" />
                     Response (200 OK)
                   </span>
@@ -620,7 +630,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                     <Copy className="h-3 w-3" /> Copy JSON
                   </button>
                 </div>
-                <div className="p-4 rounded-2xl bg-slate-950 border border-emerald-900/40 text-emerald-300 font-mono text-xs overflow-x-auto max-h-72">
+                <div className="p-4 rounded-2xl bg-[#080c14] border border-[#1b4330]/50 text-[#86efac] font-mono text-xs overflow-x-auto max-h-72">
                   <pre>{currentEndpoint.responseSuccess}</pre>
                 </div>
               </div>
@@ -628,7 +638,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
               {/* Error Response (if defined) */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase text-rose-400 flex items-center gap-1.5">
+                  <span className="text-xs font-bold uppercase text-[#fca5a5] flex items-center gap-1.5">
                     <AlertTriangle className="h-4 w-4" />
                     Standard Error (4xx/5xx)
                   </span>
@@ -639,7 +649,7 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
                     <Copy className="h-3 w-3" /> Copy JSON
                   </button>
                 </div>
-                <div className="p-4 rounded-2xl bg-slate-950 border border-rose-900/40 text-rose-300 font-mono text-xs overflow-x-auto max-h-72">
+                <div className="p-4 rounded-2xl bg-[#080c14] border border-[#481f26]/50 text-[#fca5a5] font-mono text-xs overflow-x-auto max-h-72">
                   <pre>
                     {currentEndpoint.responseError || `{
   "success": false,
@@ -654,14 +664,16 @@ export const DocumentationStandalone: React.FC<DocumentationStandaloneProps> = (
 
             {/* SECTION 7: CRITICAL NOTES & BEST PRACTICES */}
             {currentEndpoint.notes && currentEndpoint.notes.length > 0 && (
-              <div className="p-5 rounded-2xl bg-indigo-950/30 border border-indigo-800/40 space-y-2">
+              <div className="p-5 rounded-2xl bg-[#0e1324] border border-[#232f52] space-y-2">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-300 flex items-center gap-2">
                   <Sparkles className="h-4 w-4" />
                   Engineering & Compliance Notes
                 </h4>
-                <ul className="list-disc list-inside space-y-1 text-xs text-indigo-200/90 leading-relaxed">
+                <ul className="list-disc list-inside space-y-1.5 text-xs text-indigo-200/90 leading-relaxed">
                   {currentEndpoint.notes.map((n, idx) => (
-                    <li key={idx}>{n}</li>
+                    <li key={idx}>
+                      {renderInlineFormatting(n, true)}
+                    </li>
                   ))}
                 </ul>
               </div>

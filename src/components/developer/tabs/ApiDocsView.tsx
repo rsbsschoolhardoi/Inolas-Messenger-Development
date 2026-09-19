@@ -8,12 +8,49 @@ import {
 } from 'lucide-react';
 import { generateDocsData, DocEndpoint, DocCategory } from '../docs/docsData';
 import { ApiPlayground } from '../docs/ApiPlayground';
+import { MarkdownRenderer, renderInlineFormatting } from '../docs/MarkdownRenderer';
 
 interface ApiDocsViewProps {
   app: any;
   showToast: (msg: string) => void;
   themeMode?: 'light' | 'dark';
 }
+
+const getMethodBadgeClass = (method: string, isDark: boolean = true) => {
+  if (isDark) {
+    switch (method) {
+      case 'GET':
+        return 'bg-[#0f1d2e] text-[#93c5fd] border border-[#1e3a5f]';
+      case 'POST':
+        return 'bg-[#0e2318] text-[#86efac] border border-[#1b4330]';
+      case 'PUT':
+        return 'bg-[#241a0d] text-[#fde047] border border-[#483318]';
+      case 'DELETE':
+        return 'bg-[#241014] text-[#fca5a5] border border-[#481f26]';
+      case 'PATCH':
+        return 'bg-[#0d2122] text-[#5eead4] border border-[#1a3d3f]';
+      case 'GUIDE':
+      default:
+        return 'bg-[#19142b] text-[#c4b5fd] border border-[#352a5c]';
+    }
+  } else {
+    switch (method) {
+      case 'GET':
+        return 'bg-blue-50 text-blue-700 border border-blue-200';
+      case 'POST':
+        return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+      case 'PUT':
+        return 'bg-amber-50 text-amber-700 border border-amber-200';
+      case 'DELETE':
+        return 'bg-rose-50 text-rose-700 border border-rose-200';
+      case 'PATCH':
+        return 'bg-teal-50 text-teal-700 border border-teal-200';
+      case 'GUIDE':
+      default:
+        return 'bg-purple-50 text-purple-700 border border-purple-200';
+    }
+  }
+};
 
 export const ApiDocsView: React.FC<ApiDocsViewProps> = ({ 
   app, 
@@ -121,23 +158,23 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
     <div className="space-y-6">
       {/* Top Banner / Docs Header */}
       <div className={`rounded-3xl p-6 md:p-8 shadow-xs relative overflow-hidden border ${
-        isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+        isDark ? 'bg-[#0d121c] border-[#1e2736]' : 'bg-white border-[#e3e8ee]'
       }`}>
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <span className="px-3 py-1 bg-[#533afd]/15 border border-[#533afd]/30 text-[#533afd] dark:text-[#818cf8] text-xs font-bold rounded-full flex items-center gap-1.5">
-                <Sparkles className="h-3.5 w-3.5" />
+              <span className="px-3 py-1 bg-[#19142b] border border-[#352a5c] text-[#c4b5fd] text-xs font-bold rounded-full flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
                 <span>OFFICIAL SPECIFICATION v2.4</span>
               </span>
-              <span className="px-2.5 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-xs font-mono font-bold rounded-full">
+              <span className="px-2.5 py-0.5 bg-[#0e2318] border border-[#1b4330] text-[#86efac] text-xs font-mono font-bold rounded-full">
                 99.99% SLA
               </span>
             </div>
             <h1 className="text-2xl md:text-3xl font-black tracking-tight text-[#0d253d] dark:text-white">
               Zenoa Developer Documentation
             </h1>
-            <p className="text-sm text-[#64748d] dark:text-[#94a3b8] max-w-2xl leading-relaxed">
+            <p className="text-sm text-[#64748d] dark:text-slate-300 max-w-2xl leading-relaxed">
               Exhaustive technical reference, interactive request sandbox, cryptographic authentication specs, and multi-language SDK examples.
             </p>
           </div>
@@ -148,13 +185,13 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
               onClick={() => setShowPlayground(!showPlayground)}
               className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-xs cursor-pointer ${
                 showPlayground
-                  ? 'bg-[#533afd] text-white shadow-indigo-600/30'
+                  ? 'bg-indigo-600 text-white shadow-indigo-600/30'
                   : isDark
-                  ? 'bg-[#121624] border border-[#273951] text-white hover:bg-[#1c1e54]'
+                  ? 'bg-[#151c28] border border-[#222d40] text-white hover:bg-[#1a2332]'
                   : 'bg-white border border-[#e3e8ee] hover:bg-[#f6f9fc] text-[#0d253d]'
               }`}
             >
-              <Terminal className="h-4 w-4 text-[#533afd] dark:text-[#818cf8]" />
+              <Terminal className="h-4 w-4 text-indigo-400" />
               <span>{showPlayground ? 'Close Sandbox' : 'Open API Sandbox'}</span>
             </button>
 
@@ -162,7 +199,7 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
               href="/docs"
               target="_blank"
               rel="noreferrer"
-              className="px-4 py-2.5 bg-[#533afd]/10 border border-[#533afd]/30 hover:bg-[#533afd]/20 text-[#533afd] dark:text-[#818cf8] rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-xs cursor-pointer"
+              className="px-4 py-2.5 bg-indigo-500/15 border border-indigo-500/30 hover:bg-indigo-500/25 text-indigo-300 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-xs cursor-pointer"
               title="Open documentation in a separate standalone fullscreen page"
             >
               <ExternalLink className="h-4 w-4" />
@@ -173,18 +210,18 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
               onClick={handleCopyMarkdown}
               className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-xs border cursor-pointer ${
                 isDark 
-                  ? 'bg-[#121624] border-[#273951] text-white hover:bg-[#1c1e54]' 
+                  ? 'bg-[#151c28] border-[#222d40] text-white hover:bg-[#1a2332]' 
                   : 'bg-white border-[#e3e8ee] hover:bg-[#f6f9fc] text-[#0d253d]'
               }`}
             >
-              <Copy className="h-4 w-4 text-[#64748d] dark:text-[#94a3b8]" />
+              <Copy className="h-4 w-4 text-[#64748d] dark:text-slate-400" />
               <span>Copy Docs (MD)</span>
             </button>
           </div>
         </div>
 
         {/* Global Live Search Bar */}
-        <div className={`mt-6 pt-6 border-t relative ${isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'}`}>
+        <div className={`mt-6 pt-6 border-t relative ${isDark ? 'border-[#1e2736]' : 'border-[#e3e8ee]'}`}>
           <div className="relative max-w-2xl">
             <Search className="h-4 w-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
             <input
@@ -194,14 +231,14 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
               placeholder="Search all endpoints, parameters, error codes, and authentication guides..."
               className={`w-full rounded-2xl pl-11 pr-4 py-3 text-xs font-medium outline-none transition-all border ${
                 isDark 
-                  ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
-                  : 'bg-[#f6f9fc] border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                  ? 'bg-[#111722] border-[#1e2736] text-white focus:border-indigo-500' 
+                  : 'bg-[#f6f9fc] border-[#e3e8ee] text-[#0d253d] focus:border-indigo-500'
               }`}
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-200 cursor-pointer"
               >
                 Clear
               </button>
@@ -216,9 +253,9 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
         {/* LEFT COLUMN: Multi-level Navigation Sidebar */}
         <div className="lg:col-span-4 space-y-4 lg:sticky lg:top-6">
           <div className={`rounded-2xl p-4 shadow-xs space-y-4 max-h-[calc(100vh-140px)] overflow-y-auto border ${
-            isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+            isDark ? 'bg-[#0d121c] border-[#1e2736]' : 'bg-white border-[#e3e8ee]'
           }`}>
-            <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-[#64748d] dark:text-[#94a3b8]">
+            <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-[#64748d] dark:text-slate-400">
               <span>Documentation Index</span>
               <span>{allEndpoints.length} Guides</span>
             </div>
@@ -231,12 +268,12 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
                     <button
                       onClick={() => toggleCategory(cat.id)}
                       className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-left transition-colors group cursor-pointer ${
-                        isDark ? 'hover:bg-[#121624]' : 'hover:bg-[#f6f9fc]'
+                        isDark ? 'hover:bg-[#151c28]' : 'hover:bg-[#f6f9fc]'
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         {getCategoryIcon(cat.id)}
-                        <span className="text-xs font-bold text-[#0d253d] dark:text-white group-hover:text-[#533afd] dark:group-hover:text-[#818cf8]">
+                        <span className="text-xs font-bold text-[#0d253d] dark:text-white group-hover:text-indigo-400">
                           {cat.name}
                         </span>
                       </div>
@@ -245,7 +282,7 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
 
                     {isExpanded && (
                       <div className={`pl-3 space-y-0.5 border-l-2 ml-3.5 ${
-                        isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+                        isDark ? 'border-[#1e2736]' : 'border-[#e3e8ee]'
                       }`}>
                         {cat.sections.map(sec => {
                           const isSelected = selectedEndpointId === sec.id;
@@ -260,27 +297,25 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
                               }}
                               className={`w-full text-left px-2.5 py-2 rounded-xl transition-all flex items-center justify-between cursor-pointer ${
                                 isSelected
-                                  ? 'bg-[#533afd]/15 text-[#533afd] dark:text-white font-bold border border-[#533afd]/40'
+                                  ? isDark
+                                    ? 'bg-[#151c28] text-white font-bold border border-[#2b394e]'
+                                    : 'bg-[#533afd]/15 text-[#533afd] font-bold border border-[#533afd]/40'
                                   : isDark
-                                  ? 'text-[#94a3b8] hover:bg-[#121624] hover:text-white font-medium'
+                                  ? 'text-slate-400 hover:bg-[#111724] hover:text-white font-medium'
                                   : 'text-slate-600 hover:bg-slate-50 hover:text-[#0d253d] font-medium'
                               }`}
                             >
                               <div className="truncate pr-2">
                                 <div className="text-[12px] truncate">{sec.title}</div>
                                 {sec.method !== 'GUIDE' && (
-                                  <div className="text-[10px] font-mono text-[#64748d] dark:text-[#94a3b8] truncate mt-0.5">
+                                  <div className="text-[10px] font-mono text-slate-400 truncate mt-0.5">
                                     {sec.method} {sec.path}
                                   </div>
                                 )}
                               </div>
-                              {sec.method !== 'GUIDE' && (
-                                <span className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${
-                                  sec.method === 'POST' ? 'bg-[#533afd]/20 text-[#533afd] dark:text-[#818cf8]' : 'bg-emerald-500/20 text-emerald-500'
-                                }`}>
-                                  {sec.method}
-                                </span>
-                              )}
+                              <span className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${getMethodBadgeClass(sec.method, isDark)}`}>
+                                {sec.method}
+                              </span>
                             </button>
                           );
                         })}
@@ -292,7 +327,9 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
             </div>
 
             {/* Sticky API Key Reference */}
-            <div className="p-3.5 bg-[#0c1024] text-white rounded-xl space-y-2 border border-[#273951]">
+            <div className={`p-3.5 rounded-xl space-y-2 border ${
+              isDark ? 'bg-[#080c14] border-[#1e2736] text-white' : 'bg-[#0c1024] text-white border-[#273951]'
+            }`}>
               <div className="flex items-center justify-between text-[11px]">
                 <span className="font-bold text-slate-300 flex items-center gap-1.5">
                   <Key className="h-3 w-3 text-emerald-400" />
@@ -300,12 +337,12 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
                 </span>
                 <button
                   onClick={() => handleCopy(app?.active_client_id || app?.client_id || 'sample_key', 'Active Key')}
-                  className="text-[#818cf8] hover:underline text-[10px] font-bold cursor-pointer"
+                  className="text-indigo-400 hover:underline text-[10px] font-bold cursor-pointer"
                 >
                   {copiedLabel === 'Active Key' ? 'Copied' : 'Copy'}
                 </button>
               </div>
-              <div className="font-mono text-[11px] text-emerald-400 truncate bg-slate-950 p-2 rounded-lg border border-[#273951]">
+              <div className="font-mono text-[11px] text-emerald-400 truncate bg-slate-950 p-2 rounded-lg border border-[#1e2736]">
                 {app?.active_client_id || app?.client_id || 'zen_live_sample_key'}
               </div>
             </div>
@@ -329,35 +366,31 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
 
           {/* Main Document Content Card */}
           <div className={`rounded-3xl p-6 md:p-10 shadow-xs space-y-8 border ${
-            isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+            isDark ? 'bg-[#0d121c] border-[#1e2736]' : 'bg-white border-[#e3e8ee]'
           }`}>
             
             {/* Header section of selected doc */}
-            <div className={`space-y-4 pb-6 border-b ${isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'}`}>
+            <div className={`space-y-4 pb-6 border-b ${isDark ? 'border-[#1e2736]' : 'border-[#e3e8ee]'}`}>
               <div className="flex flex-wrap items-center gap-2">
+                <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold uppercase tracking-wider ${getMethodBadgeClass(currentEndpoint.method, isDark)}`}>
+                  {currentEndpoint.method}
+                </span>
+
                 <span className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase tracking-wider ${
-                  isDark ? 'bg-[#121624] text-slate-300' : 'bg-slate-100 text-slate-700'
+                  isDark ? 'bg-[#151c28] text-slate-300 border border-[#222d40]' : 'bg-slate-100 text-slate-700'
                 }`}>
                   {currentEndpoint.category}
                 </span>
 
-                {currentEndpoint.method !== 'GUIDE' && (
-                  <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold uppercase ${
-                    currentEndpoint.method === 'POST' ? 'bg-[#533afd] text-white' : 'bg-emerald-600 text-white'
-                  }`}>
-                    {currentEndpoint.method}
-                  </span>
-                )}
-
                 {currentEndpoint.authRequired && (
-                  <span className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-500 rounded-lg text-xs font-semibold flex items-center gap-1">
-                    <ShieldCheck className="h-3 w-3 text-amber-500" />
-                    Bearer Auth Required
+                  <span className="px-2.5 py-1 bg-[#241a0d] border border-[#483318] text-[#fde047] rounded-lg text-xs font-semibold flex items-center gap-1">
+                    <ShieldCheck className="h-3 w-3" />
+                    Dual Credential Required
                   </span>
                 )}
 
                 <span className={`px-2.5 py-1 border rounded-lg text-xs font-mono ${
-                  isDark ? 'bg-[#121624] border-[#273951] text-[#94a3b8]' : 'bg-[#f6f9fc] border-[#e3e8ee] text-slate-600'
+                  isDark ? 'bg-[#111722] border-[#1e2736] text-slate-300' : 'bg-[#f6f9fc] border-[#e3e8ee] text-slate-600'
                 }`}>
                   Cost: {currentEndpoint.cost}
                 </span>
@@ -367,28 +400,28 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
                 <h2 className="text-2xl md:text-3xl font-black tracking-tight text-[#0d253d] dark:text-white">
                   {currentEndpoint.title}
                 </h2>
-                <p className="text-sm md:text-base text-[#64748d] dark:text-[#94a3b8] mt-2 leading-relaxed">
+                <p className="text-sm md:text-base text-[#64748d] dark:text-slate-300 mt-2 leading-relaxed">
                   {currentEndpoint.summary}
                 </p>
               </div>
 
               {currentEndpoint.method !== 'GUIDE' && (
                 <div className={`p-3 rounded-2xl border flex items-center justify-between gap-4 font-mono text-xs ${
-                  isDark ? 'bg-[#121624] border-[#273951] text-slate-200' : 'bg-[#f6f9fc] border-[#e3e8ee] text-[#0d253d]'
+                  isDark ? 'bg-[#111722] border-[#1e2736] text-slate-200' : 'bg-[#f6f9fc] border-[#e3e8ee] text-[#0d253d]'
                 }`}>
                   <div className="flex items-center gap-2 truncate">
-                    <span className="font-bold text-[#533afd] dark:text-[#818cf8]">{currentEndpoint.method}</span>
+                    <span className="font-bold text-indigo-400">{currentEndpoint.method}</span>
                     <span className="truncate">{baseUrl}{currentEndpoint.path}</span>
                   </div>
                   <button
                     onClick={() => handleCopy(`${baseUrl}${currentEndpoint.path}`, 'Endpoint URL')}
                     className={`px-3 py-1.5 rounded-xl font-sans font-semibold text-xs flex items-center gap-1 shrink-0 border cursor-pointer ${
                       isDark 
-                        ? 'bg-[#0c1024] border-[#273951] text-white hover:bg-[#1c1e54]' 
+                        ? 'bg-[#151c28] border-[#222d40] text-white hover:bg-[#1a2332]' 
                         : 'bg-white border-[#e3e8ee] text-[#0d253d] hover:bg-[#f6f9fc]'
                     }`}
                   >
-                    {copiedLabel === 'Endpoint URL' ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                    {copiedLabel === 'Endpoint URL' ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
                     <span>{copiedLabel === 'Endpoint URL' ? 'Copied' : 'Copy URL'}</span>
                   </button>
                 </div>
@@ -396,50 +429,25 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
             </div>
 
             {/* Markdown Description */}
-            <div className={`prose max-w-none text-xs md:text-sm leading-relaxed space-y-4 ${
-              isDark ? 'text-slate-300' : 'text-slate-700'
+            <div className={`p-6 rounded-2xl border shadow-xs ${
+              isDark ? 'bg-[#080c14] border-[#1e2736]' : 'bg-[#fcfdff] border-[#e3e8ee]'
             }`}>
-              {currentEndpoint.description.split('\n\n').map((paragraph, pIdx) => {
-                if (paragraph.startsWith('### ')) {
-                  return (
-                    <h3 key={pIdx} className="text-base font-bold text-[#0d253d] dark:text-white mt-6 mb-2">
-                      {paragraph.replace('### ', '')}
-                    </h3>
-                  );
-                }
-                if (paragraph.startsWith('- ')) {
-                  return (
-                    <ul key={pIdx} className="list-disc pl-5 space-y-1.5 my-2">
-                      {paragraph.split('\n').map((li, liIdx) => (
-                        <li key={liIdx}>{li.replace('- ', '')}</li>
-                      ))}
-                    </ul>
-                  );
-                }
-                if (paragraph.startsWith('> ')) {
-                  return (
-                    <div key={pIdx} className="p-4 bg-amber-500/10 border-l-4 border-amber-500 text-amber-500 rounded-r-xl text-xs my-3 font-medium">
-                      {paragraph.replace('> ', '')}
-                    </div>
-                  );
-                }
-                return <p key={pIdx}>{paragraph}</p>;
-              })}
+              <MarkdownRenderer content={currentEndpoint.description} isDark={isDark} />
             </div>
 
             {/* Headers Table */}
             {currentEndpoint.headers && currentEndpoint.headers.length > 0 && (
               <div className="space-y-3 pt-4">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] flex items-center gap-2">
-                  <Sliders className="h-3.5 w-3.5 text-[#533afd] dark:text-[#818cf8]" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-slate-400 flex items-center gap-2">
+                  <Sliders className="h-3.5 w-3.5 text-indigo-400" />
                   <span>Request Headers</span>
                 </h4>
                 <div className={`border rounded-2xl overflow-hidden ${
-                  isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+                  isDark ? 'border-[#1e2736]' : 'border-[#e3e8ee]'
                 }`}>
                   <table className="w-full text-left text-xs">
                     <thead className={`border-b font-bold uppercase text-[10px] ${
-                      isDark ? 'bg-[#121624] border-[#273951] text-[#94a3b8]' : 'bg-[#f6f9fc] border-[#e3e8ee] text-slate-600'
+                      isDark ? 'bg-[#111724] border-[#1e2736] text-slate-300' : 'bg-[#f6f9fc] border-[#e3e8ee] text-slate-600'
                     }`}>
                       <tr>
                         <th className="p-3">Header Name</th>
@@ -449,20 +457,20 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
                       </tr>
                     </thead>
                     <tbody className={`divide-y font-mono ${
-                      isDark ? 'divide-[#273951] text-slate-300' : 'divide-[#e3e8ee] text-slate-700'
+                      isDark ? 'divide-[#1e2736] text-slate-300' : 'divide-[#e3e8ee] text-slate-700'
                     }`}>
                       {currentEndpoint.headers.map((h, i) => (
-                        <tr key={i} className={isDark ? 'hover:bg-[#121624]/60' : 'hover:bg-slate-50/60'}>
-                          <td className="p-3 font-bold text-[#0d253d] dark:text-white">{h.name}</td>
-                          <td className="p-3 text-[#533afd] dark:text-[#818cf8] truncate max-w-xs">{h.value}</td>
+                        <tr key={i} className={isDark ? 'hover:bg-[#111724]/60' : 'hover:bg-slate-50/60'}>
+                          <td className="p-3 font-bold text-[#0d253d] dark:text-indigo-300">{h.name}</td>
+                          <td className="p-3 text-indigo-400 truncate max-w-xs">{h.value}</td>
                           <td className="p-3 font-sans">
                             {h.required ? (
-                              <span className="text-rose-500 font-bold text-[10px] bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/30">Required</span>
+                              <span className="text-rose-400 font-bold text-[10px] bg-[#241014] px-2 py-0.5 rounded border border-[#481f26]">Required</span>
                             ) : (
                               <span className="text-slate-400 text-[10px]">Optional</span>
                             )}
                           </td>
-                          <td className="p-3 font-sans text-[#64748d] dark:text-[#94a3b8]">{h.desc}</td>
+                          <td className="p-3 font-sans text-[#64748d] dark:text-slate-200">{h.desc}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -475,18 +483,18 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
             {currentEndpoint.params && currentEndpoint.params.length > 0 && (
               <div className="space-y-3 pt-4">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] flex items-center gap-2">
-                    <FileText className="h-3.5 w-3.5 text-[#533afd] dark:text-[#818cf8]" />
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-slate-400 flex items-center gap-2">
+                    <FileText className="h-3.5 w-3.5 text-indigo-400" />
                     <span>Payload & Query Parameters</span>
                   </h4>
                   <span className="text-xs text-slate-400 font-mono">JSON Body</span>
                 </div>
                 <div className={`border rounded-2xl overflow-hidden ${
-                  isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+                  isDark ? 'border-[#1e2736]' : 'border-[#e3e8ee]'
                 }`}>
                   <table className="w-full text-left text-xs">
                     <thead className={`border-b font-bold uppercase text-[10px] ${
-                      isDark ? 'bg-[#121624] border-[#273951] text-[#94a3b8]' : 'bg-[#f6f9fc] border-[#e3e8ee] text-slate-600'
+                      isDark ? 'bg-[#111724] border-[#1e2736] text-slate-300' : 'bg-[#f6f9fc] border-[#e3e8ee] text-slate-600'
                     }`}>
                       <tr>
                         <th className="p-3">Field</th>
@@ -497,21 +505,21 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
                       </tr>
                     </thead>
                     <tbody className={`divide-y font-mono ${
-                      isDark ? 'divide-[#273951] text-slate-300' : 'divide-[#e3e8ee] text-slate-700'
+                      isDark ? 'divide-[#1e2736] text-slate-300' : 'divide-[#e3e8ee] text-slate-700'
                     }`}>
                       {currentEndpoint.params.map((p, idx) => (
-                        <tr key={idx} className={isDark ? 'hover:bg-[#121624]/60' : 'hover:bg-slate-50/60'}>
+                        <tr key={idx} className={isDark ? 'hover:bg-[#111724]/60' : 'hover:bg-slate-50/60'}>
                           <td className="p-3 font-bold text-[#0d253d] dark:text-white">{p.name}</td>
-                          <td className="p-3 text-[#533afd] dark:text-[#818cf8]">{p.type}</td>
+                          <td className="p-3 text-indigo-400">{p.type}</td>
                           <td className="p-3 font-sans">
                             {p.required ? (
-                              <span className="text-rose-500 font-bold text-[10px] bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/30">Required</span>
+                              <span className="text-rose-400 font-bold text-[10px] bg-[#241014] px-2 py-0.5 rounded border border-[#481f26]">Required</span>
                             ) : (
-                              <span className="text-slate-400 text-[10px] bg-slate-500/10 px-2 py-0.5 rounded border border-slate-500/30">Optional</span>
+                              <span className="text-slate-400 text-[10px]">Optional</span>
                             )}
                           </td>
-                          <td className="p-3 text-[#64748d] dark:text-[#94a3b8]">{p.default || '-'}</td>
-                          <td className="p-3 font-sans text-[#64748d] dark:text-[#94a3b8]">{p.desc}</td>
+                          <td className="p-3 text-[#64748d] dark:text-slate-400">{p.default || '-'}</td>
+                          <td className="p-3 font-sans text-[#64748d] dark:text-slate-200">{p.desc}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -523,14 +531,14 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
             {/* Interactive Code Snippets Across 6 Languages */}
             <div className="space-y-3 pt-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] flex items-center gap-2">
-                  <Code2 className="h-3.5 w-3.5 text-[#533afd] dark:text-[#818cf8]" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-slate-400 flex items-center gap-2">
+                  <Code2 className="h-3.5 w-3.5 text-indigo-400" />
                   <span>Production Implementation Snippets</span>
                 </h4>
 
                 {/* Language Switcher */}
                 <div className={`flex items-center gap-1 p-1 rounded-xl border ${
-                  isDark ? 'bg-[#121624] border-[#273951]' : 'bg-slate-100 border-slate-200'
+                  isDark ? 'bg-[#111722] border-[#1e2736]' : 'bg-slate-100 border-slate-200'
                 }`}>
                   {(['curl', 'node', 'python', 'php', 'go', 'java'] as const).map(lang => (
                     <button
@@ -538,8 +546,8 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
                       onClick={() => setSelectedLang(lang)}
                       className={`px-3 py-1 rounded-lg text-xs font-semibold capitalize transition-all cursor-pointer ${
                         selectedLang === lang 
-                          ? isDark ? 'bg-[#533afd] text-white font-bold' : 'bg-white text-slate-900 shadow-xs font-bold'
-                          : 'text-slate-400 hover:text-slate-200'
+                          ? isDark ? 'bg-indigo-600 text-white font-bold' : 'bg-white text-slate-900 shadow-xs font-bold'
+                          : 'text-slate-400 hover:text-white'
                       }`}
                     >
                       {lang === 'node' ? 'Node.js' : lang === 'curl' ? 'cURL' : lang.toUpperCase()}
@@ -549,8 +557,10 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
               </div>
 
               {/* Code Viewer */}
-              <div className="relative group rounded-2xl overflow-hidden border border-[#273951] bg-[#0c1024] shadow-md">
-                <div className="p-3 bg-slate-950/80 border-b border-[#273951] flex items-center justify-between">
+              <div className={`relative group rounded-2xl overflow-hidden border shadow-md ${
+                isDark ? 'border-[#1e2736] bg-[#080c14]' : 'border-[#273951] bg-[#0c1024]'
+              }`}>
+                <div className="p-3 bg-[#0e1420] border-b border-[#1e2736] flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="flex gap-1.5">
                       <div className="w-2.5 h-2.5 rounded-full bg-rose-500/80"></div>
@@ -564,7 +574,7 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
 
                   <button
                     onClick={() => handleCopy((currentEndpoint.snippets as any)[selectedLang] || currentEndpoint.snippets.curl, `${selectedLang.toUpperCase()} Code`)}
-                    className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                    className="px-3 py-1 bg-[#151c28] hover:bg-[#1a2332] text-slate-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer border border-[#222d40]"
                   >
                     {copiedLabel === `${selectedLang.toUpperCase()} Code` ? (
                       <Check className="h-3 w-3 text-emerald-400" />
@@ -585,18 +595,20 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] flex items-center gap-1.5">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-[#86efac] flex items-center gap-1.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
                     <span>Success Response (HTTP 200 OK)</span>
                   </h4>
                   <button
                     onClick={() => handleCopy(currentEndpoint.responseSuccess, 'Success Schema')}
-                    className="text-[11px] font-semibold text-[#533afd] dark:text-[#818cf8] hover:underline cursor-pointer"
+                    className="text-[11px] font-semibold text-indigo-400 hover:underline cursor-pointer"
                   >
                     {copiedLabel === 'Success Schema' ? 'Copied' : 'Copy'}
                   </button>
                 </div>
-                <pre className="p-4 bg-[#0c1024] text-emerald-400 rounded-2xl text-xs font-mono overflow-x-auto border border-[#273951] leading-relaxed max-h-64 overflow-y-auto shadow-2xs">
+                <pre className={`p-4 rounded-2xl text-xs font-mono overflow-x-auto leading-relaxed max-h-64 overflow-y-auto shadow-2xs border ${
+                  isDark ? 'bg-[#080c14] border-[#1b4330]/50 text-[#86efac]' : 'bg-[#0c1024] text-emerald-300 border-[#273951]'
+                }`}>
                   {currentEndpoint.responseSuccess}
                 </pre>
               </div>
@@ -604,18 +616,20 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
               {currentEndpoint.responseError && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] flex items-center gap-1.5">
-                      <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-[#fca5a5] flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />
                       <span>Error Response (HTTP 4xx / 5xx)</span>
                     </h4>
                     <button
                       onClick={() => handleCopy(currentEndpoint.responseError!, 'Error Schema')}
-                      className="text-[11px] font-semibold text-[#533afd] dark:text-[#818cf8] hover:underline cursor-pointer"
+                      className="text-[11px] font-semibold text-indigo-400 hover:underline cursor-pointer"
                     >
                       {copiedLabel === 'Error Schema' ? 'Copied' : 'Copy'}
                     </button>
                   </div>
-                  <pre className="p-4 bg-[#0c1024] text-rose-300 rounded-2xl text-xs font-mono overflow-x-auto border border-[#273951] leading-relaxed max-h-64 overflow-y-auto shadow-2xs">
+                  <pre className={`p-4 rounded-2xl text-xs font-mono overflow-x-auto leading-relaxed max-h-64 overflow-y-auto shadow-2xs border ${
+                    isDark ? 'bg-[#080c14] border-[#481f26]/50 text-[#fca5a5]' : 'bg-[#0c1024] text-rose-300 border-[#273951]'
+                  }`}>
                     {currentEndpoint.responseError}
                   </pre>
                 </div>
@@ -625,17 +639,19 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
             {/* Implementation Notes & Security Guidelines */}
             {currentEndpoint.notes && currentEndpoint.notes.length > 0 && (
               <div className={`p-5 rounded-2xl space-y-2 border ${
-                isDark ? 'bg-[#533afd]/10 border-[#533afd]/30' : 'bg-indigo-50/60 border-indigo-100'
+                isDark ? 'bg-[#0e1324] border-[#232f52]' : 'bg-indigo-50/60 border-indigo-100'
               }`}>
-                <h5 className="text-xs font-bold flex items-center gap-2 text-[#533afd] dark:text-[#818cf8]">
+                <h5 className="text-xs font-bold flex items-center gap-2 text-indigo-400">
                   <ShieldCheck className="h-4 w-4" />
                   <span>Developer Best Practices & Security Notes</span>
                 </h5>
                 <ul className={`space-y-1.5 pl-5 list-disc text-xs ${
-                  isDark ? 'text-slate-300' : 'text-indigo-900'
+                  isDark ? 'text-indigo-200/90' : 'text-indigo-900'
                 }`}>
                   {currentEndpoint.notes.map((note, nIdx) => (
-                    <li key={nIdx}>{note}</li>
+                    <li key={nIdx}>
+                      {renderInlineFormatting(note, isDark)}
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -643,7 +659,7 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
 
             {/* Bottom Floating Jump Navigation */}
             <div className={`pt-6 border-t flex items-center justify-between ${
-              isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+              isDark ? 'border-[#1e2736]' : 'border-[#e3e8ee]'
             }`}>
               <button
                 onClick={() => {
@@ -654,7 +670,7 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
                 }}
                 disabled={allEndpoints.findIndex(e => e.id === currentEndpoint.id) === 0}
                 className={`px-4 py-2 disabled:opacity-30 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 cursor-pointer ${
-                  isDark ? 'bg-[#121624] border-[#273951] text-white hover:bg-[#1c1e54]' : 'bg-[#f6f9fc] border-[#e3e8ee] text-slate-700 hover:bg-slate-100'
+                  isDark ? 'bg-[#151c28] border-[#222d40] text-white hover:bg-[#1a2332]' : 'bg-[#f6f9fc] border-[#e3e8ee] text-slate-700 hover:bg-slate-100'
                 }`}
               >
                 <span>← Previous Guide</span>
@@ -662,7 +678,7 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
 
               <button
                 onClick={() => setShowPlayground(true)}
-                className="px-5 py-2.5 bg-[#533afd] hover:bg-[#432ec4] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
               >
                 <Play className="h-3.5 w-3.5 fill-current" />
                 <span>Test in Live Sandbox</span>
@@ -677,7 +693,7 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
                 }}
                 disabled={allEndpoints.findIndex(e => e.id === currentEndpoint.id) === allEndpoints.length - 1}
                 className={`px-4 py-2 disabled:opacity-30 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 cursor-pointer ${
-                  isDark ? 'bg-[#121624] border-[#273951] text-white hover:bg-[#1c1e54]' : 'bg-[#f6f9fc] border-[#e3e8ee] text-slate-700 hover:bg-slate-100'
+                  isDark ? 'bg-[#151c28] border-[#222d40] text-white hover:bg-[#1a2332]' : 'bg-[#f6f9fc] border-[#e3e8ee] text-slate-700 hover:bg-slate-100'
                 }`}
               >
                 <span>Next Guide →</span>
