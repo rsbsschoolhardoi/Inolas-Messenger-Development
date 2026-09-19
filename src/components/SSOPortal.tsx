@@ -8,7 +8,7 @@ import {
   Sliders, Database, Fingerprint, HelpCircle, Flame, ShieldAlert,
   Server, Link2, CheckCircle, AlertTriangle, LayoutDashboard, Sun,
   Moon, ChevronRight, ChevronDown, ChevronUp, Search, Monitor, BookOpen, ShieldOff, ArrowLeft, Menu,
-  LogOut, Hash, Sparkle, Laptop, CheckCheck
+  LogOut, Hash, Sparkle, Laptop, CheckCheck, Mail
 } from 'lucide-react';
 import { UserData } from '../types';
 import { useBranding } from '../brandingUtils';
@@ -16,6 +16,25 @@ import { BrandLogo } from './common/BrandLogo';
 import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebaseClient';
 import { generateOAuthConsoleSecret } from '../utils/oauthSecurity';
+import { SSOSmtpManager } from './SSOSmtpManager';
+
+export interface SmtpConfig {
+  enabled: boolean;
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  from_name: string;
+  from_email: string;
+  reply_to?: string;
+  provider_preset?: string;
+  updated_at?: number;
+  last_tested_at?: number;
+  last_test_status?: 'success' | 'failed';
+  last_test_error?: string;
+  last_latency_ms?: number;
+}
 
 export interface SSOApp {
   id: string;
@@ -35,6 +54,10 @@ export interface SSOApp {
   privacy_policy_url?: string;
   terms_url?: string;
   total_logins?: number;
+  smtp_config?: SmtpConfig;
+  assigned_sbs_email?: string;
+  sbs_domain?: string;
+  is_sbs_email_locked?: boolean;
 }
 
 interface SSOPortalProps {
@@ -44,7 +67,7 @@ interface SSOPortalProps {
   onOpenConsentPreview?: (clientId: string, redirectUri: string) => void;
 }
 
-export type SSOTabType = 'overview' | 'apps' | 'create' | 'playground' | 'button' | 'docs' | 'activity';
+export type SSOTabType = 'overview' | 'apps' | 'create' | 'playground' | 'button' | 'smtp' | 'docs' | 'activity';
 
 export const SSOPortal: React.FC<SSOPortalProps> = ({
   themeMode: initialTheme = 'light',
@@ -149,6 +172,17 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     showIcon: true
   });
 
+  // BYO-SMTP State & Management
+  const [selectedSmtpAppId, setSelectedSmtpAppId] = useState<string>('');
+
+  const handleUpdateAppSmtp = (appId: string, updatedConfig: SmtpConfig) => {
+    setApps(prev => prev.map(a => a.id === appId ? { ...a, smtp_config: updatedConfig } : a));
+  };
+
+  const customSmtpAppsCount = useMemo(() => {
+    return apps.filter(a => a.smtp_config?.enabled).length;
+  }, [apps]);
+
   const showNotification = (type: 'success' | 'error', message: string) => {
     setNotification({ type, message });
     setTimeout(() => {
@@ -230,7 +264,10 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         created_at: Date.now() - 86400000 * 30,
         updated_at: Date.now(),
         owner: ownerName,
-        total_logins: 142
+        total_logins: 142,
+        assigned_sbs_email: 'console@zenoa.in',
+        sbs_domain: 'zenoa.in',
+        is_sbs_email_locked: true
       };
 
       if (db) {
@@ -261,6 +298,37 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
       if (!firestoreApps.some(a => a.client_id === 'zenoa_official_app' || a.id === 'sso_official_default')) {
         firestoreApps.unshift(officialApp);
       }
+
+      // Guarantee each app has an immutable assigned_sbs_email address
+      firestoreApps = firestoreApps.map(app => {
+        if (app.client_id === 'zenoa_official_app' || app.id === 'sso_official_default') {
+          return {
+            ...app,
+            assigned_sbs_email: 'console@zenoa.in',
+            sbs_domain: 'zenoa.in',
+            is_sbs_email_locked: true
+          };
+        }
+        if (!app.assigned_sbs_email) {
+          const cleanName = (app.app_name || 'app').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16) || 'app';
+          const seed = String(Math.abs((app.id || app.client_id || 'app').split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) % 9000 + 1000));
+          const assigned = `${cleanName}-${seed}@zenoa.sbs`;
+          if (db && app.id) {
+            setDoc(doc(db, 'sso_applications', app.id), {
+              assigned_sbs_email: assigned,
+              sbs_domain: 'zenoa.sbs',
+              is_sbs_email_locked: true
+            }, { merge: true }).catch(() => {});
+          }
+          return {
+            ...app,
+            assigned_sbs_email: assigned,
+            sbs_domain: 'zenoa.sbs',
+            is_sbs_email_locked: true
+          };
+        }
+        return app;
+      });
 
       setApps(firestoreApps);
       if (!selectedTesterAppId && firestoreApps.length > 0) {
@@ -528,6 +596,11 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         const clientId = `zenoa_oauth_${randomId}`;
         const newAppId = `sso_app_${Date.now()}`;
 
+        // Automatic permanent zenoa.sbs email generation based on app name + 4-digit random code
+        const cleanName = appName.trim().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16) || 'app';
+        const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
+        const assignedSbsEmail = `${cleanName}-${randomCode}@zenoa.sbs`;
+
         const newApp: SSOApp = {
           id: newAppId,
           client_id: clientId,
@@ -545,7 +618,10 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
           created_at: Date.now(),
           updated_at: Date.now(),
           owner: ownerName,
-          total_logins: 0
+          total_logins: 0,
+          assigned_sbs_email: assignedSbsEmail,
+          sbs_domain: 'zenoa.sbs',
+          is_sbs_email_locked: true
         };
 
         if (db) {
@@ -1118,6 +1194,16 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
             </div>
           </div>
 
+          {/* Section: Email & Deliverability */}
+          <div>
+            <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-[#64748d] dark:text-[#94a3b8]">
+              Deliverability & Branding
+            </div>
+            <div className="space-y-1">
+              {renderNavItem('smtp', 'Emails & SMTP', Mail, customSmtpAppsCount > 0 ? `${customSmtpAppsCount} Active` : undefined)}
+            </div>
+          </div>
+
           {/* Section: Integration & Audit */}
           <div>
             <div className="px-3 pb-1.5 text-[10px] uppercase font-bold tracking-widest text-[#64748d] dark:text-[#94a3b8]">
@@ -1215,6 +1301,7 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                   {renderNavItem('create', editingAppId ? 'Edit Configuration' : 'Register New Client', Sliders)}
                   {renderNavItem('playground', 'OAuth 2.0 Sandbox', Play)}
                   {renderNavItem('button', 'SSO Button Kit', Sparkles)}
+                  {renderNavItem('smtp', 'Emails & SMTP', Mail, customSmtpAppsCount > 0 ? `${customSmtpAppsCount} Active` : undefined)}
                   {renderNavItem('docs', 'SDKs & Reference', Code2)}
                   {renderNavItem('activity', 'Security & Audit', Activity)}
                 </div>
@@ -1268,6 +1355,7 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                 {activeTab === 'create' && (editingAppId ? 'Update Client Configuration' : 'Register Application')}
                 {activeTab === 'playground' && 'Interactive OAuth 2.0 Sandbox'}
                 {activeTab === 'button' && 'Single Sign-On (SSO) Button Kit'}
+                {activeTab === 'smtp' && 'Emails & Custom SMTP Delivery'}
                 {activeTab === 'docs' && 'SDKs & API Reference'}
                 {activeTab === 'activity' && 'Security & Audit Logs'}
               </h2>
@@ -1277,6 +1365,7 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                 {activeTab === 'create' && 'Configure application details, allowed redirect URIs, and scopes.'}
                 {activeTab === 'playground' && 'Test live authorization code generation, token exchange, and claims.'}
                 {activeTab === 'button' && 'Generate copy-ready "Continue with Zenoa" button components.'}
+                {activeTab === 'smtp' && 'Route OTP codes, verification alerts, and system emails via your official business mail server.'}
                 {activeTab === 'docs' && 'Production integration examples for React, Node, Python, and cURL.'}
                 {activeTab === 'activity' && 'Live event stream of authorization grants and token authentications.'}
               </p>
@@ -1571,6 +1660,17 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                                   }`}>
                                     {app.environment || 'Production'}
                                   </span>
+                                  {app.smtp_config?.enabled ? (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold border bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40 flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                      <span>SMTP: {app.smtp_config.from_email}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium border bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                                      <span>Managed Relay</span>
+                                    </span>
+                                  )}
                                 </div>
                                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
                                   {app.app_description || 'OAuth 2.0 Single Sign-On Identity Client'}
@@ -1595,6 +1695,22 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                               >
                                 <Eye className="w-3.5 h-3.5 text-indigo-500" />
                                 <span>Consent Preview</span>
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  setSelectedSmtpAppId(app.id);
+                                  setActiveTab('smtp');
+                                }}
+                                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                                  app.smtp_config?.enabled
+                                    ? 'border-emerald-500/40 bg-emerald-50/50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
+                                    : isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
+                                }`}
+                                title="Configure Custom Email Delivery & SMTP"
+                              >
+                                <Mail className="w-3.5 h-3.5 text-blue-500" />
+                                <span>{app.smtp_config?.enabled ? 'Custom SMTP' : 'Setup SMTP'}</span>
                               </button>
 
                               <button
@@ -1677,6 +1793,45 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                                   </button>
                                 </div>
                               </div>
+                            </div>
+                          </div>
+
+                          {/* Assigned Permanent SBS Mail Sender Identity */}
+                          <div className={`mt-3.5 p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                            isDark ? 'bg-slate-900/50 border-slate-800' : 'bg-indigo-50/40 border-indigo-100'
+                          }`}>
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
+                                <Mail className="w-4 h-4" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Assigned SBS Sender:</span>
+                                  <code className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 select-all">
+                                    {app.assigned_sbs_email || `${(app.app_name || 'app').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14)}-####@zenoa.sbs`}
+                                  </code>
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                    {app.sbs_domain || (app.client_id === 'zenoa_official_app' ? 'zenoa.in' : 'zenoa.sbs')}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                  Default sender for all OAuth user onboarding & OTP verification emails via Resend.
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                onClick={() => handleCopy(app.assigned_sbs_email || '', `sbs_${app.id}`, 'Assigned SBS sender copied')}
+                                className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                                title="Copy Sender Email"
+                              >
+                                {copiedKey === `sbs_${app.id}` ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                              </button>
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+                                <Lock className="w-3 h-3 text-slate-400" />
+                                <span>Immutable</span>
+                              </span>
                             </div>
                           </div>
 
@@ -1939,6 +2094,39 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                           Sandbox (Testing)
                         </button>
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Automatic SBS Mail Sender Identity Notice */}
+                  <div className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}>
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
+                        <Mail className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                            {editingAppId ? 'Assigned SBS Email Sender:' : 'Default Sender (Auto-Assigned):'}
+                          </span>
+                          <code className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                            {editingAppId 
+                              ? (apps.find(a => a.id === editingAppId)?.assigned_sbs_email || `${(appName || 'app').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16)}-####@zenoa.sbs`)
+                              : `${(appName.trim() || 'your-app').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16) || 'app'}-####@zenoa.sbs`}
+                          </code>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                            zenoa.sbs
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          Generated automatically upon registration and permanently immutable. All OAuth onboarding & OTP verification emails are delivered from this address via Resend.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 shrink-0 self-start sm:self-auto">
+                      <Lock className="w-3 h-3 text-slate-400" />
+                      <span>System Managed</span>
                     </div>
                   </div>
 
@@ -2541,6 +2729,21 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: BYO-SMTP & EMAIL INFRASTRUCTURE                                      */}
+            {/* ========================================================================= */}
+            {activeTab === 'smtp' && (
+              <SSOSmtpManager
+                apps={apps}
+                selectedAppId={selectedSmtpAppId || (apps.length > 0 ? apps[0].id : undefined)}
+                onSelectApp={setSelectedSmtpAppId}
+                onUpdateAppSmtp={handleUpdateAppSmtp}
+                isDark={isDark}
+                currentUser={currentUser}
+                showToast={(msg) => showNotification('success', msg)}
+              />
             )}
 
             {/* ========================================================================= */}

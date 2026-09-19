@@ -153,3 +153,53 @@ export function buildSecureOAuthUrl(options: BuildOAuthUrlOptions): string {
 
   return url.toString();
 }
+
+/**
+ * Strips emojis, pictographs, symbols, surrogate pairs, and decorative characters
+ * from a display name to produce a clean, professional legal name for third-party OAuth apps.
+ * 
+ * Examples:
+ * - "Azad New 💗💗" -> "Azad New"
+ * - "Anonymous User X 💛✨🗿" -> "Anonymous User X"
+ * - "💗💗" -> fallback to username (e.g. "azad") or "Zenoa User"
+ */
+export function sanitizeNameForThirdParty(name: string | null | undefined, fallbackUsername?: string): string {
+  if (!name || typeof name !== 'string') {
+    return fallbackUsername || 'Zenoa User';
+  }
+
+  // 1. Strip emojis, pictographs, decorative symbols, surrogate pairs, dingbats, and variation selectors
+  let cleaned = name
+    // Strip standard emojis & extended pictographs
+    .replace(/\p{Extended_Pictographic}/gu, '')
+    // Strip variation selectors
+    .replace(/[\uFE00-\uFE0F]/g, '')
+    // Strip zero-width joiners and non-joiners
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    // Strip miscellaneous symbols, transport & map symbols, dingbats
+    .replace(/[\u2600-\u27BF\uE000-\uF8FF]/gu, '')
+    // Collapse multiple spaces into a single space
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // If after stripping emojis the name is empty or lacks alphanumeric content, fallback
+  if (!cleaned || cleaned.replace(/[^a-zA-Z0-9\u00C0-\u024F\u0400-\u04FF\u0600-\u06FF\u0900-\u097F]/g, '').length === 0) {
+    return fallbackUsername || 'Zenoa User';
+  }
+
+  return cleaned;
+}
+
+/**
+ * Resolves the professional name to send to third-party OAuth consumers.
+ * Prioritizes explicit `real_name` / `legal_name` if present, then sanitizes `display_name`,
+ * falling back gracefully to `username` or "Zenoa User".
+ */
+export function resolveProfessionalName(user: { real_name?: string; legal_name?: string; display_name?: string; username?: string } | null | undefined): string {
+  if (!user) return 'Zenoa User';
+  const explicitRealName = user.real_name || user.legal_name;
+  if (explicitRealName && explicitRealName.trim().length > 0) {
+    return sanitizeNameForThirdParty(explicitRealName, user.username);
+  }
+  return sanitizeNameForThirdParty(user.display_name, user.username);
+}

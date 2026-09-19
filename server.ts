@@ -6,6 +6,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, collection, query, where, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, increment, writeBatch, orderBy, limit } from 'firebase/firestore';
 import axios from 'axios';
 import crypto from 'crypto';
+import nodemailer from 'nodemailer';
 
 // Firebase Config
 const firebaseConfig = {
@@ -52,6 +53,139 @@ if (resend) {
   console.log("Resend API key missing; operating in dev email simulation mode");
 }
 
+// BYO-SMTP Configuration Interface for SSO & Developer Applications
+export interface SmtpConfigPayload {
+  enabled?: boolean;
+  host: string;
+  port: number;
+  secure?: boolean;
+  user: string;
+  pass: string;
+  from_name?: string;
+  from_email: string;
+  reply_to?: string;
+  provider_preset?: string;
+  updated_at?: number;
+  last_tested_at?: number;
+  last_test_status?: 'success' | 'failed';
+  last_test_error?: string;
+}
+
+// Function to send email via developer custom BYO-SMTP transporter
+async function sendEmailViaCustomSmtp(
+  smtp: SmtpConfigPayload,
+  mailOptions: {
+    to: string;
+    subject: string;
+    html: string;
+    text?: string;
+    appName?: string;
+  }
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  try {
+    let host = smtp.host?.trim() || '';
+    let port = Number(smtp.port) || 587;
+    let secure = Boolean(smtp.secure);
+    let user = smtp.user?.trim() || '';
+    const pass = smtp.pass || '';
+    const preset = smtp.provider_preset || 'custom';
+
+    // Auto-normalize modern API-Key and Mailbox presets
+    if (preset === 'resend') {
+      host = host || 'smtp.resend.com';
+      port = 465;
+      secure = true;
+      user = user || 'resend';
+    } else if (preset === 'sendgrid') {
+      host = host || 'smtp.sendgrid.net';
+      port = 587;
+      secure = false;
+      user = user || 'apikey';
+    } else if (preset === 'postmark') {
+      host = host || 'smtp.postmarkapp.com';
+      port = 587;
+      secure = false;
+      user = user || pass;
+    } else if (preset === 'brevo') {
+      host = host || 'smtp-relay.brevo.com';
+      port = 587;
+      secure = false;
+    } else if (preset === 'mailgun') {
+      host = host || 'smtp.mailgun.org';
+      port = 587;
+      secure = false;
+    } else if (preset === 'gmail') {
+      host = host || 'smtp.gmail.com';
+      port = 465;
+      secure = true;
+    } else if (preset === 'zoho') {
+      host = host || 'smtppro.zoho.com';
+      port = 465;
+      secure = true;
+    } else if (preset === 'office365') {
+      host = host || 'smtp.office365.com';
+      port = 587;
+      secure = false;
+    }
+
+    if (!host || !user || !pass || !smtp.from_email) {
+      return { success: false, error: 'Incomplete SMTP credentials configuration.' };
+    }
+    const targetPort = port;
+    let isSecure = targetPort === 465 ? true : (targetPort === 587 || targetPort === 25 || targetPort === 2525 ? false : secure);
+
+    const buildTransporter = (sec: boolean, p: number) => {
+      return nodemailer.createTransport({
+        host: host,
+        port: p,
+        secure: sec,
+        auth: {
+          user: user,
+          pass: pass
+        },
+        connectionTimeout: 12000,
+        greetingTimeout: 8000,
+        socketTimeout: 15000,
+        tls: {
+          minVersion: 'TLSv1.2',
+          rejectUnauthorized: false
+        }
+      });
+    };
+
+    const senderDisplayName = smtp.from_name?.trim() || mailOptions.appName || 'Authentication Service';
+    const senderEmail = smtp.from_email.trim();
+    const fromHeader = `"${senderDisplayName.replace(/"/g, '')}" <${senderEmail}>`;
+    const mailPayload = {
+      from: fromHeader,
+      to: mailOptions.to.trim(),
+      replyTo: smtp.reply_to?.trim() || senderEmail,
+      subject: mailOptions.subject,
+      html: mailOptions.html,
+      text: mailOptions.text
+    };
+
+    try {
+      const transporter = buildTransporter(isSecure, targetPort);
+      const info = await transporter.sendMail(mailPayload);
+      return { success: true, messageId: info.messageId };
+    } catch (initialErr: any) {
+      const errStr = String(initialErr?.message || '').toLowerCase();
+      // Auto-recover from SSL/TLS record header / wrong version mismatch
+      if (errStr.includes('wrong version number') || errStr.includes('ssl routines') || errStr.includes('record header')) {
+        console.warn(`[SMTP Auto-Recovery] Detected TLS/SSL mismatch on port ${targetPort}. Retrying with inverted security mode (${!isSecure})...`);
+        const fallbackTransporter = buildTransporter(!isSecure, targetPort);
+        const retryInfo = await fallbackTransporter.sendMail(mailPayload);
+        return { success: true, messageId: retryInfo.messageId };
+      }
+      throw initialErr;
+    }
+  } catch (err: any) {
+    console.error("Custom SMTP dispatch failure:", err);
+    return { success: false, error: err.message || String(err) };
+  }
+}
+
 // In-Memory Dual-Layer Fallback Store for OTP Sessions to prevent race conditions or transient storage issues
 interface OtpSession {
   email: string;
@@ -66,7 +200,7 @@ const memoryOtpStore = new Map<string, OtpSession>();
 async function getActiveOtpSession(cleanEmail: string): Promise<{ data: OtpSession | null; source: 'memory' | 'firestore' | null }> {
   // 1. Check in-memory store first (ultra-fast, zero permission latency)
   const memOtp = memoryOtpStore.get(cleanEmail);
-  if (memOtp && Date.now() < memOtp.expires_at) {
+  if (memOtp) {
     return { data: memOtp, source: 'memory' };
   }
 
@@ -77,6 +211,8 @@ async function getActiveOtpSession(cleanEmail: string): Promise<{ data: OtpSessi
       const otpSnap = await getDoc(otpDocRef);
       if (otpSnap.exists()) {
         const fireData = otpSnap.data() as OtpSession;
+        // Keep in memory as well for fast subsequent lookups
+        memoryOtpStore.set(cleanEmail, fireData);
         return { data: fireData, source: 'firestore' };
       }
     } catch (fsErr) {
@@ -759,6 +895,8 @@ const OFFICIAL_OAUTH_APPS: Record<string, any> = {
     is_official: true,
     is_platform_app: true,
     verified: true,
+    assigned_sbs_email: 'console@zenoa.in',
+    system_domain: 'zenoa.in',
     client_secret: 'zen_sa_f9810a9c8b7123ef6543189abced214764839210fabc45781290384756bca910',
     api_key: 'zen_dev_console_key',
     redirect_uris: [
@@ -788,6 +926,8 @@ const OFFICIAL_OAUTH_APPS: Record<string, any> = {
     is_official: true,
     is_platform_app: true,
     verified: true,
+    assigned_sbs_email: 'console@zenoa.in',
+    system_domain: 'zenoa.in',
     client_secret: 'zen-oas_7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b',
     api_key: 'zen_oauth_console_key',
     redirect_uris: [
@@ -971,10 +1111,41 @@ async function lookupOAuthAppInternal(keyOrId: string): Promise<{ id: string; da
   return null;
 }
 
-// Wrapper function to enforce strict developer owner account existence
+// Generate an immutable assigned zenoa.sbs email address for a developer application
+function generateAppSbsEmail(appName: string, seedCode?: string): string {
+  const clean = (appName || 'app')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .slice(0, 16) || 'app';
+  const code = seedCode || Math.floor(1000 + Math.random() * 9000).toString();
+  return `${clean}-${code}@zenoa.sbs`;
+}
+
+// Wrapper function to enforce strict developer owner account existence and guarantee permanent SBS sender email
 async function lookupOAuthApp(keyOrId: string): Promise<{ id: string; data: any; collectionName: string } | null> {
   const result = await lookupOAuthAppInternal(keyOrId);
   if (!result) return null;
+
+  // Guarantee permanent assigned_sbs_email on every application
+  if (result.data) {
+    if (result.id === 'zenoa_developer_console' || result.id === 'zenoa_oauth_console' || result.data.is_platform_app) {
+      result.data.assigned_sbs_email = 'console@zenoa.in';
+      result.data.system_domain = 'zenoa.in';
+    } else if (!result.data.assigned_sbs_email) {
+      const rawAppName = result.data.app_name || result.data.name || 'app';
+      const seedCode = String(Math.abs((result.id || result.data.client_id || 'app').split('').reduce((a: number, c: string) => a + c.charCodeAt(0), 0) % 9000 + 1000));
+      result.data.assigned_sbs_email = generateAppSbsEmail(rawAppName, seedCode);
+      result.data.sbs_domain = 'zenoa.sbs';
+      result.data.is_sbs_email_locked = true;
+      if (db && result.collectionName === 'sso_applications' && result.id && !result.id.startsWith('zenoa_')) {
+        setDoc(doc(db, 'sso_applications', result.id), {
+          assigned_sbs_email: result.data.assigned_sbs_email,
+          sbs_domain: 'zenoa.sbs',
+          is_sbs_email_locked: true
+        }, { merge: true }).catch(() => {});
+      }
+    }
+  }
 
   if (result.id === 'default_app' || result.data?.is_official || result.data?.is_platform_app || result.id.startsWith('zenoa_')) {
     return result;
@@ -2640,6 +2811,27 @@ app.get('/api/v1/sso/config', async (req: any, res: any) => {
   }
 });
 
+// Helper function to sanitize user names for third-party OAuth integrations (strips emojis, pictographs, symbols)
+function sanitizeNameForThirdParty(name: string | null | undefined, fallbackUsername?: string): string {
+  if (!name || typeof name !== 'string') {
+    return fallbackUsername || 'Zenoa User';
+  }
+
+  let cleaned = name
+    .replace(/\p{Extended_Pictographic}/gu, '')
+    .replace(/[\uFE00-\uFE0F]/g, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/[\u2600-\u27BF\uE000-\uF8FF]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned || cleaned.replace(/[^a-zA-Z0-9\u00C0-\u024F\u0400-\u04FF\u0600-\u06FF\u0900-\u097F]/g, '').length === 0) {
+    return fallbackUsername || 'Zenoa User';
+  }
+
+  return cleaned;
+}
+
 // Real SSO Authorization Endpoint (Generates code & signed token)
 app.post('/api/v1/sso/authorize', async (req: any, res: any) => {
   try {
@@ -2682,10 +2874,34 @@ app.post('/api/v1/sso/authorize', async (req: any, res: any) => {
     const authCode = 'zenoa_code_' + crypto.randomBytes(20).toString('hex');
     const codeExpiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
 
+    const rawDisplayName = user_data.display_name || user_data.username || '';
+    let storedRealName = user_data.real_name || user_data.legal_name;
+    const userUid = user_data.id || user_data.uid;
+
+    if (db && userUid && !storedRealName) {
+      try {
+        const uSnap = await getDoc(doc(db, 'users', String(userUid)));
+        if (uSnap.exists()) {
+          const uData = uSnap.data();
+          if (uData.real_name || uData.legal_name) {
+            storedRealName = uData.real_name || uData.legal_name;
+          }
+        }
+      } catch (_) {}
+    }
+
+    const professionalName = storedRealName 
+      ? sanitizeNameForThirdParty(storedRealName, user_data.username) 
+      : sanitizeNameForThirdParty(rawDisplayName, user_data.username);
+
     const cleanUser = {
-      id: user_data.id || user_data.uid,
+      id: userUid,
       username: user_data.username,
-      display_name: user_data.display_name || user_data.username,
+      name: professionalName,
+      real_name: professionalName,
+      full_name: professionalName,
+      display_name: professionalName, // Clean professional name for third-party consumers
+      raw_display_name: rawDisplayName, // Original Messenger display name with emojis
       email: user_data.email || '',
       mobile_number: user_data.mobile_number || '',
       avatar_url: user_data.avatar_url || '',
@@ -2710,8 +2926,26 @@ app.post('/api/v1/sso/authorize', async (req: any, res: any) => {
       (async () => {
         try {
           await setDoc(doc(db, 'oauth_codes', authCode), codeRecord);
+          // Persist authorization grant for user's account management portal
+          const grantId = `${cleanUser.id || cleanUser.username}_${client_id}`;
+          const authGrant = {
+            id: grantId,
+            user_id: cleanUser.id || '',
+            username: (cleanUser.username || '').toLowerCase(),
+            client_id,
+            app_id: appId || '',
+            app_name: appData.app_name || 'Authorized App',
+            app_description: appData.app_description || '',
+            logo_url: appData.logo_url || '',
+            website_url: appData.website_url || '',
+            scopes: appData.scopes || ['openid', 'profile', 'email'],
+            authorized_at: Date.now(),
+            last_used_at: Date.now(),
+            status: 'active'
+          };
+          await setDoc(doc(db, 'user_authorizations', grantId), authGrant, { merge: true });
         } catch (dbErr) {
-          console.warn('OAuth code firestore write warning:', dbErr);
+          console.warn('OAuth code/authorization firestore write warning:', dbErr);
         }
       })();
     }
@@ -2721,7 +2955,11 @@ app.post('/api/v1/sso/authorize', async (req: any, res: any) => {
     const ssoPayload = {
       uid: cleanUser.id,
       username: cleanUser.username,
+      name: cleanUser.name,
+      real_name: cleanUser.real_name,
+      full_name: cleanUser.full_name,
       display_name: cleanUser.display_name,
+      raw_display_name: cleanUser.raw_display_name,
       email: cleanUser.email,
       mobile_number: cleanUser.mobile_number,
       avatar_url: cleanUser.avatar_url,
@@ -2825,18 +3063,25 @@ app.post(['/api/v1/sso/token', '/v1/sso/token', '/api/oauth/token', '/api/v1/oau
       return res.status(400).json({ error: 'Invalid or expired authorization code.' });
     }
 
-    // Enrich user_data from users collection if incomplete
-    if (codeData && (!codeData.user_data || !codeData.user_data.username) && db) {
+    // Enrich user_data from users collection if incomplete or missing clean real_name
+    if (codeData && db) {
       const uIdent = codeData.user_id || codeData.user_data?.id;
       if (uIdent) {
         try {
           const uDoc = await getDoc(doc(db, 'users', String(uIdent).toLowerCase()));
           if (uDoc.exists()) {
             const uData = uDoc.data();
+            const rawD = uData?.display_name || uData?.username || uDoc.id;
+            const profN = uData?.real_name || uData?.legal_name || sanitizeNameForThirdParty(rawD, uData?.username);
             codeData.user_data = {
               id: uDoc.id,
               username: uData?.username || uDoc.id,
-              display_name: uData?.display_name || uData?.username || uDoc.id,
+              name: profN,
+              real_name: profN,
+              legal_name: profN,
+              full_name: profN,
+              display_name: profN,
+              raw_display_name: rawD,
               email: uData?.email || '',
               mobile_number: uData?.mobile_number || '',
               avatar_url: uData?.avatar_url || '',
@@ -2894,14 +3139,32 @@ app.post(['/api/v1/sso/token', '/v1/sso/token', '/api/oauth/token', '/api/v1/oau
       })();
     }
 
-    // 3. Issue Access Token
+    // 3. Issue Access Token with Professional Sanitized Profile
     const accessToken = 'zen_token_' + crypto.randomBytes(24).toString('hex');
     const tokenExpiresAt = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+
+    const rawDisplayName = codeData.user_data?.raw_display_name || codeData.user_data?.display_name || codeData.user_data?.username;
+    const profName = codeData.user_data?.real_name || codeData.user_data?.legal_name || sanitizeNameForThirdParty(rawDisplayName, codeData.user_data?.username);
+
+    const tokenUserData = {
+      id: codeData.user_data?.id,
+      username: codeData.user_data?.username,
+      name: profName,
+      real_name: profName,
+      legal_name: profName,
+      full_name: profName,
+      display_name: profName,
+      raw_display_name: rawDisplayName,
+      email: codeData.user_data?.email || '',
+      mobile_number: codeData.user_data?.mobile_number || '',
+      avatar_url: codeData.user_data?.avatar_url || '',
+      is_verified: true
+    };
 
     const tokenRecord = {
       access_token: accessToken,
       client_id,
-      user: codeData.user_data,
+      user: tokenUserData,
       created_at: Date.now(),
       expires_at: tokenExpiresAt
     };
@@ -2923,7 +3186,7 @@ app.post(['/api/v1/sso/token', '/v1/sso/token', '/api/oauth/token', '/api/v1/oau
       access_token: accessToken,
       token_type: 'Bearer',
       expires_in: 86400,
-      user: codeData.user_data
+      user: tokenUserData
     });
   } catch (err: any) {
     console.error('SSO Token Exchange Exception:', err);
@@ -2964,12 +3227,19 @@ app.get(['/api/v1/sso/userinfo', '/api/v1/sso/me', '/api/oauth/userinfo', '/api/
       return res.status(401).json({ error: 'Access token has expired.' });
     }
 
+    const rawDisplayName = tokenData.user?.raw_display_name || tokenData.user?.display_name || tokenData.user?.username;
+    const profName = tokenData.user?.real_name || tokenData.user?.legal_name || sanitizeNameForThirdParty(rawDisplayName, tokenData.user?.username);
+
     return res.json({
       sub: tokenData.user?.id || tokenData.user?.uid,
       id: tokenData.user?.id || tokenData.user?.uid,
       username: tokenData.user?.username,
-      name: tokenData.user?.display_name || tokenData.user?.username,
-      display_name: tokenData.user?.display_name || tokenData.user?.username,
+      name: profName,
+      real_name: profName,
+      legal_name: profName,
+      full_name: profName,
+      display_name: profName,
+      raw_display_name: rawDisplayName,
       email: tokenData.user?.email || '',
       phone_number: tokenData.user?.mobile_number || '',
       mobile_number: tokenData.user?.mobile_number || '',
@@ -3029,12 +3299,20 @@ app.post('/api/v1/sso/verify', async (req: any, res: any) => {
       return res.status(401).json({ valid: false, error: 'SSO payload has expired.' });
     }
 
+    const rawDisplayName = userData.raw_display_name || userData.display_name || userData.username;
+    const profName = userData.real_name || userData.legal_name || sanitizeNameForThirdParty(rawDisplayName, userData.username);
+
     return res.json({
       valid: true,
       user: {
-        id: userData.uid,
+        id: userData.uid || userData.id,
         username: userData.username,
-        display_name: userData.display_name,
+        name: profName,
+        real_name: profName,
+        legal_name: profName,
+        full_name: profName,
+        display_name: profName,
+        raw_display_name: rawDisplayName,
         email: userData.email,
         mobile_number: userData.mobile_number,
         avatar_url: userData.avatar_url,
@@ -3045,6 +3323,434 @@ app.post('/api/v1/sso/verify', async (req: any, res: any) => {
   } catch (err: any) {
     console.error('SSO Verify Exception:', err);
     res.status(500).json({ valid: false, error: err?.message || 'Verification failed.' });
+  }
+});
+
+// ==========================================
+// BYO-SMTP DEVELOPER SERVICES & TEST HARNESS
+// ==========================================
+
+// 1. Live SMTP Handshake Verification & Test Email Dispatch
+app.post(['/api/developer/smtp/test', '/api/v1/developer/smtp/test'], async (req: any, res: any) => {
+  try {
+    const { 
+      appId,
+      host, 
+      port, 
+      secure, 
+      user, 
+      pass, 
+      from_name, 
+      from_email, 
+      reply_to, 
+      test_recipient, 
+      provider_preset 
+    } = req.body || {};
+
+    let targetHost = host?.trim() || '';
+    let targetPort = Number(port) || 587;
+    let targetSecure = Boolean(secure);
+    let targetUser = user?.trim() || '';
+    const targetPass = pass || '';
+    const preset = provider_preset || 'custom';
+
+    // Auto-normalize presets for seamless 1-field API Key input
+    if (preset === 'resend') {
+      targetHost = targetHost || 'smtp.resend.com';
+      targetPort = 465;
+      targetSecure = true;
+      targetUser = targetUser || 'resend';
+    } else if (preset === 'sendgrid') {
+      targetHost = targetHost || 'smtp.sendgrid.net';
+      targetPort = 587;
+      targetSecure = false;
+      targetUser = targetUser || 'apikey';
+    } else if (preset === 'postmark') {
+      targetHost = targetHost || 'smtp.postmarkapp.com';
+      targetPort = 587;
+      targetSecure = false;
+      targetUser = targetUser || targetPass;
+    } else if (preset === 'brevo') {
+      targetHost = targetHost || 'smtp-relay.brevo.com';
+      targetPort = 587;
+      targetSecure = false;
+    } else if (preset === 'mailgun') {
+      targetHost = targetHost || 'smtp.mailgun.org';
+      targetPort = 587;
+      targetSecure = false;
+    } else if (preset === 'gmail') {
+      targetHost = targetHost || 'smtp.gmail.com';
+      targetPort = 465;
+      targetSecure = true;
+    } else if (preset === 'zoho') {
+      targetHost = targetHost || 'smtppro.zoho.com';
+      targetPort = 465;
+      targetSecure = true;
+    } else if (preset === 'office365') {
+      targetHost = targetHost || 'smtp.office365.com';
+      targetPort = 587;
+      targetSecure = false;
+    }
+
+    if (!targetHost) {
+      return res.status(400).json({ error: 'SMTP host is required (e.g. smtp.gmail.com, smtp.resend.com, email-smtp.amazonaws.com).' });
+    }
+    if (!targetPort || isNaN(targetPort) || targetPort <= 0) {
+      return res.status(400).json({ error: 'Valid SMTP port is required (e.g. 587, 465, or 2525).' });
+    }
+    if (!targetUser) {
+      return res.status(400).json({ error: 'SMTP username or access key is required.' });
+    }
+    if (!targetPass) {
+      return res.status(400).json({ error: 'API key or password is required.' });
+    }
+    if (!from_email || !from_email.includes('@')) {
+      return res.status(400).json({ error: 'A valid sender email address is required (e.g. auth@yourbusiness.com).' });
+    }
+
+    const recipient = (test_recipient && test_recipient.includes('@')) ? test_recipient.trim() : from_email.trim();
+    // Default inferred security mode: port 465 is implicit SSL; 587/25/2525 is STARTTLS
+    let isSecure = targetPort === 465 ? true : (targetPort === 587 || targetPort === 25 || targetPort === 2525 ? false : targetSecure);
+    const startTime = Date.now();
+
+    const buildTransporter = (sec: boolean, p: number) => {
+      return nodemailer.createTransport({
+        host: targetHost,
+        port: p,
+        secure: sec,
+        auth: {
+          user: targetUser,
+          pass: targetPass
+        },
+        connectionTimeout: 12000,
+        greetingTimeout: 8000,
+        socketTimeout: 15000,
+        tls: {
+          minVersion: 'TLSv1.2',
+          rejectUnauthorized: false
+        }
+      });
+    };
+
+    let transporter = buildTransporter(isSecure, targetPort);
+    let effectiveSecure = isSecure;
+
+    // Step 1: Handshake & Credential Verification with Auto-Recovery for SSL/TLS Protocol Mismatches
+    try {
+      await transporter.verify();
+    } catch (verifyErr: any) {
+      const errStr = String(verifyErr?.message || '').toLowerCase();
+      if (errStr.includes('wrong version number') || errStr.includes('ssl routines') || errStr.includes('record header')) {
+        console.warn(`[SMTP Test Auto-Recovery] Detected TLS record mismatch on ${targetHost}:${targetPort}. Inverting secure flag from ${isSecure} to ${!isSecure}...`);
+        effectiveSecure = !isSecure;
+        transporter = buildTransporter(effectiveSecure, targetPort);
+        await transporter.verify();
+      } else {
+        throw verifyErr;
+      }
+    }
+    const handshakeTime = Date.now() - startTime;
+
+    // Step 2: Dispatch Authentic Branded HTML Test Email
+    const senderName = (from_name || 'Zenoa Developer Service').trim();
+    const currentYear = new Date().getFullYear();
+    const testHtml = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px;">
+        <div style="margin-bottom: 24px; display: flex; align-items: center; gap: 12px;">
+          <div style="width: 40px; height: 40px; background: #533afd; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: white; font-weight: 800; font-size: 20px;">Z</div>
+          <div>
+            <h2 style="margin: 0; font-size: 18px; font-weight: 700; color: #0f172a;">Custom SMTP Delivery Verification</h2>
+            <p style="margin: 2px 0 0 0; font-size: 13px; color: #64748b;">Zenoa Single Sign-On Developer Platform</p>
+          </div>
+        </div>
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 18px; margin-bottom: 24px;">
+          <h3 style="margin: 0 0 6px 0; font-size: 15px; font-weight: 700; color: #15803d;">✓ SMTP Connection & Handshake Successful</h3>
+          <p style="margin: 0; font-size: 13px; color: #166534; line-height: 1.5;">
+            Your custom SMTP server verified authentication and established a secure connection in <strong>${handshakeTime}ms</strong>.
+          </p>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 13px;">
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 10px 0; color: #64748b; font-weight: 600; width: 140px;">Provider Preset:</td>
+            <td style="padding: 10px 0; color: #533afd; font-weight: 700;">${provider_preset || 'Custom SMTP'}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 10px 0; color: #64748b; font-weight: 600;">Host & Port:</td>
+            <td style="padding: 10px 0; color: #0f172a; font-family: monospace;">${targetHost}:${targetPort} (${effectiveSecure ? 'SSL/TLS' : 'STARTTLS'})</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 10px 0; color: #64748b; font-weight: 600;">Sender Identity:</td>
+            <td style="padding: 10px 0; color: #0f172a;">"${senderName}" &lt;${from_email.trim()}&gt;</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 10px 0; color: #64748b; font-weight: 600;">Recipient:</td>
+            <td style="padding: 10px 0; color: #0f172a;">${recipient}</td>
+          </tr>
+        </table>
+        <p style="font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 16px; margin: 0; line-height: 1.6;">
+          This verification message confirms that your business email server is fully integrated. Future SSO authentication codes, OTP verifications, and security alerts for this application will be sent directly through your domain.
+        </p>
+        <p style="font-size: 11px; color: #cbd5e1; margin: 12px 0 0 0;">
+          © ${currentYear} Zenoa Platform • Inolas Nexus
+        </p>
+      </div>
+    `.trim();
+
+    const sendResult = await transporter.sendMail({
+      from: `"${senderName.replace(/"/g, '')}" <${from_email.trim()}>`,
+      to: recipient,
+      replyTo: (reply_to && reply_to.trim()) || from_email.trim(),
+      subject: `[Verified] ${senderName} SMTP Test - Zenoa Identity Network`,
+      html: testHtml,
+      text: `SMTP Connection Verified! Your custom email service (${targetHost}:${targetPort}) successfully delivered a test email in ${handshakeTime}ms.`
+    });
+
+    const totalTime = Date.now() - startTime;
+
+    // If appId was provided and Firestore is active, record test status in app doc
+    if (appId && db) {
+      try {
+        const appRef = doc(db, 'sso_applications', appId);
+        await updateDoc(appRef, {
+          'smtp_config.last_tested_at': Date.now(),
+          'smtp_config.last_test_status': 'success',
+          'smtp_config.last_test_error': null,
+          'smtp_config.last_latency_ms': totalTime
+        }).catch(() => null);
+      } catch (_) {}
+    }
+
+    return res.json({
+      success: true,
+      message: `Test email sent successfully to ${recipient}. Delivery verified!`,
+      handshakeLatencyMs: handshakeTime,
+      totalLatencyMs: totalTime,
+      messageId: sendResult.messageId
+    });
+  } catch (err: any) {
+    console.error("SMTP Test Diagnostic Exception:", err);
+    let friendlyError = err.message || 'SMTP Handshake or Authentication failed.';
+    let troubleshooting = '';
+
+    const lowerErr = String(err.message || '').toLowerCase();
+    if (err.code === 'EAUTH' || lowerErr.includes('username and password not accepted') || lowerErr.includes('invalid login') || lowerErr.includes('bad credentials')) {
+      friendlyError = 'SMTP Authentication failed: Invalid username or password/API key.';
+      troubleshooting = 'For Gmail / Google Workspace, please generate an App Password (16 characters) at myaccount.google.com/apppasswords rather than your personal password. Ensure 2-Step Verification is active.';
+    } else if (err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED' || lowerErr.includes('connect etimedout')) {
+      friendlyError = `Connection to SMTP host timed out or connection refused.`;
+      troubleshooting = 'Verify your SMTP host and port. Ensure external SMTP traffic on this port is permitted by your mail host firewall.';
+    } else if (err.code === 'ESOCKET' || lowerErr.includes('wrong version number') || lowerErr.includes('ssl routines')) {
+      friendlyError = 'SSL/TLS Protocol Mismatch.';
+      troubleshooting = 'Port 465 requires SSL/TLS enabled. Port 587 requires STARTTLS (SSL/TLS disabled in settings). Double check your port and SSL toggle.';
+    } else if (err.code === 'EENVELOPE' || lowerErr.includes('sender address rejected') || lowerErr.includes('from address not verified')) {
+      friendlyError = 'Sender email address rejected by your mail provider.';
+      troubleshooting = 'Providers such as Amazon SES, Resend, SendGrid, and Postmark require domain or sender email verification before emails can be dispatched.';
+    }
+
+    // Record failure in app doc if appId provided
+    const { appId } = req.body || {};
+    if (appId && db) {
+      try {
+        const appRef = doc(db, 'sso_applications', appId);
+        await updateDoc(appRef, {
+          'smtp_config.last_tested_at': Date.now(),
+          'smtp_config.last_test_status': 'failed',
+          'smtp_config.last_test_error': friendlyError
+        }).catch(() => null);
+      } catch (_) {}
+    }
+
+    return res.status(400).json({
+      success: false,
+      error: friendlyError,
+      rawError: err.message,
+      errorCode: err.code,
+      troubleshooting: troubleshooting || undefined
+    });
+  }
+});
+
+// 2. Save / Update Developer App SMTP Configuration
+app.post(['/api/developer/smtp/save', '/api/v1/developer/smtp/save'], async (req: any, res: any) => {
+  try {
+    const { appId, client_id, smtp_config } = req.body || {};
+    const targetId = appId || client_id;
+
+    if (!targetId) {
+      return res.status(400).json({ error: 'appId or client_id is required to save SMTP settings.' });
+    }
+    if (!smtp_config) {
+      return res.status(400).json({ error: 'smtp_config payload is required.' });
+    }
+
+    const cleanedConfig: SmtpConfigPayload = {
+      enabled: Boolean(smtp_config.enabled),
+      host: (smtp_config.host || '').trim(),
+      port: Number(smtp_config.port) || 587,
+      secure: Boolean(smtp_config.secure),
+      user: (smtp_config.user || '').trim(),
+      pass: smtp_config.pass || '',
+      from_name: (smtp_config.from_name || '').trim(),
+      from_email: (smtp_config.from_email || '').trim().toLowerCase(),
+      reply_to: (smtp_config.reply_to || '').trim().toLowerCase() || '',
+      provider_preset: smtp_config.provider_preset || 'custom',
+      updated_at: Date.now(),
+      last_tested_at: smtp_config.last_tested_at || null,
+      last_test_status: smtp_config.last_test_status || null,
+      last_test_error: smtp_config.last_test_error || null
+    };
+
+    if (cleanedConfig.enabled) {
+      if (!cleanedConfig.host) {
+        return res.status(400).json({ error: 'SMTP host is required when enabling custom SMTP.' });
+      }
+      if (!cleanedConfig.user) {
+        return res.status(400).json({ error: 'SMTP username is required when enabling custom SMTP.' });
+      }
+      if (!cleanedConfig.pass) {
+        return res.status(400).json({ error: 'SMTP password or API key is required when enabling custom SMTP.' });
+      }
+      if (!cleanedConfig.from_email || !cleanedConfig.from_email.includes('@')) {
+        return res.status(400).json({ error: 'A valid sender email address is required when enabling custom SMTP.' });
+      }
+    }
+
+    // Persist to Firestore with strict undefined stripping
+    let updatedInFirestore = false;
+    if (db) {
+      try {
+        const firestorePayload = sanitizeFirestoreData({
+          smtp_config: cleanedConfig,
+          updated_at: Date.now()
+        });
+
+        // Try direct doc in sso_applications
+        const ssoDocRef = doc(db, 'sso_applications', targetId);
+        const ssoSnap = await getDoc(ssoDocRef);
+        if (ssoSnap.exists()) {
+          await updateDoc(ssoDocRef, firestorePayload);
+          updatedInFirestore = true;
+        } else {
+          // Check query by client_id
+          const q = query(collection(db, 'sso_applications'), where('client_id', '==', targetId));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            await updateDoc(snap.docs[0].ref, firestorePayload);
+            updatedInFirestore = true;
+          }
+        }
+
+        // Also check developer_apps collection if present
+        const devDocRef = doc(db, 'developer_apps', targetId);
+        const devSnap = await getDoc(devDocRef);
+        if (devSnap.exists()) {
+          await updateDoc(devDocRef, firestorePayload);
+          updatedInFirestore = true;
+        }
+      } catch (dbErr: any) {
+        console.warn("Firestore SMTP update notice:", dbErr);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: cleanedConfig.enabled 
+        ? 'Custom BYO-SMTP configured and active for this application.' 
+        : 'SMTP settings updated (operating in default managed delivery mode).',
+      smtp_config: cleanedConfig,
+      persistedToDatabase: updatedInFirestore
+    });
+  } catch (err: any) {
+    console.error("Save SMTP error:", err);
+    return res.status(500).json({ error: err.message || 'Failed to save SMTP configuration.' });
+  }
+});
+
+// 3. Welcome / Account Registered Email via Developer App SMTP
+app.post(['/api/developer/smtp/welcome-email', '/api/v1/developer/smtp/welcome-email'], async (req: any, res: any) => {
+  try {
+    const { appId, client_id, email, fullName, username } = req.body || {};
+    const cleanEmail = (email || '').trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      return res.status(400).json({ error: 'Valid recipient email is required.' });
+    }
+
+    const targetId = appId || client_id;
+    let appMatch: any = null;
+    if (targetId) {
+      appMatch = await lookupOAuthApp(targetId);
+    }
+
+    const appName = appMatch?.data?.app_name || 'Zenoa Ecosystem';
+    const appSmtp = appMatch?.data?.smtp_config;
+    const assignedSbsEmail = appMatch?.data?.assigned_sbs_email || generateAppSbsEmail(appName);
+
+    const currentYear = new Date().getFullYear();
+    const welcomeHtml = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px;">
+        <div style="margin-bottom: 24px;">
+          <h2 style="margin: 0 0 6px 0; font-size: 20px; font-weight: 700; color: #0f172a;">Welcome to ${appName}!</h2>
+          <p style="margin: 0; font-size: 14px; color: #64748b;">Your account has been registered successfully.</p>
+        </div>
+        <p style="font-size: 14px; color: #334155; line-height: 1.6; margin: 0 0 16px 0;">
+          Hello ${fullName || username || 'there'},
+        </p>
+        <p style="font-size: 14px; color: #334155; line-height: 1.6; margin: 0 0 20px 0;">
+          Thank you for joining <strong>${appName}</strong>. Your account has been securely provisioned via the Zenoa Single Sign-On Identity Network.
+        </p>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 24px;">
+          <div style="font-size: 12px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Your Identity Details</div>
+          <div style="font-size: 14px; color: #0f172a; margin-bottom: 4px;"><strong>Email:</strong> ${cleanEmail}</div>
+          ${username ? `<div style="font-size: 14px; color: #0f172a;"><strong>Username:</strong> @${username}</div>` : ''}
+        </div>
+        <p style="font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 16px; margin: 0; line-height: 1.5;">
+          If you did not request this account, please contact our security team immediately.
+        </p>
+        <p style="font-size: 11px; color: #cbd5e1; margin: 12px 0 0 0;">
+          © ${currentYear} ${appName} • Powered by Zenoa Identity
+        </p>
+      </div>
+    `.trim();
+
+    // If developer app has custom BYO-SMTP enabled, send via their SMTP!
+    if (appSmtp && appSmtp.enabled && appSmtp.host && appSmtp.user && appSmtp.pass && appSmtp.from_email) {
+      const dispatchResult = await sendEmailViaCustomSmtp(appSmtp, {
+        to: cleanEmail,
+        subject: `Welcome to ${appName} - Account Registered`,
+        html: welcomeHtml,
+        appName: appName
+      });
+      if (dispatchResult.success) {
+        console.log(`[BYO-SMTP] Sent welcome email via ${appSmtp.host} for ${appName} to ${cleanEmail}`);
+        return res.json({ success: true, method: 'custom_smtp', messageId: dispatchResult.messageId });
+      }
+      console.warn(`[BYO-SMTP] Custom SMTP failed for welcome email (${dispatchResult.error}), falling back...`);
+    }
+
+    // Fallback: Resend Managed SBS Relay (zenoa.sbs) or simulation
+    if (resend) {
+      await resend.emails.send({
+        from: `${appName} <${assignedSbsEmail}>`,
+        to: cleanEmail,
+        subject: `Welcome to ${appName} - Account Registered`,
+        html: welcomeHtml,
+        replyTo: 'support@zenoa.sbs'
+      }).catch((err: any) => {
+        console.warn("Resend primary SBS domain warning, trying fallback:", err);
+        return resend.emails.send({
+          from: `${appName} <onboarding@resend.dev>`,
+          to: cleanEmail,
+          subject: `[${assignedSbsEmail}] Welcome to ${appName} - Account Registered`,
+          html: welcomeHtml,
+          replyTo: 'support@zenoa.sbs'
+        }).catch(() => {});
+      });
+    }
+
+    return res.json({ success: true, method: 'default_relay' });
+  } catch (err: any) {
+    console.error("Welcome email exception:", err);
+    return res.status(500).json({ error: err.message || 'Failed to send welcome email' });
   }
 });
 
@@ -4019,9 +4725,14 @@ function generateProfessionalOtpEmailHtml(params: {
   email: string;
   otpCode: string;
   purpose?: string;
+  appName?: string;
+  senderEmail?: string;
+  isSbsRelay?: boolean;
 }): { subject: string; html: string } {
-  const { email, otpCode, purpose = 'login' } = params;
+  const { email, otpCode, purpose = 'login', appName, senderEmail } = params;
   const cleanPurpose = (purpose || 'login').toLowerCase().trim();
+  const effectiveAppName = appName && appName.trim() ? appName.trim() : 'Zenoa';
+  const isCustomApp = effectiveAppName !== 'Zenoa';
 
   interface PurposeConfig {
     subject: string;
@@ -4031,9 +4742,11 @@ function generateProfessionalOtpEmailHtml(params: {
 
   const purposeMap: Record<string, PurposeConfig> = {
     login: {
-      subject: `${otpCode} is your Zenoa verification code`,
-      headline: `Sign in to Zenoa`,
-      bodyText: `Use the verification code below to sign in to your Zenoa account. This code is intended for single use only.`
+      subject: isCustomApp ? `${otpCode} is your ${effectiveAppName} login code` : `${otpCode} is your Zenoa verification code`,
+      headline: isCustomApp ? `Sign in to ${effectiveAppName}` : `Sign in to Zenoa`,
+      bodyText: isCustomApp
+        ? `Use the verification code below to authorize your sign-in to ${effectiveAppName}. This single-use code expires in 15 minutes.`
+        : `Use the verification code below to sign in to your Zenoa account. This code is intended for single use only.`
     },
     '2fa': {
       subject: `${otpCode} is your two-factor authentication code`,
@@ -4043,29 +4756,35 @@ function generateProfessionalOtpEmailHtml(params: {
     password_reset: {
       subject: `${otpCode} is your password reset code`,
       headline: `Reset your password`,
-      bodyText: `We received a request to reset your Zenoa account password. Enter the code below to verify your identity and choose a new password.`
+      bodyText: `We received a request to reset your password. Enter the code below to verify your identity and choose a new password.`
     },
     registration: {
-      subject: `${otpCode} is your Zenoa verification code`,
-      headline: `Verify your email address`,
-      bodyText: `Thank you for signing up for Zenoa. Please confirm your email address by entering the verification code below.`
+      subject: isCustomApp ? `${otpCode} is your ${effectiveAppName} verification code` : `${otpCode} is your Zenoa verification code`,
+      headline: isCustomApp ? `Verify your email for ${effectiveAppName}` : `Verify your email address`,
+      bodyText: isCustomApp
+        ? `Thank you for onboarding to ${effectiveAppName}. Please confirm your email address by entering the verification code below.`
+        : `Thank you for signing up for Zenoa. Please confirm your email address by entering the verification code below.`
     },
     signup: {
-      subject: `${otpCode} is your Zenoa verification code`,
-      headline: `Verify your email address`,
-      bodyText: `Thank you for signing up for Zenoa. Please confirm your email address by entering the verification code below.`
+      subject: isCustomApp ? `${otpCode} is your ${effectiveAppName} verification code` : `${otpCode} is your Zenoa verification code`,
+      headline: isCustomApp ? `Verify your email for ${effectiveAppName}` : `Verify your email address`,
+      bodyText: isCustomApp
+        ? `Thank you for onboarding to ${effectiveAppName}. Please confirm your email address by entering the verification code below.`
+        : `Thank you for signing up for Zenoa. Please confirm your email address by entering the verification code below.`
     },
     email_change: {
       subject: `${otpCode} is your email confirmation code`,
       headline: `Confirm your new email address`,
-      bodyText: `Use the code below to verify this email address as your new primary contact for Zenoa.`
+      bodyText: `Use the code below to verify this email address as your new primary contact.`
     }
   };
 
   const config = purposeMap[cleanPurpose] || {
-    subject: `${otpCode} is your Zenoa verification code`,
-    headline: `Verification code`,
-    bodyText: `Use the verification code below to authorize your request in Zenoa.`
+    subject: isCustomApp ? `${otpCode} is your ${effectiveAppName} verification code` : `${otpCode} is your Zenoa verification code`,
+    headline: isCustomApp ? `Verification for ${effectiveAppName}` : `Verification code`,
+    bodyText: isCustomApp 
+      ? `Use the verification code below to authorize your request for ${effectiveAppName}.`
+      : `Use the verification code below to authorize your request in Zenoa.`
   };
 
   const currentYear = new Date().getFullYear();
@@ -4145,11 +4864,11 @@ function generateProfessionalOtpEmailHtml(params: {
                     <td style="vertical-align: middle; padding-right: 12px;">
                       <!-- Clean corporate monochrome brand mark -->
                       <div style="width: 32px; height: 32px; background-color: #0f172a; border-radius: 8px; text-align: center; line-height: 32px;">
-                        <span style="color: #ffffff; font-size: 16px; font-weight: 700; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">Z</span>
+                        <span style="color: #ffffff; font-size: 16px; font-weight: 700; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">${effectiveAppName.charAt(0).toUpperCase()}</span>
                       </div>
                     </td>
                     <td style="vertical-align: middle;">
-                      <span style="font-size: 18px; font-weight: 700; color: #0f172a; letter-spacing: -0.2px;">Zenoa</span>
+                      <span style="font-size: 18px; font-weight: 700; color: #0f172a; letter-spacing: -0.2px;">${effectiveAppName}</span>
                     </td>
                   </tr>
                 </table>
@@ -4186,11 +4905,11 @@ function generateProfessionalOtpEmailHtml(params: {
           </table>
 
           <p style="margin: 0 0 12px 0; font-size: 13px; line-height: 1.5; color: #64748b;">
-            This code will expire in <strong>5 minutes</strong>. If you did not make this request, you can safely disregard this message.
+            This code will expire in <strong>15 minutes</strong>. If you did not make this request, you can safely disregard this message.
           </p>
 
           <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #64748b;">
-            Never share this code with anyone. Zenoa staff will never ask for your verification code.
+            Never share this code with anyone. Official staff will never ask for your verification code.
           </p>
 
         </td>
@@ -4200,13 +4919,16 @@ function generateProfessionalOtpEmailHtml(params: {
       <tr>
         <td style="padding: 24px 40px; background-color: #fafbfc; border-top: 1px solid #f0f2f5;">
           <p style="margin: 0 0 6px 0; font-size: 12px; line-height: 1.5; color: #64748b;">
-            Sent by <strong>Zenoa</strong> • Developed by Inolas Nexus
+            ${isCustomApp 
+              ? `Sent on behalf of <strong>${effectiveAppName}</strong> • Verified Sender: <span style="font-family: monospace; color: #059669; font-weight: 600;">${senderEmail || 'zenoa.sbs'}</span>`
+              : `Sent by <strong>Zenoa Platform</strong> • Internal System (<span style="font-family: monospace; color: #475569;">zenoa.in</span>)`
+            }
           </p>
           <p style="margin: 0 0 8px 0; font-size: 11px; line-height: 1.5; color: #94a3b8;">
-            This email was sent to <span style="color: #475569;">${email}</span> for account security verification.
+            This email was sent to <span style="color: #475569;">${email}</span> for OAuth security verification.
           </p>
           <p style="margin: 0; font-size: 11px; line-height: 1.5; color: #94a3b8;">
-            © ${currentYear} Zenoa Inc. All rights reserved.
+            © ${currentYear} ${effectiveAppName} • Powered by Zenoa Identity Network
           </p>
         </td>
       </tr>
@@ -4224,25 +4946,27 @@ function generateProfessionalOtpEmailHtml(params: {
   return { subject: config.subject, html };
 }
 
-// Send OTP for Messenger Login using verified Resend API or Simulation Fallback
+// Send OTP for Messenger Login using verified Resend API or Developer BYO-SMTP or Simulation Fallback
 app.post('/api/auth/messenger/send-otp', async (req: any, res: any) => {
   try {
-    const { email, purpose } = req.body;
+    const { email, purpose, clientId, client_id, appId } = req.body;
     if (!email || !email.trim()) {
       return res.status(400).json({ error: 'Email address is required.' });
     }
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // Rate limiting: Check if OTP was sent recently (last 60 seconds)
+    // Rate limiting: Check if OTP was sent recently (last 60 seconds) AND is still valid
     const existing = await getActiveOtpSession(cleanEmail);
-    if (existing.data && Date.now() - existing.data.created_at < 60000) {
-      return res.status(429).json({ error: 'Please wait 60 seconds before requesting another verification code.' });
+    if (existing.data && (Date.now() - existing.data.created_at < 60000) && (Date.now() < existing.data.expires_at)) {
+      const remainingSeconds = Math.ceil((60000 - (Date.now() - existing.data.created_at)) / 1000);
+      return res.status(429).json({ error: `Please wait ${remainingSeconds} seconds before requesting another verification code.` });
     }
 
-    // Generate 6-digit OTP code
+    // Generate 6-digit OTP code with 15-minute validity window
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes validity
+    const OTP_VALIDITY_MS = 15 * 60 * 1000; // 15 minutes validity
+    const expiresAt = Date.now() + OTP_VALIDITY_MS;
     const otpPayload: OtpSession = {
       email: cleanEmail,
       code: otpCode,
@@ -4262,39 +4986,151 @@ app.post('/api/auth/messenger/send-otp', async (req: any, res: any) => {
       });
     }
 
-    // Generate high-end professional email template
-    const emailTemplate = generateProfessionalOtpEmailHtml({
-      email: cleanEmail,
-      otpCode,
-      purpose: purpose || 'login'
+    let emailDelivered = false;
+    let deliveryNote = '';
+
+    // Check if target client / app has custom BYO-SMTP configured or assigned SBS email!
+    const targetAppKey = clientId || client_id || appId || req.query.clientId || req.query.client_id;
+    let customAppMatch: any = null;
+    if (targetAppKey) {
+      try {
+        customAppMatch = await lookupOAuthApp(targetAppKey);
+      } catch (appErr) {
+        console.warn("Could not lookup target app for email dispatch:", appErr);
+      }
+    }
+
+    const appName = customAppMatch?.data?.app_name;
+    const appSmtp = customAppMatch?.data?.smtp_config;
+
+    // Resolve Sender Address & Internal vs Third-Party app classification:
+    // Condition 1: Official Zenoa platform / developer console / official OAuth app
+    // -> Dispatched via official email: no-reply@zenoa.in
+    // Condition 2: Third-party app on Zenoa Identity Network
+    // -> Dispatched via that app's configured BYO-SMTP, or its immutable assigned SBS email on zenoa.sbs
+    const isOfficialApp = !targetAppKey || 
+      targetAppKey === 'zenoa_official_app' || 
+      targetAppKey === 'official' || 
+      targetAppKey === 'zenoa_developer_console' ||
+      targetAppKey === 'zenoa_console' ||
+      targetAppKey === 'accounts_zenoa_in' ||
+      targetAppKey === 'official_zenoa_console' ||
+      customAppMatch?.data?.is_official === true;
+
+    let senderEmail = 'no-reply@zenoa.sbs';
+    let isInternalSystem = false;
+
+    if (isOfficialApp) {
+      senderEmail = 'no-reply@zenoa.in';
+      isInternalSystem = true;
+    } else if (appSmtp && appSmtp.enabled && appSmtp.from_email) {
+      senderEmail = appSmtp.from_email;
+    } else if (customAppMatch?.data?.assigned_sbs_email) {
+      senderEmail = customAppMatch.data.assigned_sbs_email;
+    } else if (appName) {
+      senderEmail = generateAppSbsEmail(appName);
+    } else {
+      senderEmail = 'no-reply@zenoa.sbs';
+    }
+
+    // A. If Developer's Custom BYO-SMTP is active, dispatch through developer's email server!
+    if (appSmtp && appSmtp.enabled && appSmtp.host && appSmtp.user && appSmtp.pass && appSmtp.from_email) {
+      try {
+        const customEmailTemplate = generateProfessionalOtpEmailHtml({
+          email: cleanEmail,
+          otpCode,
+          purpose: purpose || 'login',
+          appName: appName || 'Application',
+          senderEmail: appSmtp.from_email
+        });
+
+        const customSend = await sendEmailViaCustomSmtp(appSmtp, {
+          to: cleanEmail,
+          subject: customEmailTemplate.subject,
+          html: customEmailTemplate.html,
+          appName: appName || 'Application'
+        });
+
+        if (customSend.success) {
+          emailDelivered = true;
+          deliveryNote = `dispatched via ${appName || 'developer'} custom SMTP (${appSmtp.from_email})`;
+          console.log(`[BYO-SMTP] Successfully sent OTP (${purpose || 'login'}) via ${appSmtp.host} for app ${appName || targetAppKey} to ${cleanEmail}`);
+        } else {
+          console.warn(`[BYO-SMTP] Custom SMTP failed (${customSend.error}), falling back to default Zenoa SBS relay...`);
+        }
+      } catch (byoErr: any) {
+        console.error("[BYO-SMTP] Exception during dispatch:", byoErr);
+      }
+    }
+
+    // B. Default Managed Relay (Resend on zenoa.sbs for apps, zenoa.in for internal system)
+    if (!emailDelivered) {
+      const emailTemplate = generateProfessionalOtpEmailHtml({
+        email: cleanEmail,
+        otpCode,
+        purpose: purpose || 'login',
+        appName: appName,
+        senderEmail: senderEmail,
+        isSbsRelay: !isInternalSystem
+      });
+
+      const fromHeader = isInternalSystem
+        ? 'Zenoa System <no-reply@zenoa.in>'
+        : `${appName || 'Zenoa App'} <${senderEmail}>`;
+      const replyToHeader = isInternalSystem ? 'support@zenoa.in' : 'support@zenoa.sbs';
+
+      if (resend) {
+        try {
+          const sendResult: any = await resend.emails.send({
+            from: fromHeader,
+            to: cleanEmail,
+            subject: emailTemplate.subject,
+            html: emailTemplate.html,
+            replyTo: replyToHeader
+          });
+          if (sendResult?.error) {
+            console.warn("Resend primary sender warning, trying fallback:", sendResult.error);
+            const fallbackResult: any = await resend.emails.send({
+              from: `${appName || 'Zenoa'} <onboarding@resend.dev>`,
+              to: cleanEmail,
+              subject: `[${senderEmail}] ${emailTemplate.subject}`,
+              html: emailTemplate.html,
+              replyTo: replyToHeader
+            });
+            if (fallbackResult?.error) {
+              console.error("Resend fallback also returned error:", fallbackResult.error);
+              deliveryNote = `simulated due to provider check (${senderEmail})`;
+            } else {
+              emailDelivered = true;
+              deliveryNote = `${senderEmail} via Resend (zenoa.sbs fallback relay)`;
+              console.log(`[RESEND SBS] Successfully sent OTP (${purpose || 'login'}) via fallback to ${cleanEmail}`);
+            }
+          } else {
+            emailDelivered = true;
+            deliveryNote = `${senderEmail} via Resend (zenoa.sbs)`;
+            console.log(`[RESEND SBS] Successfully sent OTP (${purpose || 'login'}) to ${cleanEmail} from ${senderEmail}`);
+          }
+        } catch (sendErr: any) {
+          console.error("Resend API send failure, falling back to simulator:", sendErr);
+          deliveryNote = `simulated due to network check (${senderEmail})`;
+        }
+      } else {
+        console.log(`[SIMULATED EMAIL via ${senderEmail}] To: ${cleanEmail} | Purpose: ${purpose || 'login'} | OTP Code: ${otpCode}`);
+        deliveryNote = `${senderEmail} (simulated dev mode)`;
+      }
+    }
+
+    return res.json({ 
+      success: true, 
+      message: emailDelivered 
+        ? `Verification code sent to your email from ${senderEmail}.` 
+        : `Verification code dispatched (${deliveryNote || 'simulated'}).`,
+      deliveryMethod: deliveryNote || (emailDelivered ? 'verified_email' : 'simulated'),
+      senderEmail: senderEmail,
+      isInternalSystem: isInternalSystem,
+      appName: appName || (isInternalSystem ? 'Zenoa Platform' : 'Application'),
+      expiresInMinutes: 15
     });
-
-    // Send email using Resend
-    if (!resend) {
-      console.log(`[SIMULATED EMAIL] To: ${cleanEmail} | Purpose: ${purpose || 'login'} | OTP Code: ${otpCode}`);
-      return res.json({ 
-        success: true, 
-        message: 'Verification code sent successfully (simulated in development console).' 
-      });
-    }
-
-    try {
-      await resend.emails.send({
-        from: 'Zenoa Messenger <no-reply@zenoa.in>',
-        to: cleanEmail,
-        subject: emailTemplate.subject,
-        html: emailTemplate.html
-      });
-      console.log(`[RESEND] Successfully sent OTP (${purpose || 'login'}) to ${cleanEmail}`);
-    } catch (sendErr: any) {
-      console.error("Resend API send failure, falling back to simulator:", sendErr);
-      return res.json({ 
-        success: true, 
-        message: 'Verification code sent successfully (simulated due to provider check).' 
-      });
-    }
-
-    return res.json({ success: true, message: 'Verification code sent to your email.' });
   } catch (err: any) {
     console.error("Error sending OTP:", err);
     return res.status(500).json({ error: err.message || 'Internal server error while sending OTP.' });
@@ -4314,15 +5150,23 @@ app.post('/api/auth/messenger/verify-otp', async (req: any, res: any) => {
 
     const activeSession = await getActiveOtpSession(cleanEmail);
     if (!activeSession.data) {
-      return res.status(400).json({ error: 'No active OTP verification session found for this email. Please request a new code.' });
+      return res.status(400).json({ 
+        error: 'No active OTP verification session found for this email. Please request a new code.',
+        code: 'OTP_NOT_FOUND'
+      });
     }
 
     const otpData = activeSession.data;
 
-    // Check expiration
-    if (Date.now() > otpData.expires_at) {
+    // Check expiration with a generous 60-second grace tolerance for in-flight requests
+    const GRACE_PERIOD_MS = 60 * 1000;
+    if (Date.now() > otpData.expires_at + GRACE_PERIOD_MS) {
       await clearActiveOtpSession(cleanEmail);
-      return res.status(400).json({ error: 'Verification code has expired. Please request a new one.' });
+      return res.status(400).json({ 
+        error: 'Verification code has expired. Please request a new one.',
+        code: 'OTP_EXPIRED',
+        expired: true
+      });
     }
 
     // Check attempts (brute-force protection)
@@ -4510,15 +5354,23 @@ app.post('/api/auth/messenger/verify-otp-only', async (req: any, res: any) => {
 
     const activeSession = await getActiveOtpSession(cleanEmail);
     if (!activeSession.data) {
-      return res.status(400).json({ error: 'No active OTP verification session found for this email. Please request a new code.' });
+      return res.status(400).json({ 
+        error: 'No active OTP verification session found for this email. Please request a new code.',
+        code: 'OTP_NOT_FOUND'
+      });
     }
 
     const otpData = activeSession.data;
 
-    // Check expiration
-    if (Date.now() > otpData.expires_at) {
+    // Check expiration with a generous 60-second grace tolerance for in-flight requests
+    const GRACE_PERIOD_MS = 60 * 1000;
+    if (Date.now() > otpData.expires_at + GRACE_PERIOD_MS) {
       await clearActiveOtpSession(cleanEmail);
-      return res.status(400).json({ error: 'Verification code has expired. Please request a new one.' });
+      return res.status(400).json({ 
+        error: 'Verification code has expired. Please request a new one.',
+        code: 'OTP_EXPIRED',
+        expired: true
+      });
     }
 
     // Check attempts (brute-force protection)
@@ -4564,15 +5416,23 @@ app.post('/api/auth/messenger/reset-password-otp', async (req: any, res: any) =>
     // Verify OTP first
     const activeSession = await getActiveOtpSession(cleanEmail);
     if (!activeSession.data) {
-      return res.status(400).json({ error: 'No active OTP verification session found for this email. Please request a new code.' });
+      return res.status(400).json({ 
+        error: 'No active OTP verification session found for this email. Please request a new code.',
+        code: 'OTP_NOT_FOUND'
+      });
     }
 
     const otpData = activeSession.data;
 
-    // Check expiration
-    if (Date.now() > otpData.expires_at) {
+    // Check expiration with grace period
+    const GRACE_PERIOD_MS = 60 * 1000;
+    if (Date.now() > otpData.expires_at + GRACE_PERIOD_MS) {
       await clearActiveOtpSession(cleanEmail);
-      return res.status(400).json({ error: 'Verification code has expired. Please request a new one.' });
+      return res.status(400).json({ 
+        error: 'Verification code has expired. Please request a new one.',
+        code: 'OTP_EXPIRED',
+        expired: true
+      });
     }
 
     // Check attempts
@@ -4619,6 +5479,162 @@ app.post('/api/auth/messenger/reset-password-otp', async (req: any, res: any) =>
   }
 });
 
+// Seamless Identity Auto-Mapping: Bind/Map an existing OAuth JIT user to a full Zenoa Messenger account
+app.post('/api/auth/messenger/bind-oauth-account', async (req: any, res: any) => {
+  try {
+    const { email, password, fullName, username, zenoaId, dob, gender, mobileNumber } = req.body || {};
+    if (!email || !password || !username) {
+      return res.status(400).json({ success: false, error: 'Email, password, and username are required.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanUsername = username.trim().toLowerCase();
+    const cleanFullName = (fullName || cleanUsername).trim();
+    let cleanZenoaId = (zenoaId || `${cleanUsername}@zenoa`).trim().toLowerCase();
+    if (!cleanZenoaId.endsWith('@zenoa')) {
+      cleanZenoaId = `${cleanZenoaId.replace(/[^a-z0-9._-]/g, '')}@zenoa`;
+    }
+
+    if (!db) {
+      return res.status(500).json({ success: false, error: 'Database service is currently unavailable.' });
+    }
+
+    // 1. Locate existing user document by email in Firestore
+    const userQ = query(collection(db, 'users'), where('email', '==', cleanEmail));
+    const userSnap = await getDocs(userQ);
+
+    if (userSnap.empty) {
+      return res.status(404).json({ success: false, error: 'No existing account found with this email to bind.' });
+    }
+
+    const userDoc = userSnap.docs[0];
+    const userData = userDoc.data();
+    const uid = userDoc.id;
+
+    // Check if user is already a full profile
+    const isOAuthJit = userData.created_via === 'oauth' || userData.is_oauth_jit || !userData.profile_completed;
+    if (!isOAuthJit && userData.profile_completed) {
+      return res.status(409).json({
+        success: false,
+        error: 'This email is already registered as a complete Messenger account. Please sign in instead.'
+      });
+    }
+
+    // 2. Check if new username is taken by another account
+    const usernameDocRef = doc(db, 'usernames', cleanUsername);
+    const usernameSnap = await getDoc(usernameDocRef);
+    if (usernameSnap.exists()) {
+      const uData = usernameSnap.data();
+      if (uData && uData.uid && uData.uid !== uid) {
+        return res.status(400).json({ success: false, error: `@${cleanUsername} is already taken by another account.` });
+      }
+    }
+
+    // 3. Check if new zenoaId is taken by another account
+    const zenoaIdDocRef = doc(db, 'zenoa_ids', cleanZenoaId);
+    const zenoaIdSnap = await getDoc(zenoaIdDocRef);
+    if (zenoaIdSnap.exists()) {
+      const zData = zenoaIdSnap.data();
+      if (zData && zData.uid && zData.uid !== uid) {
+        return res.status(400).json({ success: false, error: `Zenoa ID @${cleanZenoaId} is already registered to another account.` });
+      }
+    }
+
+    // 4. Update Firebase Auth credentials (password and displayName)
+    try {
+      await getAdminAuth().updateUser(uid, {
+        password: password,
+        displayName: cleanFullName,
+        emailVerified: true
+      });
+      console.log(`[Account Bind] Updated Firebase Auth password for UID: ${uid} (${cleanEmail})`);
+    } catch (authErr: any) {
+      console.warn("[Account Bind] Notice updating Firebase Auth user:", authErr?.message || authErr);
+    }
+
+    const now = Date.now();
+    const freshToken = 'session_' + now + '_' + Math.random().toString(36).substring(2, 9);
+
+    // 5. Clean up old temporary candidate username & zenoa_id if different
+    if (userData.username && userData.username !== cleanUsername) {
+      await deleteDoc(doc(db, 'usernames', userData.username)).catch(() => {});
+    }
+    if (userData.zenoa_id && userData.zenoa_id !== cleanZenoaId) {
+      await deleteDoc(doc(db, 'zenoa_ids', userData.zenoa_id)).catch(() => {});
+    }
+
+    // 6. Set new username and zenoa_id primary index docs
+    await setDoc(doc(db, 'usernames', cleanUsername), {
+      uid: uid,
+      username: cleanUsername,
+      zenoa_id: cleanZenoaId,
+      created_at: now
+    });
+    await setDoc(doc(db, 'zenoa_ids', cleanZenoaId), {
+      uid: uid,
+      username: cleanUsername,
+      zenoa_id: cleanZenoaId,
+      created_at: now
+    });
+
+    // Preserve or sanitize legal/real name for third-party OAuth apps
+    const existingRealName = userData.real_name || userData.legal_name || (userData.created_via === 'oauth' ? userData.display_name : null);
+    const sanitizedRealName = sanitizeNameForThirdParty(existingRealName || cleanFullName, cleanUsername);
+
+    // 7. Update users/{uid} document with full Messenger profile data
+    const updatedFields: any = {
+      username: cleanUsername,
+      zenoa_id: cleanZenoaId,
+      display_name: cleanFullName,
+      real_name: sanitizedRealName,
+      legal_name: sanitizedRealName,
+      dob: dob || userData.dob || '',
+      gender: gender || userData.gender || '',
+      avatar_seed: cleanUsername,
+      avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanUsername}`,
+      bio: userData.bio || 'Hey there! I am using Zenoa Messenger.',
+      profile_completed: true,
+      is_oauth_jit: false,
+      created_via: 'unified',
+      messenger_activated_at: now,
+      updated_at: now,
+      active_session_token: freshToken,
+      active_session_created_at: now,
+      last_login_device: 'Web Browser'
+    };
+    if (mobileNumber) {
+      updatedFields.mobile_number = mobileNumber;
+      updatedFields.phone_number = mobileNumber;
+    }
+
+    await updateDoc(doc(db, 'users', uid), updatedFields);
+    console.log(`[Account Bind] Successfully mapped OAuth account ${uid} to Messenger profile @${cleanUsername}`);
+
+    // 8. Generate a custom Firebase Auth token for seamless client signin
+    let customToken: string | null = null;
+    try {
+      customToken = await getAdminAuth().createCustomToken(uid);
+    } catch (tErr: any) {
+      console.warn("[Account Bind] createCustomToken warning:", tErr);
+    }
+
+    return res.json({
+      success: true,
+      uid,
+      customToken,
+      sessionToken: freshToken,
+      user: {
+        id: uid,
+        ...userData,
+        ...updatedFields
+      }
+    });
+  } catch (err: any) {
+    console.error("[Account Bind] Error binding account:", err);
+    return res.status(500).json({ success: false, error: err.message || 'Internal server error while binding account.' });
+  }
+});
+
 // Autonomous Zenoa Security: Real-Time Password Change Endpoint
 app.post('/api/user/change-password', async (req: any, res: any) => {
   try {
@@ -4648,6 +5664,47 @@ app.post('/api/user/change-password', async (req: any, res: any) => {
 
     if (!targetUid) {
       return res.status(400).json({ success: false, error: 'Could not resolve user account for password change.' });
+    }
+
+    if (!currentPassword) {
+      return res.status(400).json({ success: false, error: 'Current password is required to change your password.' });
+    }
+
+    // Verify current password against Firebase Auth
+    let resolvedAuthEmail = email;
+    try {
+      const userRecord = await getAdminAuth().getUser(targetUid);
+      if (userRecord?.email) {
+        resolvedAuthEmail = userRecord.email;
+      }
+    } catch (_) {}
+
+    if (!resolvedAuthEmail && targetUsername) {
+      resolvedAuthEmail = `${targetUsername}@zenoa.auth`;
+    }
+
+    if (resolvedAuthEmail) {
+      try {
+        const verifyRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseConfig.apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: resolvedAuthEmail,
+            password: currentPassword,
+            returnSecureToken: false
+          })
+        });
+        const verifyData: any = await verifyRes.json();
+        if (!verifyRes.ok || verifyData?.error) {
+          const errCode = verifyData?.error?.message || '';
+          if (errCode === 'INVALID_PASSWORD' || errCode === 'INVALID_LOGIN_CREDENTIALS') {
+            return res.status(400).json({ success: false, error: 'Current password is incorrect. Please re-enter your current password.' });
+          }
+          return res.status(400).json({ success: false, error: 'Current password verification failed. Please check your current password.' });
+        }
+      } catch (authVerifyErr) {
+        console.warn('[CHANGE_PW_VERIFY_WARNING]', authVerifyErr);
+      }
     }
 
     // Update password in Firebase Auth via Admin SDK
@@ -4830,6 +5887,325 @@ app.post('/api/admin/purge-ghost-accounts', async (req: any, res: any) => {
   } catch (err: any) {
     console.error("Error in purge-ghost-accounts:", err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to purge ghost accounts.' });
+  }
+});
+
+// ============================================================================
+// ACCOUNT.ZENOA.IN - Dedicated Account & Security Management Portal Endpoints
+// ============================================================================
+
+// 1. Get User's Linked & Authorized Third-Party Applications
+app.get('/api/v1/account/authorizations', async (req: any, res: any) => {
+  try {
+    const userId = (req.query.user_id || req.query.uid || '').toString().trim();
+    const username = (req.query.username || '').toString().toLowerCase().replace(/^@/, '').trim();
+
+    if (!userId && !username) {
+      return res.status(400).json({ success: false, error: 'User ID or username is required.' });
+    }
+
+    const authorizations: any[] = [];
+
+    if (db) {
+      try {
+        const authCol = collection(db, 'user_authorizations');
+        // Query by user_id
+        if (userId) {
+          const qUser = query(authCol, where('user_id', '==', userId));
+          const snapUser = await getDocs(qUser);
+          for (const d of snapUser.docs) {
+            const data = d.data();
+            if (data.status !== 'revoked') {
+              authorizations.push({ id: d.id, ...data });
+            }
+          }
+        }
+        // Also query by username if not already included
+        if (username) {
+          const qName = query(authCol, where('username', '==', username));
+          const snapName = await getDocs(qName);
+          for (const d of snapName.docs) {
+            const data = d.data();
+            if (data.status !== 'revoked' && !authorizations.some(a => a.id === d.id || (a.client_id === data.client_id && a.user_id === data.user_id))) {
+              authorizations.push({ id: d.id, ...data });
+            }
+          }
+        }
+      } catch (dbErr) {
+        console.warn('[ACCOUNT_PORTAL] Error fetching authorizations from Firestore:', dbErr);
+      }
+    }
+
+    // Enrich authorization details with application config
+    const enriched = await Promise.all(authorizations.map(async (authItem) => {
+      let appDetails = null;
+      if (authItem.client_id) {
+        const match = await lookupOAuthApp(authItem.client_id);
+        if (match) {
+          appDetails = match.data;
+        }
+      }
+      return {
+        ...authItem,
+        app_name: appDetails?.app_name || authItem.app_name || 'Connected Application',
+        app_description: appDetails?.app_description || authItem.app_description || 'Authorized third-party service',
+        logo_url: appDetails?.logo_url || authItem.logo_url || '',
+        website_url: appDetails?.website_url || authItem.website_url || '',
+        scopes: authItem.scopes || appDetails?.scopes || ['openid', 'profile', 'email'],
+        authorized_at: authItem.authorized_at || Date.now(),
+        last_used_at: authItem.last_used_at || authItem.authorized_at || Date.now()
+      };
+    }));
+
+    return res.json({ success: true, count: enriched.length, authorizations: enriched });
+  } catch (err: any) {
+    console.error('[ACCOUNT_PORTAL] Failed to retrieve authorizations:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to retrieve authorizations.' });
+  }
+});
+
+// 2. Revoke Third-Party Application Access
+app.post('/api/v1/account/revoke-authorization', async (req: any, res: any) => {
+  try {
+    const { user_id, username, client_id, authorization_id } = req.body || {};
+
+    if (!client_id && !authorization_id) {
+      return res.status(400).json({ success: false, error: 'client_id or authorization_id is required.' });
+    }
+
+    let targetAppName = 'Third-Party Application';
+
+    // Invalidate in-memory OAuth tokens associated with this client and user
+    for (const [tokenKey, tokenVal] of inMemoryOAuthTokens.entries()) {
+      if (tokenVal.client_id === client_id && (tokenVal.user_id === user_id || tokenVal.user?.id === user_id)) {
+        inMemoryOAuthTokens.delete(tokenKey);
+      }
+    }
+
+    if (db) {
+      try {
+        // Resolve authorization doc
+        let authDocRef = authorization_id ? doc(db, 'user_authorizations', authorization_id) : null;
+        if (!authDocRef && user_id && client_id) {
+          authDocRef = doc(db, 'user_authorizations', `${user_id}_${client_id}`);
+        }
+
+        if (authDocRef) {
+          const authSnap = await getDoc(authDocRef);
+          if (authSnap.exists()) {
+            targetAppName = authSnap.data().app_name || targetAppName;
+            await updateDoc(authDocRef, {
+              status: 'revoked',
+              revoked_at: Date.now()
+            });
+          }
+        }
+
+        // Also purge any secondary grant docs by client_id and user_id
+        if (client_id && user_id) {
+          const qGrants = query(
+            collection(db, 'user_authorizations'),
+            where('client_id', '==', client_id),
+            where('user_id', '==', user_id)
+          );
+          const snapGrants = await getDocs(qGrants);
+          for (const d of snapGrants.docs) {
+            await updateDoc(doc(db, 'user_authorizations', d.id), {
+              status: 'revoked',
+              revoked_at: Date.now()
+            });
+          }
+        }
+      } catch (dbErr) {
+        console.warn('[ACCOUNT_PORTAL] Error updating authorization doc:', dbErr);
+      }
+    }
+
+    // Deliver security alert to Messenger chat
+    const targetUsername = (username || '').toLowerCase().replace(/^@/, '').trim();
+    if (targetUsername) {
+      const nowFormatted = new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const alertMsg = `Third-Party Access Revoked\n\nYou successfully disconnected "${targetAppName}". This app can no longer access your Zenoa profile, identity, or email. Any existing access tokens have been invalidated.`;
+      deliverBotChatMessage({
+        senderBotUsername: 'zenoasecurity',
+        senderAppName: 'Zenoa Security',
+        recipientUsername: targetUsername,
+        recipientZenoaId: user_id || targetUsername,
+        messageText: alertMsg,
+        security_event: {
+          type: 'oauth_accessed' as any,
+          device_info: req.headers['user-agent'] || 'Account Portal',
+          timestamp: Date.now(),
+          status: 'secured' as any
+        }
+      }).catch(() => null);
+    }
+
+    return res.json({ success: true, message: `Access for ${targetAppName} has been successfully revoked.` });
+  } catch (err: any) {
+    console.error('[ACCOUNT_PORTAL] Error revoking authorization:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to revoke application access.' });
+  }
+});
+
+// 3. Get Active Sessions and Device Overview
+app.get('/api/v1/account/sessions', async (req: any, res: any) => {
+  try {
+    const userId = (req.query.user_id || req.query.uid || '').toString().trim();
+    const username = (req.query.username || '').toString().toLowerCase().replace(/^@/, '').trim();
+
+    let userData: any = null;
+    if (db && userId) {
+      const uSnap = await getDoc(doc(db, 'users', userId)).catch(() => null);
+      if (uSnap && uSnap.exists()) {
+        userData = uSnap.data();
+      }
+    } else if (db && username) {
+      const uNameSnap = await getDoc(doc(db, 'usernames', username)).catch(() => null);
+      if (uNameSnap && uNameSnap.exists()) {
+        const uId = uNameSnap.data().uid;
+        const uSnap = await getDoc(doc(db, 'users', uId)).catch(() => null);
+        if (uSnap && uSnap.exists()) userData = uSnap.data();
+      }
+    }
+
+    const userAgent = req.headers['user-agent'] || '';
+    let browser = 'Web Browser';
+    let os = 'Unknown OS';
+    if (userAgent.includes('Chrome')) browser = 'Google Chrome';
+    else if (userAgent.includes('Firefox')) browser = 'Mozilla Firefox';
+    else if (userAgent.includes('Safari')) browser = 'Apple Safari';
+    else if (userAgent.includes('Edge')) browser = 'Microsoft Edge';
+
+    if (userAgent.includes('Windows')) os = 'Windows';
+    else if (userAgent.includes('Macintosh')) os = 'macOS';
+    else if (userAgent.includes('Android')) os = 'Android';
+    else if (userAgent.includes('iPhone') || userAgent.includes('iPad')) os = 'iOS';
+    else if (userAgent.includes('Linux')) os = 'Linux';
+
+    const currentSession = {
+      id: 'current_session',
+      device_name: `${browser} on ${os}`,
+      os,
+      browser,
+      is_current: true,
+      last_active: Date.now(),
+      ip_address: req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'Direct Connection',
+      location: 'Active Location',
+      session_type: 'web'
+    };
+
+    const sessions = [currentSession];
+
+    // If user has linked devices or saved device info in Firestore, include them
+    if (userData?.linked_devices && Array.isArray(userData.linked_devices)) {
+      userData.linked_devices.forEach((dev: any, idx: number) => {
+        sessions.push({
+          id: dev.device_id || `dev_${idx}`,
+          device_name: dev.device_name || 'Companion Device',
+          os: dev.os || 'Mobile',
+          browser: dev.browser || 'App',
+          is_current: false,
+          last_active: dev.last_active || (Date.now() - 3600000 * (idx + 1)),
+          ip_address: dev.ip_address || 'Authorized Network',
+          location: dev.location || 'Synced Session',
+          session_type: dev.type || 'app'
+        });
+      });
+    }
+
+    return res.json({ success: true, sessions });
+  } catch (err: any) {
+    console.error('[ACCOUNT_PORTAL] Error fetching sessions:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to fetch active sessions.' });
+  }
+});
+
+// 4. Revoke All Other Sessions / Terminate Sessions
+app.post('/api/v1/account/revoke-all-sessions', async (req: any, res: any) => {
+  try {
+    const { user_id, username } = req.body || {};
+
+    const freshSessionToken = 'zen_sess_' + Date.now() + '_' + crypto.randomBytes(16).toString('hex');
+
+    if (db && user_id) {
+      await updateDoc(doc(db, 'users', user_id), {
+        active_session_token: freshSessionToken,
+        active_session_created_at: Date.now(),
+        linked_devices: [],
+        sessions_revoked_at: Date.now()
+      }).catch(() => null);
+    }
+
+    const targetUsername = (username || '').toLowerCase().replace(/^@/, '').trim();
+    if (targetUsername) {
+      deliverBotChatMessage({
+        senderBotUsername: 'zenoasecurity',
+        senderAppName: 'Zenoa Security',
+        recipientUsername: targetUsername,
+        recipientZenoaId: user_id || targetUsername,
+        messageText: `Security Action: All Other Sessions Terminated\n\nYou requested to log out from all other devices. All secondary sessions, linked companion apps, and tokens on other devices have been immediately revoked.`,
+        security_event: {
+          type: 'unauthorized_attempt' as any,
+          device_info: req.headers['user-agent'] || 'Account Portal',
+          timestamp: Date.now(),
+          status: 'secured' as any
+        }
+      }).catch(() => null);
+    }
+
+    return res.json({
+      success: true,
+      message: 'All other active sessions have been terminated. Your current session remains active.',
+      fresh_session_token: freshSessionToken
+    });
+  } catch (err: any) {
+    console.error('[ACCOUNT_PORTAL] Error revoking all sessions:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to terminate other sessions.' });
+  }
+});
+
+// 5. Account Data Export Endpoint
+app.post('/api/v1/account/export-data', async (req: any, res: any) => {
+  try {
+    const { user_id, username } = req.body || {};
+
+    let userProfile: any = {};
+    if (db && user_id) {
+      const snap = await getDoc(doc(db, 'users', user_id)).catch(() => null);
+      if (snap && snap.exists()) userProfile = snap.data();
+    }
+
+    const sanitizedExport = {
+      export_timestamp: new Date().toISOString(),
+      export_id: 'export_' + Date.now(),
+      platform: 'Zenoa Ecosystem',
+      portal: 'account.zenoa.in',
+      user: {
+        id: userProfile.id || user_id,
+        zenoa_id: userProfile.zenoa_id || '',
+        username: userProfile.username || username,
+        display_name: userProfile.display_name || '',
+        real_name: userProfile.real_name || '',
+        email: userProfile.email || '',
+        phone_number: userProfile.phone_number || userProfile.mobile_number || '',
+        dob: userProfile.dob || '',
+        gender: userProfile.gender || '',
+        created_at: userProfile.created_at ? new Date(userProfile.created_at).toISOString() : '',
+        profile_completed: userProfile.profile_completed ?? true
+      },
+      security: {
+        two_factor_enabled: false,
+        account_status: 'active',
+        last_security_audit: new Date().toISOString()
+      },
+      disclaimer: 'This data archive contains your Zenoa ID account profile metadata exported from account.zenoa.in.'
+    };
+
+    return res.json({ success: true, data: sanitizedExport });
+  } catch (err: any) {
+    console.error('[ACCOUNT_PORTAL] Export error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to export account data.' });
   }
 });
 

@@ -9,6 +9,7 @@ import { ChangePasswordModal } from './components/ChangePasswordModal';
 // Inolas Messenger - Verified UTF-8 Source Code
 import { SSOConsoleStandalone } from "./components/SSOConsoleStandalone";
 import { SSOLogin } from "./components/SSOLogin";
+import { AccountPortalStandalone } from "./components/AccountPortalStandalone";
 import { DeveloperConsoleStandalone } from './components/developer/DeveloperConsole';
 import { DocumentationStandalone } from './components/developer/DocumentationStandalone';
 import { ConcurrentLogoutModal } from './components/ConcurrentLogoutModal';
@@ -80,6 +81,7 @@ import {  uploadMediaToCloud } from './cloudStorage';
 import {  CallModal, CallSession, CallEndMetadata } from './components/CallModal';
 import {  blobToBase64, getSupportedMimeType, generateSyntheticVoiceNote } from './audioUtils';
 import OneSignal from 'react-onesignal';
+import { sanitizeNameForThirdParty } from './utils/oauthSecurity';
 import {  
   collection, onSnapshot, doc, getDoc, setDoc as setDocOriginal, deleteDoc, query, where, getDocs, updateDoc, arrayUnion, arrayRemove, increment 
 } from 'firebase/firestore';
@@ -843,18 +845,20 @@ export default function App() {
 
   // Concurrent Single-Session Login Security States
   const [currentSessionToken, setCurrentSessionToken] = useState<string>(() => {
-    let token = sessionStorage.getItem('zenoa_active_session_token');
+    let token = localStorage.getItem('zenoa_active_session_token') || sessionStorage.getItem('zenoa_active_session_token');
     if (!token) {
       token = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+      localStorage.setItem('zenoa_active_session_token', token);
       sessionStorage.setItem('zenoa_active_session_token', token);
     }
     return token;
   });
   const [currentSessionCreatedAt, setCurrentSessionCreatedAt] = useState<number>(() => {
-    const raw = sessionStorage.getItem('zenoa_active_session_created_at');
+    const raw = localStorage.getItem('zenoa_active_session_created_at') || sessionStorage.getItem('zenoa_active_session_created_at');
     const parsed = raw ? parseInt(raw, 10) : 0;
     if (parsed > 0) return parsed;
     const now = Date.now();
+    localStorage.setItem('zenoa_active_session_created_at', String(now));
     sessionStorage.setItem('zenoa_active_session_created_at', String(now));
     return now;
   });
@@ -874,15 +878,20 @@ export default function App() {
 
   // Authoritative Single-Session Claim Handler:
   // When a new device logs in, it registers a fresh token with a newer timestamp in Firestore.
-  // This guarantees the NEW device stays active, while any OLD device detects the newer timestamp and terminates.
+  // All tabs in this browser share the session token, so cross-tab navigation never triggers false kickouts.
   const claimActiveSession = async (targetUid: string, targetUsername: string) => {
     if (!targetUid) return;
-    const isLinkedClient = sessionStorage.getItem('zenoa_is_linked_client') === 'true';
+    const isLinkedClient = localStorage.getItem('zenoa_is_linked_client') === 'true' || sessionStorage.getItem('zenoa_is_linked_client') === 'true';
     if (isLinkedClient) return;
 
-    const freshToken = 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
-    const freshTime = Date.now();
-
+    let freshToken = localStorage.getItem('zenoa_active_session_token');
+    let freshTime = Number(localStorage.getItem('zenoa_active_session_created_at')) || 0;
+    if (!freshToken || freshTime === 0) {
+      freshToken = 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+      freshTime = Date.now();
+      localStorage.setItem('zenoa_active_session_token', freshToken);
+      localStorage.setItem('zenoa_active_session_created_at', String(freshTime));
+    }
     sessionStorage.setItem('zenoa_active_session_token', freshToken);
     sessionStorage.setItem('zenoa_active_session_created_at', String(freshTime));
     sessionStorage.removeItem('zenoa_is_explicit_login');
@@ -1221,34 +1230,18 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [kickoutData]);
 
-  // Account-Specific Single Active Login Tracker (Cross-Tab / Cross-Window)
+  // Browser-Wide Session Synchronizer across All Tabs and Windows (Single Browser-Wide Identity)
   useEffect(() => {
     if (!isAuthenticated || !userUsername) {
       return;
     }
 
-    // Linked web companions (App / QR link) coexist peacefully with the mobile/primary device
-    const isLinkedClient = sessionStorage.getItem('zenoa_is_linked_client') === 'true';
-    if (isLinkedClient) {
-      return;
-    }
-
     const cleanUsername = userUsername.toLowerCase().trim();
-    const currentSessionId = tabSessionIdRef.current;
+    const activeToken = localStorage.getItem('zenoa_active_session_token') || currentSessionTokenRef.current;
 
-    // 1. Save active session id for this specific account
+    // 1. Persist active browser session identity in localStorage
     try {
-      localStorage.setItem(`zenoa_active_account_${cleanUsername}`, JSON.stringify({
-        sessionId: currentSessionId,
-        username: userUsername,
-        timestamp: Date.now()
-      }));
-
-      // Persist in local browser saved accounts for instant 1-click SSO selection
-      const existingStr = localStorage.getItem('zenoa_saved_browser_accounts');
-      const accounts: any[] = existingStr ? JSON.parse(existingStr) : [];
-      const filtered = accounts.filter(a => a && a.username && a.username.toLowerCase() !== cleanUsername);
-      filtered.unshift({
+      localStorage.setItem('zenoa_active_user', JSON.stringify({
         id: userId || 'u_' + cleanUsername,
         username: userUsername,
         display_name: userDisplayName || userUsername,
@@ -1256,76 +1249,33 @@ export default function App() {
         avatar_url: userAvatarUrl || '',
         avatar_seed: userAvatarSeed || cleanUsername,
         mobile_number: userPhone || '',
-        bio: userBio || ''
-      });
-      localStorage.setItem('zenoa_saved_browser_accounts', JSON.stringify(filtered.slice(0, 8)));
+        bio: userBio || '',
+        sessionToken: activeToken
+      }));
     } catch (e) {}
 
-    // 2. Broadcast to other open tabs that THIS account is now claimed by this session
+    // 2. Cross-tab synchronization channel
     try {
-      const channel = new BroadcastChannel('zenoa_account_auth_channel');
-      channel.postMessage({
-        type: 'ACCOUNT_LOGIN_TAKEOVER',
-        username: cleanUsername,
-        sessionId: currentSessionId,
-        timestamp: currentSessionCreatedAtRef.current
-      });
+      const channel = new BroadcastChannel('zenoa_browser_session_channel');
 
       channel.onmessage = (event) => {
-        if (
-          event.data &&
-          event.data.type === 'ACCOUNT_LOGIN_TAKEOVER' &&
-          event.data.username === cleanUsername &&
-          event.data.sessionId !== currentSessionId &&
-          !event.data.isLinkedCompanion
-        ) {
-          const remoteTime = Number(event.data.timestamp) || 0;
-          // Strictly kick out ONLY if the incoming session timestamp is newer than this tab's session
-          if (remoteTime > currentSessionCreatedAtRef.current) {
-            setKickoutData({
-              username: userUsername,
-              countdown: 5
-            });
-          }
+        if (!event.data) return;
+
+        // When another tab triggers logout
+        if (event.data.type === 'BROWSER_LOGOUT') {
+          handleLogout();
         }
       };
 
-      // Periodic check in localStorage in case of cross-window changes without BroadcastChannel
-      const interval = setInterval(() => {
-        try {
-          const raw = localStorage.getItem(`zenoa_active_account_${cleanUsername}`);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            const remoteTime = Number(parsed.timestamp) || 0;
-            if (parsed.sessionId && parsed.sessionId !== currentSessionId && remoteTime > currentSessionCreatedAtRef.current) {
-              setKickoutData({
-                username: userUsername,
-                countdown: 5
-              });
-            }
-          }
-        } catch (e) {}
-      }, 2000);
-
-      // Storage event listener for instant cross-tab sync
+      // Storage event listener for cross-tab sync when BroadcastChannel is not supported
       const handleStorage = (e: StorageEvent) => {
-        if (e.key === `zenoa_active_account_${cleanUsername}` && e.newValue) {
-          try {
-            const parsed = JSON.parse(e.newValue);
-            const remoteTime = Number(parsed.timestamp) || 0;
-            if (parsed.sessionId && parsed.sessionId !== currentSessionId && remoteTime > currentSessionCreatedAtRef.current) {
-              setKickoutData({
-                username: userUsername,
-                countdown: 5
-              });
-            }
-          } catch (err) {}
+        if (e.key === 'zenoa_logout_event') {
+          handleLogout();
         }
       };
       window.addEventListener('storage', handleStorage);
 
       return () => {
-        clearInterval(interval);
         channel.close();
         window.removeEventListener('storage', handleStorage);
       };
@@ -3871,10 +3821,13 @@ export default function App() {
       } catch (_) {}
 
       try {
+        const sanitizedReal = sanitizeNameForThirdParty(cleanFullName, cleanUsername);
         await setDoc(doc(db, 'users', targetUid), {
           id: targetUid,
           email: targetEmail,
           display_name: cleanFullName,
+          real_name: sanitizedReal,
+          legal_name: sanitizedReal,
           username: cleanUsername,
           zenoa_id: cleanZenoaId,
           dob: data.dob,
@@ -3882,6 +3835,7 @@ export default function App() {
           bio: data.bio || 'Hey there! I am using Zenoa Messenger.',
           avatar_seed: data.avatarSeed || cleanUsername,
           profile_completed: true,
+          is_oauth_jit: false,
           updated_at: now,
           name_change_timestamps: [now],
           username_change_timestamps: [now],
@@ -3949,6 +3903,7 @@ export default function App() {
     fullName: string;
     email: string;
     password: string;
+    clientId?: string;
   }): Promise<{ success: boolean; error?: string; user?: UserData }> => {
     const cleanEmail = data.email.trim().toLowerCase();
     const cleanFullName = data.fullName.trim();
@@ -3992,11 +3947,15 @@ export default function App() {
         const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
         newUid = cred.user.uid;
 
+        const sanitizedReal = sanitizeNameForThirdParty(cleanFullName, candidateUsername);
+
         const newUserData: UserData = {
           id: newUid,
           zenoa_id: candidateZenoaId,
           username: candidateUsername,
           display_name: cleanFullName,
+          real_name: sanitizedReal,
+          legal_name: sanitizedReal,
           email: cleanEmail,
           dob: '',
           gender: '',
@@ -4006,6 +3965,8 @@ export default function App() {
           created_at: now,
           registered_at: now,
           created_via: 'oauth',
+          is_oauth_jit: true,
+          email_verified: true,
           profile_completed: false, // JIT: Triggers mandatory AccountSetup on Messenger login
           followers: [],
           following: [],
@@ -4029,6 +3990,20 @@ export default function App() {
           zenoa_id: candidateZenoaId,
           created_at: now
         });
+
+        // Dispatch verification OTP email using the application's assigned zenoa.sbs sender via Resend
+        fetch('/api/auth/messenger/send-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: cleanEmail,
+            purpose: 'registration',
+            clientId: data.clientId || ''
+          })
+        }).then(async r => {
+          const res = await r.json();
+          console.log('[OAuth Registration OTP Dispatch]', res);
+        }).catch(err => console.warn('Registration OTP dispatch warning:', err));
 
         // Add to saved accounts on device
         try {
@@ -4072,6 +4047,20 @@ export default function App() {
         online: true,
         last_seen: 'Online'
       };
+
+      // Dispatch verification OTP email using the application's assigned zenoa.sbs sender via Resend
+      fetch('/api/auth/messenger/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanEmail,
+          purpose: 'registration',
+          clientId: data.clientId || ''
+        })
+      }).then(async r => {
+        const res = await r.json();
+        console.log('[OAuth Registration OTP Dispatch (Local)]', res);
+      }).catch(err => console.warn('Registration OTP dispatch warning:', err));
 
       try {
         const savedRaw = localStorage.getItem('zenoa_saved_browser_accounts');
@@ -4565,6 +4554,93 @@ export default function App() {
         const userRealEmail = isRealEmailSignUp ? data.email.trim() : '';
         const userRealPhone = isMobileSignUp ? data.mobile_number!.trim() : '';
 
+        // Seamless Identity Auto-Mapping:
+        // If this email was previously used to create an account via third-party OAuth JIT,
+        // do NOT block them! Seamlessly bind and upgrade that existing shadow account to this full Messenger profile!
+        if (isRealEmailSignUp && db) {
+          try {
+            const qEmail = query(collection(db, 'users'), where('email', '==', userRealEmail));
+            const snapEmail = await getDocs(qEmail);
+            if (!snapEmail.empty) {
+              const existingDoc = snapEmail.docs[0];
+              const existingData = existingDoc.data() as UserData;
+              const isOAuthJit = existingData.created_via === 'oauth' || existingData.is_oauth_jit || !existingData.profile_completed;
+
+              if (isOAuthJit) {
+                console.log(`[Auto-Bind] Mapping existing OAuth JIT user ${existingDoc.id} to new Messenger profile @${cleanUsername}`);
+                
+                const bindRes = await fetch('/api/auth/messenger/bind-oauth-account', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    email: userRealEmail,
+                    password: data.password,
+                    fullName: cleanFullName,
+                    username: cleanUsername,
+                    zenoaId: cleanZenoaId,
+                    dob: data.dob,
+                    gender: data.gender,
+                    mobileNumber: userRealPhone
+                  })
+                });
+
+                const bindData = await bindRes.json();
+                if (!bindRes.ok || !bindData.success) {
+                  return { success: false, error: bindData.error || 'Failed to link your account profile.' };
+                }
+
+                // Authenticate client using the custom token
+                if (bindData.customToken && auth) {
+                  try {
+                    await signInWithCustomToken(auth, bindData.customToken);
+                  } catch (tokErr) {
+                    console.warn("Client signInWithCustomToken notice:", tokErr);
+                  }
+                }
+
+                const now = Date.now();
+                const freshToken = bindData.sessionToken || ('session_' + now + '_' + Math.random().toString(36).substring(2, 9));
+
+                sessionStorage.setItem('zenoa_active_session_token', freshToken);
+                sessionStorage.setItem('zenoa_active_session_created_at', String(now));
+                sessionStorage.removeItem('zenoa_is_explicit_login');
+
+                setUserId(existingDoc.id);
+                setUserEmail(userRealEmail);
+                setUserPhone(userRealPhone || existingData.mobile_number || '');
+                setUserUsername(cleanUsername);
+                setUserDisplayName(cleanFullName);
+                setUserAvatarSeed(cleanUsername);
+                setAuthMethod('email');
+                setIsAuthenticated(true);
+                setIsEmailVerificationPending(false);
+                setPendingVerificationEmail('');
+                setCurrentSessionToken(freshToken);
+                setCurrentSessionCreatedAt(now);
+                setShowConcurrentLoginModal(false);
+
+                // Clear stale local follow storage
+                try {
+                  localStorage.removeItem('inolas_followed_users');
+                  localStorage.setItem(`inolas_followed_users_${cleanUsername}`, '[]');
+                } catch(e) {}
+
+                // Deliver welcome broadcasts
+                deliverBroadcastsToUser(existingDoc.id, cleanUsername, cleanFullName);
+                showToast(`Account successfully connected & ready! Welcome to Zenoa, @${cleanUsername}!`);
+                return { success: true };
+              } else {
+                return {
+                  success: false,
+                  error: 'An account with this email address is already fully registered. Please sign in instead.'
+                };
+              }
+            }
+          } catch (bindErr: any) {
+            console.warn("Notice checking existing email for OAuth binding:", bindErr);
+          }
+        }
+
         // Internal credential string strictly for Firebase Auth SDK login
         const firebaseAuthEmail = isRealEmailSignUp ? data.email.trim() : `${cleanUsername}@zenoa.auth`;
 
@@ -4573,12 +4649,15 @@ export default function App() {
 
         const now = Date.now();
         const freshToken = 'session_' + now + '_' + Math.random().toString(36).substring(2, 9);
+        const sanitizedReal = sanitizeNameForThirdParty(cleanFullName, cleanUsername);
 
         await setDoc(doc(db, 'users', userObj.uid), {
           id: userObj.uid,
           zenoa_id: cleanZenoaId,
           email: userRealEmail,
           display_name: cleanFullName,
+          real_name: sanitizedReal,
+          legal_name: sanitizedReal,
           username: cleanUsername,
           dob: data.dob,
           gender: data.gender,
@@ -4705,12 +4784,19 @@ export default function App() {
 
   const handleAuthFlowSendEmailOtp = async (email: string, purpose?: string): Promise<{ success: boolean; error?: string }> => {
     try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const activeClientId = urlParams.get('client_id') || urlParams.get('clientId') || localStorage.getItem('zenoa_active_client_id') || undefined;
+
       const response = await fetch('/api/auth/messenger/send-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ email, purpose })
+        body: JSON.stringify({ 
+          email, 
+          purpose,
+          clientId: activeClientId 
+        })
       });
       const data = await response.json();
       if (!response.ok) {
@@ -4723,7 +4809,7 @@ export default function App() {
     }
   };
 
-  const handleAuthFlowVerifyEmailOtp = async (email: string, code: string): Promise<{ success: boolean; error?: string }> => {
+  const handleAuthFlowVerifyEmailOtp = async (email: string, code: string): Promise<{ success: boolean; error?: string; expired?: boolean }> => {
     try {
       const response = await fetch('/api/auth/messenger/verify-otp', {
         method: 'POST',
@@ -4734,7 +4820,12 @@ export default function App() {
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'Verification failed.');
+        const isExpired = !!data.expired || data.code === 'OTP_EXPIRED' || (data.error && data.error.toLowerCase().includes('expired'));
+        return { 
+          success: false, 
+          error: data.error || 'Verification failed.',
+          expired: isExpired
+        };
       }
 
       if (isFirebaseConfigured && auth) {
@@ -5072,12 +5163,15 @@ export default function App() {
         const activePhone = userPhone || existingData.mobile_number || existingData.phone_number || '';
 
         const activeZenoaId = existingData.zenoa_id || currentUserObj?.zenoa_id || `${formattedUsername}@zenoa`;
+        const sanitizedReal = sanitizeNameForThirdParty(formattedDisplayName, formattedUsername);
 
         const profilePayload = {
           id: userId,
           zenoa_id: activeZenoaId,
           username: formattedUsername,
           display_name: formattedDisplayName,
+          real_name: sanitizedReal,
+          legal_name: sanitizedReal,
           bio: editDraftBio,
           avatar_seed: editDraftAvatarSeed || formattedUsername,
           avatar_url: editDraftAvatarUrl || '',
@@ -5330,12 +5424,22 @@ export default function App() {
     localStorage.removeItem('zenoa_is_linked_client');
     localStorage.removeItem('zenoa_linked_session_id');
     localStorage.removeItem('zenoa_active_session_token');
+    localStorage.removeItem('zenoa_active_session_created_at');
     localStorage.removeItem('zenoa_linked_user_data');
     localStorage.removeItem('zenoa_authenticated');
     localStorage.removeItem('zenoa_active_user');
+    localStorage.removeItem('zenoa_saved_browser_accounts');
+    localStorage.setItem('zenoa_logout_event', String(Date.now()));
     sessionStorage.removeItem('zenoa_is_linked_client');
     sessionStorage.removeItem('zenoa_linked_session_id');
     sessionStorage.removeItem('zenoa_active_session_token');
+    sessionStorage.removeItem('zenoa_active_session_created_at');
+
+    try {
+      const channel = new BroadcastChannel('zenoa_browser_session_channel');
+      channel.postMessage({ type: 'BROWSER_LOGOUT' });
+      setTimeout(() => channel.close(), 500);
+    } catch (e) {}
   };
 
   const handleConnectDrive = async () => {
@@ -8945,8 +9049,10 @@ export default function App() {
   const currentSearchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
 
   // Subdomain matching:
-  // 1. accounts.zenoa.in / accounts.zenoa.sbs -> OAuth 2.0 Account Selection & Consent Gate
-  const isAccountsSubdomain = currentHostname.startsWith("accounts.") || currentHostname.startsWith("account.") || currentHostname.startsWith("auth.") || currentHostname.startsWith("identity.") || currentHostname.startsWith("oauth.");
+  // 1a. account.zenoa.in / myaccount.zenoa.in -> Dedicated Personal Account & Security Management Portal
+  const isAccountSubdomain = currentHostname.startsWith("account.") || currentHostname.startsWith("myaccount.");
+  // 1b. accounts.zenoa.in / accounts.zenoa.sbs -> OAuth 2.0 Auth Server & Login Gateway
+  const isAccountsSubdomain = currentHostname.startsWith("accounts.") || currentHostname.startsWith("auth.") || currentHostname.startsWith("identity.") || currentHostname.startsWith("oauth.");
   // 2. console.zenoa.in / sso.zenoa.in / console.zenoa.sbs -> SSO & OAuth Management Console
   const isConsoleSubdomain = currentHostname.startsWith("console.") || currentHostname.startsWith("sso.") || currentHostname.startsWith("id.");
   // 3. developer.zenoa.in / developer.zenoa.sbs -> Developer APIs & Services Console
@@ -8958,8 +9064,11 @@ export default function App() {
   // 6. web.zenoa.in / web.zenoa.sbs -> Standalone Web QR Code Messenger
   const isWebSubdomain = currentHostname.startsWith("web.");
 
+  // Dedicated Account & Security Management Portal check (account.zenoa.in or /account)
+  const isAccountPortal = isAccountSubdomain || currentPathname === "/account" || currentPathname.startsWith("/account/") || currentSearchParams.get("view") === "account";
+
   // A. Accounts / OAuth 2.0 Consent Screen (accounts.zenoa.in, /auth/sso, /oauth, or client_id query param)
-  const isSSOAuthConsent = isAccountsSubdomain || currentPathname === "/auth/sso" || currentPathname === "/oauth" || currentSearchParams.has("client_id") || currentSearchParams.has("redirect_uri");
+  const isSSOAuthConsent = !isAccountPortal && (isAccountsSubdomain || currentPathname === "/auth/sso" || currentPathname === "/oauth" || currentSearchParams.has("client_id") || currentSearchParams.has("redirect_uri"));
 
   const dbUserObj = userUsername ? users[userUsername.toLowerCase()] : null;
 
@@ -8985,7 +9094,35 @@ export default function App() {
     is_private: dbUserObj?.is_private ?? false
   } : null;
 
-  // A. Render Accounts / OAuth 2.0 Consent Screen
+  // Render Dedicated Personal Account & Security Portal (account.zenoa.in)
+  if (isAccountPortal) {
+    return (
+      <AccountPortalStandalone
+        currentUser={currentUserObj}
+        onLogin={async (identifier, pass) => {
+          const res = await handleAuthFlowLogin(identifier, pass);
+          return { success: res.success, error: res.error, user: res.user };
+        }}
+        onOAuthLogin={handleOAuthLogin}
+        onNavigateToMessenger={() => {
+          try {
+            if (isAccountSubdomain) {
+              const rootParts = currentHostname.split('.');
+              const rootDomain = rootParts.length >= 2 ? rootParts.slice(-2).join('.') : currentHostname;
+              window.location.href = `${window.location.protocol}//${rootDomain}/app`;
+            } else {
+              window.history.pushState({}, '', '/app');
+              window.location.href = '/app';
+            }
+          } catch (_) {
+            window.location.href = '/app';
+          }
+        }}
+      />
+    );
+  }
+
+  // A. Render Accounts / OAuth 2.0 Consent Screen (accounts.zenoa.in)
   if (isSSOAuthConsent) {
     return (
       <SSOLogin 

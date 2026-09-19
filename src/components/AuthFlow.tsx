@@ -242,12 +242,17 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
     setIsLoading(true);
     if (onVerifyEmailOtp) {
-      const res = await onVerifyEmailOtp(loginEmail.trim(), cleanCode);
+      const res: any = await onVerifyEmailOtp(loginEmail.trim(), cleanCode);
       setIsLoading(false);
       if (res.success) {
         if (onCompleteAuth) onCompleteAuth();
       } else {
-        setErrorMessage(res.error || 'Invalid verification code. Please check and try again.');
+        const errorMsg = res.error || 'Invalid verification code. Please check and try again.';
+        setErrorMessage(errorMsg);
+        setEmailOtpError(errorMsg);
+        if (res.expired || errorMsg.toLowerCase().includes('expired')) {
+          setEmailOtpCountdown(0);
+        }
       }
     } else {
       setIsLoading(false);
@@ -363,10 +368,17 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
       }
     } else {
       try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const activeClientId = urlParams.get('client_id') || urlParams.get('clientId') || localStorage.getItem('zenoa_active_client_id') || undefined;
+
         const response = await fetch('/api/auth/messenger/send-otp', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: cleanMail, purpose: 'registration' })
+          body: JSON.stringify({ 
+            email: cleanMail, 
+            purpose: 'registration',
+            clientId: activeClientId 
+          })
         });
         const data = await response.json();
         setIsLoading(false);
@@ -397,10 +409,16 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     }
 
     setIsLoading(true);
-    if (onVerifyEmailOtp) {
-      const res = await onVerifyEmailOtp(regEmail.trim(), cleanCode);
+    // In Registration Wizard (Step 5), verify the OTP without triggering full login session prematurely
+    try {
+      const response = await fetch('/api/auth/messenger/verify-otp-only', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: regEmail.trim(), code: cleanCode })
+      });
+      const data = await response.json();
       setIsLoading(false);
-      if (res.success) {
+      if (response.ok && data.success) {
         setRegEmailOtpVerified(true);
         setSuccessMessage('✓ Email verified successfully!');
         setTimeout(() => {
@@ -409,32 +427,15 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
           setSuccessMessage('');
         }, 1000);
       } else {
-        setRegEmailOtpError(res.error || 'Verification failed. Please check the code.');
-      }
-    } else {
-      try {
-        const response = await fetch('/api/auth/messenger/verify-otp-only', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: regEmail.trim(), code: cleanCode })
-        });
-        const data = await response.json();
-        setIsLoading(false);
-        if (response.ok) {
-          setRegEmailOtpVerified(true);
-          setSuccessMessage('✓ Email verified successfully!');
-          setTimeout(() => {
-            setSlideDirection(1);
-            setWizardStep(6);
-            setSuccessMessage('');
-          }, 1000);
-        } else {
-          setRegEmailOtpError(data.error || 'Verification failed. Please check the code.');
+        const errorMsg = data.error || 'Verification failed. Please check the code.';
+        setRegEmailOtpError(errorMsg);
+        if (data.expired || data.code === 'OTP_EXPIRED' || errorMsg.toLowerCase().includes('expired')) {
+          setRegEmailOtpCountdown(0);
         }
-      } catch (err: any) {
-        setIsLoading(false);
-        setRegEmailOtpError(err.message || 'An error occurred during verification.');
       }
+    } catch (err: any) {
+      setIsLoading(false);
+      setRegEmailOtpError(err.message || 'An error occurred during verification.');
     }
   };
 
@@ -507,7 +508,11 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
         setResetPasswordOtpSent(false);
         setResetPasswordOtpCountdown(0);
       } else {
-        setResetPasswordError(data.error || 'Failed to reset password. Please verify your details.');
+        const errorMsg = data.error || 'Failed to reset password. Please verify your details.';
+        setResetPasswordError(errorMsg);
+        if (data.expired || data.code === 'OTP_EXPIRED' || errorMsg.toLowerCase().includes('expired')) {
+          setResetPasswordOtpCountdown(0);
+        }
       }
     } catch (err: any) {
       setIsLoading(false);
@@ -681,8 +686,11 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   const triggerExplicitLoginFlag = () => {
     sessionStorage.setItem('zenoa_is_explicit_login', 'true');
     const freshToken = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+    const nowStr = String(Date.now());
+    localStorage.setItem('zenoa_active_session_token', freshToken);
+    localStorage.setItem('zenoa_active_session_created_at', nowStr);
     sessionStorage.setItem('zenoa_active_session_token', freshToken);
-    sessionStorage.setItem('zenoa_active_session_created_at', String(Date.now()));
+    sessionStorage.setItem('zenoa_active_session_created_at', nowStr);
   };
 
   // Truecaller Verification Trigger
@@ -2153,10 +2161,26 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
                       {/* Error & Success Messages */}
                       {regEmailOtpError && (
-                        <p className="text-[12px] text-rose-500 flex items-center gap-1 font-medium">
-                          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                          <span>{regEmailOtpError}</span>
-                        </p>
+                        <div className="space-y-1.5">
+                          <p className="text-[12px] text-rose-500 flex items-center gap-1 font-medium">
+                            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                            <span>{regEmailOtpError}</span>
+                          </p>
+                          {regEmailOtpError.toLowerCase().includes('expired') && (
+                            <button
+                              id="signup_request_fresh_otp_btn"
+                              type="button"
+                              onClick={() => {
+                                setRegEmailOtpCode('');
+                                handleSendRegEmailOtp();
+                              }}
+                              className="text-[12px] text-[#533afd] dark:text-[#818cf8] hover:underline font-semibold flex items-center gap-1.5 cursor-pointer pt-0.5"
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                              <span>Request a fresh verification code now</span>
+                            </button>
+                          )}
+                        </div>
                       )}
 
                       {successMessage && (

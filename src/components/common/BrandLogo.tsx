@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Server, Terminal, Shield } from 'lucide-react';
+import { ZenoaLogo } from './ZenoaLogo';
 
 interface BrandLogoProps {
   src?: string;
@@ -27,7 +27,13 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
     xl: 'h-14 w-14 text-lg rounded-2xl'
   }[size];
 
-  const firstLetter = (name || 'Z').charAt(0).toUpperCase();
+  const pixelSizes = {
+    xs: 24,
+    sm: 32,
+    md: 40,
+    lg: 48,
+    xl: 56
+  }[size];
 
   if (src && src.trim() && !imageError) {
     return (
@@ -44,6 +50,17 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
       </div>
     );
   }
+
+  // If brand is Zenoa or default, render the official Sovereign Zenoa Emblem
+  if (!name || name.toLowerCase().includes('zenoa')) {
+    return (
+      <div className={`relative inline-flex items-center justify-center shrink-0 ${sizeClasses} ${className}`}>
+        <ZenoaLogo size={pixelSizes} className="w-full h-full" />
+      </div>
+    );
+  }
+
+  const firstLetter = (name || 'Z').charAt(0).toUpperCase();
 
   return (
     <div

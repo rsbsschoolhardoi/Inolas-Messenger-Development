@@ -43,8 +43,12 @@ export interface UserData {
   is_truecaller_verified?: boolean;
   dob?: string;
   gender?: string;
+  real_name?: string;
+  legal_name?: string;
   created_via?: string;
+  is_oauth_jit?: boolean;
   profile_completed?: boolean;
+  email_verified?: boolean;
 }
 
 export interface SavedDeviceAccount {

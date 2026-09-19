@@ -1747,7 +1747,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             {/* Unified Professional Account Card */}
             <div className="rounded-2xl border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm divide-y divide-neutral-150 dark:divide-neutral-800/80">
               {/* Account Identity Header */}
-              <div className="p-5 flex items-center justify-between gap-4">
+              <div className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3.5 min-w-0">
                   {renderAvatar(userAvatarSeed, userDisplayName, userAvatarUrl, 'h-12 w-12 text-sm border border-neutral-200 dark:border-neutral-700 shrink-0')}
                   <div className="min-w-0">
@@ -1755,6 +1755,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     <p className="text-xs text-neutral-400 font-mono mt-0.5">@{userUsername}</p>
                   </div>
                 </div>
+                <a
+                  href="/account"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm flex items-center justify-center gap-2 transition shrink-0"
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  <span>Open Account Security Portal</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
               </div>
 
               {/* Credentials Details List */}

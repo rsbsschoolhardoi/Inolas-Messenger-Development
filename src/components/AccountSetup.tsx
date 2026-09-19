@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { User, Check, AlertCircle, RefreshCw, Sparkles, ArrowRight, LogOut } from 'lucide-react';
+import { User, Check, AlertCircle, RefreshCw, Sparkles, LogOut, Calendar, Mail, Shield, ChevronDown } from 'lucide-react';
+import { ZenoaLogo } from './common/ZenoaLogo';
 
 interface AccountSetupProps {
   initialFullName?: string;
@@ -37,7 +38,7 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
   const [username, setUsername] = useState(() => initialUsername.toLowerCase().replace(/[^a-z0-9_.]/g, ''));
   const [dob, setDob] = useState(initialDob);
   const [gender, setGender] = useState(initialGender || 'prefer_not_to_say');
-  const [bio, setBio] = useState('Hey there! I am using Zenoa Messenger.');
+  const [bio, setBio] = useState('Hey there! I am using Zenoa.');
   const [avatarSeed, setAvatarSeed] = useState(() => initialUsername || 'zenoa');
 
   const [isCheckingUsername, setIsCheckingUsername] = useState(false);
@@ -89,20 +90,20 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
         if (res.isTaken) {
           setUsernameStatus({
             isAvailable: false,
-            message: res.reason || `@${clean} is already taken. Please choose another.`
+            message: res.reason || `@${clean} is already taken`
           });
         } else {
           setUsernameStatus({
             isAvailable: true,
-            message: `✓ @${clean} is available!`
+            message: `✓ @${clean} is available`
           });
         }
       } catch (err) {
-        setUsernameStatus({ isAvailable: true, message: 'Username format valid' });
+        setUsernameStatus({ isAvailable: true, message: 'Format valid' });
       } finally {
         setIsCheckingUsername(false);
       }
-    }, 400);
+    }, 350);
 
     return () => clearTimeout(timer);
   }, [username, checkUsernameAvailability]);
@@ -166,25 +167,44 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
   ];
 
   return (
-    <div className={`min-h-screen w-full flex items-center justify-center p-4 sm:p-6 font-['Inter'] transition-colors ${
-      themeMode === 'dark' ? 'bg-neutral-950 text-neutral-100' : 'bg-neutral-50 text-neutral-900'
-    }`}>
+    <div 
+      className={`min-h-[100dvh] w-full flex items-center justify-center p-4 sm:p-6 transition-colors duration-200 select-none ${
+        themeMode === 'dark' ? 'bg-[#090d16] text-slate-100' : 'bg-slate-50 text-slate-900'
+      }`}
+      style={{
+        fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", Inter, system-ui, sans-serif'
+      }}
+    >
+      {/* Subtle Background Radial Glow */}
+      <div 
+        className="fixed inset-0 pointer-events-none z-0 opacity-80"
+        style={{
+          background: themeMode === 'dark' 
+            ? 'radial-gradient(circle at 50% 15%, rgba(99, 102, 241, 0.12) 0%, transparent 60%)'
+            : 'radial-gradient(circle at 50% 15%, rgba(99, 102, 241, 0.06) 0%, transparent 60%)'
+        }}
+      />
+
       <motion.div 
-        initial={{ opacity: 0, scale: 0.98 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-lg p-6 sm:p-8 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-2xl relative max-h-[90vh] overflow-y-auto"
+        initial={{ opacity: 0, y: 12, scale: 0.99 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+        className="w-full max-w-md bg-white dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200/90 dark:border-slate-800/90 shadow-2xl rounded-3xl p-6 sm:p-8 relative z-10 max-h-[92vh] overflow-y-auto"
       >
         {/* Brand Header */}
-        <div className="flex items-center justify-between mb-6 border-b border-neutral-100 dark:border-neutral-800/80 pb-4">
+        <div className="flex items-center justify-between pb-5 border-b border-slate-100 dark:border-slate-800/80 mb-5">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-2xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-zenoa font-black text-xl flex items-center justify-center shadow-md">
-              Z
-            </div>
+            <ZenoaLogo size={36} />
             <div>
-              <h2 className="font-zenoa text-lg font-extrabold tracking-[0.14em] uppercase text-neutral-900 dark:text-white leading-none">
-                Zenoa
-              </h2>
-              <p className="text-[11px] text-neutral-500 font-medium mt-0.5">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold tracking-[0.16em] uppercase text-slate-900 dark:text-slate-100">
+                  ZENOA
+                </span>
+                <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/50">
+                  Sovereign Identity
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                 Complete Sovereign Profile
               </p>
             </div>
@@ -193,29 +213,29 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
           {onSignOut && (
             <button
               onClick={onSignOut}
-              className="p-2 rounded-xl text-neutral-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-xs font-semibold flex items-center gap-1 cursor-pointer"
+              className="px-2.5 py-1.5 rounded-xl text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
               title="Sign Out"
             >
-              <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">Sign Out</span>
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="text-[11px]">Sign Out</span>
             </button>
           )}
         </div>
 
-        {/* Security / Mandatory Banner */}
-        <div className="p-3.5 mb-5 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-xs space-y-1">
-          <p className="font-bold flex items-center gap-1.5 text-xs">
-            <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
-            <span>Welcome to Zenoa Messenger!</span>
-          </p>
-          <p className="text-[11px] leading-relaxed text-neutral-600 dark:text-neutral-400">
-            Your sovereign account is verified. Finalize your permanent @username, Zenoa ID, and profile details to begin messaging securely.
+        {/* Security / Verification Banner */}
+        <div className="p-4 mb-5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 text-xs space-y-1">
+          <div className="font-semibold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5 text-xs">
+            <Shield className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <span>Identity Verification Complete</span>
+          </div>
+          <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
+            Finalize your display name, permanent @username, and cryptographic profile to enter Zenoa.
           </p>
         </div>
 
         {/* Error Alert */}
         {errorMessage && (
-          <div className="p-3 mb-5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400 text-xs flex items-start gap-2.5">
+          <div className="p-3 mb-5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2.5">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <span className="leading-tight font-medium">{errorMessage}</span>
           </div>
@@ -223,34 +243,37 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Email (Readonly if available) */}
+          {/* Connected Email (Readonly) */}
           {initialEmail && (
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider mb-1 text-neutral-400">
+              <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
                 Connected Email
               </label>
-              <input
-                type="text"
-                disabled
-                value={initialEmail}
-                className="w-full px-4 py-2 text-xs rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800/60 text-neutral-500 cursor-not-allowed font-mono"
-              />
+              <div className="relative flex items-center">
+                <Mail className="absolute left-3.5 h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  disabled
+                  value={initialEmail}
+                  className="w-full pl-9 pr-3.5 py-2 text-xs rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-100/70 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 cursor-not-allowed font-mono"
+                />
+              </div>
             </div>
           )}
 
           {/* Full Name */}
           <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5 text-neutral-600 dark:text-neutral-300">
+            <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Full Display Name <span className="text-rose-500">*</span>
             </label>
             <div className="relative flex items-center">
-              <User className="absolute left-3.5 h-4 w-4 text-neutral-400" />
+              <User className="absolute left-3.5 h-4 w-4 text-slate-400" />
               <input
                 type="text"
                 value={fullName}
                 onChange={e => setFullName(e.target.value)}
                 placeholder="e.g. Aman Azad"
-                className="w-full pl-10 pr-4 py-2.5 text-xs rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/40 outline-none focus:border-indigo-500 transition-colors font-medium text-neutral-900 dark:text-white"
+                className="w-full pl-10 pr-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-800/60 focus:bg-white dark:focus:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition"
                 required
               />
             </div>
@@ -258,92 +281,97 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
 
           {/* Unique Username & Zenoa ID */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-300">
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">
                 Unique Username <span className="text-rose-500">*</span>
               </label>
               
               {isCheckingUsername ? (
-                <span className="text-[10px] font-bold text-neutral-400 flex items-center gap-1">
-                  <RefreshCw className="h-3 w-3 animate-spin" />
+                <span className="text-[10px] font-medium text-slate-400 flex items-center gap-1">
+                  <RefreshCw className="h-3 w-3 animate-spin text-indigo-500" />
                   Checking...
                 </span>
               ) : username && (
-                <span className={`text-[10px] font-bold ${usernameStatus.isAvailable ? 'text-emerald-500' : 'text-rose-500'}`}>
+                <span className={`text-[10px] font-semibold ${usernameStatus.isAvailable ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                   {usernameStatus.message}
                 </span>
               )}
             </div>
 
             <div className="relative flex items-center">
-              <span className="absolute left-3.5 text-neutral-400 text-xs font-bold">@</span>
+              <span className="absolute left-3.5 text-slate-400 text-xs font-semibold select-none">@</span>
               <input
                 type="text"
                 value={username}
                 onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, '').trim())}
                 placeholder="username"
-                className={`w-full pl-8 pr-4 py-2.5 text-xs rounded-2xl border bg-neutral-50/50 dark:bg-neutral-800/40 outline-none transition-colors font-mono font-bold text-neutral-900 dark:text-white ${
+                className={`w-full pl-8 pr-3.5 py-2.5 text-xs rounded-xl border bg-slate-50 dark:bg-slate-800/60 focus:bg-white dark:focus:bg-slate-800 text-slate-900 dark:text-slate-100 outline-none transition font-mono ${
                   usernameStatus.isAvailable
-                    ? 'border-emerald-500/60 focus:border-emerald-500'
+                    ? 'border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/20'
                     : username
-                    ? 'border-rose-300 dark:border-rose-900 focus:border-rose-500'
-                    : 'border-neutral-200 dark:border-neutral-700 focus:border-indigo-500'
+                    ? 'border-rose-300 dark:border-rose-900 focus:ring-2 focus:ring-rose-500/20'
+                    : 'border-slate-200 dark:border-slate-700/80 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500'
                 }`}
                 required
               />
             </div>
 
             {/* Permanent Zenoa ID Preview Badge */}
-            <div className="mt-2 flex items-center justify-between px-3 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800/60 border border-neutral-200/80 dark:border-neutral-700/60">
-              <span className="text-[10px] font-semibold text-neutral-500 dark:text-neutral-400">
+            <div className="mt-2 flex items-center justify-between px-3.5 py-2 rounded-xl bg-slate-100/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60">
+              <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
                 Sovereign Zenoa ID:
               </span>
-              <span className="text-[11px] font-mono font-bold text-neutral-900 dark:text-white">
+              <span className="text-[11px] font-mono font-semibold text-slate-900 dark:text-slate-100">
                 {zenoaIdPreview}
               </span>
             </div>
           </div>
 
           {/* Date of Birth & Gender Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
             {/* DOB */}
             <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5 text-neutral-600 dark:text-neutral-300">
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 Date of Birth <span className="text-rose-500">*</span>
               </label>
-              <input
-                type="date"
-                value={dob}
-                max={new Date().toISOString().split('T')[0]}
-                onChange={e => setDob(e.target.value)}
-                className="w-full px-3.5 py-2.5 text-xs rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/40 outline-none focus:border-indigo-500 transition-colors text-neutral-900 dark:text-white font-medium"
-                required
-              />
+              <div className="relative flex items-center">
+                <input
+                  type="date"
+                  value={dob}
+                  max={new Date().toISOString().split('T')[0]}
+                  onChange={e => setDob(e.target.value)}
+                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-800/60 focus:bg-white dark:focus:bg-slate-800 text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition font-medium"
+                  required
+                />
+              </div>
             </div>
 
             {/* Gender Selection */}
             <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5 text-neutral-600 dark:text-neutral-300">
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 Gender <span className="text-rose-500">*</span>
               </label>
-              <select
-                value={gender}
-                onChange={e => setGender(e.target.value)}
-                className="w-full px-3.5 py-2.5 text-xs rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/40 outline-none focus:border-indigo-500 transition-colors text-neutral-900 dark:text-white font-medium cursor-pointer"
-                required
-              >
-                {genderOptions.map(opt => (
-                  <option key={opt.id} value={opt.id} className="bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white">
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+              <div className="relative flex items-center">
+                <select
+                  value={gender}
+                  onChange={e => setGender(e.target.value)}
+                  className="w-full pl-3.5 pr-8 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-800/60 focus:bg-white dark:focus:bg-slate-800 text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition font-medium cursor-pointer appearance-none"
+                  required
+                >
+                  {genderOptions.map(opt => (
+                    <option key={opt.id} value={opt.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 pointer-events-none" />
+              </div>
             </div>
           </div>
 
           {/* About / Bio */}
           <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5 text-neutral-600 dark:text-neutral-300">
+            <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Bio / About (Optional)
             </label>
             <textarea
@@ -351,7 +379,7 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
               onChange={e => setBio(e.target.value)}
               placeholder="What do you want your contacts to know?"
               rows={2}
-              className="w-full p-3 text-xs rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/40 outline-none focus:border-indigo-500 transition-colors font-normal text-neutral-900 dark:text-white resize-none"
+              className="w-full p-3 text-xs rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-800/60 focus:bg-white dark:focus:bg-slate-800 text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition resize-none"
             />
           </div>
 
@@ -359,10 +387,10 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
           <button
             type="submit"
             disabled={isLoading || isCheckingUsername || !usernameStatus.isAvailable || !fullName.trim() || !dob}
-            className="w-full py-3.5 bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 disabled:opacity-50 text-white dark:text-neutral-900 text-xs font-bold rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer mt-4"
+            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-md shadow-indigo-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer mt-5"
           >
             {isLoading ? (
-              <div className="h-4 w-4 border-2 border-white/30 border-t-white dark:border-black/30 dark:border-t-black rounded-full animate-spin" />
+              <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             ) : (
               <>
                 <Check className="h-4 w-4" />
@@ -375,4 +403,3 @@ export const AccountSetup: React.FC<AccountSetupProps> = ({
     </div>
   );
 };
-

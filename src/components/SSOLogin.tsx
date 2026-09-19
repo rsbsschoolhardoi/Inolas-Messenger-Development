@@ -10,7 +10,7 @@ import {
 import { UserData } from '../types';
 import { db } from '../firebaseClient';
 import { useBranding } from '../brandingUtils';
-import { generateAuthorizationCode, generateAccessToken, generateRefreshToken } from '../utils/oauthSecurity';
+import { generateAuthorizationCode, generateAccessToken, generateRefreshToken, resolveProfessionalName } from '../utils/oauthSecurity';
 import { collection, query, where, getDocs, getDoc, setDoc, doc, increment } from 'firebase/firestore';
 
 interface SSOLoginProps {
@@ -22,6 +22,7 @@ interface SSOLoginProps {
     fullName: string;
     email: string;
     password: string;
+    clientId?: string;
   }) => Promise<{ success: boolean; error?: string; user?: UserData }>;
   onLogout: () => void;
 }
@@ -73,6 +74,12 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regShowPassword, setRegShowPassword] = useState(false);
+  const [regOtpSent, setRegOtpSent] = useState(false);
+  const [regOtpCode, setRegOtpCode] = useState('');
+  const [regOtpCountdown, setRegOtpCountdown] = useState(0);
+  const [regSenderEmail, setRegSenderEmail] = useState('');
+  const [regIsInternalSender, setRegIsInternalSender] = useState(false);
+  const [regSendingOtp, setRegSendingOtp] = useState(false);
   
   // Callback Result State (When redirect_uri is /auth/sso for test inspection)
   const [callbackData, setCallbackData] = useState<{ 
@@ -98,81 +105,44 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Aggregated saved accounts loader across device vaults
+  // Active account loader for OAuth consent - strictly shows only the genuine logged-in Messenger user
   useEffect(() => {
     const accounts: UserData[] = [];
-    const seenUsernames = new Set<string>();
 
-    const addAccount = (acc: any) => {
-      if (!acc) return;
-      const rawUsername = (acc.username || acc.id || '').replace(/^@/, '').trim();
-      if (!rawUsername || seenUsernames.has(rawUsername.toLowerCase())) return;
-      seenUsernames.add(rawUsername.toLowerCase());
-
+    if (currentUser && currentUser.username) {
+      const rawUsername = (currentUser.username || '').replace(/^@/, '').trim();
       const isOff = 
-        acc.is_official === true || 
-        acc.isOfficial === true ||
+        currentUser.is_official === true || 
         rawUsername.toLowerCase() === 'zenoa' || 
         rawUsername.toLowerCase() === 'zenoaverify' || 
         rawUsername.toLowerCase() === 'zenoasecurity' || 
         rawUsername.toLowerCase() === 'zenoadev' ||
-        (acc.displayName || acc.display_name || '').toLowerCase().includes('official');
+        (currentUser.display_name || '').toLowerCase().includes('official');
 
       const cleanAcc: UserData = {
-        id: acc.id || acc.uid || `user_${rawUsername}`,
+        id: currentUser.id || `user_${rawUsername}`,
         username: rawUsername,
-        display_name: acc.display_name || acc.displayName || acc.name || rawUsername,
-        email: acc.email || `${rawUsername}@zenoa.in`,
-        avatar_url: acc.avatar_url || acc.avatarUrl || '',
-        avatar_seed: acc.avatar_seed || acc.avatarSeed || rawUsername,
+        display_name: currentUser.display_name || rawUsername,
+        email: currentUser.email || `${rawUsername}@zenoa.in`,
+        avatar_url: currentUser.avatar_url || '',
+        avatar_seed: currentUser.avatar_seed || rawUsername,
         is_official: isOff,
-        mobile_number: acc.mobile_number || acc.phone || '',
-        bio: acc.bio || 'Zenoa Platform User',
-        online: false,
-        last_seen: 'Recently'
+        mobile_number: currentUser.mobile_number || '',
+        bio: currentUser.bio || 'Zenoa Platform User',
+        online: true,
+        last_seen: 'Online'
       };
       accounts.push(cleanAcc);
-    };
-
-    // 1. Current active user
-    if (currentUser) {
-      addAccount(currentUser);
     }
 
-    // 2. Saved device accounts from SavedAccountsView
-    try {
-      const rawSaved = localStorage.getItem('zenoa_saved_accounts');
-      if (rawSaved) {
-        const parsed = JSON.parse(rawSaved);
-        if (Array.isArray(parsed)) {
-          parsed.forEach(addAccount);
-        }
-      }
-    } catch (e) {}
-
-    // 3. Saved browser accounts from OAuth
-    try {
-      const rawOAuthSaved = localStorage.getItem('zenoa_saved_browser_accounts');
-      if (rawOAuthSaved) {
-        const parsed = JSON.parse(rawOAuthSaved);
-        if (Array.isArray(parsed)) {
-          parsed.forEach(addAccount);
-        }
-      }
-    } catch (e) {}
-
-    // 4. Stored active user profile in localStorage
-    try {
-      const rawUser = localStorage.getItem('zenoa_user');
-      if (rawUser) {
-        const parsed = JSON.parse(rawUser);
-        addAccount(parsed);
-      }
-    } catch (e) {}
-
     setSavedAccounts(accounts);
-    if (!selectedAccount && accounts.length > 0) {
+    if (accounts.length > 0) {
       setSelectedAccount(accounts[0]);
+      setShowInlineLoginForm(false);
+    } else {
+      setSelectedAccount(null);
+      setShowInlineLoginForm(true);
+      setInlineAuthMode('login');
     }
   }, [currentUser]);
 
@@ -518,8 +488,17 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
     }
   };
 
-  const handleInlineRegisterSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Countdown timer for registration OTP resend
+  useEffect(() => {
+    let timer: any;
+    if (regOtpCountdown > 0) {
+      timer = setTimeout(() => setRegOtpCountdown(prev => prev - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [regOtpCountdown]);
+
+  const handleSendRegisterOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     const cleanName = regFullName.trim();
     const cleanMail = regEmail.trim();
 
@@ -527,14 +506,55 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
       setInlineLoginError('Please enter your full display name.');
       return;
     }
-
     if (!cleanMail || !cleanMail.includes('@') || !cleanMail.includes('.')) {
       setInlineLoginError('Please enter a valid email address.');
       return;
     }
-
     if (!regPassword || regPassword.length < 6) {
       setInlineLoginError('Password must be at least 6 characters.');
+      return;
+    }
+
+    setRegSendingOtp(true);
+    setInlineLoginError(null);
+
+    try {
+      const resp = await fetch('/api/auth/messenger/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanMail,
+          purpose: 'registration',
+          clientId: clientId || appConfig?.client_id || undefined
+        })
+      });
+
+      const data = await resp.json();
+      if (!resp.ok || !data.success) {
+        setInlineLoginError(data.error || 'Failed to dispatch verification code. Please check your email.');
+        setRegSendingOtp(false);
+        return;
+      }
+
+      setRegOtpSent(true);
+      setRegOtpCountdown(60);
+      setRegSenderEmail(data.senderEmail || 'no-reply@zenoa.sbs');
+      setRegIsInternalSender(Boolean(data.isInternalSystem));
+    } catch (err: any) {
+      setInlineLoginError(err.message || 'Failed to connect to verification server.');
+    } finally {
+      setRegSendingOtp(false);
+    }
+  };
+
+  const handleVerifyOtpAndRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanMail = regEmail.trim();
+    const cleanName = regFullName.trim();
+    const cleanCode = regOtpCode.trim();
+
+    if (!cleanCode || cleanCode.length < 6) {
+      setInlineLoginError('Please enter the complete 6-digit verification code.');
       return;
     }
 
@@ -542,15 +562,34 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
     setInlineLoginError(null);
 
     try {
+      // 1. Verify the OTP code
+      const verifyRes = await fetch('/api/auth/messenger/verify-otp-only', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanMail,
+          code: cleanCode
+        })
+      });
+
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok || !verifyData.success) {
+        setInlineLoginError(verifyData.error || 'Incorrect or expired verification code.');
+        setInlineLoginLoading(false);
+        return;
+      }
+
+      // 2. Perform sovereign JIT OAuth account creation
       if (onInlineRegister) {
         const result = await onInlineRegister({
           fullName: cleanName,
           email: cleanMail,
-          password: regPassword
+          password: regPassword,
+          clientId: clientId || appConfig?.client_id || undefined
         });
 
         if (!result.success || !result.user) {
-          setInlineLoginError(result.error || 'Failed to create your account.');
+          setInlineLoginError(result.error || 'Failed to finalize your account.');
           setInlineLoginLoading(false);
           return;
         }
@@ -564,10 +603,15 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         setInlineLoginError('Direct registration is not available. Please sign in with an existing account.');
       }
     } catch (err: any) {
-      setInlineLoginError(err.message || 'Registration failed.');
+      setInlineLoginError(err.message || 'Verification and registration failed.');
     } finally {
       setInlineLoginLoading(false);
     }
+  };
+
+  const handleInlineRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await handleSendRegisterOtp();
   };
 
   // Computed requested and allowed scopes for the application (Core OIDC auto-included)
@@ -987,6 +1031,23 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
             status: 'sent',
             read_by: [botSender]
           }).catch(() => null);
+
+          // Save grant to user_authorizations for account.zenoa.in management portal
+          const grantId = `${targetUser.id || cleanUsername}_${activeClientId}`;
+          setDoc(doc(db, 'user_authorizations', grantId), {
+            id: grantId,
+            user_id: targetUser.id || '',
+            username: cleanUsername,
+            client_id: activeClientId,
+            app_name: appConfig?.app_name || 'Authorized App',
+            app_description: appConfig?.app_description || '',
+            logo_url: appConfig?.logo_url || '',
+            website_url: appConfig?.website_url || '',
+            scopes: appConfig?.scopes || ['openid', 'profile', 'email'],
+            authorized_at: Date.now(),
+            last_used_at: Date.now(),
+            status: 'active'
+          }, { merge: true }).catch(() => null);
         }
       }
 
@@ -1001,14 +1062,21 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
       }
       finalUrl.searchParams.set('auth_time', Math.floor(Date.now() / 1000).toString());
 
-      // Create JWT payload for immediate fallback compatibility
+      // Create JWT payload for immediate fallback compatibility with third-party apps
+      const professionalName = resolveProfessionalName(targetUser);
+
       const rawProfile = {
         iss: 'https://zenoa.in/oauth',
         sub: targetUser.id,
         aud: activeClientId,
         zenoa_id: cleanZenoaId,
         username: cleanUsername,
-        name: targetUser.display_name || cleanUsername,
+        name: professionalName,
+        real_name: professionalName,
+        legal_name: professionalName,
+        full_name: professionalName,
+        display_name: professionalName,
+        raw_display_name: targetUser.display_name || cleanUsername,
         email: targetUser.email || `${cleanUsername}@zenoa.in`,
         phone_number: targetUser.mobile_number || '',
         picture: targetUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${targetUser.avatar_seed || cleanUsername}`,
@@ -1584,8 +1652,91 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
                         </button>
                       </div>
                     </form>
+                  ) : regOtpSent ? (
+                    /* Step 2: Verification Code Entry for JIT Registration */
+                    <form onSubmit={handleVerifyOtpAndRegister} className="space-y-3.5">
+                      <div className="flex items-center justify-between pb-1">
+                        <button
+                          type="button"
+                          onClick={() => { setRegOtpSent(false); setInlineLoginError(null); }}
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#64748d] hover:text-[#0d253d] transition-colors cursor-pointer"
+                        >
+                          <ArrowLeft className="h-3.5 w-3.5" />
+                          <span>Edit Details</span>
+                        </button>
+                        <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          <span>OTP Dispatched</span>
+                        </span>
+                      </div>
+
+                      {/* Sender Info Badge */}
+                      <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl text-[11px] text-[#475569] leading-relaxed">
+                        <div className="font-semibold text-[#0d253d] flex items-center gap-1.5 mb-1">
+                          <ShieldCheck className="h-3.5 w-3.5 text-[#533afd]" />
+                          <span>
+                            {regIsInternalSender
+                              ? 'Official Zenoa Identity Verification'
+                              : `Authorized by ${appConfig?.app_name || 'Application'}`}
+                          </span>
+                        </div>
+                        We sent a 6-digit verification code to <strong className="text-[#0d253d] font-semibold">{regEmail}</strong> from <span className="font-mono text-[#533afd] font-semibold">{regSenderEmail}</span>.
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] mb-1.5">
+                          6-Digit Verification Code <span className="text-rose-500">*</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <Key className="absolute left-3.5 h-4 w-4 text-[#64748d]" />
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={6}
+                            value={regOtpCode}
+                            onChange={(e) => setRegOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                            placeholder="000000"
+                            className="w-full pl-10 pr-4 py-3 bg-white border border-[#e3e8ee] rounded-xl text-center font-mono text-lg tracking-widest text-[#0d253d] focus:outline-none focus:border-[#533afd]"
+                            autoFocus
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={inlineLoginLoading || regOtpCode.length !== 6}
+                        className="w-full py-3.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-1"
+                      >
+                        {inlineLoginLoading ? (
+                          <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : (
+                          <>
+                            <ShieldCheck className="h-4 w-4" />
+                            <span>Verify Code & Authorize</span>
+                          </>
+                        )}
+                      </button>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <button
+                          type="button"
+                          disabled={regOtpCountdown > 0 || regSendingOtp}
+                          onClick={() => handleSendRegisterOtp()}
+                          className="text-[11px] font-semibold text-[#533afd] hover:underline disabled:text-[#94a3b8] disabled:no-underline flex items-center gap-1 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          <RefreshCw className={`h-3 w-3 ${regSendingOtp ? 'animate-spin' : ''}`} />
+                          <span>
+                            {regOtpCountdown > 0
+                              ? `Resend code in ${regOtpCountdown}s`
+                              : 'Resend Verification Code'}
+                          </span>
+                        </button>
+                      </div>
+                    </form>
                   ) : (
-                    /* New User JIT OAuth Registration Form */
+                    /* Step 1: New User JIT OAuth Registration Form */
                     <form onSubmit={handleInlineRegisterSubmit} className="space-y-3.5">
                       <div>
                         <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] mb-1">
@@ -1657,15 +1808,15 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
 
                       <button
                         type="submit"
-                        disabled={inlineLoginLoading}
+                        disabled={regSendingOtp}
                         className="w-full py-3.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-1"
                       >
-                        {inlineLoginLoading ? (
+                        {regSendingOtp ? (
                           <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         ) : (
                           <>
                             <UserPlus className="h-4 w-4" />
-                            <span>Create Account & Authorize</span>
+                            <span>Continue with Email Verification</span>
                           </>
                         )}
                       </button>
