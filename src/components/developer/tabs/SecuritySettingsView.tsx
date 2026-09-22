@@ -46,6 +46,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
   const [isRotating, setIsRotating] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showAdvancedActions, setShowAdvancedActions] = useState(false);
 
   useEffect(() => {
     setAppName(app?.app_name || '');
@@ -56,7 +57,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
     setSupportEmail(app?.support_email || '');
     setSupportPhone(app?.support_phone || '');
     setAllowedIps(formatAllowedIps(app?.allowed_ips));
-  }, [app]);
+  }, [app?.id, app?.updated_at, app?.avatar_url]);
 
   const handleImageFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -451,56 +452,80 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
         </div>
       </form>
 
-      {/* Danger Zone: Credential Rotation */}
-      <div className={`rounded-2xl p-5 shadow-xs space-y-3 border ${
-        isDark ? 'bg-rose-950/20 border-rose-500/30' : 'bg-rose-50/70 border-rose-200'
+      {/* Advanced & Danger Zone (Tucked away, compact, and professional) */}
+      <div className={`rounded-xl border transition-all ${
+        isDark ? 'border-[#273951] bg-[#121624]/60' : 'border-[#e3e8ee] bg-[#f6f9fc]/40'
       }`}>
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-rose-500 flex items-center gap-2 uppercase tracking-wider">
-            <AlertTriangle className="h-4 w-4 text-rose-500" />
-            Cryptographic Credential Rotation
-          </h3>
-          <button
-            type="button"
-            onClick={handleTriggerRotation}
-            disabled={isRotating}
-            className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            <RotateCw className={`h-3.5 w-3.5 ${isRotating ? 'animate-spin' : ''}`} />
-            {isRotating ? 'Rotating...' : 'Rotate Keys'}
-          </button>
-        </div>
-        <p className="text-xs text-rose-400 dark:text-rose-300 leading-relaxed">
-          Cycling credentials invalidates prior API secret tokens. Generated SDK files will immediately update with new cryptographic keys.
-        </p>
-      </div>
-
-      {/* Irreversible Danger Zone: Delete Service Account */}
-      {onDeleteApp && (
-        <div className={`rounded-2xl p-5 shadow-xs space-y-3 border ${
-          isDark ? 'bg-red-950/30 border-red-500/40' : 'bg-red-50/70 border-red-200'
-        }`}>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="text-xs font-bold text-red-500 flex items-center gap-2 uppercase tracking-wider">
-                <Trash2 className="h-4 w-4 text-red-500" />
-                Delete Service Account
-              </h3>
-              <p className="text-xs text-red-400 dark:text-red-300 mt-0.5">
-                Permanently destroy this service account, revoking API keys, webhook endpoints, and credentials.
-              </p>
+        <button
+          type="button"
+          onClick={() => setShowAdvancedActions(!showAdvancedActions)}
+          className="w-full flex items-center justify-between p-4 text-left outline-none cursor-pointer"
+        >
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-lg ${isDark ? 'bg-[#1b233a] text-[#818cf8]' : 'bg-white text-[#533afd] shadow-xs border border-[#e3e8ee]'}`}>
+              <Shield className="h-4 w-4" />
             </div>
-            <button
-              type="button"
-              onClick={() => setShowDeleteModal(true)}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              <span>Delete Service Account</span>
-            </button>
+            <div>
+              <h4 className="text-xs font-bold text-[#0d253d] dark:text-white">Advanced &amp; Danger Zone Settings</h4>
+              <p className="text-[10px] text-[#64748d] dark:text-[#94a3b8] mt-0.5">Credential rotation and account termination procedures.</p>
+            </div>
           </div>
-        </div>
-      )}
+          <span className="text-xs font-bold text-[#533afd] dark:text-[#818cf8] shrink-0">
+            {showAdvancedActions ? 'Collapse Options' : 'Expand Options'}
+          </span>
+        </button>
+
+        {showAdvancedActions && (
+          <div className={`p-4 border-t space-y-3.5 animate-in slide-in-from-top-2 duration-150 ${
+            isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+          }`}>
+            {/* Rotation Item */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-amber-500/5 border border-amber-500/10">
+              <div className="space-y-0.5 max-w-xl">
+                <h5 className="text-[11px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <RotateCw className="h-3.5 w-3.5" />
+                  Rotate API Credentials
+                </h5>
+                <p className="text-[10px] text-[#64748d] dark:text-[#94a3b8]">
+                  Cycling credentials immediately revokes active SDK keys and generates fresh secure secrets. Old secrets will stop working immediately.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleTriggerRotation}
+                disabled={isRotating}
+                className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-lg text-[10px] font-bold shadow-xs shrink-0 flex items-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <RotateCw className={`h-3 w-3 ${isRotating ? 'animate-spin' : ''}`} />
+                <span>{isRotating ? 'Rotating...' : 'Rotate Keys'}</span>
+              </button>
+            </div>
+
+            {/* Delete Account Item */}
+            {onDeleteApp && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-rose-500/5 border border-rose-500/10">
+                <div className="space-y-0.5 max-w-xl">
+                  <h5 className="text-[11px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Terminate Service Account
+                  </h5>
+                  <p className="text-[10px] text-[#64748d] dark:text-[#94a3b8]">
+                    Permanently delete this service account and clean up corresponding databases. This operation is permanent and irreversible.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(true)}
+                  className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10px] font-bold shadow-xs shrink-0 flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  <span>Delete Account</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Red Warning Confirmation Modal for Deleting Service Account */}
       {showDeleteModal && (
