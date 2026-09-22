@@ -40,15 +40,36 @@ export default function handler(req: any, res: any) {
     req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
   }
 
-  try {
-    return app(req, res);
-  } catch (err: any) {
-    console.error("Vercel Serverless Function Execution Error:", err);
-    if (!res.headersSent) {
-      return res.status(500).json({
-        success: false,
-        error: 'Serverless Function Error: ' + (err?.message || String(err))
+  return new Promise((resolve) => {
+    let resolved = false;
+    const safeResolve = () => {
+      if (!resolved) {
+        resolved = true;
+        resolve(null);
+      }
+    };
+
+    res.on('finish', safeResolve);
+    res.on('close', safeResolve);
+
+    try {
+      app(req, res, (err: any) => {
+        if (err) {
+          console.error("Express App Handler Error:", err);
+          if (!res.headersSent) {
+            res.status(500).json({ success: false, error: 'Server Error: ' + (err?.message || String(err)) });
+          }
+        } else if (!res.headersSent) {
+          res.status(404).json({ success: false, error: `Route not found: ${req.method} ${req.url}` });
+        }
+        safeResolve();
       });
+    } catch (topErr: any) {
+      console.error("Vercel Serverless Function Top-Level Error:", topErr);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, error: 'Server Function Error: ' + (topErr?.message || String(topErr)) });
+      }
+      safeResolve();
     }
-  }
+  });
 }
