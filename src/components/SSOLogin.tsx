@@ -94,6 +94,26 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
   const [isExchangingToken, setIsExchangingToken] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
+  // Detect whether the current OAuth authorization flow is for official Zenoa consoles
+  const isConsoleLogin = useMemo(() => {
+    const cid = (clientId || '').toLowerCase().trim();
+    const ruri = (redirectUri || '').toLowerCase().trim();
+    const appCid = (appConfig?.client_id || appConfig?.id || '').toLowerCase().trim();
+    return (
+      cid === 'zenoa_developer_console' ||
+      cid === 'dev_console' ||
+      cid === 'zenoa-dev-console' ||
+      cid === 'zenoa_oauth_console' ||
+      cid === 'oauth_console' ||
+      cid === 'sso_console' ||
+      cid === 'zenoa-oauth-console' ||
+      appCid === 'zenoa_developer_console' ||
+      appCid === 'zenoa_oauth_console' ||
+      ruri.includes('/developer') ||
+      ruri.includes('/sso')
+    );
+  }, [clientId, redirectUri, appConfig]);
+
   // Close menus when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -105,35 +125,60 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Active account loader for OAuth consent - strictly shows only the genuine logged-in Messenger user
+  // Active account loader for OAuth consent - scans current user, active sessions, and saved accounts
   useEffect(() => {
     const accounts: UserData[] = [];
+    const seenUsernames = new Set<string>();
 
-    if (currentUser && currentUser.username) {
-      const rawUsername = (currentUser.username || '').replace(/^@/, '').trim();
+    const addAccount = (u: any) => {
+      if (!u || !u.username) return;
+      const rawUsername = (u.username || '').replace(/^@/, '').trim().toLowerCase();
+      if (!rawUsername || seenUsernames.has(rawUsername)) return;
+      seenUsernames.add(rawUsername);
+
       const isOff = 
-        currentUser.is_official === true || 
-        rawUsername.toLowerCase() === 'zenoa' || 
-        rawUsername.toLowerCase() === 'zenoaverify' || 
-        rawUsername.toLowerCase() === 'zenoasecurity' || 
-        rawUsername.toLowerCase() === 'zenoadev' ||
-        (currentUser.display_name || '').toLowerCase().includes('official');
+        u.is_official === true || 
+        rawUsername === 'zenoa' || 
+        rawUsername === 'zenoaverify' || 
+        rawUsername === 'zenoasecurity' || 
+        rawUsername === 'zenoadev' ||
+        (u.display_name || '').toLowerCase().includes('official');
 
-      const cleanAcc: UserData = {
-        id: currentUser.id || `user_${rawUsername}`,
+      accounts.push({
+        id: u.id || `user_${rawUsername}`,
         username: rawUsername,
-        display_name: currentUser.display_name || rawUsername,
-        email: currentUser.email || `${rawUsername}@zenoa.in`,
-        avatar_url: currentUser.avatar_url || '',
-        avatar_seed: currentUser.avatar_seed || rawUsername,
+        display_name: u.display_name || (u as any).displayName || rawUsername,
+        email: u.email || `${rawUsername}@zenoa.in`,
+        avatar_url: u.avatar_url || (u as any).photoURL || '',
+        avatar_seed: u.avatar_seed || rawUsername,
         is_official: isOff,
-        mobile_number: currentUser.mobile_number || '',
-        bio: currentUser.bio || 'Zenoa Platform User',
+        mobile_number: u.mobile_number || (u as any).phoneNumber || '',
+        bio: u.bio || 'Zenoa Platform User',
         online: true,
         last_seen: 'Online'
-      };
-      accounts.push(cleanAcc);
+      });
+    };
+
+    if (currentUser && currentUser.username) {
+      addAccount(currentUser);
     }
+
+    try {
+      const storedZenoaUser = localStorage.getItem('zenoa_user');
+      if (storedZenoaUser) addAccount(JSON.parse(storedZenoaUser));
+
+      const storedDevUser = localStorage.getItem('zenoa_dev_console_user');
+      if (storedDevUser) addAccount(JSON.parse(storedDevUser));
+
+      const storedSSOUser = localStorage.getItem('zenoa_sso_console_user');
+      if (storedSSOUser) addAccount(JSON.parse(storedSSOUser));
+
+      const savedAccountsRaw = localStorage.getItem('zenoa_saved_accounts');
+      if (savedAccountsRaw) {
+        const arr = JSON.parse(savedAccountsRaw);
+        if (Array.isArray(arr)) arr.forEach(addAccount);
+      }
+    } catch (e) {}
 
     setSavedAccounts(accounts);
     if (accounts.length > 0) {
@@ -475,6 +520,17 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         if (result.user) {
           setSelectedAccount(result.user);
           setSavedAccounts(prev => [result.user!, ...prev.filter(a => a.id !== result.user!.id && a.username !== result.user!.username)]);
+          const cleanU = (result.user.username || '').replace(/^@/, '').trim().toLowerCase();
+          const activeCid = clientId || appConfig?.client_id || appConfig?.id || 'zenoa_official_app';
+          const hasPriorConsent = 
+            isConsoleLogin ||
+            localStorage.getItem(`zenoa_oauth_consent_${cleanU}_${activeCid}`) === 'true' ||
+            localStorage.getItem(`zenoa_oauth_consent_device_${activeCid}`) === 'true';
+
+          if (hasPriorConsent) {
+            executeAuthorizationGrant(result.user);
+            return;
+          }
         }
         setShowInlineLoginForm(false);
         setWizardStep(2);
@@ -598,6 +654,10 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         setSelectedAccount(result.user);
         setSavedAccounts(prev => [result.user!, ...prev.filter(a => a.id !== result.user!.id && a.username !== result.user!.username)]);
         setShowInlineLoginForm(false);
+        if (isConsoleLogin) {
+          executeAuthorizationGrant(result.user);
+          return;
+        }
         setWizardStep(2);
       } else {
         setInlineLoginError('Direct registration is not available. Please sign in with an existing account.');
@@ -941,11 +1001,13 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         } catch (e) {}
       }
 
-      // Also ensure main session is preserved in local storage
+      // Also ensure main session is preserved in local storage and appended to saved accounts
       try {
-        if (!localStorage.getItem('zenoa_user')) {
-          localStorage.setItem('zenoa_user', JSON.stringify(cleanUserData));
-        }
+        localStorage.setItem('zenoa_user', JSON.stringify(cleanUserData));
+        const rawSaved = localStorage.getItem('zenoa_saved_accounts');
+        const list = rawSaved ? JSON.parse(rawSaved) : [];
+        const nextList = [cleanUserData, ...list.filter((x: any) => x.username !== cleanUserData.username && x.id !== cleanUserData.id)];
+        localStorage.setItem('zenoa_saved_accounts', JSON.stringify(nextList.slice(0, 10)));
       } catch (e) {}
 
       const authPayload = {
@@ -1031,24 +1093,33 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
             status: 'sent',
             read_by: [botSender]
           }).catch(() => null);
-
-          // Save grant to user_authorizations for account.zenoa.in management portal
-          const grantId = `${targetUser.id || cleanUsername}_${activeClientId}`;
-          setDoc(doc(db, 'user_authorizations', grantId), {
-            id: grantId,
-            user_id: targetUser.id || '',
-            username: cleanUsername,
-            client_id: activeClientId,
-            app_name: appConfig?.app_name || 'Authorized App',
-            app_description: appConfig?.app_description || '',
-            logo_url: appConfig?.logo_url || '',
-            website_url: appConfig?.website_url || '',
-            scopes: appConfig?.scopes || ['openid', 'profile', 'email'],
-            authorized_at: Date.now(),
-            last_used_at: Date.now(),
-            status: 'active'
-          }, { merge: true }).catch(() => null);
         }
+      }
+
+      // Save grant to user_authorizations for account.zenoa.in management portal
+      const grantId = `${targetUser.id || cleanUsername}_${activeClientId}`;
+      
+      // Persist granted consent locally on device so subsequent logins on this device bypass redundant consent prompts
+      try {
+        localStorage.setItem(`zenoa_oauth_consent_${cleanUsername}_${activeClientId}`, 'true');
+        localStorage.setItem(`zenoa_oauth_consent_device_${activeClientId}`, 'true');
+      } catch (e) {}
+
+      if (db) {
+        setDoc(doc(db, 'user_authorizations', grantId), {
+          id: grantId,
+          user_id: targetUser.id || '',
+          username: cleanUsername,
+          client_id: activeClientId,
+          app_name: appConfig?.app_name || 'Authorized App',
+          app_description: appConfig?.app_description || '',
+          logo_url: appConfig?.logo_url || '',
+          website_url: appConfig?.website_url || '',
+          scopes: appConfig?.scopes || ['openid', 'profile', 'email'],
+          authorized_at: Date.now(),
+          last_used_at: Date.now(),
+          status: 'active'
+        }, { merge: true }).catch(() => null);
       }
 
       // 5. Construct OAuth 2.0 callback URL with full security metadata
@@ -1109,10 +1180,21 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
     }
   };
 
-  // When user taps on an account card, advance to permission review
+  // When user taps on an account card, directly authorize if console login or if already consented on this device, otherwise advance to permission review
   const handleAccountCardClick = (account: UserData) => {
     setSelectedAccount(account);
-    setWizardStep(2);
+    const cleanUsername = (account.username || '').replace(/^@/, '').trim().toLowerCase();
+    const activeClientId = clientId || appConfig?.client_id || appConfig?.id || 'zenoa_official_app';
+    const hasPriorConsent = 
+      isConsoleLogin ||
+      localStorage.getItem(`zenoa_oauth_consent_${cleanUsername}_${activeClientId}`) === 'true' ||
+      localStorage.getItem(`zenoa_oauth_consent_device_${activeClientId}`) === 'true';
+
+    if (hasPriorConsent) {
+      executeAuthorizationGrant(account);
+    } else {
+      setWizardStep(2);
+    }
   };
 
   const handleExchangeToken = async () => {
@@ -1928,10 +2010,20 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
               ) : (
                 /* No accounts yet - Direct sign in or register options */
                 <div className="space-y-4">
-                  <div className="p-5 bg-neutral-50 rounded-2xl border border-[#e3e8ee] text-center space-y-3">
-                    <p className="text-xs text-[#64748d] leading-relaxed">
-                      No saved Zenoa accounts found on this device. Sign in or create an account to authorize <strong className="text-[#0d253d]">{appConfig?.app_name || 'this app'}</strong>.
-                    </p>
+                  <div className="p-6 bg-neutral-50/90 rounded-2xl border border-[#e3e8ee] text-center space-y-3.5">
+                    <div className="inline-flex p-3 rounded-2xl bg-indigo-50 border border-indigo-100 text-[#533afd]">
+                      <ShieldCheck className="h-6 w-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-[15px] font-semibold text-[#0d253d]">
+                        {isConsoleLogin ? 'Zenoa Developer & Service Gateway' : 'Decentralized Zenoa Identity'}
+                      </h3>
+                      <p className="text-xs text-[#64748d] leading-relaxed max-w-sm mx-auto">
+                        {isConsoleLogin
+                          ? 'No saved service or developer accounts found on this device. Register a new service account or sign in to configure API gateways, SMTP routes, and webhooks.'
+                          : `No saved Zenoa accounts found on this device. Sign in or register a sovereign account to authorize ${appConfig?.app_name || 'this application'}.`}
+                      </p>
+                    </div>
 
                     <div className="space-y-2 pt-1">
                       <button
@@ -1939,10 +2031,10 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
                           setInlineAuthMode('register');
                           setShowInlineLoginForm(true);
                         }}
-                        className="w-full py-3 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2"
+                        className="w-full py-3.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-[0.985]"
                       >
                         <UserPlus className="h-4 w-4" />
-                        <span>Create a Zenoa Account</span>
+                        <span>{isConsoleLogin ? 'Register Service / Developer Account' : 'Create a Zenoa Account'}</span>
                       </button>
 
                       <button
@@ -1950,7 +2042,7 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
                           setInlineAuthMode('login');
                           setShowInlineLoginForm(true);
                         }}
-                        className="w-full py-3 bg-white hover:bg-neutral-100 text-[#0d253d] border border-[#e3e8ee] rounded-xl text-xs font-semibold shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2"
+                        className="w-full py-3 bg-white hover:bg-neutral-100 text-[#0d253d] border border-[#e3e8ee] rounded-xl text-xs font-semibold shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-[0.985]"
                       >
                         <User className="h-4 w-4 text-[#533afd]" />
                         <span>Sign In with Existing Account</span>
@@ -1960,8 +2052,8 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
                 </div>
               )}
             </motion.div>
-          ) : (
-            /* STEP 2: MINIMAL & CLEAN PERMISSIONS CONSENT */
+          ) : !isConsoleLogin ? (
+            /* STEP 2: MINIMAL & CLEAN PERMISSIONS CONSENT (Disabled for console logins) */
             <motion.div
               key="step-2-consent"
               initial={{ opacity: 0, y: 6 }}
@@ -2063,7 +2155,7 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
                 You can review or revoke access at any time in your Zenoa settings.
               </p>
             </motion.div>
-          )}
+          ) : null}
 
           {/* Footer Branding Inside Card */}
           <div className="mt-6 pt-4 border-t border-[#e3e8ee]/80 flex items-center justify-center gap-1.5 text-[#64748d] text-[10px] font-mono uppercase tracking-wider">

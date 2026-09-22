@@ -4,6 +4,7 @@ import { LegalModal, LegalDocType } from './LegalModal';
 import { useBranding } from '../brandingUtils';
 import { PurpleVerifiedBadge } from './PurpleVerifiedBadge';
 import { WaveArcs } from './originkit/ui/wave-arcs';
+import { INolasLogo } from './common/INolasLogo';
 import {
   ShieldCheck,
   ArrowRight,
@@ -1156,6 +1157,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </span>
             <span className="text-[#cbd5e1] dark:text-[#475569]">•</span>
             <span>Client-Side Encrypted</span>
+          </div>
+        </div>
+
+        {/* INolas Brand Signature - Centered prominently at the Bottom Center of Landing Page */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 mt-6 border-t border-[#e3e8ee]/60 dark:border-[#273951]/60 flex flex-col items-center justify-center text-center pb-2">
+          <div className="flex flex-col items-center justify-center gap-2.5 group cursor-default">
+            <INolasLogo height={42} theme={themeMode} />
+            <span className="text-[11px] font-semibold tracking-[0.18em] uppercase text-[#64748d] dark:text-[#94a3b8]">
+              Inolas Nexus Organization
+            </span>
           </div>
         </div>
       </footer>

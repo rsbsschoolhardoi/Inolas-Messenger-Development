@@ -2057,31 +2057,7 @@ export default function App() {
                     sessionStorage.setItem('zenoa_account_created_at', String(accCreatedAt));
                   }
 
-                  // Progressive Profiling Check:
-                  // If user created an account via JIT OAuth flow, prompt for mandatory setup when entering Messenger!
-                  const isCurrentlyOnOAuthConsent = typeof window !== 'undefined' && (
-                    window.location.pathname.startsWith('/auth/sso') || 
-                    window.location.pathname.startsWith('/oauth') || 
-                    window.location.hostname.startsWith('accounts.') || 
-                    new URLSearchParams(window.location.search).has('client_id')
-                  );
-                  const isProfileIncomplete = profile.profile_completed === false || (!profile.dob && !profile.created_via_mobile) || (!profile.gender && !profile.created_via_mobile);
-
-                  if (isProfileIncomplete && !isCurrentlyOnOAuthConsent) {
-                    setPendingUserAuth(userObj);
-                    setUserDisplayName(dName || userObj.displayName || '');
-                    setUserUsername(uName || '');
-                    setUserZenoaId(profile.zenoa_id || (uName ? `${uName}@zenoa` : ''));
-                    setUserDob(profile.dob || '');
-                    setUserGender(profile.gender || '');
-                    setUserBio(profile.bio || '');
-                    setUserAvatarSeed(profile.avatar_seed || uName || 'zenoa');
-                    setIsNewUserSetupPending(true);
-                    setIsAuthenticated(false);
-                    setIsAuthResolving(false);
-                    return;
-                  }
-
+                  // Direct Login Path: Allow user straight into Messenger without blocking setup
                   setUserUsername(uName);
                   setUserDisplayName(dName);
                   setUserZenoaId(profile.zenoa_id || `${uName}@zenoa`);
@@ -2104,6 +2080,7 @@ export default function App() {
                   if (!existingSessionToken) {
                     claimActiveSession(userObj.uid, uName);
                   }
+
         // 3. Notification listener
         if (userObj) {
           unsubscribeNotifications = onSnapshot(
@@ -2132,22 +2109,53 @@ export default function App() {
         }
 
                 } else {
-                  // If Drive link is in progress or user is already logged in, do NOT trigger Account Setup
+                  // If Drive link is in progress or user is already logged in, preserve session
                   if (isConnectingDrive || (isAuthenticated && userUsername)) {
-                    console.log("Preserving active user session during OAuth link - skipping setup modal.");
+                    console.log("Preserving active user session during OAuth link.");
                     return;
                   }
-                  setAuthMethod(userObj.providerData[0]?.providerId || 'email');
-                  setPendingUserAuth(userObj);
-                  if (userSnap.exists()) {
-                    setUserDisplayName(userSnap.data().display_name || userObj.displayName || '');
-                    setUserUsername(userSnap.data().username || '');
-                  } else {
-                    setUserDisplayName(userObj.displayName || '');
-                    setUserUsername('');
+
+                  // Auto-provision profile directly in Firestore for seamless single-step login
+                  const defaultDisplayName = userObj.displayName || userObj.email?.split('@')[0] || 'Zenoa User';
+                  let rawBase = (userObj.displayName || userObj.email?.split('@')[0] || 'user')
+                    .toLowerCase()
+                    .replace(/[^a-z0-9_]/g, '');
+                  if (!rawBase || rawBase.length < 3) rawBase = 'user_' + userObj.uid.slice(0, 5);
+
+                  const autoUsername = rawBase;
+                  const autoProfileData = {
+                    id: userObj.uid,
+                    username: autoUsername,
+                    display_name: defaultDisplayName,
+                    email: isInternalGhostEmail(userObj.email || '') ? '' : (userObj.email || ''),
+                    zenoa_id: `${autoUsername}@zenoa`,
+                    created_at: Date.now(),
+                    registered_at: Date.now(),
+                    profile_completed: true,
+                    avatar_seed: autoUsername,
+                    bio: 'Hey there! I am using Zenoa Messenger.'
+                  };
+
+                  try {
+                    await setDoc(doc(db, 'users', userObj.uid), autoProfileData, { merge: true });
+                  } catch (e) {
+                    console.warn("Auto-provision profile notice:", e);
                   }
-                  setIsNewUserSetupPending(true);
-                  setIsAuthenticated(false);
+
+                  setUserUsername(autoUsername);
+                  setUserDisplayName(defaultDisplayName);
+                  setUserZenoaId(`${autoUsername}@zenoa`);
+                  setUserAvatarSeed(autoUsername);
+                  setSavedDisplayName(defaultDisplayName);
+                  setSavedUsername(autoUsername);
+                  setAuthMethod(userObj.providerData[0]?.providerId || 'google');
+                  setIsAuthenticated(true);
+                  setIsNewUserSetupPending(false);
+
+                  const existingSessionToken = sessionStorage.getItem('zenoa_active_session_token');
+                  if (!existingSessionToken) {
+                    claimActiveSession(userObj.uid, autoUsername);
+                  }
                 }
               } catch (fetchErr: any) {
                 console.warn("User profile fetch fallback:", fetchErr.message);
@@ -4163,11 +4171,45 @@ export default function App() {
           confetti({ particleCount: 80, spread: 60, origin: { y: 0.8 } });
           showToast(`Welcome back, ${dName}!`);
         } else {
-          // Profile is missing or incomplete, force mandatory account setup
-          setPendingUserAuth(userObj);
-          setUserDisplayName(userObj.displayName || '');
-          setIsNewUserSetupPending(true);
-          setIsAuthenticated(false);
+          // New OAuth user: Auto-create default profile and enter Messenger directly
+          const defaultDisplayName = userObj.displayName || userObj.email?.split('@')[0] || 'Zenoa User';
+          let baseUsername = (userObj.displayName || userObj.email?.split('@')[0] || 'user')
+            .toLowerCase()
+            .replace(/[^a-z0-9_]/g, '');
+          if (!baseUsername || baseUsername.length < 3) baseUsername = 'user_' + userObj.uid.slice(0, 5);
+
+          const autoUsername = baseUsername;
+          const autoProfileData = {
+            id: userObj.uid,
+            username: autoUsername,
+            display_name: defaultDisplayName,
+            email: isInternalGhostEmail(userObj.email || '') ? '' : (userObj.email || ''),
+            zenoa_id: `${autoUsername}@zenoa`,
+            created_at: Date.now(),
+            registered_at: Date.now(),
+            profile_completed: true,
+            avatar_seed: autoUsername,
+            bio: 'Hey there! I am using Zenoa Messenger.'
+          };
+
+          await setDoc(userDocRef, autoProfileData, { merge: true }).catch(() => {});
+
+          setUserUsername(autoUsername);
+          setUserDisplayName(defaultDisplayName);
+          setUserZenoaId(`${autoUsername}@zenoa`);
+          setUserAvatarSeed(autoUsername);
+          setSavedDisplayName(defaultDisplayName);
+          setSavedUsername(autoUsername);
+          await claimActiveSession(userObj.uid, autoUsername);
+          setIsAuthenticated(true);
+          setIsNewUserSetupPending(false);
+
+          setOpeningAnimationData({ displayName: defaultDisplayName, provider });
+          setIsOpeningAnimationActive(true);
+          setTimeout(() => setIsOpeningAnimationActive(false), 2500);
+
+          confetti({ particleCount: 80, spread: 60, origin: { y: 0.8 } });
+          showToast(`Welcome to Zenoa, ${defaultDisplayName}!`);
         }
       } catch (err: any) {
         if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
@@ -5451,6 +5493,8 @@ export default function App() {
         const provider = new GoogleAuthProvider();
         provider.addScope('https://www.googleapis.com/auth/drive.appdata');
         provider.addScope('https://www.googleapis.com/auth/drive.file');
+        // Force account selection picker popup so user can explicitly choose their Gmail/Drive account
+        provider.setCustomParameters({ prompt: 'select_account' });
         
         let result: any = null;
         let credential: any = null;
@@ -9067,8 +9111,17 @@ export default function App() {
   // Dedicated Account & Security Management Portal check (account.zenoa.in or /account)
   const isAccountPortal = isAccountSubdomain || currentPathname === "/account" || currentPathname.startsWith("/account/") || currentSearchParams.get("view") === "account";
 
-  // A. Accounts / OAuth 2.0 Consent Screen (accounts.zenoa.in, /auth/sso, /oauth, or client_id query param)
-  const isSSOAuthConsent = !isAccountPortal && (isAccountsSubdomain || currentPathname === "/auth/sso" || currentPathname === "/oauth" || currentSearchParams.has("client_id") || currentSearchParams.has("redirect_uri"));
+  // Dedicated Developer Console check (developer.zenoa.in or /developer or /portal)
+  const isDeveloperRoute = isDevSubdomain || currentPathname === "/developer" || currentPathname.startsWith("/developer/") || currentPathname === "/portal" || currentSearchParams.get("view") === "developer";
+
+  // Dedicated SSO Console check (console.zenoa.in or /sso)
+  const isSSOConsoleRoute = isConsoleSubdomain || currentPathname === "/sso" || currentPathname.startsWith("/sso/") || currentSearchParams.get("view") === "sso";
+
+  // Dedicated Documentation check (docs.zenoa.in or /docs)
+  const isDocsRoute = isDocsSubdomain || currentPathname === "/docs" || currentPathname.startsWith("/docs/") || currentPathname === "/documentation" || currentSearchParams.get("view") === "docs";
+
+  // A. Accounts / OAuth 2.0 Consent Screen (accounts.zenoa.in, /auth/sso, /oauth, or client_id query param when not on dedicated portal routes)
+  const isSSOAuthConsent = !isAccountPortal && !isDeveloperRoute && !isSSOConsoleRoute && !isDocsRoute && (isAccountsSubdomain || currentPathname === "/auth/sso" || currentPathname === "/oauth" || currentSearchParams.has("client_id") || currentSearchParams.has("redirect_uri"));
 
   const dbUserObj = userUsername ? users[userUsername.toLowerCase()] : null;
 
@@ -9142,22 +9195,8 @@ export default function App() {
     );
   }
 
-  // Authentication & Mandatory Setup UI Render (Zenoa Messenger Onboarding)
-  if (isNewUserSetupPending || (isAuthenticated && (!userDisplayName || !userUsername))) {
-    return (
-      <AccountSetup
-        initialFullName={pendingUserAuth?.displayName || userDisplayName || ''}
-        initialUsername={userUsername || ''}
-        initialEmail={pendingUserAuth?.email || userEmail || ''}
-        initialDob={userDob || ''}
-        initialGender={userGender || ''}
-        onComplete={handleCompleteMandatoryAccountSetup}
-        checkUsernameAvailability={handleCheckUsernameAvailability}
-        themeMode={themeMode}
-        onSignOut={handleLogout}
-      />
-    );
-  }
+  // Old AccountSetup onboarding screen removed per user request:
+  // Direct authentication routes users immediately into Zenoa Messenger.
 
   // B. Interactive API Documentation & Reference
   const isDocsPath = isDocsSubdomain || (

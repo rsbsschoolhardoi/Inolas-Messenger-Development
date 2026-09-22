@@ -4502,11 +4502,11 @@ app.post('/api/v1/link-device/verify-and-sync', async (req: any, res: any) => {
     // Handshake verified! Upgrade status to authenticated and burn code to prevent reuse
     session.status = 'authenticated';
     session.linkedUser = {
-      uid: user.id || user.uid,
-      username: user.username,
-      displayName: user.display_name || user.displayName || user.username,
-      zenoaId: user.zenoa_id || `${user.username}@zenoa`,
-      avatarSeed: user.avatar_seed || user.username,
+      uid: user.id || user.uid || `u_${cleanUsername}`,
+      username: cleanUsername,
+      displayName: user.display_name || user.displayName || user.username || cleanUsername,
+      zenoaId: user.zenoa_id || `${cleanUsername}@zenoa`,
+      avatarSeed: user.avatar_seed || user.username || cleanUsername,
       avatarUrl: user.avatar_url || '',
       sessionToken: 'wlink_' + Date.now() + '_' + Math.random().toString(36).substring(2, 12)
     };
@@ -4515,19 +4515,31 @@ app.post('/api/v1/link-device/verify-and-sync', async (req: any, res: any) => {
     activeLinkSessions.set(sessionId, session);
 
     if (db) {
-      try {
-        await setDoc(doc(db, 'device_link_sessions', sessionId), sanitizeFirestoreData({
-          status: 'authenticated',
-          linkedUser: session.linkedUser,
-          syncedDataPayload: session.syncedDataPayload,
-          authenticatedAt: Date.now()
-        }), { merge: true });
-      } catch (fErr: any) {
-        console.warn('Verify-and-sync Firestore status update notice:', fErr?.message || fErr);
-      }
+      // Background non-blocking write to avoid any Firestore latency or serialization crash
+      (async () => {
+        try {
+          // Keep Firestore document clean and avoid oversized document errors if large local sync payload
+          const firestoreDoc: any = {
+            status: 'authenticated',
+            linkedUser: session.linkedUser,
+            authenticatedAt: Date.now()
+          };
+          if (syncedDataPayload && typeof syncedDataPayload === 'object') {
+            try {
+              const str = JSON.stringify(syncedDataPayload);
+              if (str.length < 800000) {
+                firestoreDoc.syncedDataPayload = syncedDataPayload;
+              }
+            } catch {}
+          }
+          await setDoc(doc(db, 'device_link_sessions', sessionId), sanitizeFirestoreData(firestoreDoc), { merge: true });
+        } catch (fErr: any) {
+          console.warn('Verify-and-sync Firestore status update notice:', fErr?.message || fErr);
+        }
+      })();
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Device linked and authenticated successfully! Web session is now active.',
       session: {
@@ -4537,7 +4549,8 @@ app.post('/api/v1/link-device/verify-and-sync', async (req: any, res: any) => {
       }
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: 'Verification failed: ' + err.message });
+    console.error('Verify-and-sync handler error:', err);
+    return res.status(500).json({ success: false, error: 'Verification failed: ' + (err?.message || String(err)) });
   }
 });
 

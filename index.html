@@ -85,6 +85,83 @@
     <script>
       (function() {
         try {
+          var host = (window.location.hostname || '').toLowerCase();
+          var path = (window.location.pathname || '').toLowerCase();
+          var currentUrl = window.location.href;
+
+          var metaMap = {
+            developer: {
+              title: 'Zenoa Developer | Build Scalable Bot APIs & Webhooks',
+              desc: 'Empowering developers and enterprise businesses with modern messaging APIs, service account bots, webhooks, and scalable developer infrastructure.',
+              site: 'Zenoa Developer'
+            },
+            sso: {
+              title: 'Zenoa OAuth | Authentication you can Trust',
+              desc: 'Sovereign Single Sign-On and zero-trust OAuth 2.0 application registry. Register client applications, configure redirect URIs, and manage API credentials.',
+              site: 'Zenoa OAuth Console'
+            },
+            accounts: {
+              title: 'Zenoa Accounts | Sovereign Single Sign-On & OAuth 2.0 Gateway',
+              desc: 'Sign in securely with Zenoa. Sovereign, zero-trust OAuth 2.0 and OpenID Connect identity provider engineered for high privacy and zero data leakage.',
+              site: 'Zenoa Accounts'
+            },
+            account: {
+              title: 'Zenoa Account | Manage Your Sovereign Identity & Security',
+              desc: 'Manage your sovereign Zenoa profile, authorized third-party applications, two-factor authentication, cryptographic security keys, and zero-knowledge privacy settings.',
+              site: 'Zenoa Account'
+            },
+            web: {
+              title: 'Zenoa Web | Sovereign Browser Messenger & Device Link',
+              desc: 'Link your browser securely to Zenoa with end-to-end encrypted peer-to-peer sync. Zero cloud retention, client-side encryption, and instant web chat.',
+              site: 'Zenoa Web'
+            },
+            docs: {
+              title: 'Zenoa Docs | Developer Platform & API Reference',
+              desc: 'Official API reference, Bot SDK guides, webhook configurations, and WebCrypto zero-knowledge encryption technical specifications.',
+              site: 'Zenoa Docs'
+            },
+            app: {
+              title: 'Zenoa | The Next Gen Private Sovereign Messenger',
+              desc: 'The next-generation sovereign private messenger engineered by Inolas Nexus. Featuring zero cloud retention, client-side zero-knowledge encryption, and instant WebRTC peer-to-peer calls.',
+              site: 'Zenoa Messenger'
+            }
+          };
+
+          var config = null;
+          if (host.startsWith('developer.') || host.startsWith('dev.') || path === '/developer' || path.startsWith('/developer/')) {
+            config = metaMap.developer;
+          } else if (host.startsWith('console.') || host.startsWith('sso.') || path === '/sso' || path.startsWith('/sso/')) {
+            config = metaMap.sso;
+          } else if (host.startsWith('accounts.') || host.startsWith('auth.') || path === '/auth/sso' || path.startsWith('/auth/sso/')) {
+            config = metaMap.accounts;
+          } else if (host.startsWith('account.') || host.startsWith('myaccount.') || path === '/account' || path.startsWith('/account/')) {
+            config = metaMap.account;
+          } else if (host.startsWith('web.') || path === '/web' || path.startsWith('/web/')) {
+            config = metaMap.web;
+          } else if (host.startsWith('docs.') || path === '/docs' || path.startsWith('/docs/')) {
+            config = metaMap.docs;
+          } else if (host.startsWith('app.') || path === '/app' || path.startsWith('/app/')) {
+            config = metaMap.app;
+          }
+
+          if (config) {
+            document.title = config.title;
+            var setMeta = function(attr, name, val) {
+              var el = document.querySelector('meta[' + attr + '="' + name + '"]');
+              if (el) el.setAttribute('content', val);
+            };
+            setMeta('name', 'description', config.desc);
+            setMeta('property', 'og:title', config.title);
+            setMeta('property', 'og:description', config.desc);
+            setMeta('property', 'og:site_name', config.site);
+            setMeta('property', 'og:url', currentUrl);
+            setMeta('name', 'twitter:title', config.title);
+            setMeta('name', 'twitter:description', config.desc);
+          }
+        } catch(e) {}
+      })();
+      (function() {
+        try {
           var override = localStorage.getItem('zenoa_theme_override');
           var isDark = override ? (override === 'dark') : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
           if (isDark) {

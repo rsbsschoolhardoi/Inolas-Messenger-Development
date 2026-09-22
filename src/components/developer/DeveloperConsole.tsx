@@ -76,13 +76,15 @@ export const DeveloperConsoleStandalone: React.FC = () => {
         sessionStorage.removeItem('zenoa_dev_console_logged_out');
       } catch (e) {}
 
+      let resolvedOAuthUser: UserData | null = null;
+
       // If payload is present in query, parse it as instant fallback
       const rawPayload = searchParams.get('payload');
       if (rawPayload) {
         try {
           const decoded = JSON.parse(atob(rawPayload));
           if (decoded && (decoded.username || decoded.sub || decoded.uid)) {
-            const tempUser: UserData = {
+            resolvedOAuthUser = {
               id: decoded.sub || decoded.uid || `user_${decoded.username}`,
               zenoa_id: decoded.zenoa_id || `${decoded.username}@zenoa`,
               username: (decoded.username || 'developer').replace(/^@/, ''),
@@ -97,13 +99,31 @@ export const DeveloperConsoleStandalone: React.FC = () => {
               is_verified: true,
               is_official: false
             };
-            localStorage.setItem('zenoa_dev_console_user', JSON.stringify(tempUser));
+            localStorage.setItem('zenoa_dev_console_user', JSON.stringify(resolvedOAuthUser));
           }
         } catch (e) {}
       }
 
-      // Clean the query parameters from the address bar
+      if (!resolvedOAuthUser) {
+        try {
+          const raw = localStorage.getItem('zenoa_dev_console_user') || localStorage.getItem('zenoa_user');
+          if (raw) resolvedOAuthUser = JSON.parse(raw);
+        } catch (e) {}
+      }
+
+      // Clean query parameters from address bar
       window.history.replaceState({}, document.title, window.location.pathname);
+
+      if (resolvedOAuthUser) {
+        setUser(resolvedOAuthUser);
+        setView('portal');
+        setLoading(false);
+        // Refresh profile in background
+        fetchFullUserProfile(resolvedOAuthUser.username, resolvedOAuthUser.id).then(fresh => {
+          if (fresh && isMounted) setUser(fresh);
+        }).catch(() => {});
+        return;
+      }
     }
 
     // Mandatory login check: If user explicitly logged out in this session and NOT returning from fresh OAuth
@@ -116,19 +136,17 @@ export const DeveloperConsoleStandalone: React.FC = () => {
         if (storedDevUser) {
           const parsed = JSON.parse(storedDevUser);
           if (parsed && (parsed.username || parsed.id)) {
+            // Instantly render portal synchronously
+            setUser(parsed);
+            setView('portal');
+            setLoading(false);
+
+            // Fetch any updated attributes asynchronously without blocking
             fetchFullUserProfile(parsed.username || parsed.id, parsed.id).then(profile => {
-              if (isMounted) {
-                setUser(profile || parsed);
-                setView('portal');
-                setLoading(false);
+              if (profile && isMounted) {
+                setUser(profile);
               }
-            }).catch(() => {
-              if (isMounted) {
-                setUser(parsed);
-                setView('portal');
-                setLoading(false);
-              }
-            });
+            }).catch(() => {});
             return;
           }
         }

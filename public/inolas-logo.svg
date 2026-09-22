@@ -1,0 +1,18 @@
+<svg width="380" height="110" viewBox="0 0 380 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="inolasLogoGrad" x1="20" y1="10" x2="110" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#E082FF" />
+      <stop offset="45%" stopColor="#818CF8" />
+      <stop offset="100%" stopColor="#2563EB" />
+    </linearGradient>
+  </defs>
+
+  <!-- Top Slanted Parallelogram -->
+  <polygon points="20,10 72,10 112,60 60,60" fill="url(#inolasLogoGrad)" />
+
+  <!-- Bottom Square -->
+  <rect x="20" y="60" width="40" height="40" fill="#0066FF" />
+
+  <!-- Brand Typography: INolas -->
+  <text x="132" y="75" fill="#0A0E27" font-family="Plus Jakarta Sans, Inter, -apple-system, sans-serif" font-weight="700" font-size="64px" letter-spacing="-0.03em">INolas</text>
+</svg>

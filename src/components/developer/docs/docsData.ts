@@ -73,7 +73,7 @@ export const generateDocsData = (app: any, baseUrl: string): DocCategory[] => {
 - **Real-Time Webhooks with HMAC Signatures**: Receive instant delivery reports, read receipts, and user reply events with SHA-256 cryptographic verification.
 - **Transparent Credits & Rate Governance**: Monitor API quotas, wallet balances, and usage metrics with zero hidden overage charges.`,
           authRequired: false,
-          rateLimit: 'Unlimited',
+          rateLimit: 'N/A (Architecture Guide • 500 req/min API Quota)',
           cost: 'Free',
           headers: [],
           params: [],
@@ -558,7 +558,7 @@ print("Remaining:", res.headers.get("X-RateLimit-Remaining"))`,
 | **3. Token Exchange** | \`POST /api/sso/token\` | Exchange code for \`access_token\` and \`id_token\`. |
 | **4. User Identity** | \`GET /api/sso/userinfo\` | Retrieve verified user profile, email, and metadata. |`,
           authRequired: false,
-          rateLimit: 'Unlimited',
+          rateLimit: 'N/A (Protocol Specification • 500 req/min API Quota)',
           cost: 'Free',
           headers: [],
           params: [],
@@ -1014,7 +1014,7 @@ res = requests.post("${baseUrl}/api/v1/sessions/revoke", json={"user_id": "usr_9
 - **Zero Sending Costs on Zenoa**: All email volumes are processed through your provider quota with zero per-message markup.
 - **High Inbox Placement**: Your emails leverage your verified SPF, DKIM, and DMARC domain reputation.`,
           authRequired: false,
-          rateLimit: 'Unlimited',
+          rateLimit: 'N/A (Infrastructure Overview • Provider Quotas Apply)',
           cost: 'Free',
           headers: [],
           params: [],
