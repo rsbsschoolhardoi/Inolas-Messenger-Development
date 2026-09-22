@@ -40,5 +40,15 @@ export default function handler(req: any, res: any) {
     req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
   }
 
-  return app(req, res);
+  try {
+    return app(req, res);
+  } catch (err: any) {
+    console.error("Vercel Serverless Function Execution Error:", err);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        error: 'Serverless Function Error: ' + (err?.message || String(err))
+      });
+    }
+  }
 }
