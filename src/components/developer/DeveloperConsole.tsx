@@ -49,32 +49,52 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     } catch (e) {}
   };
 
-  const fetchFullUserProfile = async (searchIdent: string, uid?: string): Promise<UserData | null> => {
-    if (!db) return null;
+  const fetchFullUserProfile = async (searchIdent: string, uid?: string): Promise<{ profile: UserData | null; status: 'ok' | 'not_found' | 'suspended' }> => {
+    if (!db) return { profile: null, status: 'ok' };
     try {
+      let snap = null;
       if (uid) {
         const uidSnap = await getDoc(doc(db, 'users', uid));
-        if (uidSnap.exists() && uidSnap.data()?.username) {
-          return { id: uidSnap.id, ...uidSnap.data() } as UserData;
-        }
+        if (uidSnap.exists()) snap = uidSnap;
       }
 
-      const clean = searchIdent.trim().toLowerCase();
-      const userDoc = await getDoc(doc(db, 'users', clean));
-      if (userDoc.exists() && userDoc.data()?.username) {
-        return { id: userDoc.id, ...userDoc.data() } as UserData;
+      if (!snap) {
+        const clean = searchIdent.trim().toLowerCase().replace(/^@/, '');
+        const userDoc = await getDoc(doc(db, 'users', clean));
+        if (userDoc.exists()) snap = userDoc;
       }
 
-      const usersRef = collection(db, 'users');
-      const uq = query(usersRef, where('username', '==', clean));
-      const uSnap = await getDocs(uq);
-      if (!uSnap.empty) {
-        return { id: uSnap.docs[0].id, ...uSnap.docs[0].data() } as UserData;
+      if (!snap) {
+        const clean = searchIdent.trim().toLowerCase().replace(/^@/, '');
+        const usersRef = collection(db, 'users');
+        const uq = query(usersRef, where('username', '==', clean));
+        const uSnap = await getDocs(uq);
+        if (!uSnap.empty) snap = uSnap.docs[0];
       }
+
+      if (!snap || !snap.exists()) {
+        return { profile: null, status: 'not_found' };
+      }
+
+      const data = snap.data();
+      const isBlocked = 
+        data.status === 'suspended' || 
+        data.status === 'blocked' || 
+        data.status === 'deactivated' || 
+        data.is_deleted === true || 
+        data.deactivated === true || 
+        data.disabled === true ||
+        data.is_suspended === true;
+
+      if (isBlocked) {
+        return { profile: null, status: 'suspended' };
+      }
+
+      return { profile: { id: snap.id, ...data } as UserData, status: 'ok' };
     } catch (err) {
       console.warn('Developer console user fetch error:', err);
+      return { profile: null, status: 'ok' };
     }
-    return null;
   };
 
   useEffect(() => {
@@ -134,8 +154,16 @@ export const DeveloperConsoleStandalone: React.FC = () => {
         setView('portal');
         setLoading(false);
         // Refresh profile in background
-        fetchFullUserProfile(resolvedOAuthUser.username, resolvedOAuthUser.id).then(fresh => {
-          if (fresh && isMounted) setUser(fresh);
+        fetchFullUserProfile(resolvedOAuthUser.username, resolvedOAuthUser.id).then(res => {
+          if (!isMounted) return;
+          if (res.status === 'not_found' || res.status === 'suspended') {
+            localStorage.removeItem('zenoa_dev_console_user');
+            localStorage.removeItem('zenoa_user');
+            setUser(null);
+            setView('landing');
+          } else if (res.profile) {
+            setUser(res.profile);
+          }
         }).catch(() => {});
         return;
       }
@@ -157,9 +185,15 @@ export const DeveloperConsoleStandalone: React.FC = () => {
             setLoading(false);
 
             // Fetch any updated attributes asynchronously without blocking
-            fetchFullUserProfile(parsed.username || parsed.id, parsed.id).then(profile => {
-              if (profile && isMounted) {
-                setUser(profile);
+            fetchFullUserProfile(parsed.username || parsed.id, parsed.id).then(res => {
+              if (!isMounted) return;
+              if (res.status === 'not_found' || res.status === 'suspended') {
+                localStorage.removeItem('zenoa_dev_console_user');
+                localStorage.removeItem('zenoa_user');
+                setUser(null);
+                setView('landing');
+              } else if (res.profile) {
+                setUser(res.profile);
               }
             }).catch(() => {});
             return;
@@ -172,9 +206,9 @@ export const DeveloperConsoleStandalone: React.FC = () => {
       unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
         if (!isMounted) return;
         if (fbUser) {
-          const profile = await fetchFullUserProfile(fbUser.email || fbUser.uid, fbUser.uid);
-          if (profile && isMounted) {
-            setUser(profile);
+          const res = await fetchFullUserProfile(fbUser.email || fbUser.uid, fbUser.uid);
+          if (res.profile && isMounted) {
+            setUser(res.profile);
             setView('portal');
             setLoading(false);
             return;
@@ -196,8 +230,8 @@ export const DeveloperConsoleStandalone: React.FC = () => {
   const handleAuthenticatedWithZenoa = async (authenticatedUser: UserData) => {
     try {
       sessionStorage.removeItem('zenoa_dev_console_logged_out');
-      const fresh = await fetchFullUserProfile(authenticatedUser.username, authenticatedUser.id);
-      const userToUse = fresh || authenticatedUser;
+      const res = await fetchFullUserProfile(authenticatedUser.username, authenticatedUser.id);
+      const userToUse = res.profile || authenticatedUser;
       setUser(userToUse);
       setView('portal');
     } catch (err) {

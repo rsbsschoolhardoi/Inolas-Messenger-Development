@@ -4316,6 +4316,19 @@ export default function App() {
 
           if (!querySnap.empty) {
             const matchedUser = querySnap.docs[0].data();
+            const isBlocked = 
+              matchedUser.status === 'suspended' || 
+              matchedUser.status === 'blocked' || 
+              matchedUser.status === 'deactivated' || 
+              matchedUser.is_deleted === true || 
+              matchedUser.deactivated === true || 
+              matchedUser.disabled === true ||
+              matchedUser.is_suspended === true;
+
+            if (isBlocked) {
+              return { success: false, error: 'Account Security Violation: Your Zenoa account has been suspended, blocked, or deactivated. Access denied.' };
+            }
+
             if (matchedUser.is_service_account || matchedUser.is_business_account) {
               return { success: false, error: 'Service Accounts cannot be logged in directly. They are designated strictly for automated API dispatches and OTP services.' };
             }
@@ -4354,6 +4367,24 @@ export default function App() {
 
         const userDocRef = doc(db, 'users', userObj.uid);
         const userSnap = await getDoc(userDocRef);
+
+        if (!userSnap.exists()) {
+          return { success: false, error: 'Account Security Violation: This account no longer exists in the Zenoa database. Access denied.' };
+        }
+
+        const profileData = userSnap.data();
+        const isBlocked = 
+          profileData?.status === 'suspended' || 
+          profileData?.status === 'blocked' || 
+          profileData?.status === 'deactivated' || 
+          profileData?.is_deleted === true || 
+          profileData?.deactivated === true || 
+          profileData?.disabled === true ||
+          profileData?.is_suspended === true;
+
+        if (isBlocked) {
+          return { success: false, error: 'Account Security Violation: Your Zenoa account has been suspended, blocked, or deactivated. Access denied.' };
+        }
 
         if (!userObj.emailVerified && !userSnap.exists()) {
           try {

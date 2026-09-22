@@ -2924,14 +2924,36 @@ app.post('/api/v1/sso/authorize', async (req: any, res: any) => {
     let storedRealName = user_data.real_name || user_data.legal_name;
     const userUid = user_data.id || user_data.uid;
 
-    if (db && userUid && !storedRealName) {
+    if (db && userUid) {
       try {
-        const uSnap = await getDoc(doc(db, 'users', String(userUid)));
-        if (uSnap.exists()) {
-          const uData = uSnap.data();
-          if (uData.real_name || uData.legal_name) {
-            storedRealName = uData.real_name || uData.legal_name;
-          }
+        let uSnap = await getDoc(doc(db, 'users', String(userUid)));
+        if (!uSnap.exists() && user_data.username) {
+          uSnap = await getDoc(doc(db, 'users', String(user_data.username).toLowerCase().replace(/^@/, '')));
+        }
+
+        if (!uSnap.exists()) {
+          return res.status(403).json({ 
+            error: 'Account Security Error: User account no longer exists in Zenoa database or has been deleted. Authorization denied.' 
+          });
+        }
+
+        const uData = uSnap.data();
+        if (
+          uData?.status === 'suspended' || 
+          uData?.status === 'blocked' || 
+          uData?.status === 'deactivated' || 
+          uData?.is_deleted === true || 
+          uData?.deactivated === true || 
+          uData?.disabled === true ||
+          uData?.is_suspended === true
+        ) {
+          return res.status(403).json({ 
+            error: 'Account Security Error: User account has been suspended, blocked, or deactivated. Authorization denied.' 
+          });
+        }
+
+        if (uData.real_name || uData.legal_name) {
+          storedRealName = uData.real_name || uData.legal_name;
         }
       } catch (_) {}
     }
@@ -3109,31 +3131,56 @@ app.post(['/api/v1/sso/token', '/v1/sso/token', '/api/oauth/token', '/api/v1/oau
       return res.status(400).json({ error: 'Invalid or expired authorization code.' });
     }
 
-    // Enrich user_data from users collection if incomplete or missing clean real_name
+    // Verify user exists in database and is not suspended/deleted
     if (codeData && db) {
-      const uIdent = codeData.user_id || codeData.user_data?.id;
+      const uIdent = codeData.user_id || codeData.user_data?.id || codeData.user_data?.username;
       if (uIdent) {
         try {
-          const uDoc = await getDoc(doc(db, 'users', String(uIdent).toLowerCase()));
-          if (uDoc.exists()) {
-            const uData = uDoc.data();
-            const rawD = uData?.display_name || uData?.username || uDoc.id;
-            const profN = uData?.real_name || uData?.legal_name || sanitizeNameForThirdParty(rawD, uData?.username);
-            codeData.user_data = {
-              id: uDoc.id,
-              username: uData?.username || uDoc.id,
-              name: profN,
-              real_name: profN,
-              legal_name: profN,
-              full_name: profN,
-              display_name: profN,
-              raw_display_name: rawD,
-              email: uData?.email || '',
-              mobile_number: uData?.mobile_number || '',
-              avatar_url: uData?.avatar_url || '',
-              is_verified: true
-            };
+          const cleanU = String(uIdent).toLowerCase().replace(/^@/, '');
+          let uDoc = await getDoc(doc(db, 'users', cleanU));
+          if (!uDoc.exists() && codeData.user_data?.username) {
+            uDoc = await getDoc(doc(db, 'users', String(codeData.user_data.username).toLowerCase().replace(/^@/, '')));
           }
+
+          if (!uDoc.exists()) {
+            return res.status(403).json({
+              error: 'invalid_grant',
+              error_description: 'Account security error: User account has been deleted from the database. Token exchange rejected.'
+            });
+          }
+
+          const uData = uDoc.data();
+          if (
+            uData?.status === 'suspended' || 
+            uData?.status === 'blocked' || 
+            uData?.status === 'deactivated' || 
+            uData?.is_deleted === true || 
+            uData?.deactivated === true || 
+            uData?.disabled === true ||
+            uData?.is_suspended === true
+          ) {
+            return res.status(403).json({
+              error: 'invalid_grant',
+              error_description: 'Account security error: User account has been suspended, blocked, or deactivated. Token exchange rejected.'
+            });
+          }
+
+          const rawD = uData?.display_name || uData?.username || uDoc.id;
+          const profN = uData?.real_name || uData?.legal_name || sanitizeNameForThirdParty(rawD, uData?.username);
+          codeData.user_data = {
+            id: uDoc.id,
+            username: uData?.username || uDoc.id,
+            name: profN,
+            real_name: profN,
+            legal_name: profN,
+            full_name: profN,
+            display_name: profN,
+            raw_display_name: rawD,
+            email: uData?.email || '',
+            mobile_number: uData?.mobile_number || '',
+            avatar_url: uData?.avatar_url || '',
+            is_verified: true
+          };
         } catch (uErr) {
           console.warn('User profile enrichment warning:', uErr);
         }
@@ -3271,6 +3318,42 @@ app.get(['/api/v1/sso/userinfo', '/api/v1/sso/me', '/api/oauth/userinfo', '/api/
 
     if (tokenData.expires_at < Date.now()) {
       return res.status(401).json({ error: 'Access token has expired.' });
+    }
+
+    if (db) {
+      const uId = tokenData.user?.id || tokenData.user?.uid || tokenData.user?.username;
+      if (uId) {
+        try {
+          const cleanId = String(uId).toLowerCase().replace(/^@/, '');
+          let uSnap = await getDoc(doc(db, 'users', cleanId));
+          if (!uSnap.exists() && tokenData.user?.username) {
+            uSnap = await getDoc(doc(db, 'users', String(tokenData.user.username).toLowerCase().replace(/^@/, '')));
+          }
+
+          if (!uSnap.exists()) {
+            return res.status(401).json({
+              error: 'invalid_token',
+              error_description: 'Account security error: User account has been deleted from the database. Access revoked.'
+            });
+          }
+
+          const uData = uSnap.data();
+          if (
+            uData?.status === 'suspended' || 
+            uData?.status === 'blocked' || 
+            uData?.status === 'deactivated' || 
+            uData?.is_deleted === true || 
+            uData?.deactivated === true || 
+            uData?.disabled === true ||
+            uData?.is_suspended === true
+          ) {
+            return res.status(401).json({
+              error: 'invalid_token',
+              error_description: 'Account security error: User account has been suspended, blocked, or deactivated. Access revoked.'
+            });
+          }
+        } catch (_) {}
+      }
     }
 
     const rawDisplayName = tokenData.user?.raw_display_name || tokenData.user?.display_name || tokenData.user?.username;

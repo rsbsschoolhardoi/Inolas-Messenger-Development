@@ -213,7 +213,119 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
       setShowInlineLoginForm(true);
       setInlineAuthMode('login');
     }
+
+    // Async pass: Validate every saved account against live Firestore database to purge deleted/suspended users
+    if (db && accounts.length > 0) {
+      (async () => {
+        const validAccounts: UserData[] = [];
+        for (const acc of accounts) {
+          try {
+            const cleanU = (acc.username || acc.id || '').replace(/^@/, '').toLowerCase().trim();
+            let snap = null;
+            if (acc.id) {
+              const s = await getDoc(doc(db, 'users', acc.id));
+              if (s.exists()) snap = s;
+            }
+            if (!snap && cleanU) {
+              const s = await getDoc(doc(db, 'users', cleanU));
+              if (s.exists()) snap = s;
+            }
+            if (!snap && cleanU) {
+              const sq = await getDocs(query(collection(db, 'users'), where('username', '==', cleanU)));
+              if (!sq.empty) snap = sq.docs[0];
+            }
+
+            if (!snap || !snap.exists()) {
+              // Ghost user deleted from database
+              purgeGhostAccount(acc);
+              continue;
+            }
+
+            const d = snap.data();
+            const isInvalid = 
+              d?.status === 'suspended' || 
+              d?.status === 'blocked' || 
+              d?.status === 'deactivated' || 
+              d?.is_deleted === true || 
+              d?.deactivated === true || 
+              d?.disabled === true ||
+              d?.is_suspended === true;
+
+            if (isInvalid) {
+              purgeGhostAccount(acc);
+              continue;
+            }
+
+            validAccounts.push(acc);
+          } catch (_) {
+            validAccounts.push(acc);
+          }
+        }
+
+        if (validAccounts.length !== accounts.length) {
+          setSavedAccounts(validAccounts);
+          if (validAccounts.length > 0) {
+            setSelectedAccount(validAccounts[0]);
+          } else {
+            setSelectedAccount(null);
+            setShowInlineLoginForm(true);
+            setInlineAuthMode('login');
+          }
+        }
+      })();
+    }
   }, [currentUser]);
+
+  const purgeGhostAccount = (targetUser: UserData) => {
+    try {
+      const targetId = targetUser.id;
+      const targetUName = (targetUser.username || '').toLowerCase().replace(/^@/, '');
+
+      const filterList = (raw: string | null) => {
+        if (!raw) return null;
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const rem = parsed.filter((u: any) => u.id !== targetId && (u.username || '').toLowerCase().replace(/^@/, '') !== targetUName);
+            return rem.length > 0 ? rem : null;
+          }
+          if (parsed && (parsed.id === targetId || (parsed.username || '').toLowerCase().replace(/^@/, '') === targetUName)) {
+            return null;
+          }
+          return parsed;
+        } catch {
+          return null;
+        }
+      };
+
+      const cleanUser = filterList(localStorage.getItem('zenoa_user'));
+      if (cleanUser) localStorage.setItem('zenoa_user', JSON.stringify(cleanUser)); else localStorage.removeItem('zenoa_user');
+
+      const cleanDev = filterList(localStorage.getItem('zenoa_dev_console_user'));
+      if (cleanDev) localStorage.setItem('zenoa_dev_console_user', JSON.stringify(cleanDev)); else localStorage.removeItem('zenoa_dev_console_user');
+
+      const cleanSSO = filterList(localStorage.getItem('zenoa_sso_console_user'));
+      if (cleanSSO) localStorage.setItem('zenoa_sso_console_user', JSON.stringify(cleanSSO)); else localStorage.removeItem('zenoa_sso_console_user');
+
+      const savedRaw = localStorage.getItem('zenoa_saved_accounts');
+      if (savedRaw) {
+        const remaining = filterList(savedRaw);
+        if (remaining) localStorage.setItem('zenoa_saved_accounts', JSON.stringify(remaining));
+        else localStorage.removeItem('zenoa_saved_accounts');
+      }
+
+      setSavedAccounts(prev => {
+        const next = prev.filter(u => u.id !== targetId && (u.username || '').toLowerCase().replace(/^@/, '') !== targetUName);
+        if (next.length > 0) {
+          setSelectedAccount(next[0]);
+        } else {
+          setSelectedAccount(null);
+          setShowInlineLoginForm(true);
+        }
+        return next;
+      });
+    } catch (e) {}
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -989,6 +1101,52 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
 
     setIsAuthorizing(true);
     setError(null);
+
+    // STRICT SECURITY: Real-time Database User Existence & Account Status Check
+    if (db) {
+      try {
+        const cleanUsername = (targetUser.username || targetUser.id || '').replace(/^@/, '').trim().toLowerCase();
+        let userSnap = null;
+        if (targetUser.id) {
+          const snapById = await getDoc(doc(db, 'users', targetUser.id));
+          if (snapById.exists()) userSnap = snapById;
+        }
+        if (!userSnap && cleanUsername) {
+          const snapByUName = await getDoc(doc(db, 'users', cleanUsername));
+          if (snapByUName.exists()) userSnap = snapByUName;
+        }
+        if (!userSnap && cleanUsername) {
+          const uqSnap = await getDocs(query(collection(db, 'users'), where('username', '==', cleanUsername)));
+          if (!uqSnap.empty) userSnap = uqSnap.docs[0];
+        }
+
+        if (!userSnap || !userSnap.exists()) {
+          setIsAuthorizing(false);
+          setError('Account Security Violation: This account no longer exists in the Zenoa database. Access denied.');
+          purgeGhostAccount(targetUser);
+          return;
+        }
+
+        const uData = userSnap.data();
+        const isBlockedOrSuspended = 
+          uData?.status === 'suspended' || 
+          uData?.status === 'blocked' || 
+          uData?.status === 'deactivated' || 
+          uData?.is_deleted === true || 
+          uData?.deactivated === true || 
+          uData?.disabled === true ||
+          uData?.is_suspended === true;
+
+        if (isBlockedOrSuspended) {
+          setIsAuthorizing(false);
+          setError('Account Security Violation: Your Zenoa account has been suspended, blocked, or deactivated. Access denied.');
+          purgeGhostAccount(targetUser);
+          return;
+        }
+      } catch (dbErr) {
+        console.warn('Real-time SSO user verification warning:', dbErr);
+      }
+    }
 
     try {
       // 1. Generate 256-bit High-Entropy Cryptographic Auth Code (RFC 6749)
