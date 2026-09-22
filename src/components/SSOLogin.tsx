@@ -36,6 +36,30 @@ interface SecurityBlockDetails {
   recommendation: string;
 }
 
+export const safeBase64Encode = (str: string): string => {
+  try {
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) =>
+      String.fromCharCode(parseInt(p1, 16))
+    ));
+  } catch (e) {
+    return btoa(str);
+  }
+};
+
+export const safeBase64Decode = (str: string): string => {
+  try {
+    return decodeURIComponent(atob(str).split('').map((c) =>
+      '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+    ).join(''));
+  } catch (e) {
+    try {
+      return atob(str);
+    } catch (e2) {
+      return str;
+    }
+  }
+};
+
 export const SSOLogin: React.FC<SSOLoginProps> = ({ 
   currentUser, 
   onLoginRequest,
@@ -203,7 +227,7 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
     // If redirected back with payload, signature, or code (test callback screen)
     if (payloadParam && signatureParam) {
       try {
-        const decodedJson = JSON.parse(atob(payloadParam));
+        const decodedJson = JSON.parse(safeBase64Decode(payloadParam));
         setCallbackData({
           payload: decodedJson,
           rawPayload: payloadParam,
@@ -1122,6 +1146,21 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         }, { merge: true }).catch(() => null);
       }
 
+      // Save authorized developer or SSO console user session
+      try {
+        if (isConsoleLogin || activeClientId === 'zenoa_developer_console' || activeRedirectUri.includes('/developer')) {
+          localStorage.setItem('zenoa_dev_console_user', JSON.stringify(targetUser));
+          localStorage.setItem('zenoa_user', JSON.stringify(targetUser));
+          sessionStorage.removeItem('zenoa_dev_console_logged_out');
+        } else if (activeClientId === 'zenoa_oauth_console' || activeRedirectUri.includes('/sso')) {
+          localStorage.setItem('zenoa_sso_console_user', JSON.stringify(targetUser));
+          localStorage.setItem('zenoa_user', JSON.stringify(targetUser));
+          sessionStorage.removeItem('zenoa_sso_console_logged_out');
+        } else {
+          localStorage.setItem('zenoa_user', JSON.stringify(targetUser));
+        }
+      } catch (e) {}
+
       // 5. Construct OAuth 2.0 callback URL with full security metadata
       const finalUrl = new URL(activeRedirectUri, window.location.origin);
       finalUrl.searchParams.set('code', authCode);
@@ -1155,12 +1194,12 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         exp: Math.floor(Date.now() / 1000) + 3600
       };
 
-      const encodedPayload = btoa(JSON.stringify(rawProfile));
+      const encodedPayload = safeBase64Encode(JSON.stringify(rawProfile));
       finalUrl.searchParams.set('payload', encodedPayload);
       finalUrl.searchParams.set('signature', 'zen_sig_' + Array.from(window.crypto.getRandomValues(new Uint8Array(20))).map(b => b.toString(16).padStart(2, '0')).join(''));
 
-      // If redirectUri is /auth/sso or same domain test, render callback inspect directly
-      if (activeRedirectUri.includes('/auth/sso') || activeRedirectUri === window.location.href.split('?')[0]) {
+      // If redirectUri is explicitly /auth/sso without destination route, render callback inspect directly
+      if (activeRedirectUri === '/auth/sso' || activeRedirectUri.endsWith('/auth/sso')) {
         setCallbackData({
           payload: rawProfile,
           rawPayload: encodedPayload,
@@ -1170,7 +1209,7 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
         });
         setIsAuthorizing(false);
       } else {
-        // Direct seamless navigation
+        // Direct seamless navigation to developer console or app callback
         window.location.href = finalUrl.toString();
       }
     } catch (err: any) {

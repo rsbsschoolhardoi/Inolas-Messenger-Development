@@ -11,6 +11,20 @@ import { buildSecureOAuthUrl } from '../../utils/oauthSecurity';
 
 type ConsoleView = 'landing' | 'mobile_setup' | 'portal';
 
+const safeBase64Decode = (str: string): string => {
+  try {
+    return decodeURIComponent(atob(str).split('').map((c) =>
+      '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+    ).join(''));
+  } catch (e) {
+    try {
+      return atob(str);
+    } catch (e2) {
+      return str;
+    }
+  }
+};
+
 export const DeveloperConsoleStandalone: React.FC = () => {
   useEffect(() => {
     resolveAndApplyMetadata();
@@ -82,7 +96,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
       const rawPayload = searchParams.get('payload');
       if (rawPayload) {
         try {
-          const decoded = JSON.parse(atob(rawPayload));
+          const decoded = JSON.parse(safeBase64Decode(rawPayload));
           if (decoded && (decoded.username || decoded.sub || decoded.uid)) {
             resolvedOAuthUser = {
               id: decoded.sub || decoded.uid || `user_${decoded.username}`,
@@ -100,6 +114,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
               is_official: false
             };
             localStorage.setItem('zenoa_dev_console_user', JSON.stringify(resolvedOAuthUser));
+            localStorage.setItem('zenoa_user', JSON.stringify(resolvedOAuthUser));
           }
         } catch (e) {}
       }

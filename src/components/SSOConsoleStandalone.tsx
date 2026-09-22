@@ -20,6 +20,20 @@ interface SSOConsoleStandaloneProps {
   currentUser?: UserData | null;
 }
 
+const safeBase64Decode = (str: string): string => {
+  try {
+    return decodeURIComponent(atob(str).split('').map((c) =>
+      '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+    ).join(''));
+  } catch (e) {
+    try {
+      return atob(str);
+    } catch (e2) {
+      return str;
+    }
+  }
+};
+
 export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ currentUser: propUser }) => {
   const branding = useBranding();
   const [user, setUser] = useState<UserData | null>(propUser || null);
@@ -91,7 +105,7 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
       const rawPayload = searchParams.get('payload');
       if (rawPayload) {
         try {
-          const decoded = JSON.parse(atob(rawPayload));
+          const decoded = JSON.parse(safeBase64Decode(rawPayload));
           if (decoded && (decoded.username || decoded.sub || decoded.uid)) {
             resolvedOAuthUser = {
               id: decoded.sub || decoded.uid || `user_${decoded.username}`,
@@ -109,6 +123,7 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
               is_official: false
             };
             localStorage.setItem('zenoa_sso_console_user', JSON.stringify(resolvedOAuthUser));
+            localStorage.setItem('zenoa_user', JSON.stringify(resolvedOAuthUser));
           }
         } catch (e) {}
       }
