@@ -209,11 +209,14 @@ export const DeveloperConsoleStandalone: React.FC = () => {
 
   const redirectToAccountsAuth = () => {
     const host = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+    const isZenoaProdHost = host.endsWith('zenoa.in') || host.endsWith('zenoa.sbs');
     let redirectUri = `${window.location.origin}/developer`;
-    if (host.includes('developer.zenoa.in')) {
-      redirectUri = 'https://developer.zenoa.in/developer';
-    } else if (host.includes('developer.zenoa.sbs')) {
-      redirectUri = 'https://developer.zenoa.sbs/developer';
+    if (isZenoaProdHost) {
+      if (host.includes('developer.zenoa.sbs')) {
+        redirectUri = 'https://developer.zenoa.sbs/developer';
+      } else if (host.includes('developer.zenoa.in')) {
+        redirectUri = 'https://developer.zenoa.in/developer';
+      }
     }
 
     const secureUrl = buildSecureOAuthUrl({

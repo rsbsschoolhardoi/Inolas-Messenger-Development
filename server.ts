@@ -1471,6 +1471,7 @@ const authenticateApiKey = async (req: any, res: any, next: any) => {
 
 // Helper: Resolve recipient (username, mobile number, Zenoa ID, email, or UID) to registered Zenoa user
 async function resolveUserRecipient(recipientInput: string): Promise<{ 
+  uid: string;
   zenoaId: string; 
   username: string; 
   mobileNumber: string; 
@@ -1478,7 +1479,7 @@ async function resolveUserRecipient(recipientInput: string): Promise<{
 }> {
   let clean = String(recipientInput || '').trim();
   let cleanLower = clean.toLowerCase().replace(/^@/, '').trim();
-  let defaultResult = { zenoaId: cleanLower, username: cleanLower, mobileNumber: '', displayName: cleanLower };
+  let defaultResult = { uid: cleanLower, zenoaId: cleanLower, username: cleanLower, mobileNumber: '', displayName: cleanLower };
 
   if (!db || !cleanLower) return defaultResult;
 
@@ -1619,12 +1620,14 @@ async function resolveUserRecipient(recipientInput: string): Promise<{
         }
       }
 
+      const activeUid = matchedDocData.uid || matchedDocData.id || matchedDocId;
       const activeUsername = (matchedDocData.username || matchedDocId).toLowerCase().replace(/^@/, '');
       const activeZenoaId = matchedDocData.zenoa_id || matchedDocData.id || matchedDocData.uid || primaryZenoaId;
       const activeMobile = matchedDocData.mobile_number || matchedDocData.phone_number || matchedDocData.phone || '';
       const activeDisplayName = matchedDocData.display_name || activeUsername;
 
       return {
+        uid: String(activeUid),
         zenoaId: String(activeZenoaId).toLowerCase(),
         username: String(activeUsername).toLowerCase(),
         mobileNumber: String(activeMobile),
@@ -1728,16 +1731,18 @@ async function deliverBotChatMessage(opts: {
   senderAppName?: any;
   recipientUsername: any;
   recipientZenoaId?: any;
+  recipientUid?: any;
   messageText: any;
   action_buttons?: any;
   security_event?: any;
 }): Promise<{ chatId: string; messageId: string }> {
   try {
-    const { senderBotUsername, senderAppName, recipientUsername, recipientZenoaId, messageText, action_buttons, security_event } = opts || {};
+    const { senderBotUsername, senderAppName, recipientUsername, recipientZenoaId, recipientUid, messageText, action_buttons, security_event } = opts || {};
     
     const botRaw = toCleanString(senderBotUsername, 'service_account');
     const recRaw = toCleanString(recipientUsername, 'user');
     const recIdRaw = recipientZenoaId ? toCleanString(recipientZenoaId, recRaw) : recRaw;
+    let recUidRaw = recipientUid ? toCleanString(recipientUid, '') : '';
     const msgText = toCleanString(messageText, '');
 
     const botClean = botRaw.toLowerCase().replace(/^@/, '');
@@ -1746,6 +1751,17 @@ async function deliverBotChatMessage(opts: {
 
     if (db && botClean && recClean) {
       try {
+        // Automatically resolve Firebase Auth UID if not passed explicitly
+        if (!recUidRaw) {
+          try {
+            const userSnap = await getDoc(doc(db, 'users', recClean));
+            if (userSnap.exists()) {
+              const uData = userSnap.data();
+              recUidRaw = toCleanString(uData?.uid || uData?.id || userSnap.id, '');
+            }
+          } catch (e) {}
+        }
+
         // 1. Check if this is an official Zenoa platform service or a Developer Business bot
         const isOfficialZenoaAccount = [
           'zenoa', 'sa_zenoa', 'zenoa_official', 'zenoa_security', 'zenoa_auth', 'zenoa_support',
@@ -1779,8 +1795,8 @@ async function deliverBotChatMessage(opts: {
         }, { merge: true });
 
         // 2. Format DM chat ID & write chat + message in Zenoa Messenger standard format
-        const participants = Array.from(new Set([recClean, recIdClean, botClean].filter(Boolean))).sort();
-        const participantIds = Array.from(new Set([recIdClean, recClean, botClean].filter(Boolean))).sort();
+        const participants = Array.from(new Set([recClean, recIdClean, recUidRaw, botClean].filter(Boolean))).sort();
+        const participantIds = Array.from(new Set([recUidRaw, recIdClean, recClean, botClean].filter(Boolean))).sort();
         const sortedDmUsernames = [recClean, botClean].sort();
         const chatId = `chat_dm_${sortedDmUsernames.join('_')}`;
         const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
@@ -1949,6 +1965,7 @@ app.post(['/api/v1/otp/send', '/v1/otp/send', '/api/developer/send-otp'], authen
       senderAppName: effectiveSenderName,
       recipientUsername: cleanRecipient,
       recipientZenoaId: resolvedUser.zenoaId,
+      recipientUid: resolvedUser.uid,
       messageText
     });
 

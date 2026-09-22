@@ -973,7 +973,17 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
     // Resolve client ID and redirect URI with safe fallbacks
     const searchParams = new URLSearchParams(window.location.search);
     const activeClientId = clientId || searchParams.get('client_id') || 'zenoa_developer_console';
-    const activeRedirectUri = redirectUri || searchParams.get('redirect_uri') || `${window.location.origin}/developer`;
+    let activeRedirectUri = redirectUri || searchParams.get('redirect_uri') || `${window.location.origin}/developer`;
+    
+    const currentHost = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+    const isZenoaProdHost = currentHost.endsWith('zenoa.in') || currentHost.endsWith('zenoa.sbs');
+    if (!isZenoaProdHost) {
+      if (activeRedirectUri.includes('developer.zenoa.') || activeRedirectUri.includes('/developer') || activeClientId === 'zenoa_developer_console') {
+        activeRedirectUri = `${window.location.origin}/developer`;
+      } else if (activeRedirectUri.includes('console.zenoa.') || activeRedirectUri.includes('/sso') || activeClientId === 'zenoa_oauth_console') {
+        activeRedirectUri = `${window.location.origin}/sso`;
+      }
+    }
     const activeState = state || searchParams.get('state') || '';
     const activeNonce = searchParams.get('nonce') || '';
 

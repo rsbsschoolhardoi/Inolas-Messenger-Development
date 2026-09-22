@@ -4,6 +4,14 @@ import {
   ArrowRight, ShieldCheck, Play, Sparkles, MessageSquare, Terminal
 } from 'lucide-react';
 
+const safeBase64Encode = (str: string): string => {
+  try {
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode(parseInt(p1, 16))));
+  } catch (e) {
+    return btoa(str);
+  }
+};
+
 interface OtpSimulatorViewProps {
   app: any;
   currentUser: any;
@@ -71,7 +79,7 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({
         headers: {
           'X-Client-Id': clientId,
           'X-Client-Secret': clientSecret,
-          'Authorization': `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
+          'Authorization': `Basic ${safeBase64Encode(`${clientId}:${clientSecret}`)}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -127,7 +135,7 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({
         headers: {
           'X-Client-Id': clientId,
           'X-Client-Secret': clientSecret,
-          'Authorization': `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
+          'Authorization': `Basic ${safeBase64Encode(`${clientId}:${clientSecret}`)}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
