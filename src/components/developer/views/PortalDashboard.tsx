@@ -24,6 +24,7 @@ import { SecuritySettingsView } from '../tabs/SecuritySettingsView';
 import { MessageTemplatesView } from '../tabs/MessageTemplatesView';
 import { BillingQuotaView } from '../tabs/BillingQuotaView';
 import { TeamMembersView } from '../tabs/TeamMembersView';
+import { ErrorBoundary } from '../../common/ErrorBoundary';
 
 interface PortalDashboardProps {
   currentUser: UserData;
@@ -434,9 +435,14 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
     }
 
     try {
+      const mergedUpdates = {
+        ...updates,
+        updated_at: Date.now()
+      };
+
       if (db) {
         const appRef = doc(db, 'developer_apps', selectedApp.id);
-        await setDoc(appRef, updates, { merge: true });
+        await setDoc(appRef, mergedUpdates, { merge: true });
 
         const botU = selectedApp.bot_username?.toLowerCase().replace(/^@/, '');
         if (botU) {
@@ -466,17 +472,31 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
           if ('support_phone' in updates) {
             userUpdates.support_phone = updates.support_phone || null;
           }
-          await setDoc(doc(db, 'users', botU), userUpdates, { merge: true });
+          await setDoc(doc(db, 'users', botU), userUpdates, { merge: true }).catch(() => {});
           await setDoc(doc(db, 'service_accounts', botU), {
             ...userUpdates,
             updated_at: Date.now()
           }, { merge: true }).catch(() => {});
-          await setDoc(doc(db, 'sso_applications', selectedApp.id), updates, { merge: true }).catch(() => {});
+          await setDoc(doc(db, 'sso_applications', selectedApp.id), mergedUpdates, { merge: true }).catch(() => {});
         }
       }
-      setApps(prev => prev.map(a => a.id === selectedApp.id ? { ...a, ...updates } : a));
+
+      setApps(prev => {
+        const updated = prev.map(a => a.id === selectedApp.id ? { ...a, ...mergedUpdates } : a);
+        try {
+          localStorage.setItem('zenoa_dev_apps', JSON.stringify(updated));
+        } catch (_) {}
+        return updated;
+      });
     } catch (err: any) {
-      setApps(prev => prev.map(a => a.id === selectedApp.id ? { ...a, ...updates } : a));
+      const mergedFallback = { ...updates, updated_at: Date.now() };
+      setApps(prev => {
+        const updated = prev.map(a => a.id === selectedApp.id ? { ...a, ...mergedFallback } : a);
+        try {
+          localStorage.setItem('zenoa_dev_apps', JSON.stringify(updated));
+        } catch (_) {}
+        return updated;
+      });
       console.warn("Firestore update notice:", err);
     }
   };
@@ -813,7 +833,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
         )}
 
         <div className="p-6 md:p-10 max-w-6xl mx-auto w-full space-y-8">
-          
+          <ErrorBoundary fallbackTitle="Portal Module Error">
           {/* 1. OVERVIEW TAB (LANDING VIEW) */}
           {activeTab === 'overview' && selectedApp && (
             <OverviewView
@@ -1219,7 +1239,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
               themeMode={themeMode}
             />
           )}
-
+          </ErrorBoundary>
         </div>
       </main>
 

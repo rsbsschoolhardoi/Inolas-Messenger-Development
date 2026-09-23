@@ -10,6 +10,7 @@ import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { SSOConsoleStandalone } from "./components/SSOConsoleStandalone";
 import { SSOLogin } from "./components/SSOLogin";
 import { AccountPortalStandalone } from "./components/AccountPortalStandalone";
+import { LegalPortalPage, LegalDocType } from "./components/legal/LegalPortalPage";
 import { DeveloperConsoleStandalone } from './components/developer/DeveloperConsole';
 import { DocumentationStandalone } from './components/developer/DocumentationStandalone';
 import { ConcurrentLogoutModal } from './components/ConcurrentLogoutModal';
@@ -9178,6 +9179,40 @@ export default function App() {
     is_private: dbUserObj?.is_private ?? false
   } : null;
 
+  // Dedicated Legal & Regulatory Disclosures Portal (/terms, /privacy, /security, /acceptable-use, /cookies, /legal)
+  const isLegalRoute = 
+    currentPathname === "/legal" ||
+    currentPathname.startsWith("/legal/") ||
+    currentPathname === "/terms" ||
+    currentPathname.startsWith("/terms/") ||
+    currentPathname === "/privacy" ||
+    currentPathname.startsWith("/privacy/") ||
+    currentPathname === "/security" ||
+    currentPathname.startsWith("/security/") ||
+    currentPathname === "/acceptable-use" ||
+    currentPathname === "/acceptable_use" ||
+    currentPathname === "/cookies" ||
+    currentSearchParams.get("view") === "legal" ||
+    currentSearchParams.get("view") === "privacy" ||
+    currentSearchParams.get("view") === "terms" ||
+    currentSearchParams.get("view") === "security";
+
+  if (isLegalRoute) {
+    let doc: LegalDocType = 'terms';
+    if (currentPathname.includes('privacy') || currentSearchParams.get("view") === "privacy") doc = 'privacy';
+    else if (currentPathname.includes('security') || currentSearchParams.get("view") === "security") doc = 'security';
+    else if (currentPathname.includes('acceptable') || currentSearchParams.get("view") === "acceptable_use") doc = 'acceptable_use';
+    else if (currentPathname.includes('cookie') || currentSearchParams.get("view") === "cookies") doc = 'cookies';
+
+    return (
+      <LegalPortalPage
+        initialDoc={doc}
+        themeMode={themeMode}
+        onNavigateHome={() => navigateTo('/')}
+      />
+    );
+  }
+
   // Render Dedicated Personal Account & Security Portal (account.zenoa.in)
   if (isAccountPortal) {
     return (
@@ -9470,6 +9505,7 @@ export default function App() {
               window.history.pushState({}, '', '/admin');
             } catch(e) {}
           }}
+          onNavigate={(path) => navigateTo(path)}
         />
       );
     }

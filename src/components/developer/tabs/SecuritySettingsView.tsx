@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Settings, ShieldCheck, Lock, Globe, AlertTriangle, 
   RotateCw, Check, Copy, Radio, Shield, Sparkles, Layers,
-  Bot, Camera, Trash2, Upload
+  Bot, Camera, Trash2, Upload, ExternalLink, KeyRound, 
+  Info, AlertCircle, RefreshCw, X, ChevronRight
 } from 'lucide-react';
 
 interface SecuritySettingsViewProps {
@@ -15,6 +16,12 @@ interface SecuritySettingsViewProps {
   onDeleteApp?: () => Promise<void>;
   themeMode?: 'light' | 'dark';
 }
+
+const safeTrim = (val: unknown): string => {
+  if (typeof val === 'string') return val.trim();
+  if (val === null || val === undefined) return '';
+  return String(val).trim();
+};
 
 export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
   app,
@@ -34,7 +41,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
     return '';
   };
 
-  const [appName, setAppName] = useState(app?.app_name || '');
+  // Profile & Contact Inputs
   const [appDescription, setAppDescription] = useState(app?.app_description || app?.bio || '');
   const [websiteUrl, setWebsiteUrl] = useState(app?.website_url || '');
   const [additionalWebsites, setAdditionalWebsites] = useState(app?.additional_websites || '');
@@ -42,14 +49,22 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
   const [supportEmail, setSupportEmail] = useState(app?.support_email || '');
   const [supportPhone, setSupportPhone] = useState(app?.support_phone || '');
   const [allowedIps, setAllowedIps] = useState(formatAllowedIps(app?.allowed_ips));
-  const [isSaving, setIsSaving] = useState(false);
-  const [isRotating, setIsRotating] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [showAdvancedActions, setShowAdvancedActions] = useState(false);
 
+  // Form State
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Controlled Modals (Zero native window.confirm)
+  const [showRotateModal, setShowRotateModal] = useState(false);
+  const [rotateConfirmedTerms, setRotateConfirmedTerms] = useState(false);
+  const [isRotating, setIsRotating] = useState(false);
+
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmationInput, setDeleteConfirmationInput] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Sync state when app prop changes
   useEffect(() => {
-    setAppName(app?.app_name || '');
     setAppDescription(app?.app_description || app?.bio || '');
     setWebsiteUrl(app?.website_url || '');
     setAdditionalWebsites(app?.additional_websites || '');
@@ -57,7 +72,49 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
     setSupportEmail(app?.support_email || '');
     setSupportPhone(app?.support_phone || '');
     setAllowedIps(formatAllowedIps(app?.allowed_ips));
-  }, [app?.id, app?.updated_at, app?.avatar_url]);
+  }, [
+    app?.id, 
+    app?.updated_at, 
+    app?.avatar_url,
+    app?.app_description,
+    app?.bio,
+    app?.website_url,
+    app?.additional_websites,
+    app?.office_address,
+    app?.address,
+    app?.support_email,
+    app?.support_phone
+  ]);
+
+  // Compute whether there are unsaved changes
+  const hasUnsavedChanges = useMemo(() => {
+    const initialDesc = app?.app_description || app?.bio || '';
+    const initialWeb = app?.website_url || '';
+    const initialAddWeb = app?.additional_websites || '';
+    const initialAddress = app?.office_address || app?.address || '';
+    const initialEmail = app?.support_email || '';
+    const initialPhone = app?.support_phone || '';
+    const initialIps = formatAllowedIps(app?.allowed_ips);
+
+    return (
+      safeTrim(appDescription) !== safeTrim(initialDesc) ||
+      safeTrim(websiteUrl) !== safeTrim(initialWeb) ||
+      safeTrim(additionalWebsites) !== safeTrim(initialAddWeb) ||
+      safeTrim(officeAddress) !== safeTrim(initialAddress) ||
+      safeTrim(supportEmail) !== safeTrim(initialEmail) ||
+      safeTrim(supportPhone) !== safeTrim(initialPhone) ||
+      safeTrim(allowedIps) !== safeTrim(initialIps)
+    );
+  }, [
+    app,
+    appDescription,
+    websiteUrl,
+    additionalWebsites,
+    officeAddress,
+    supportEmail,
+    supportPhone,
+    allowedIps
+  ]);
 
   const handleImageFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -82,7 +139,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
           ctx.drawImage(img, sx, sy, size, size, 0, 0, 256, 256);
           const base64Url = canvas.toDataURL('image/jpeg', 0.88);
           onUpdateApp({ avatar_url: base64Url });
-          showToast('Profile picture updated and visible on service account profile!');
+          showToast('Profile picture updated and synced with service account profile.');
         }
       };
       img.src = event.target?.result as string;
@@ -98,58 +155,107 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
+    setSaveSuccess(false);
+
     try {
-      const ipList = allowedIps
-        .split(',')
-        .map((s: string) => s.trim())
-        .filter(Boolean);
+      const ipList = safeTrim(allowedIps)
+        ? allowedIps
+            .split(',')
+            .map((s: string) => s.trim())
+            .filter(Boolean)
+        : [];
+
+      // Validate email format if provided
+      const trimmedEmail = safeTrim(supportEmail);
+      if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+        showToast('Please provide a valid support email address.');
+        setIsSaving(false);
+        return;
+      }
 
       await onUpdateApp({
-        app_description: appDescription.trim(),
-        website_url: websiteUrl.trim(),
-        additional_websites: additionalWebsites.trim(),
-        office_address: officeAddress.trim(),
-        support_email: supportEmail.trim(),
-        support_phone: supportPhone.trim(),
+        app_description: safeTrim(appDescription),
+        website_url: safeTrim(websiteUrl),
+        additional_websites: safeTrim(additionalWebsites),
+        office_address: safeTrim(officeAddress),
+        support_email: trimmedEmail,
+        support_phone: safeTrim(supportPhone),
         allowed_ips: ipList
       });
-      showToast('Application profile & security settings updated successfully!');
+
+      setSaveSuccess(true);
+      showToast('Service account settings saved & applied permanently!');
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
-      showToast('Failed to save settings: ' + err.message);
+      showToast('Failed to save settings: ' + (err?.message || 'Network error'));
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleTriggerRotation = async () => {
-    if (!window.confirm('Are you sure you want to rotate your API credentials? Any active SDK integration using the old keys will need to be re-copied.')) {
-      return;
-    }
+  const executeKeyRotation = async () => {
+    if (!rotateConfirmedTerms) return;
     setIsRotating(true);
     try {
       await onRotateKey();
-      showToast('API credentials rotated successfully! New keys have been embedded in SDKs.');
+      setShowRotateModal(false);
+      setRotateConfirmedTerms(false);
+      showToast('API credentials rotated successfully! Active secrets refreshed.');
     } catch (err: any) {
-      showToast('Rotation failed: ' + err.message);
+      showToast('Key rotation failed: ' + (err?.message || 'Server error'));
     } finally {
       setIsRotating(false);
     }
   };
 
+  const executeDeleteApp = async () => {
+    const requiredHandle = (app?.bot_username || app?.id || '').toLowerCase().replace(/^@/, '');
+    const entered = deleteConfirmationInput.trim().toLowerCase().replace(/^@/, '');
+    
+    if (entered !== requiredHandle) {
+      showToast(`Please type @${requiredHandle} to confirm decommissioning.`);
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      if (onDeleteApp) {
+        await onDeleteApp();
+        setShowDeleteModal(false);
+        setDeleteConfirmationInput('');
+      }
+    } catch (err: any) {
+      showToast('Decommission failed: ' + (err?.message || 'Server error'));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const rawBotHandle = (app?.bot_username || app?.id || 'service_account').replace(/^@/, '');
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-5xl">
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2 text-[#0d253d] dark:text-white">
-          <Settings className="h-6 w-6 text-[#533afd] dark:text-[#818cf8]" />
-          Settings & Security Controls
-        </h2>
-        <p className="text-sm text-[#64748d] dark:text-[#94a3b8] mt-1">
-          Manage operational environment mode, service account profiles, and network IP whitelisting.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2.5 text-[#0d253d] dark:text-white">
+            <Settings className="h-6 w-6 text-[#533afd] dark:text-[#818cf8]" />
+            Settings & Service Account Controls
+          </h2>
+          <p className="text-xs sm:text-sm text-[#64748d] dark:text-[#94a3b8] mt-1">
+            Configure service account identity, customer support endpoints, network whitelisting, and credential lifecycle.
+          </p>
+        </div>
+
+        {hasUnsavedChanges && (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-semibold animate-pulse self-start sm:self-auto">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>Unsaved Changes</span>
+          </div>
+        )}
       </div>
 
-      {/* 1. COMPACT ACCOUNT ENVIRONMENT & OPERATIONAL MODE */}
+      {/* 1. OPERATIONAL ENVIRONMENT MODE */}
       <div className={`rounded-2xl p-5 shadow-xs space-y-4 border ${
         isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
       }`}>
@@ -159,10 +265,10 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
           <div>
             <h3 className="text-sm font-bold flex items-center gap-2 text-[#0d253d] dark:text-white">
               <Layers className="h-4 w-4 text-[#533afd] dark:text-[#818cf8]" />
-              Environment & Gateway Mode
+              Gateway Environment Mode
             </h3>
             <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-0.5">
-              Select active gateway mode for API calls and client SDKs.
+              Toggles between the zero-credit sandbox simulator and the live carrier-backed production network.
             </p>
           </div>
           <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border ${
@@ -179,7 +285,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
           <div 
             onClick={() => {
               onSetEnvironment?.('test');
-              showToast('Account environment switched to Test (Sandbox) Mode.');
+              showToast('Switched to Sandbox (Test) mode.');
             }}
             className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
               environment === 'test'
@@ -201,10 +307,10 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
               </span>
             </div>
             <p className="text-xs text-[#64748d] dark:text-[#94a3b8] leading-normal">
-              Simulates all dispatches &amp; events with zero balance deduction.
+              Simulates webhook deliveries, transactional dispatches, and SDK calls with zero quota consumption.
             </p>
             <div className="mt-2.5 text-[11px] font-bold text-amber-500">
-              {environment === 'test' ? '✓ Currently Active' : 'Click to Select'}
+              {environment === 'test' ? '✓ Currently Active' : 'Click to Activate'}
             </div>
           </div>
 
@@ -212,7 +318,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
           <div 
             onClick={() => {
               onSetEnvironment?.('live');
-              showToast('Account environment switched to Live Production Mode.');
+              showToast('Switched to Live Production mode.');
             }}
             className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
               environment === 'live'
@@ -234,17 +340,47 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
               </span>
             </div>
             <p className="text-xs text-[#64748d] dark:text-[#94a3b8] leading-normal">
-              Connects directly to live carrier gateways &amp; production channels.
+              Directly delivers authenticated messages and OTPs to real destination end-users across carrier networks.
             </p>
             <div className="mt-2.5 text-[11px] font-bold text-emerald-500">
-              {environment === 'live' ? '✓ Currently Active' : 'Click to Select'}
+              {environment === 'live' ? '✓ Currently Active' : 'Click to Activate'}
             </div>
           </div>
         </div>
       </div>
 
+      {/* 2. PRIMARY FORM: PROFILE & OPERATIONAL SETTINGS */}
       <form onSubmit={handleSaveSettings} className="space-y-4">
-        {/* Service Account Profile */}
+        {/* Immutable Protocol Identifiers (Read-only banner) */}
+        <div className={`rounded-2xl p-5 shadow-xs border ${
+          isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+        }`}>
+          <div className="flex items-center justify-between border-b pb-3 mb-4 border-[#e3e8ee] dark:border-[#273951]">
+            <div className="flex items-center gap-2">
+              <Lock className="h-4 w-4 text-amber-500" />
+              <h3 className="text-sm font-bold">Service Account Protocol Identity</h3>
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-[#e3e8ee] dark:border-[#273951] text-[#64748d] dark:text-[#94a3b8]">
+              Fixed Protocol Binding
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'}`}>
+              <div className="text-[11px] font-medium text-[#64748d] dark:text-[#94a3b8]">Service Account Name</div>
+              <div className="text-sm font-bold text-[#0d253d] dark:text-white mt-0.5">{app?.app_name || 'Business Service'}</div>
+              <div className="text-[10px] text-[#94a3b8] dark:text-[#64748d] mt-1">Immutable across protocol certificates</div>
+            </div>
+
+            <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'}`}>
+              <div className="text-[11px] font-medium text-[#64748d] dark:text-[#94a3b8]">Bot Handle / Protocol ID</div>
+              <div className="text-sm font-bold text-[#533afd] dark:text-[#818cf8] mt-0.5 font-mono">@{rawBotHandle}</div>
+              <div className="text-[10px] text-[#94a3b8] dark:text-[#64748d] mt-1">Unique sovereign routing address</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Public Profile & Contact Info */}
         <div className={`rounded-2xl p-5 shadow-xs space-y-4 border ${
           isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
         }`}>
@@ -252,17 +388,15 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
             isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
           }`}>
             <h3 className="text-sm font-bold flex items-center gap-2 text-[#0d253d] dark:text-white">
-              <Lock className="h-4 w-4 text-amber-500" />
-              Service Account Profile
+              <Bot className="h-4 w-4 text-[#533afd] dark:text-[#818cf8]" />
+              Public Entity Profile & Contacts
             </h3>
-            <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
-              isDark ? 'bg-[#121624] border-[#273951] text-[#94a3b8]' : 'bg-[#f6f9fc] border-[#e3e8ee] text-[#64748d]'
-            }`}>
-              Locked Identity
+            <span className="text-xs text-[#64748d] dark:text-[#94a3b8]">
+              Shown to users in conversation info
             </span>
           </div>
 
-          {/* Minimal Square Photo Upload & Auto-Circle UI */}
+          {/* Avatar Upload */}
           <div className={`rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border ${
             isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'
           }`}>
@@ -275,15 +409,15 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
                 )}
               </div>
               <div>
-                <h4 className="text-xs font-bold text-[#0d253d] dark:text-white">Profile Picture / Avatar</h4>
-                <p className="text-[11px] text-[#64748d] dark:text-[#94a3b8]">Upload a square image; will be displayed as circular avatar.</p>
+                <h4 className="text-xs font-bold text-[#0d253d] dark:text-white">Profile Photo / Brand Logo</h4>
+                <p className="text-[11px] text-[#64748d] dark:text-[#94a3b8]">Square JPG, PNG, or WebP. Centered into a circular avatar.</p>
               </div>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              <label className="cursor-pointer px-3 py-1.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-colors">
-                <Upload className="h-3 w-3" />
-                <span>Upload</span>
+              <label className="cursor-pointer px-3.5 py-1.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-colors">
+                <Upload className="h-3.5 w-3.5" />
+                <span>Upload Logo</span>
                 <input type="file" accept="image/*" onChange={handleImageFileSelect} className="hidden" />
               </label>
 
@@ -303,15 +437,15 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
 
           <div className="space-y-3.5">
             <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
                 Bio / Service Description
               </label>
               <textarea
                 rows={2}
                 value={appDescription}
                 onChange={e => setAppDescription(e.target.value)}
-                placeholder="Official communications and transactional alerts service."
-                className={`w-full px-3.5 py-2 rounded-xl border outline-none text-xs resize-none transition-all ${
+                placeholder="Official transactional alerts and customer communication channel."
+                className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs resize-none transition-all ${
                   isDark 
                     ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
                     : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
@@ -321,15 +455,15 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
                   Primary Website URL
                 </label>
                 <input
                   type="url"
                   value={websiteUrl}
                   onChange={e => setWebsiteUrl(e.target.value)}
-                  placeholder="https://example.com"
-                  className={`w-full px-3.5 py-2 rounded-xl border outline-none text-xs transition-all ${
+                  placeholder="https://company.example.com"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs transition-all ${
                     isDark 
                       ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
                       : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
@@ -338,15 +472,15 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1">
-                  Additional Websites / Links
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
+                  Additional Documentation or Status Links
                 </label>
                 <input
                   type="text"
                   value={additionalWebsites}
                   onChange={e => setAdditionalWebsites(e.target.value)}
                   placeholder="https://docs.example.com, https://status.example.com"
-                  className={`w-full px-3.5 py-2 rounded-xl border outline-none text-xs transition-all ${
+                  className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs transition-all ${
                     isDark 
                       ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
                       : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
@@ -357,15 +491,15 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
                   Customer Support Email
                 </label>
                 <input
                   type="email"
                   value={supportEmail}
                   onChange={e => setSupportEmail(e.target.value)}
-                  placeholder="support@example.com"
-                  className={`w-full px-3.5 py-2 rounded-xl border outline-none text-xs transition-all ${
+                  placeholder="support@company.example.com"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs transition-all ${
                     isDark 
                       ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
                       : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
@@ -374,15 +508,15 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1">
-                  Customer Support Mobile / Phone
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
+                  Customer Support Phone / Hotline
                 </label>
                 <input
                   type="tel"
                   value={supportPhone}
                   onChange={e => setSupportPhone(e.target.value)}
-                  placeholder="+91 9876543210"
-                  className={`w-full px-3.5 py-2 rounded-xl border outline-none text-xs transition-all ${
+                  placeholder="+91 1800 123 4567"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs transition-all ${
                     isDark 
                       ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
                       : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
@@ -392,15 +526,15 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1">
-                Office / Physical Address
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
+                Physical Office / Corporate Address
               </label>
               <textarea
                 rows={2}
                 value={officeAddress}
                 onChange={e => setOfficeAddress(e.target.value)}
-                placeholder="Innovation Tower, Sovereign Tech District, Suite 400"
-                className={`w-full px-3.5 py-2 rounded-xl border outline-none text-xs resize-none transition-all ${
+                placeholder="Tech Tower, 4th Floor, Electronic City, Bengaluru, Karnataka, 560100"
+                className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs resize-none transition-all ${
                   isDark 
                     ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
                     : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
@@ -410,190 +544,335 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
           </div>
         </div>
 
-        {/* IP Whitelist & Network Security */}
+        {/* IP Access Control */}
         <div className={`rounded-2xl p-5 shadow-xs space-y-3 border ${
           isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
         }`}>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between border-b pb-3 border-[#e3e8ee] dark:border-[#273951]">
             <h3 className="text-sm font-bold flex items-center gap-2 text-[#0d253d] dark:text-white">
               <Globe className="h-4 w-4 text-[#533afd] dark:text-[#818cf8]" />
-              IP Access Control &amp; Network Whitelisting
+              Network IP Access Whitelist
             </h3>
+            <span className="text-[11px] text-[#64748d] dark:text-[#94a3b8]">Optional Security Layer</span>
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1">
-              Allowed IP Addresses (Comma-separated CIDRs or IPs)
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
+              Allowed Server IP Addresses / CIDRs (Comma-separated)
             </label>
             <input
               type="text"
               value={allowedIps}
               onChange={e => setAllowedIps(e.target.value)}
-              placeholder="e.g. 192.168.1.1, 10.0.0.0/24 (Leave empty for any IP)"
-              className={`w-full px-3.5 py-2 rounded-xl border font-mono text-xs outline-none transition-all ${
+              placeholder="e.g. 192.168.1.10, 10.0.0.0/24 (Leave blank to permit any ingress source)"
+              className={`w-full px-3.5 py-2.5 rounded-xl border font-mono text-xs outline-none transition-all ${
                 isDark 
                   ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
                   : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
               }`}
             />
+            <p className="text-[11px] text-[#64748d] dark:text-[#94a3b8] mt-1.5">
+              When configured, API dispatches matching this service account will reject incoming requests from unauthorized origins.
+            </p>
           </div>
         </div>
 
-        {/* Save Settings Button */}
-        <div className="flex justify-end pt-1">
+        {/* Save Bar */}
+        <div className="flex items-center justify-between pt-2">
+          <div className="text-xs text-[#64748d] dark:text-[#94a3b8]">
+            {hasUnsavedChanges ? (
+              <span className="text-amber-600 dark:text-amber-400 font-medium">
+                You have unsaved changes. Remember to click save.
+              </span>
+            ) : (
+              <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                <Check className="h-3.5 w-3.5" /> All settings synced
+              </span>
+            )}
+          </div>
+
           <button
             type="submit"
-            disabled={isSaving}
-            className="px-6 py-2.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+            disabled={isSaving || (!hasUnsavedChanges && !saveSuccess)}
+            className="px-6 py-2.5 bg-[#533afd] hover:bg-[#432ec4] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer"
           >
-            <ShieldCheck className="h-4 w-4" />
-            {isSaving ? 'Saving Changes...' : 'Save Configuration'}
+            {isSaving ? (
+              <>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                <span>Saving Changes...</span>
+              </>
+            ) : saveSuccess ? (
+              <>
+                <Check className="h-3.5 w-3.5 text-emerald-300" />
+                <span>Saved Successfully!</span>
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="h-4 w-4" />
+                <span>Save Configuration</span>
+              </>
+            )}
           </button>
         </div>
       </form>
 
-      {/* Advanced & Danger Zone (Tucked away, compact, and professional) */}
-      <div className={`rounded-xl border transition-all ${
-        isDark ? 'border-[#273951] bg-[#121624]/60' : 'border-[#e3e8ee] bg-[#f6f9fc]/40'
+      {/* 3. DEDICATED CRYPTOGRAPHIC GOVERNANCE & LIFECYCLE (Structured, High-Security UI) */}
+      <div className={`rounded-2xl p-5 shadow-xs border ${
+        isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
       }`}>
-        <button
-          type="button"
-          onClick={() => setShowAdvancedActions(!showAdvancedActions)}
-          className="w-full flex items-center justify-between p-4 text-left outline-none cursor-pointer"
-        >
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${isDark ? 'bg-[#1b233a] text-[#818cf8]' : 'bg-white text-[#533afd] shadow-xs border border-[#e3e8ee]'}`}>
-              <Shield className="h-4 w-4" />
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-[#0d253d] dark:text-white">Advanced &amp; Danger Zone Settings</h4>
-              <p className="text-[10px] text-[#64748d] dark:text-[#94a3b8] mt-0.5">Credential rotation and account termination procedures.</p>
-            </div>
+        <div className="flex items-start justify-between gap-4 border-b pb-4 mb-4 border-[#e3e8ee] dark:border-[#273951]">
+          <div>
+            <h3 className="text-sm font-bold flex items-center gap-2 text-[#0d253d] dark:text-white">
+              <KeyRound className="h-4 w-4 text-[#533afd] dark:text-[#818cf8]" />
+              Cryptographic Credentials & Lifecycle Governance
+            </h3>
+            <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-1">
+              Actions in this section carry immediate operational impact. Access is restricted and requires explicit confirmation.
+            </p>
           </div>
-          <span className="text-xs font-bold text-[#533afd] dark:text-[#818cf8] shrink-0">
-            {showAdvancedActions ? 'Collapse Options' : 'Expand Options'}
+          <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-[#64748d] dark:text-[#94a3b8] shrink-0">
+            High Privilege
           </span>
-        </button>
+        </div>
 
-        {showAdvancedActions && (
-          <div className={`p-4 border-t space-y-3.5 animate-in slide-in-from-top-2 duration-150 ${
-            isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Key Rotation Action Card */}
+          <div className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${
+            isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'
           }`}>
-            {/* Rotation Item */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-amber-500/5 border border-amber-500/10">
-              <div className="space-y-0.5 max-w-xl">
-                <h5 className="text-[11px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <RotateCw className="h-3.5 w-3.5" />
-                  Rotate API Credentials
-                </h5>
-                <p className="text-[10px] text-[#64748d] dark:text-[#94a3b8]">
-                  Cycling credentials immediately revokes active SDK keys and generates fresh secure secrets. Old secrets will stop working immediately.
+            <div>
+              <div className="flex items-center gap-2 text-xs font-bold text-[#0d253d] dark:text-white">
+                <RotateCw className="h-4 w-4 text-amber-500" />
+                <span>Rotate API Credentials</span>
+              </div>
+              <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-1.5 leading-relaxed">
+                Immediately revokes the active Client Secret and provisions a fresh key. All deployed SDKs and backend processes will require updated secrets.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setRotateConfirmedTerms(false);
+                setShowRotateModal(true);
+              }}
+              className="mt-2 w-full py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
+            >
+              <RotateCw className="h-3.5 w-3.5" />
+              <span>Initiate Key Rotation</span>
+            </button>
+          </div>
+
+          {/* Delete Service Account Action Card */}
+          {onDeleteApp && (
+            <div className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${
+              isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'
+            }`}>
+              <div>
+                <div className="flex items-center gap-2 text-xs font-bold text-[#0d253d] dark:text-white">
+                  <Trash2 className="h-4 w-4 text-rose-500" />
+                  <span>Decommission Service Account</span>
+                </div>
+                <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-1.5 leading-relaxed">
+                  Permanently deletes this service account, revokes all API tokens, deletes webhook routes, and unbinds the bot handle.
                 </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteConfirmationInput('');
+                  setShowDeleteModal(true);
+                }}
+                className="mt-2 w-full py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>Decommission Account</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* MODAL 1: HIGH PRIVILEGE KEY ROTATION MODAL */}
+      {showRotateModal && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="rotate-modal-title"
+        >
+          <div className={`border w-full max-w-lg rounded-2xl p-6 sm:p-7 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150 ${
+            isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+          }`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                  <RotateCw className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 id="rotate-modal-title" className="text-base font-bold text-[#0d253d] dark:text-white">
+                    Rotate Service Account Secrets
+                  </h3>
+                  <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-0.5">
+                    Target: @{rawBotHandle} ({app?.app_name})
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
-                onClick={handleTriggerRotation}
-                disabled={isRotating}
-                className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-lg text-[10px] font-bold shadow-xs shrink-0 flex items-center gap-1.5 cursor-pointer transition-colors"
+                onClick={() => setShowRotateModal(false)}
+                className="p-1.5 rounded-lg text-[#64748d] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer"
+                aria-label="Close modal"
               >
-                <RotateCw className={`h-3 w-3 ${isRotating ? 'animate-spin' : ''}`} />
-                <span>{isRotating ? 'Rotating...' : 'Rotate Keys'}</span>
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            {/* Delete Account Item */}
-            {onDeleteApp && (
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-rose-500/5 border border-rose-500/10">
-                <div className="space-y-0.5 max-w-xl">
-                  <h5 className="text-[11px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Terminate Service Account
-                  </h5>
-                  <p className="text-[10px] text-[#64748d] dark:text-[#94a3b8]">
-                    Permanently delete this service account and clean up corresponding databases. This operation is permanent and irreversible.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowDeleteModal(true)}
-                  className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10px] font-bold shadow-xs shrink-0 flex items-center gap-1.5 cursor-pointer transition-colors"
-                >
-                  <Trash2 className="h-3 w-3" />
-                  <span>Delete Account</span>
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Red Warning Confirmation Modal for Deleting Service Account */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className={`border w-full max-w-lg rounded-2xl p-6 sm:p-8 shadow-2xl space-y-5 ${
-            isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
-          }`}>
-            <div className="flex items-start gap-4">
-              <div className="p-3 bg-red-500/10 text-red-500 rounded-2xl border border-red-500/20 shrink-0">
-                <AlertTriangle className="h-6 w-6" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold">
-                  Delete Service Account
-                </h3>
-                <p className="text-xs font-bold text-red-500 uppercase tracking-widest mt-0.5">
-                  ⚠️ Action Cannot Be Undone
-                </p>
-              </div>
-            </div>
-
-            <div className={`p-4 rounded-xl space-y-2 text-xs leading-relaxed border ${
-              isDark ? 'bg-red-950/20 border-red-500/30 text-red-200' : 'bg-red-50 border-red-200 text-red-900'
+            <div className={`p-4 rounded-xl border text-xs leading-relaxed space-y-2.5 ${
+              isDark ? 'bg-amber-950/20 border-amber-500/30 text-amber-200' : 'bg-amber-50 border-amber-200 text-amber-900'
             }`}>
-              <p className="font-bold">
-                DANGER: Are you sure you want to permanently delete this service account ({app?.app_name || 'Service Account'})?
+              <div className="font-bold flex items-center gap-1.5">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+                <span>Operational Downtime Warning</span>
+              </div>
+              <p>
+                When credentials are cycled, the existing Client Secret becomes invalid immediately. Any active production server, worker, or SDK instance sending dispatches with the old secret will receive <strong>HTTP 401 Unauthorized</strong>.
               </p>
-              <ul className="list-disc list-inside space-y-1 text-[11px]">
-                <li>All active client IDs, client secrets, and API keys will be immediately revoked.</li>
-                <li>Webhook endpoints and automated messaging integrations will stop functioning.</li>
-                <li>This action is permanent and cannot be reversed from backend or database.</li>
+              <ul className="list-disc list-inside space-y-1 text-[11px] opacity-90">
+                <li>Active tokens will expire instantly.</li>
+                <li>New client secret must be copied and updated in your <code>.env</code> file.</li>
+                <li>Sandbox mode credentials can be independently tested before production rotation.</li>
               </ul>
-              <p className="pt-1 text-[11px] font-semibold opacity-80">
-                After deletion, you can freely create a new clean service account from your Developer Console.
-              </p>
             </div>
 
-            <div className="flex items-center gap-3 pt-2">
+            {/* Checkbox acknowledgment */}
+            <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer select-none transition-colors ${
+              rotateConfirmedTerms 
+                ? isDark ? 'bg-[#1b233a] border-[#533afd]' : 'bg-indigo-50 border-[#533afd]'
+                : isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'
+            }`}>
+              <input
+                type="checkbox"
+                checked={rotateConfirmedTerms}
+                onChange={e => setRotateConfirmedTerms(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded accent-[#533afd] cursor-pointer"
+              />
+              <span className="text-xs text-[#0d253d] dark:text-white font-medium leading-normal">
+                I understand the operational blast radius and confirm that I am ready to replace the credentials in my production infrastructure.
+              </span>
+            </label>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 type="button"
-                disabled={isDeleting}
-                onClick={() => setShowDeleteModal(false)}
-                className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  isDark ? 'bg-[#121624] text-white hover:bg-[#1c1e54]' : 'bg-[#f6f9fc] text-[#0d253d] hover:bg-[#e3e8ee]'
+                onClick={() => setShowRotateModal(false)}
+                className={`px-4 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                  isDark ? 'bg-[#121624] hover:bg-[#1b233a] text-white' : 'bg-[#f6f9fc] hover:bg-[#e3e8ee] text-[#0d253d]'
                 }`}
               >
                 Cancel
               </button>
               <button
                 type="button"
-                disabled={isDeleting}
-                onClick={async () => {
-                  setIsDeleting(true);
-                  try {
-                    if (onDeleteApp) {
-                      await onDeleteApp();
-                    }
-                  } catch (err: any) {
-                    showToast('Delete failed: ' + err.message);
-                  } finally {
-                    setIsDeleting(false);
-                    setShowDeleteModal(false);
-                  }
-                }}
-                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                disabled={!rotateConfirmedTerms || isRotating}
+                onClick={executeKeyRotation}
+                className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-40 shadow-xs flex items-center gap-2 cursor-pointer transition-all"
               >
-                <Trash2 className="h-4 w-4" />
-                <span>{isDeleting ? 'Deleting...' : 'Yes, Delete Service Account'}</span>
+                <RotateCw className={`h-3.5 w-3.5 ${isRotating ? 'animate-spin' : ''}`} />
+                <span>{isRotating ? 'Generating Secrets...' : 'Execute Key Rotation'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: DECOMMISSION SERVICE ACCOUNT MODAL */}
+      {showDeleteModal && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-modal-title"
+        >
+          <div className={`border w-full max-w-lg rounded-2xl p-6 sm:p-7 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150 ${
+            isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+          }`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-rose-500/10 text-rose-500 border border-rose-500/20">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 id="delete-modal-title" className="text-base font-bold text-[#0d253d] dark:text-white">
+                    Decommission Service Account
+                  </h3>
+                  <p className="text-xs text-rose-500 font-semibold mt-0.5">
+                    Permanent & Irreversible Operation
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                className="p-1.5 rounded-lg text-[#64748d] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer"
+                aria-label="Close modal"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className={`p-4 rounded-xl border text-xs leading-relaxed space-y-2.5 ${
+              isDark ? 'bg-rose-950/20 border-rose-500/30 text-rose-200' : 'bg-rose-50 border-rose-200 text-rose-900'
+            }`}>
+              <p className="font-bold">
+                You are about to permanently decommission @{rawBotHandle} ({app?.app_name}).
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-[11px] opacity-90">
+                <li>All active client credentials will be revoked immediately.</li>
+                <li>Configured webhooks and active carrier dispatch queues will terminate.</li>
+                <li>The bot handle will be freed from the directory.</li>
+              </ul>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#0d253d] dark:text-white mb-2">
+                Type <span className="font-mono font-bold text-rose-500 select-all">@{rawBotHandle}</span> to confirm decommissioning:
+              </label>
+              <input
+                type="text"
+                value={deleteConfirmationInput}
+                onChange={e => setDeleteConfirmationInput(e.target.value)}
+                placeholder={`@${rawBotHandle}`}
+                className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-mono outline-none transition-all ${
+                  isDark 
+                    ? 'bg-[#121624] border-[#273951] text-white focus:border-rose-500' 
+                    : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-rose-500'
+                }`}
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                className={`px-4 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                  isDark ? 'bg-[#121624] hover:bg-[#1b233a] text-white' : 'bg-[#f6f9fc] hover:bg-[#e3e8ee] text-[#0d253d]'
+                }`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={
+                  deleteConfirmationInput.trim().toLowerCase().replace(/^@/, '') !== rawBotHandle.toLowerCase() ||
+                  isDeleting
+                }
+                onClick={executeDeleteApp}
+                className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40 shadow-xs flex items-center gap-2 cursor-pointer transition-all"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>{isDeleting ? 'Decommissioning...' : 'Permanently Decommission'}</span>
               </button>
             </div>
           </div>

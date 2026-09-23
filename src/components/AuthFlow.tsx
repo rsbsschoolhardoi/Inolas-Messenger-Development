@@ -5,7 +5,6 @@ import {
   ArrowRight, RefreshCw, Sun, Moon, Check, Phone, ShieldCheck,
   ChevronDown, Camera, Upload, UserPlus, UserCheck, Terminal, Cpu, Shield, Sparkles
 } from 'lucide-react';
-import { LegalModal, LegalDocType } from './LegalModal';
 import { useBranding } from '../brandingUtils';
 import { UserData } from '../types';
 
@@ -305,8 +304,6 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
 
   // Step 7: Confirmation & Legal Agreement
   const [regAgreedToLegal, setRegAgreedToLegal] = useState<boolean>(true);
-  const [showLegalModal, setShowLegalModal] = useState<boolean>(false);
-  const [legalModalTab, setLegalModalTab] = useState<LegalDocType>('terms');
   const [legalError, setLegalError] = useState<string>('');
 
   // Step 5: Email Verification (Required)
@@ -2569,29 +2566,25 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
                         />
                         <span className="text-[13px] leading-relaxed text-[#64748d] dark:text-[#94a3b8]">
                           I accept the{' '}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setLegalModalTab('terms');
-                              setShowLegalModal(true);
-                            }}
-                            className="text-[#0d253d] dark:text-white font-medium underline underline-offset-2"
+                          <a
+                            href="/terms"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[#0d253d] dark:text-white font-medium underline underline-offset-2 hover:text-[#533afd] transition-colors"
                           >
                             Terms
-                          </button>
+                          </a>
                           {' '}and acknowledge the{' '}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setLegalModalTab('privacy');
-                              setShowLegalModal(true);
-                            }}
-                            className="text-[#0d253d] dark:text-white font-medium underline underline-offset-2"
+                          <a
+                            href="/privacy"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[#0d253d] dark:text-white font-medium underline underline-offset-2 hover:text-[#533afd] transition-colors"
                           >
                             Privacy Policy
-                          </button>
+                          </a>
                           .
                         </span>
                       </label>
@@ -2916,15 +2909,6 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
           End-to-End Encrypted Session • Zero-Cloud Retention • Zenoa v3.4
         </p>
       </footer>
-
-      {/* Legal Modal Component */}
-      <LegalModal
-        isOpen={showLegalModal}
-        onClose={() => setShowLegalModal(false)}
-        initialTab={legalModalTab}
-        onAccept={() => setRegAgreedToLegal(true)}
-        themeMode={themeMode}
-      />
     </div>
   );
 };

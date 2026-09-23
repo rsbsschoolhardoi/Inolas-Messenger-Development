@@ -39,7 +39,7 @@ export const METADATA_CONFIGS = {
   // 4. App Direct Sovereign Messenger (app.zenoa.in / /app)
   APP_MESSENGER: {
     title: 'Zenoa | The Next Gen Private Sovereign Messenger',
-    description: 'The next-generation sovereign private messenger engineered by Inolas Nexus. Featuring zero cloud retention, client-side zero-knowledge encryption, and instant WebRTC peer-to-peer calls.',
+    description: 'The next-generation sovereign private messenger engineered by Inolas Nexus. Featuring zero cloud retention, client-side zero-knowledge encryption, and instant direct peer-to-peer calls.',
     keywords: 'Zenoa, private messenger, sovereign chat, encrypted messaging, zero retention, Inolas Nexus',
     siteName: 'Zenoa Messenger'
   },
@@ -92,7 +92,15 @@ export const METADATA_CONFIGS = {
     siteName: 'Zenoa Identity'
   },
 
-  // 11. In-App Messenger Views
+  // 11. Legal Portal & Regulatory Disclosures (/terms, /privacy, /security, /acceptable-use, /cookies)
+  LEGAL_PORTAL: {
+    title: 'Legal & Privacy Framework | Zenoa',
+    description: 'Official legal documentation, Terms of Service, Global Privacy Policy, Data Security Architecture, and regulatory disclosures for Zenoa.',
+    keywords: 'Zenoa legal, terms of service, privacy policy, data security, zero retention disclosures, DPDP compliance',
+    siteName: 'Zenoa Legal'
+  },
+
+  // 12. In-App Messenger Views
   APP_SETTINGS: {
     title: 'Settings | Zenoa Private Messenger',
     description: 'Manage security preferences, notification alerts, zero-knowledge cloud vault backups, and account privacy options.',
@@ -257,6 +265,28 @@ export function resolveAndApplyMetadata(opts?: {
     const desc = `Connect with @${cleanU} on Zenoa — The next-generation sovereign private messenger.`;
     const keywords = `Zenoa, @${cleanU}, profile, sovereign messenger, encrypted chat`;
     updatePageMetadata(title, desc, currentUrl, keywords, 'Zenoa Profile');
+    return;
+  }
+
+  // Legal Portal & Terms / Privacy / Security routes
+  const isLegalPath = 
+    path === '/legal' || path.startsWith('/legal/') ||
+    path === '/terms' || path.startsWith('/terms/') ||
+    path === '/privacy' || path.startsWith('/privacy/') ||
+    path === '/security' || path.startsWith('/security/') ||
+    path === '/acceptable-use' || path === '/acceptable_use' ||
+    path === '/cookies';
+
+  if (isLegalPath) {
+    const cfg = METADATA_CONFIGS.LEGAL_PORTAL;
+    let customTitle = cfg.title;
+    if (path.includes('privacy')) customTitle = 'Privacy Policy & Data Protection | Inolas Nexus Private Limited';
+    else if (path.includes('term')) customTitle = 'Terms of Service & User Agreement | Inolas Nexus Private Limited';
+    else if (path.includes('security')) customTitle = 'Data Security Architecture & Subpoena Policy | Inolas Nexus Private Limited';
+    else if (path.includes('acceptable')) customTitle = 'Acceptable Use Policy & Community Standards | Inolas Nexus Private Limited';
+    else if (path.includes('cookie')) customTitle = 'Cookies & On-Device Storage Policy | Inolas Nexus Private Limited';
+
+    updatePageMetadata(customTitle, cfg.description, currentUrl, cfg.keywords, cfg.siteName);
     return;
   }
 

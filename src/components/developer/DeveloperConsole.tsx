@@ -8,6 +8,7 @@ import { LandingView } from './views/LandingView';
 import { MobileSetupView } from './views/MobileSetupView';
 import { PortalDashboard } from './views/PortalDashboard';
 import { buildSecureOAuthUrl } from '../../utils/oauthSecurity';
+import { ErrorBoundary } from '../common/ErrorBoundary';
 
 type ConsoleView = 'landing' | 'mobile_setup' | 'portal';
 
@@ -283,7 +284,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
   }
 
   return (
-    <>
+    <ErrorBoundary fallbackTitle="Developer Console Error">
       {view === 'landing' && (
         <LandingView 
           user={user} 
@@ -313,6 +314,6 @@ export const DeveloperConsoleStandalone: React.FC = () => {
           onToggleTheme={toggleTheme}
         />
       )}
-    </>
+    </ErrorBoundary>
   );
 };

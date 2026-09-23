@@ -25,6 +25,8 @@ export function getFirebaseStorage() {
  * Upload Base64 Data URL or Blob directly to Firebase Cloud Storage
  * Returns public Cloud URL for unlimited multi-user media distribution.
  */
+const MAX_SAFE_INLINE_PAYLOAD_CHARS = 750 * 1024; // 750 KB safe limit for Firestore 1MB doc boundary
+
 export async function uploadMediaToCloud(
   dataUrlOrBlob: string | Blob | File,
   path: string,
@@ -33,8 +35,15 @@ export async function uploadMediaToCloud(
   const storage = getFirebaseStorage();
   
   if (!storage) {
-    // If Cloud storage is not accessible, return original payload
-    return typeof dataUrlOrBlob === 'string' ? dataUrlOrBlob : '';
+    // If Cloud storage is not accessible, check inline size
+    if (typeof dataUrlOrBlob === 'string') {
+      if (dataUrlOrBlob.length > MAX_SAFE_INLINE_PAYLOAD_CHARS) {
+        console.warn(`[CloudStorage] Payload exceeds safe inline limit (${dataUrlOrBlob.length} chars). Suppressing oversized payload to prevent Firestore crash.`);
+        return '';
+      }
+      return dataUrlOrBlob;
+    }
+    return '';
   }
 
   try {
@@ -57,7 +66,14 @@ export async function uploadMediaToCloud(
     }
   } catch (error) {
     console.warn("Cloud Storage upload notice (falling back gracefully):", error);
-    // Graceful fallback to inline representation
-    return typeof dataUrlOrBlob === 'string' ? dataUrlOrBlob : '';
+    // Graceful fallback to inline representation if within safe Firestore document limits
+    if (typeof dataUrlOrBlob === 'string') {
+      if (dataUrlOrBlob.length > MAX_SAFE_INLINE_PAYLOAD_CHARS) {
+        console.warn(`[CloudStorage] Fallback payload exceeds safe inline size (${dataUrlOrBlob.length} chars). Suppressed to prevent Firestore write exception.`);
+        return '';
+      }
+      return dataUrlOrBlob;
+    }
+    return '';
   }
 }

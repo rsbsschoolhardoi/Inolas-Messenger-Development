@@ -71,6 +71,13 @@ export interface SmtpConfigPayload {
   last_test_error?: string;
 }
 
+// Safe string trim utility to prevent TypeError: ...trim is not a function on null/undefined/objects
+function safeTrim(val: any): string {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'string') return val.trim();
+  return String(val).trim();
+}
+
 // Function to send email via developer custom BYO-SMTP transporter
 async function sendEmailViaCustomSmtp(
   smtp: SmtpConfigPayload,
@@ -83,10 +90,10 @@ async function sendEmailViaCustomSmtp(
   }
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
-    let host = smtp.host?.trim() || '';
+    let host = safeTrim(smtp.host);
     let port = Number(smtp.port) || 587;
     let secure = Boolean(smtp.secure);
-    let user = smtp.user?.trim() || '';
+    let user = safeTrim(smtp.user);
     const pass = smtp.pass || '';
     const preset = smtp.provider_preset || 'custom';
 
@@ -153,13 +160,13 @@ async function sendEmailViaCustomSmtp(
       });
     };
 
-    const senderDisplayName = smtp.from_name?.trim() || mailOptions.appName || 'Authentication Service';
-    const senderEmail = smtp.from_email.trim();
+    const senderDisplayName = safeTrim(smtp.from_name) || mailOptions.appName || 'Authentication Service';
+    const senderEmail = safeTrim(smtp.from_email);
     const fromHeader = `"${senderDisplayName.replace(/"/g, '')}" <${senderEmail}>`;
     const mailPayload = {
       from: fromHeader,
-      to: mailOptions.to.trim(),
-      replyTo: smtp.reply_to?.trim() || senderEmail,
+      to: safeTrim(mailOptions.to),
+      replyTo: safeTrim(smtp.reply_to) || senderEmail,
       subject: mailOptions.subject,
       html: mailOptions.html,
       text: mailOptions.text
@@ -703,9 +710,20 @@ app.get(['/openapi.json', '/api/openapi.json'], (req, res) => {
   }
 });
 
-// Health check
-app.get(['/api/health', '/health'], (req, res) => {
-  res.json({ status: 'ok', service: 'zenoa-developer-api', timestamp: new Date().toISOString() });
+// Health check with active database state verification
+app.get(['/api/health', '/health'], async (req, res) => {
+  let dbStatus = 'unconfigured';
+  if (db) {
+    dbStatus = 'connected';
+  }
+  res.json({
+    status: 'ok',
+    service: 'zenoa-developer-api',
+    database: dbStatus,
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor(process.uptime()),
+    environment: process.env.NODE_ENV || 'development'
+  });
 });
 
 // Apple Emoji In-Memory Resilient Proxy with Upstream Fallbacks
@@ -1237,39 +1255,39 @@ const authenticateApiKey = async (req: any, res: any, next: any) => {
     }
 
     // Explicit Headers
-    if (req.headers['x-client-id']) clientId = (req.headers['x-client-id'] as string).trim();
-    if (req.headers['x-sa-client-id']) clientId = (req.headers['x-sa-client-id'] as string).trim();
-    if (req.headers['x-client-secret']) clientSecret = (req.headers['x-client-secret'] as string).trim();
-    if (req.headers['x-sa-client-secret']) clientSecret = (req.headers['x-sa-client-secret'] as string).trim();
+    if (req.headers['x-client-id']) clientId = safeTrim(req.headers['x-client-id']);
+    if (req.headers['x-sa-client-id']) clientId = safeTrim(req.headers['x-sa-client-id']);
+    if (req.headers['x-client-secret']) clientSecret = safeTrim(req.headers['x-client-secret']);
+    if (req.headers['x-sa-client-secret']) clientSecret = safeTrim(req.headers['x-sa-client-secret']);
 
     // Body parameters
-    if (!clientId && req.body?.client_id) clientId = String(req.body.client_id).trim();
-    if (!clientId && req.body?.clientId) clientId = String(req.body.clientId).trim();
-    if (!clientSecret && req.body?.client_secret) clientSecret = String(req.body.client_secret).trim();
-    if (!clientSecret && req.body?.clientSecret) clientSecret = String(req.body.clientSecret).trim();
-    if (!clientSecret && req.body?.secret) clientSecret = String(req.body.secret).trim();
+    if (!clientId && req.body?.client_id) clientId = safeTrim(req.body.client_id);
+    if (!clientId && req.body?.clientId) clientId = safeTrim(req.body.clientId);
+    if (!clientSecret && req.body?.client_secret) clientSecret = safeTrim(req.body.client_secret);
+    if (!clientSecret && req.body?.clientSecret) clientSecret = safeTrim(req.body.clientSecret);
+    if (!clientSecret && req.body?.secret) clientSecret = safeTrim(req.body.secret);
 
     // Query parameters
-    if (!clientId && req.query?.client_id) clientId = String(req.query.client_id).trim();
-    if (!clientSecret && req.query?.client_secret) clientSecret = String(req.query.client_secret).trim();
+    if (!clientId && req.query?.client_id) clientId = safeTrim(req.query.client_id);
+    if (!clientSecret && req.query?.client_secret) clientSecret = safeTrim(req.query.client_secret);
 
     // Fallback legacy headers if still provided
     if (!clientId && req.headers['x-api-key']) {
-      const rawVal = (req.headers['x-api-key'] as string).trim();
+      const rawVal = safeTrim(req.headers['x-api-key']);
       if (rawVal.includes(':')) {
         const [u, p] = rawVal.split(':');
-        clientId = u.trim();
-        if (!clientSecret) clientSecret = p.trim();
+        clientId = safeTrim(u);
+        if (!clientSecret) clientSecret = safeTrim(p);
       } else {
         clientId = rawVal;
       }
     }
     if (!clientId && req.query?.api_key) {
-      const rawVal = String(req.query.api_key).trim();
+      const rawVal = safeTrim(req.query.api_key);
       if (rawVal.includes(':')) {
         const [u, p] = rawVal.split(':');
-        clientId = u.trim();
-        if (!clientSecret) clientSecret = p.trim();
+        clientId = safeTrim(u);
+        if (!clientSecret) clientSecret = safeTrim(p);
       } else {
         clientId = rawVal;
       }
@@ -4095,7 +4113,7 @@ app.post('/api/v1/templates/delete', authenticateApiKey, async (req: any, res: a
 });
 
 // ==========================================
-// 14. BILLING, CREDITS & QUOTA API
+// 14. BILLING, CREDITS & QUOTA API (DURABLE FIRESTORE BACKED)
 // ==========================================
 const inMemoryBilling = new Map<string, any>();
 
@@ -4103,6 +4121,19 @@ app.get('/api/v1/billing/summary', authenticateApiKey, async (req: any, res: any
   try {
     const appId = req.appData.id || 'default_app';
     let billing = inMemoryBilling.get(appId);
+
+    // Durable fallback: Read from Firestore if not in memory
+    if (!billing && db) {
+      try {
+        const billingDoc = await getDoc(doc(db, 'developer_billing', appId));
+        if (billingDoc.exists()) {
+          billing = billingDoc.data();
+          inMemoryBilling.set(appId, billing);
+        }
+      } catch (fErr) {
+        console.warn('Notice: Firestore developer_billing read check:', fErr);
+      }
+    }
 
     if (!billing) {
       billing = {
@@ -4118,6 +4149,9 @@ app.get('/api/v1/billing/summary', authenticateApiKey, async (req: any, res: any
         ]
       };
       inMemoryBilling.set(appId, billing);
+      if (db) {
+        setDoc(doc(db, 'developer_billing', appId), sanitizeFirestoreData(billing), { merge: true }).catch(() => {});
+      }
     }
 
     res.json({ success: true, billing });
@@ -4133,16 +4167,28 @@ app.post('/api/v1/billing/topup', authenticateApiKey, async (req: any, res: any)
     const creditsToAdd = Number(credits_count) || 5000;
     const amountStr = amount_usd ? `$${Number(amount_usd).toFixed(2)}` : '$25.00';
 
-    let billing = inMemoryBilling.get(appId) || {
-      app_id: appId,
-      plan: 'free',
-      credits_balance: 5000,
-      daily_limit: 1000,
-      daily_usage: 0,
-      monthly_limit: 30000,
-      monthly_usage: 0,
-      transactions: []
-    };
+    let billing = inMemoryBilling.get(appId);
+    if (!billing && db) {
+      try {
+        const bSnap = await getDoc(doc(db, 'developer_billing', appId));
+        if (bSnap.exists()) {
+          billing = bSnap.data();
+        }
+      } catch (_) {}
+    }
+
+    if (!billing) {
+      billing = {
+        app_id: appId,
+        plan: 'free',
+        credits_balance: 5000,
+        daily_limit: 1000,
+        daily_usage: 0,
+        monthly_limit: 30000,
+        monthly_usage: 0,
+        transactions: []
+      };
+    }
 
     billing.credits_balance += creditsToAdd;
     const newTx = {
@@ -4156,6 +4202,9 @@ app.post('/api/v1/billing/topup', authenticateApiKey, async (req: any, res: any)
     billing.transactions = [newTx, ...(billing.transactions || [])];
 
     inMemoryBilling.set(appId, billing);
+    if (db) {
+      setDoc(doc(db, 'developer_billing', appId), sanitizeFirestoreData(billing), { merge: true }).catch(() => {});
+    }
 
     res.json({ success: true, billing, message: `Successfully added ${creditsToAdd.toLocaleString()} credits!` });
   } catch (err: any) {
@@ -4169,16 +4218,28 @@ app.post('/api/v1/billing/upgrade-plan', authenticateApiKey, async (req: any, re
     const appId = req.appData.id || 'default_app';
     const targetPlan = ['free', 'growth', 'enterprise'].includes(plan) ? plan : 'growth';
 
-    let billing = inMemoryBilling.get(appId) || {
-      app_id: appId,
-      plan: 'free',
-      credits_balance: 5000,
-      daily_limit: 1000,
-      daily_usage: 0,
-      monthly_limit: 30000,
-      monthly_usage: 0,
-      transactions: []
-    };
+    let billing = inMemoryBilling.get(appId);
+    if (!billing && db) {
+      try {
+        const bSnap = await getDoc(doc(db, 'developer_billing', appId));
+        if (bSnap.exists()) {
+          billing = bSnap.data();
+        }
+      } catch (_) {}
+    }
+
+    if (!billing) {
+      billing = {
+        app_id: appId,
+        plan: 'free',
+        credits_balance: 5000,
+        daily_limit: 1000,
+        daily_usage: 0,
+        monthly_limit: 30000,
+        monthly_usage: 0,
+        transactions: []
+      };
+    }
 
     billing.plan = targetPlan;
     if (targetPlan === 'growth') {
@@ -4205,6 +4266,9 @@ app.post('/api/v1/billing/upgrade-plan', authenticateApiKey, async (req: any, re
     billing.transactions = [newTx, ...(billing.transactions || [])];
 
     inMemoryBilling.set(appId, billing);
+    if (db) {
+      setDoc(doc(db, 'developer_billing', appId), sanitizeFirestoreData(billing), { merge: true }).catch(() => {});
+    }
 
     res.json({ success: true, billing, message: `Upgraded to ${targetPlan.toUpperCase()} plan successfully!` });
   } catch (err: any) {
@@ -4213,7 +4277,7 @@ app.post('/api/v1/billing/upgrade-plan', authenticateApiKey, async (req: any, re
 });
 
 // ==========================================
-// 15. TEAM MEMBERS & COLLABORATORS API (RBAC)
+// 15. TEAM MEMBERS & COLLABORATORS API (DURABLE FIRESTORE BACKED)
 // ==========================================
 const inMemoryTeams = new Map<string, any[]>();
 
@@ -4223,6 +4287,23 @@ app.get('/api/v1/team/members', authenticateApiKey, async (req: any, res: any) =
     const ownerName = req.appData.owner || 'admin_developer';
 
     let members = inMemoryTeams.get(appId);
+
+    // Durable fallback: Read from Firestore if not in memory
+    if ((!members || members.length === 0) && db) {
+      try {
+        const teamDoc = await getDoc(doc(db, 'developer_teams', appId));
+        if (teamDoc.exists()) {
+          const tData = teamDoc.data();
+          if (Array.isArray(tData?.members) && tData.members.length > 0) {
+            members = tData.members;
+            inMemoryTeams.set(appId, members);
+          }
+        }
+      } catch (fErr) {
+        console.warn('Notice: Firestore developer_teams read check:', fErr);
+      }
+    }
+
     if (!members || members.length === 0) {
       members = [
         {
@@ -4247,6 +4328,13 @@ app.get('/api/v1/team/members', authenticateApiKey, async (req: any, res: any) =
         }
       ];
       inMemoryTeams.set(appId, members);
+      if (db) {
+        setDoc(doc(db, 'developer_teams', appId), {
+          app_id: appId,
+          members,
+          updated_at: Date.now()
+        }, { merge: true }).catch(() => {});
+      }
     }
 
     res.json({ success: true, members });
@@ -4261,7 +4349,7 @@ app.post('/api/v1/team/invite', authenticateApiKey, async (req: any, res: any) =
     if (!email) return res.status(400).json({ error: 'Collaborator email is required' });
 
     const appId = req.appData.id || 'default_app';
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail = safeTrim(email).toLowerCase();
     const cleanRole = ['admin', 'developer', 'viewer'].includes(role) ? role : 'developer';
     const memberId = 'mem_' + Math.random().toString(36).substring(2, 10);
 
@@ -4276,8 +4364,27 @@ app.post('/api/v1/team/invite', authenticateApiKey, async (req: any, res: any) =
       is_owner: false
     };
 
-    const existing = inMemoryTeams.get(appId) || [];
-    inMemoryTeams.set(appId, [...existing, newMember]);
+    let existing = inMemoryTeams.get(appId);
+    if ((!existing || existing.length === 0) && db) {
+      try {
+        const teamDoc = await getDoc(doc(db, 'developer_teams', appId));
+        if (teamDoc.exists()) {
+          existing = teamDoc.data()?.members || [];
+        }
+      } catch (_) {}
+    }
+    existing = existing || [];
+
+    const updatedMembers = [...existing, newMember];
+    inMemoryTeams.set(appId, updatedMembers);
+
+    if (db) {
+      setDoc(doc(db, 'developer_teams', appId), {
+        app_id: appId,
+        members: updatedMembers,
+        updated_at: Date.now()
+      }, { merge: true }).catch(() => {});
+    }
 
     res.json({ success: true, member: newMember, message: `Invitation sent to ${cleanEmail} with ${cleanRole} role!` });
   } catch (err: any) {
@@ -4291,9 +4398,27 @@ app.post('/api/v1/team/update-role', authenticateApiKey, async (req: any, res: a
     if (!member_id || !role) return res.status(400).json({ error: 'member_id and role are required' });
 
     const appId = req.appData.id || 'default_app';
-    const existing = inMemoryTeams.get(appId) || [];
-    const updated = existing.map(m => m.id === member_id ? { ...m, role } : m);
+    let existing = inMemoryTeams.get(appId);
+    if ((!existing || existing.length === 0) && db) {
+      try {
+        const teamDoc = await getDoc(doc(db, 'developer_teams', appId));
+        if (teamDoc.exists()) {
+          existing = teamDoc.data()?.members || [];
+        }
+      } catch (_) {}
+    }
+    existing = existing || [];
+
+    const updated = existing.map((m: any) => m.id === member_id ? { ...m, role } : m);
     inMemoryTeams.set(appId, updated);
+
+    if (db) {
+      setDoc(doc(db, 'developer_teams', appId), {
+        app_id: appId,
+        members: updated,
+        updated_at: Date.now()
+      }, { merge: true }).catch(() => {});
+    }
 
     res.json({ success: true, message: 'Member role updated successfully.' });
   } catch (err: any) {
@@ -4307,8 +4432,27 @@ app.post('/api/v1/team/remove', authenticateApiKey, async (req: any, res: any) =
     if (!member_id) return res.status(400).json({ error: 'member_id is required' });
 
     const appId = req.appData.id || 'default_app';
-    const existing = inMemoryTeams.get(appId) || [];
-    inMemoryTeams.set(appId, existing.filter(m => m.id !== member_id));
+    let existing = inMemoryTeams.get(appId);
+    if ((!existing || existing.length === 0) && db) {
+      try {
+        const teamDoc = await getDoc(doc(db, 'developer_teams', appId));
+        if (teamDoc.exists()) {
+          existing = teamDoc.data()?.members || [];
+        }
+      } catch (_) {}
+    }
+    existing = existing || [];
+
+    const updated = existing.filter((m: any) => m.id !== member_id);
+    inMemoryTeams.set(appId, updated);
+
+    if (db) {
+      setDoc(doc(db, 'developer_teams', appId), {
+        app_id: appId,
+        members: updated,
+        updated_at: Date.now()
+      }, { merge: true }).catch(() => {});
+    }
 
     res.json({ success: true, message: 'Collaborator removed successfully.' });
   } catch (err: any) {
@@ -6377,6 +6521,35 @@ async function ensureSystemOfficialOAuthApps() {
     }
   }
 }
+
+// ==========================================
+// GLOBAL EXPRESS API ERROR BOUNDARY MIDDLEWARE
+// ==========================================
+// Ensures 4xx/5xx responses from API routes always return clean JSON payloads
+// rather than leaking raw Node HTML stack traces to clients.
+app.use('/api', (err: any, req: any, res: any, next: any) => {
+  console.error('[API_ERROR_HANDLED]', err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  const statusCode = (typeof err?.status === 'number' && err.status >= 400 && err.status < 600)
+    ? err.status
+    : 500;
+  res.status(statusCode).json({
+    success: false,
+    error: err?.message || 'An internal API error occurred. Please try again.',
+    code: err?.code || 'INTERNAL_API_ERROR'
+  });
+});
+
+// Process-level crash prevention for unhandled rejections / exceptions
+process.on('unhandledRejection', (reason: any) => {
+  console.warn('[SERVER_UNHANDLED_REJECTION]', reason?.message || reason);
+});
+
+process.on('uncaughtException', (err: Error) => {
+  console.error('[SERVER_UNCAUGHT_EXCEPTION]', err);
+});
 
 async function startServer() {
   // Vite Middleware (only loaded in development standalone node process)
