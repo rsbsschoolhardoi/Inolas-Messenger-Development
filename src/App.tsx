@@ -9190,9 +9190,7 @@ export default function App() {
 
     return (
       <NearwaysLegalPage
-        initialDoc={nearwaysDoc}
-        themeMode={themeMode}
-        onNavigateHome={() => navigateTo('/')}
+        docType={nearwaysDoc}
       />
     );
   }
