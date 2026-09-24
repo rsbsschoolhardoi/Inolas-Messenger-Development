@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ArrowRight, ShieldCheck, Zap, Key, Sun, Moon, ArrowLeft, Terminal, 
   Lock, Code2, Webhook, Cpu, Copy, Check, Server, Activity, Shield,
@@ -110,6 +110,14 @@ export const LandingView: React.FC<LandingViewProps> = ({
   themeMode = 'light',
   onToggleTheme
 }) => {
+  useEffect(() => {
+    if (themeMode === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [themeMode]);
+
   const branding = useBranding();
   const activeLogo = branding.dev_console_logo || branding.public_logo;
   const isDark = themeMode === 'dark';

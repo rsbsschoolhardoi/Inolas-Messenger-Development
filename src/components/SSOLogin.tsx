@@ -61,11 +61,20 @@ export const safeBase64Decode = (str: string): string => {
 };
 
 export const SSOLogin: React.FC<SSOLoginProps> = ({ 
+  themeMode = 'light',
   currentUser, 
   onLoginRequest,
   onInlineLogin,
   onInlineRegister
 }) => {
+  useEffect(() => {
+    if (themeMode === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [themeMode]);
+
   const branding = useBranding();
   const activeLogo = branding.oauth_logo || branding.public_logo;
   const [clientId, setClientId] = useState<string>('');
@@ -1085,14 +1094,36 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
     // Resolve client ID and redirect URI with safe fallbacks
     const searchParams = new URLSearchParams(window.location.search);
     const activeClientId = clientId || searchParams.get('client_id') || 'zenoa_developer_console';
-    let activeRedirectUri = redirectUri || searchParams.get('redirect_uri') || `${window.location.origin}/developer`;
+    let activeRedirectUri = redirectUri || searchParams.get('redirect_uri') || '';
     
+    const isOfficialDevPortal = 
+      activeClientId === 'zenoa_developer_console' || 
+      activeClientId === 'dev_console' ||
+      activeClientId === 'zenoa-dev-console' ||
+      appConfig?.id === 'zenoa_developer_console';
+
+    const isOfficialOAuthPortal = 
+      activeClientId === 'zenoa_oauth_console' || 
+      activeClientId === 'oauth_console' || 
+      activeClientId === 'sso_console' ||
+      appConfig?.id === 'zenoa_oauth_console';
+
     const currentHost = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
     const isZenoaProdHost = currentHost.endsWith('zenoa.in') || currentHost.endsWith('zenoa.sbs');
-    if (!isZenoaProdHost) {
-      if (activeRedirectUri.includes('developer.zenoa.') || activeRedirectUri.includes('/developer') || activeClientId === 'zenoa_developer_console') {
+    
+    // Auto-normalize official portal callback URIs so they never land on blank/exchanging pages
+    if (!activeRedirectUri || activeRedirectUri === '/auth/sso' || activeRedirectUri.endsWith('/auth/sso')) {
+      if (isOfficialDevPortal) {
+        activeRedirectUri = isZenoaProdHost ? 'https://developer.zenoa.in/developer' : `${window.location.origin}/developer`;
+      } else if (isOfficialOAuthPortal) {
+        activeRedirectUri = isZenoaProdHost ? 'https://console.zenoa.in/sso' : `${window.location.origin}/sso`;
+      } else {
         activeRedirectUri = `${window.location.origin}/developer`;
-      } else if (activeRedirectUri.includes('console.zenoa.') || activeRedirectUri.includes('/sso') || activeClientId === 'zenoa_oauth_console') {
+      }
+    } else if (!isZenoaProdHost) {
+      if (activeRedirectUri.includes('developer.zenoa.') || activeRedirectUri.includes('/developer') || isOfficialDevPortal) {
+        activeRedirectUri = `${window.location.origin}/developer`;
+      } else if (activeRedirectUri.includes('console.zenoa.') || activeRedirectUri.includes('/sso') || isOfficialOAuthPortal) {
         activeRedirectUri = `${window.location.origin}/sso`;
       }
     }
@@ -1366,8 +1397,8 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
       finalUrl.searchParams.set('payload', encodedPayload);
       finalUrl.searchParams.set('signature', 'zen_sig_' + Array.from(window.crypto.getRandomValues(new Uint8Array(20))).map(b => b.toString(16).padStart(2, '0')).join(''));
 
-      // If redirectUri is explicitly /auth/sso without destination route, render callback inspect directly
-      if (activeRedirectUri === '/auth/sso' || activeRedirectUri.endsWith('/auth/sso')) {
+      // If redirectUri is explicitly /auth/sso without destination route AND not an official console, render callback inspect directly
+      if ((activeRedirectUri === '/auth/sso' || activeRedirectUri.endsWith('/auth/sso')) && !isConsoleLogin && !isOfficialDevPortal && !isOfficialOAuthPortal) {
         setCallbackData({
           payload: rawProfile,
           rawPayload: encodedPayload,
@@ -1634,12 +1665,25 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
             </div>
           )}
 
-          <div className="mt-5 text-center">
+          <div className="mt-5 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <a 
+              href="/developer"
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-[#533afd] hover:bg-[#432ec4] text-white text-xs font-bold transition-all text-center shadow-sm flex items-center justify-center gap-1.5"
+            >
+              <span>Enter Developer Console</span>
+              <ArrowRight className="h-3.5 w-3.5" />
+            </a>
+            <a 
+              href="/sso"
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-all text-center border border-slate-200"
+            >
+              Enter SSO Console
+            </a>
             <a 
               href="/"
-              className="text-xs text-[#64748d] hover:text-[#0d253d] transition-colors"
+              className="text-xs text-[#64748d] hover:text-[#0d253d] transition-colors py-1 px-2"
             >
-              &larr; Return to Zenoa
+              Return Home
             </a>
           </div>
         </motion.div>

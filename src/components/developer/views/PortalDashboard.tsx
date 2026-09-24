@@ -53,6 +53,14 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
   themeMode = 'light',
   onToggleTheme 
 }) => {
+  useEffect(() => {
+    if (themeMode === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [themeMode]);
+
   const branding = useBranding();
   const activeLogo = branding.dev_console_logo || branding.public_logo;
   // Landing tab is Overview for security and streamlined UX

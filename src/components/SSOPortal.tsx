@@ -88,12 +88,21 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     return initialTheme || 'light';
   });
 
+  useEffect(() => {
+    if (localTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    try {
+      localStorage.setItem('zenoa_oauth_theme', localTheme);
+      localStorage.setItem('zenoa_theme_mode', localTheme);
+    } catch (e) {}
+  }, [localTheme]);
+
   const toggleTheme = () => {
     const next = localTheme === 'light' ? 'dark' : 'light';
     setLocalTheme(next);
-    try {
-      localStorage.setItem('zenoa_oauth_theme', next);
-    } catch (e) {}
   };
 
   const isDark = localTheme === 'dark';

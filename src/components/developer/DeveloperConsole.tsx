@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { resolveAndApplyMetadata } from '../../seoUtils';
 import { auth, db } from '../../firebaseClient';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { UserData } from '../../types';
 import { LandingView } from './views/LandingView';
 import { MobileSetupView } from './views/MobileSetupView';
@@ -42,12 +42,21 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     return 'light';
   });
 
-  const toggleTheme = () => {
-    const next = themeMode === 'light' ? 'dark' : 'light';
-    setThemeMode(next);
+  // Strict synchronization between themeMode and documentElement class
+  useEffect(() => {
+    if (themeMode === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
     try {
-      localStorage.setItem('zenoa_dev_theme', next);
+      localStorage.setItem('zenoa_dev_theme', themeMode);
+      localStorage.setItem('zenoa_theme_mode', themeMode);
     } catch (e) {}
+  }, [themeMode]);
+
+  const toggleTheme = () => {
+    setThemeMode(prev => prev === 'light' ? 'dark' : 'light');
   };
 
   const fetchFullUserProfile = async (searchIdent: string, uid?: string): Promise<{ profile: UserData | null; status: 'ok' | 'not_found' | 'suspended' }> => {
@@ -102,125 +111,156 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     let isMounted = true;
     let unsubscribe = () => {};
 
-    // Check if returning from OAuth handshake with code / payload
-    const searchParams = new URLSearchParams(window.location.search);
-    const hasOAuthReturn = searchParams.has('code') || searchParams.has('payload');
-    
-    if (hasOAuthReturn) {
-      try {
-        sessionStorage.removeItem('zenoa_dev_console_logged_out');
-      } catch (e) {}
-
-      let resolvedOAuthUser: UserData | null = null;
-
-      // If payload is present in query, parse it as instant fallback
-      const rawPayload = searchParams.get('payload');
-      if (rawPayload) {
+    const resolveAuthHandshake = async () => {
+      // Check if returning from OAuth handshake with code / payload
+      const searchParams = new URLSearchParams(window.location.search);
+      const hasOAuthReturn = searchParams.has('code') || searchParams.has('payload');
+      
+      if (hasOAuthReturn) {
         try {
-          const decoded = JSON.parse(safeBase64Decode(rawPayload));
-          if (decoded && (decoded.username || decoded.sub || decoded.uid)) {
-            resolvedOAuthUser = {
-              id: decoded.sub || decoded.uid || `user_${decoded.username}`,
-              zenoa_id: decoded.zenoa_id || `${decoded.username}@zenoa`,
-              username: (decoded.username || 'developer').replace(/^@/, ''),
-              display_name: decoded.name || decoded.display_name || decoded.username,
-              bio: decoded.bio || 'Zenoa Developer',
-              avatar_seed: decoded.avatar_seed || decoded.username || 'developer',
-              online: true,
-              last_seen: 'Just now',
-              email: decoded.email || '',
-              mobile_number: decoded.phone_number || decoded.mobile_number || '',
-              avatar_url: decoded.picture || decoded.avatar_url || '',
-              is_verified: true,
-              is_official: false
-            };
-            localStorage.setItem('zenoa_dev_console_user', JSON.stringify(resolvedOAuthUser));
-            localStorage.setItem('zenoa_user', JSON.stringify(resolvedOAuthUser));
-          }
+          sessionStorage.removeItem('zenoa_dev_console_logged_out');
         } catch (e) {}
-      }
 
-      if (!resolvedOAuthUser) {
-        try {
-          const raw = localStorage.getItem('zenoa_dev_console_user') || localStorage.getItem('zenoa_user');
-          if (raw) resolvedOAuthUser = JSON.parse(raw);
-        } catch (e) {}
-      }
+        let resolvedOAuthUser: UserData | null = null;
 
-      // Clean query parameters from address bar
-      window.history.replaceState({}, document.title, window.location.pathname);
+        // If payload is present in query, parse it as instant verified session
+        const rawPayload = searchParams.get('payload');
+        if (rawPayload) {
+          try {
+            const decoded = JSON.parse(safeBase64Decode(rawPayload));
+            if (decoded && (decoded.username || decoded.sub || decoded.uid)) {
+              resolvedOAuthUser = {
+                id: decoded.sub || decoded.uid || `user_${decoded.username}`,
+                zenoa_id: decoded.zenoa_id || `${decoded.username}@zenoa`,
+                username: (decoded.username || 'developer').replace(/^@/, ''),
+                display_name: decoded.name || decoded.display_name || decoded.username,
+                bio: decoded.bio || 'Zenoa Developer',
+                avatar_seed: decoded.avatar_seed || decoded.username || 'developer',
+                online: true,
+                last_seen: 'Just now',
+                email: decoded.email || '',
+                mobile_number: decoded.phone_number || decoded.mobile_number || '',
+                avatar_url: decoded.picture || decoded.avatar_url || '',
+                is_verified: true,
+                is_official: false
+              };
+            }
+          } catch (e) {}
+        }
 
-      if (resolvedOAuthUser) {
-        setUser(resolvedOAuthUser);
-        setView('portal');
-        setLoading(false);
-        // Refresh profile in background
-        fetchFullUserProfile(resolvedOAuthUser.username, resolvedOAuthUser.id).then(res => {
-          if (!isMounted) return;
-          if (res.status === 'not_found' || res.status === 'suspended') {
-            localStorage.removeItem('zenoa_dev_console_user');
-            localStorage.removeItem('zenoa_user');
-            setUser(null);
-            setView('landing');
-          } else if (res.profile) {
-            setUser(res.profile);
-          }
-        }).catch(() => {});
-        return;
-      }
-    }
-
-    // Mandatory login check: If user explicitly logged out in this session and NOT returning from fresh OAuth
-    const isLoggedOut = !hasOAuthReturn && sessionStorage.getItem('zenoa_dev_console_logged_out') === 'true';
-
-    // 1. Check if user already authorized via Zenoa OAuth / SSO session
-    if (!isLoggedOut) {
-      try {
-        const storedDevUser = localStorage.getItem('zenoa_dev_console_user') || localStorage.getItem('zenoa_user');
-        if (storedDevUser) {
-          const parsed = JSON.parse(storedDevUser);
-          if (parsed && (parsed.username || parsed.id)) {
-            // Instantly render portal synchronously
-            setUser(parsed);
-            setView('portal');
-            setLoading(false);
-
-            // Fetch any updated attributes asynchronously without blocking
-            fetchFullUserProfile(parsed.username || parsed.id, parsed.id).then(res => {
-              if (!isMounted) return;
-              if (res.status === 'not_found' || res.status === 'suspended') {
-                localStorage.removeItem('zenoa_dev_console_user');
-                localStorage.removeItem('zenoa_user');
-                setUser(null);
-                setView('landing');
-              } else if (res.profile) {
-                setUser(res.profile);
+        // Fallback: If code is present without payload, lookup auth code from Firestore oauth_codes
+        if (!resolvedOAuthUser && searchParams.has('code') && db) {
+          const codeParam = searchParams.get('code')!;
+          try {
+            const codeSnap = await getDoc(doc(db, 'oauth_codes', codeParam));
+            if (codeSnap.exists()) {
+              const cData = codeSnap.data();
+              if (cData && cData.user_data) {
+                resolvedOAuthUser = cData.user_data;
               }
-            }).catch(() => {});
-            return;
-          }
-        }
-      } catch (e) {}
-    }
-
-    if (!isLoggedOut && auth) {
-      unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-        if (!isMounted) return;
-        if (fbUser) {
-          const res = await fetchFullUserProfile(fbUser.email || fbUser.uid, fbUser.uid);
-          if (res.profile && isMounted) {
-            setUser(res.profile);
-            setView('portal');
-            setLoading(false);
-            return;
+            }
+          } catch (codeErr) {
+            console.warn('OAuth code lookup note:', codeErr);
           }
         }
 
-        if (isMounted) setLoading(false);
-      });
-    } else {
-      setLoading(false);
-    }
+        if (!resolvedOAuthUser) {
+          try {
+            const raw = localStorage.getItem('zenoa_dev_console_user') || localStorage.getItem('zenoa_user');
+            if (raw) resolvedOAuthUser = JSON.parse(raw);
+          } catch (e) {}
+        }
+
+        // Clean query parameters from address bar to keep URL clean and prevent re-evaluating used codes
+        window.history.replaceState({}, document.title, window.location.pathname);
+
+        if (resolvedOAuthUser) {
+          localStorage.setItem('zenoa_dev_console_user', JSON.stringify(resolvedOAuthUser));
+          localStorage.setItem('zenoa_user', JSON.stringify(resolvedOAuthUser));
+          setUser(resolvedOAuthUser);
+          setView('portal');
+          setLoading(false);
+
+          // Refresh profile attributes in background without ever kicking out authenticated OAuth user
+          fetchFullUserProfile(resolvedOAuthUser.username, resolvedOAuthUser.id).then(res => {
+            if (!isMounted) return;
+            if (res.status === 'suspended') {
+              localStorage.removeItem('zenoa_dev_console_user');
+              localStorage.removeItem('zenoa_user');
+              setUser(null);
+              setView('landing');
+            } else if (res.profile) {
+              setUser(res.profile);
+              localStorage.setItem('zenoa_dev_console_user', JSON.stringify(res.profile));
+            } else {
+              // Ensure user profile document exists in Firestore for downstream relations
+              if (db && resolvedOAuthUser) {
+                setDoc(doc(db, 'users', resolvedOAuthUser.id || resolvedOAuthUser.username), {
+                  ...resolvedOAuthUser,
+                  updated_at: Date.now()
+                }, { merge: true }).catch(() => {});
+              }
+            }
+          }).catch(() => {});
+          return;
+        }
+      }
+
+      // Mandatory login check: If user explicitly logged out in this session and NOT returning from fresh OAuth
+      const isLoggedOut = !hasOAuthReturn && sessionStorage.getItem('zenoa_dev_console_logged_out') === 'true';
+
+      // 1. Check if user already authorized via Zenoa OAuth / SSO session
+      if (!isLoggedOut) {
+        try {
+          const storedDevUser = localStorage.getItem('zenoa_dev_console_user') || localStorage.getItem('zenoa_user');
+          if (storedDevUser) {
+            const parsed = JSON.parse(storedDevUser);
+            if (parsed && (parsed.username || parsed.id)) {
+              // Instantly render portal synchronously
+              setUser(parsed);
+              setView('portal');
+              setLoading(false);
+
+              // Fetch any updated attributes asynchronously without destroying valid local session
+              fetchFullUserProfile(parsed.username || parsed.id, parsed.id).then(res => {
+                if (!isMounted) return;
+                if (res.status === 'suspended') {
+                  localStorage.removeItem('zenoa_dev_console_user');
+                  localStorage.removeItem('zenoa_user');
+                  setUser(null);
+                  setView('landing');
+                } else if (res.profile) {
+                  setUser(res.profile);
+                  localStorage.setItem('zenoa_dev_console_user', JSON.stringify(res.profile));
+                }
+              }).catch(() => {});
+              return;
+            }
+          }
+        } catch (e) {}
+      }
+
+      if (!isLoggedOut && auth) {
+        unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+          if (!isMounted) return;
+          if (fbUser) {
+            const res = await fetchFullUserProfile(fbUser.email || fbUser.uid, fbUser.uid);
+            if (res.profile && isMounted) {
+              setUser(res.profile);
+              setView('portal');
+              setLoading(false);
+              return;
+            }
+          }
+
+          if (isMounted) setLoading(false);
+        });
+      } else {
+        setLoading(false);
+      }
+    };
+
+    resolveAuthHandshake();
 
     return () => {
       isMounted = false;

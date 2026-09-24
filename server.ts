@@ -3159,8 +3159,23 @@ app.post(['/api/v1/sso/token', '/v1/sso/token', '/api/oauth/token', '/api/v1/oau
           if (!uDoc.exists() && codeData.user_data?.username) {
             uDoc = await getDoc(doc(db, 'users', String(codeData.user_data.username).toLowerCase().replace(/^@/, '')));
           }
-
           if (!uDoc.exists()) {
+            try {
+              const uq = query(collection(db, 'users'), where('username', '==', cleanU));
+              const uqSnap = await getDocs(uq);
+              if (!uqSnap.empty) {
+                uDoc = uqSnap.docs[0];
+              }
+            } catch (qErr) {}
+          }
+
+          if (!uDoc.exists() && codeData.user_data) {
+            // Self-heal: account was authenticated during OAuth issuance, upsert record into users collection
+            await setDoc(doc(db, 'users', codeData.user_id || cleanU), {
+              ...codeData.user_data,
+              updated_at: Date.now()
+            }, { merge: true }).catch(() => {});
+          } else if (!uDoc.exists()) {
             return res.status(403).json({
               error: 'invalid_grant',
               error_description: 'Account security error: User account has been deleted from the database. Token exchange rejected.'

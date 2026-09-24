@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { resolveAndApplyMetadata } from '../seoUtils';
 import { db } from '../firebaseClient';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { SSOPortal } from './SSOPortal';
 import { UserData } from '../types';
 import { useBranding } from '../brandingUtils';
@@ -136,6 +136,20 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
     } catch (e) {}
     return 'light';
   });
+
+  // Strict synchronization between themeMode and documentElement class
+  useEffect(() => {
+    if (themeMode === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    try {
+      localStorage.setItem('zenoa_oauth_theme', themeMode);
+      localStorage.setItem('zenoa_theme_mode', themeMode);
+    } catch (e) {}
+  }, [themeMode]);
+
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [activeCodeTab, setActiveCodeTab] = useState<OAuthCodeTab>('react');
   const [copied, setCopied] = useState(false);
@@ -183,6 +197,8 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
   };
 
   useEffect(() => {
+    let isMounted = true;
+
     // If propUser was provided, prioritize it
     if (propUser && propUser.username) {
       setUser(propUser);
@@ -193,87 +209,121 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
       return;
     }
 
-    // Check if returning from OAuth handshake with code / payload
-    const searchParams = new URLSearchParams(window.location.search);
-    const hasOAuthReturn = searchParams.has('code') || searchParams.has('payload');
+    const resolveAuth = async () => {
+      // Check if returning from OAuth handshake with code / payload
+      const searchParams = new URLSearchParams(window.location.search);
+      const hasOAuthReturn = searchParams.has('code') || searchParams.has('payload');
 
-    if (hasOAuthReturn) {
-      try {
-        sessionStorage.removeItem('zenoa_sso_console_logged_out');
-      } catch (e) {}
-
-      let resolvedOAuthUser: UserData | null = null;
-
-      // If payload is present in query, parse it as instant fallback
-      const rawPayload = searchParams.get('payload');
-      if (rawPayload) {
+      if (hasOAuthReturn) {
         try {
-          const decoded = JSON.parse(safeBase64Decode(rawPayload));
-          if (decoded && (decoded.username || decoded.sub || decoded.uid)) {
-            resolvedOAuthUser = {
-              id: decoded.sub || decoded.uid || `user_${decoded.username}`,
-              zenoa_id: decoded.zenoa_id || `${decoded.username}@zenoa`,
-              username: (decoded.username || 'developer').replace(/^@/, ''),
-              display_name: decoded.name || decoded.display_name || decoded.username,
-              bio: decoded.bio || 'Zenoa Identity Admin',
-              avatar_seed: decoded.avatar_seed || decoded.username || 'developer',
-              online: true,
-              last_seen: 'Just now',
-              email: decoded.email || '',
-              mobile_number: decoded.phone_number || decoded.mobile_number || '',
-              avatar_url: decoded.picture || decoded.avatar_url || '',
-              is_verified: true,
-              is_official: false
-            };
-            localStorage.setItem('zenoa_sso_console_user', JSON.stringify(resolvedOAuthUser));
-            localStorage.setItem('zenoa_user', JSON.stringify(resolvedOAuthUser));
-          }
+          sessionStorage.removeItem('zenoa_sso_console_logged_out');
         } catch (e) {}
-      }
 
-      if (!resolvedOAuthUser) {
-        try {
-          const raw = localStorage.getItem('zenoa_sso_console_user') || localStorage.getItem('zenoa_user');
-          if (raw) resolvedOAuthUser = JSON.parse(raw);
-        } catch (e) {}
-      }
+        let resolvedOAuthUser: UserData | null = null;
 
-      // Clean the query parameters from the address bar
-      window.history.replaceState({}, document.title, window.location.pathname);
+        // If payload is present in query, parse it as instant fallback
+        const rawPayload = searchParams.get('payload');
+        if (rawPayload) {
+          try {
+            const decoded = JSON.parse(safeBase64Decode(rawPayload));
+            if (decoded && (decoded.username || decoded.sub || decoded.uid)) {
+              resolvedOAuthUser = {
+                id: decoded.sub || decoded.uid || `user_${decoded.username}`,
+                zenoa_id: decoded.zenoa_id || `${decoded.username}@zenoa`,
+                username: (decoded.username || 'developer').replace(/^@/, ''),
+                display_name: decoded.name || decoded.display_name || decoded.username,
+                bio: decoded.bio || 'Zenoa Identity Admin',
+                avatar_seed: decoded.avatar_seed || decoded.username || 'developer',
+                online: true,
+                last_seen: 'Just now',
+                email: decoded.email || '',
+                mobile_number: decoded.phone_number || decoded.mobile_number || '',
+                avatar_url: decoded.picture || decoded.avatar_url || '',
+                is_verified: true,
+                is_official: false
+              };
+            }
+          } catch (e) {}
+        }
 
-      if (resolvedOAuthUser) {
-        setUser(resolvedOAuthUser);
-        setLoading(false);
-        fetchFullUserProfile(resolvedOAuthUser.username, resolvedOAuthUser.id).then(profile => {
-          if (profile) setUser(profile);
-        }).catch(() => {});
-        return;
-      }
-    }
-
-    // Mandatory login check: If user explicitly logged out in this session and NOT returning from fresh OAuth
-    const isLoggedOut = !hasOAuthReturn && sessionStorage.getItem('zenoa_sso_console_logged_out') === 'true';
-
-    // Check if there is an active SSO Console session or main Zenoa session stored
-    if (!isLoggedOut) {
-      try {
-        const storedSSOUser = localStorage.getItem('zenoa_sso_console_user') || localStorage.getItem('zenoa_user');
-        if (storedSSOUser) {
-          const parsed = JSON.parse(storedSSOUser);
-          if (parsed && (parsed.username || parsed.id)) {
-            setUser(parsed);
-            setLoading(false);
-
-            fetchFullUserProfile(parsed.username || parsed.id, parsed.id).then(profile => {
-              if (profile) setUser(profile);
-            }).catch(() => {});
-            return;
+        // Fallback: If code is present without payload, lookup auth code from Firestore oauth_codes
+        if (!resolvedOAuthUser && searchParams.has('code') && db) {
+          const codeParam = searchParams.get('code')!;
+          try {
+            const codeSnap = await getDoc(doc(db, 'oauth_codes', codeParam));
+            if (codeSnap.exists()) {
+              const cData = codeSnap.data();
+              if (cData && cData.user_data) {
+                resolvedOAuthUser = cData.user_data;
+              }
+            }
+          } catch (codeErr) {
+            console.warn('OAuth code lookup note in SSO:', codeErr);
           }
         }
-      } catch (e) {}
-    }
 
-    setLoading(false);
+        if (!resolvedOAuthUser) {
+          try {
+            const raw = localStorage.getItem('zenoa_sso_console_user') || localStorage.getItem('zenoa_user');
+            if (raw) resolvedOAuthUser = JSON.parse(raw);
+          } catch (e) {}
+        }
+
+        // Clean the query parameters from the address bar
+        window.history.replaceState({}, document.title, window.location.pathname);
+
+        if (resolvedOAuthUser) {
+          localStorage.setItem('zenoa_sso_console_user', JSON.stringify(resolvedOAuthUser));
+          localStorage.setItem('zenoa_user', JSON.stringify(resolvedOAuthUser));
+          setUser(resolvedOAuthUser);
+          setLoading(false);
+          fetchFullUserProfile(resolvedOAuthUser.username, resolvedOAuthUser.id).then(profile => {
+            if (!isMounted) return;
+            if (profile) {
+              setUser(profile);
+              localStorage.setItem('zenoa_sso_console_user', JSON.stringify(profile));
+            } else if (db && resolvedOAuthUser) {
+              setDoc(doc(db, 'users', resolvedOAuthUser.id || resolvedOAuthUser.username), {
+                ...resolvedOAuthUser,
+                updated_at: Date.now()
+              }, { merge: true }).catch(() => {});
+            }
+          }).catch(() => {});
+          return;
+        }
+      }
+
+      // Mandatory login check: If user explicitly logged out in this session and NOT returning from fresh OAuth
+      const isLoggedOut = !hasOAuthReturn && sessionStorage.getItem('zenoa_sso_console_logged_out') === 'true';
+
+      // Check if there is an active SSO Console session or main Zenoa session stored
+      if (!isLoggedOut) {
+        try {
+          const storedSSOUser = localStorage.getItem('zenoa_sso_console_user') || localStorage.getItem('zenoa_user');
+          if (storedSSOUser) {
+            const parsed = JSON.parse(storedSSOUser);
+            if (parsed && (parsed.username || parsed.id)) {
+              setUser(parsed);
+              setLoading(false);
+
+              fetchFullUserProfile(parsed.username || parsed.id, parsed.id).then(profile => {
+                if (!isMounted) return;
+                if (profile) setUser(profile);
+              }).catch(() => {});
+              return;
+            }
+          }
+        } catch (e) {}
+      }
+
+      if (isMounted) setLoading(false);
+    };
+
+    resolveAuth();
+
+    return () => {
+      isMounted = false;
+    };
   }, [propUser]);
 
   const handleAuthenticatedWithZenoa = async (authenticatedUser: UserData) => {
