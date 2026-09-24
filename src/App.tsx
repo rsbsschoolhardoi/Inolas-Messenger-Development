@@ -11,6 +11,7 @@ import { SSOConsoleStandalone } from "./components/SSOConsoleStandalone";
 import { SSOLogin } from "./components/SSOLogin";
 import { AccountPortalStandalone } from "./components/AccountPortalStandalone";
 import { LegalPortalPage, LegalDocType } from "./components/legal/LegalPortalPage";
+import { NearwaysLegalPage, NearwaysDocType } from "./components/legal/NearwaysLegalPage";
 import { DeveloperConsoleStandalone } from './components/developer/DeveloperConsole';
 import { DocumentationStandalone } from './components/developer/DocumentationStandalone';
 import { ConcurrentLogoutModal } from './components/ConcurrentLogoutModal';
@@ -9178,6 +9179,23 @@ export default function App() {
     following: dbUserObj?.following || [],
     is_private: dbUserObj?.is_private ?? false
   } : null;
+
+  // Dedicated Nearways Legal Routes (/Nearways/legal/privacypolicy, /Nearways/legal/termsofservice)
+  const lowerCurrentPath = currentPathname.toLowerCase();
+  const isNearwaysRoute = lowerCurrentPath.startsWith('/nearways/legal') || currentSearchParams.get('app') === 'nearways';
+
+  if (isNearwaysRoute) {
+    const isTerms = lowerCurrentPath.includes('term') || currentSearchParams.get('view') === 'termsofservice';
+    const nearwaysDoc: NearwaysDocType = isTerms ? 'termsofservice' : 'privacypolicy';
+
+    return (
+      <NearwaysLegalPage
+        initialDoc={nearwaysDoc}
+        themeMode={themeMode}
+        onNavigateHome={() => navigateTo('/')}
+      />
+    );
+  }
 
   // Dedicated Legal & Regulatory Disclosures Portal (/terms, /privacy, /security, /acceptable-use, /cookies, /legal)
   const isLegalRoute = 

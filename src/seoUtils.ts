@@ -268,6 +268,20 @@ export function resolveAndApplyMetadata(opts?: {
     return;
   }
 
+  // Nearways Legal Routes (/Nearways/legal/privacypolicy, /Nearways/legal/termsofservice)
+  const lowerPath = path.toLowerCase();
+  if (lowerPath.startsWith('/nearways/legal')) {
+    const isTerms = lowerPath.includes('term');
+    const title = isTerms
+      ? 'Terms of Service for Nearways | INOLAS'
+      : 'Privacy Policy for Nearways | INOLAS';
+    const description = isTerms
+      ? 'Official Terms of Service for Nearways: Offline Share & Chat (Android), published by INOLAS.'
+      : 'Official Privacy Policy for Nearways: Offline Share & Chat (Android) - Zero-Cloud, local offline peer-to-peer sharing and decentralized communication.';
+    updatePageMetadata(title, description, currentUrl, 'Nearways, offline share, privacy policy, terms of service, INOLAS, P2P transfer', 'Nearways');
+    return;
+  }
+
   // Legal Portal & Terms / Privacy / Security routes
   const isLegalPath = 
     path === '/legal' || path.startsWith('/legal/') ||
