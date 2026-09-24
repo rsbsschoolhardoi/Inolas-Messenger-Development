@@ -91,7 +91,7 @@ export interface BuildOAuthUrlOptions {
 
 /**
  * Returns the canonical, dedicated accounts authentication base URL.
- * Automatically resolves to accounts.zenoa.in or accounts.zenoa.sbs in production,
+ * Automatically resolves to accounts.zenoa.in in production,
  * and falls back cleanly to the current origin on local or preview environments.
  */
 export function getAccountsBaseUrl(): string {
@@ -99,9 +99,6 @@ export function getAccountsBaseUrl(): string {
   const host = window.location.hostname.toLowerCase();
   if (host.endsWith('zenoa.in')) {
     return 'https://accounts.zenoa.in/auth/sso';
-  }
-  if (host.endsWith('zenoa.sbs')) {
-    return 'https://accounts.zenoa.sbs/auth/sso';
   }
   return `${window.location.origin}/auth/sso`;
 }

@@ -12,7 +12,7 @@ import {
   Shield, ArrowRight, Lock, Key, Sparkles, RefreshCw, 
   User, Mail, Terminal, ArrowLeft, LogOut, Globe, CheckCircle2,
   Code2, Layers, ShieldCheck, Fingerprint, ExternalLink, Sun, Moon, Zap,
-  AlertTriangle, X
+  AlertTriangle, X, Copy, Check, FileText, CheckCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -34,6 +34,97 @@ const safeBase64Decode = (str: string): string => {
   }
 };
 
+type OAuthCodeTab = 'react' | 'nodejs' | 'python' | 'curl';
+
+const OAUTH_CODE_EXAMPLES: Record<OAuthCodeTab, { filename: string; language: string; code: string }> = {
+  react: {
+    filename: 'LoginButton.tsx',
+    language: 'typescript',
+    code: `import { ContinueWithZenoaButton } from '@zenoa/auth-react';
+
+export const AuthScreen = () => {
+  return (
+    <div className="flex flex-col items-center gap-4">
+      <h2>Sign in to Acme Cloud</h2>
+      <ContinueWithZenoaButton
+        clientId="app_89f3a1b4c7"
+        redirectUri="https://app.acme.com/auth/callback"
+        scope="openid profile email"
+        onSuccess={(authPayload) => {
+          console.log('Authenticated session:', authPayload);
+        }}
+      />
+    </div>
+  );
+};`
+  },
+  nodejs: {
+    filename: 'oauth_callback.ts',
+    language: 'typescript',
+    code: `import express from 'express';
+import axios from 'axios';
+
+const router = express.Router();
+
+// Exchange temporary authorization code for verified tokens
+router.get('/auth/callback', async (req, res) => {
+  const { code, state } = req.query;
+
+  const tokenResponse = await axios.post('https://api.zenoa.in/v1/oauth/token', {
+    grant_type: 'authorization_code',
+    client_id: process.env.ZENOA_CLIENT_ID,
+    client_secret: process.env.ZENOA_CLIENT_SECRET,
+    code: code,
+    redirect_uri: 'https://app.acme.com/auth/callback'
+  });
+
+  const { access_token, id_token, user } = tokenResponse.data;
+  req.session.user = user;
+  res.redirect('/dashboard');
+});`
+  },
+  python: {
+    filename: 'auth_router.py',
+    language: 'python',
+    code: `import httpx
+from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import RedirectResponse
+
+router = APIRouter()
+
+@router.get("/auth/callback")
+async def oauth_callback(code: str, state: str = None):
+    async with httpx.AsyncClient() as client:
+        res = await client.post(
+            "https://api.zenoa.in/v1/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": "app_89f3a1b4c7",
+                "client_secret": "sec_live_948f93e2910a",
+                "code": code,
+                "redirect_uri": "https://app.acme.com/auth/callback"
+            }
+        )
+        if res.status_code != 200:
+            raise HTTPException(status_code=400, detail="OAuth Exchange Failed")
+        
+        token_data = res.json()
+        return {"status": "authenticated", "user": token_data.get("user")}`
+  },
+  curl: {
+    filename: 'exchange_token.sh',
+    language: 'bash',
+    code: `# Server-side Token Exchange endpoint
+curl -X POST https://api.zenoa.in/v1/oauth/token \\
+  -H "Content-Type: application/x-www-form-urlencoded" \\
+  -d "grant_type=authorization_code" \\
+  -d "client_id=app_89f3a1b4c7" \\
+  -d "client_secret=sec_live_948f93e2910a" \\
+  -d "code=auth_code_7d2f91a0" \\
+  -d "redirect_uri=https://app.acme.com/auth/callback"`
+  }
+};
+
 export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ currentUser: propUser }) => {
   const branding = useBranding();
   const [user, setUser] = useState<UserData | null>(propUser || null);
@@ -46,10 +137,22 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
     return 'light';
   });
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [activeCodeTab, setActiveCodeTab] = useState<OAuthCodeTab>('react');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     resolveAndApplyMetadata();
   }, []);
+
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(OAUTH_CODE_EXAMPLES[activeCodeTab].code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.warn('Clipboard copy error:', err);
+    }
+  };
 
   const fetchFullUserProfile = async (searchIdent: string, uid?: string): Promise<UserData | null> => {
     if (!db) return null;
@@ -199,12 +302,12 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0b0f19] flex flex-col items-center justify-center p-6 text-white font-sans">
+      <div className="min-h-screen bg-[#0a0d1d] flex flex-col items-center justify-center p-6 text-white font-sans">
         <div className="w-10 h-10 rounded-2xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center mb-4">
           <RefreshCw className="w-5 h-5 animate-spin" />
         </div>
-        <h2 className="text-sm font-bold tracking-tight">Initializing Identity Console...</h2>
-        <p className="text-[11px] text-slate-400 mt-1">Connecting to OAuth 2.0 & OIDC Provider</p>
+        <h2 className="text-sm font-semibold tracking-tight">Initializing Identity Console...</h2>
+        <p className="text-xs text-slate-400 mt-1">Connecting to OAuth 2.0 & OIDC Provider</p>
       </div>
     );
   }
@@ -212,9 +315,10 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
   // 1. MANDATORY ACCESS GATE & DEDICATED SSO LANDING PAGE (When not authenticated)
   if (!user) {
     const isDark = themeMode === 'dark';
+    const appName = branding.app_name || 'Zenoa';
     return (
       <div className={`min-h-screen flex flex-col font-sans transition-colors relative overflow-hidden ${
-        isDark ? 'dark bg-[#0c1024] text-white selection:bg-[#533afd] selection:text-white' : 'bg-[#f6f9fc] text-[#0d253d] selection:bg-[#533afd]/20 selection:text-[#533afd]'
+        isDark ? 'dark bg-[#0a0d1d] text-slate-100 selection:bg-[#533afd] selection:text-white' : 'bg-[#f8fafc] text-slate-900 selection:bg-[#533afd]/20 selection:text-[#533afd]'
       }`}>
         {/* Background Wave Arc Visual */}
         <div className="absolute inset-0 pointer-events-none opacity-20 dark:opacity-15 -z-10">
@@ -222,33 +326,58 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
             backgroundColor="transparent"
             lineColor={isDark ? 'rgb(129, 140, 248)' : 'rgb(83, 58, 253)'}
             lineWidth={1.2}
-            lineCount={64}
-            speed={4.5}
-            glow={12}
+            lineCount={54}
+            speed={4.0}
+            glow={10}
             interactive={false}
           />
         </div>
 
         {/* Top Navigation */}
         <header className={`border-b sticky top-0 z-50 backdrop-blur-md transition-colors ${
-          isDark ? 'border-[#273951]/80 bg-[#0c1024]/90' : 'border-[#e3e8ee]/90 bg-white/90 shadow-[0_1px_3px_rgba(0,55,112,0.04)]'
+          isDark ? 'border-slate-800/80 bg-[#0a0d1d]/90' : 'border-slate-200/90 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.03)]'
         }`}>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <BrandLogo
                 src={branding.oauth_logo || branding.dev_console_logo || branding.public_logo}
-                name={branding.app_name || 'Zenoa'}
+                name={appName}
                 size="sm"
               />
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-base tracking-tight text-[#0d253d] dark:text-white">{branding.app_name || 'Zenoa'}</span>
-                <span className="text-[10px] font-mono uppercase bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 px-2.5 py-0.5 rounded-full font-bold tracking-wider border border-[#533afd]/20">
-                  SSO & OAuth 2.0
+              <div className="flex items-center gap-2.5">
+                <span className="font-bold text-base tracking-tight text-slate-900 dark:text-white">
+                  {appName}
+                </span>
+                <span className="hidden sm:inline-block h-3.5 w-px bg-slate-300 dark:bg-slate-700" />
+                <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-800/50">
+                  OAuth 2.0 & OIDC Console
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-4">
+              <a
+                href="/"
+                className="text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5 transition-colors hidden md:flex px-2 py-1"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                <span>Messenger</span>
+              </a>
+
+              <a
+                href="/developer"
+                className="text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors hidden sm:inline-block px-2 py-1"
+              >
+                Developer Platform
+              </a>
+
+              <a
+                href="/docs"
+                className="text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors hidden sm:inline-block px-2 py-1"
+              >
+                Integration Specs
+              </a>
+
               <button
                 id="sso_landing_theme_toggle"
                 onClick={() => {
@@ -258,130 +387,258 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
                     localStorage.setItem('zenoa_oauth_theme', nextTheme);
                   } catch (e) {}
                 }}
-                className="p-2 rounded-full border border-[#e3e8ee] dark:border-[#273951] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] text-[#273951] dark:text-[#cbd5e1] transition-colors cursor-pointer"
+                className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
                 title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
                 aria-label="Toggle theme"
               >
-                {isDark ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-[#273951]" />}
+                {isDark ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-slate-700" />}
               </button>
-
-              <a
-                href="/"
-                className="text-xs font-semibold text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white flex items-center gap-1.5 transition-colors hidden sm:flex px-2 py-1"
-              >
-                <ArrowLeft className="h-3.5 w-3.5" />
-                <span>Messenger</span>
-              </a>
-
-              <a
-                href="/developer"
-                className="text-xs font-semibold text-[#64748d] dark:text-[#94a3b8] hover:text-[#533afd] dark:hover:text-white transition-colors hidden sm:inline-block px-2 py-1"
-              >
-                Dev Console
-              </a>
 
               <ContinueWithZenoaButton
                 portal="sso"
                 size="sm"
                 variant="primary"
-                className="rounded-full !py-2 !px-3.5 text-xs shadow-xs"
+                className="rounded-lg !py-2 !px-3.5 text-xs shadow-xs"
                 showArrow={false}
               />
             </div>
           </div>
         </header>
 
-        {/* Hero & Access Gate */}
-        <main className="flex-1 flex flex-col justify-center items-center py-16 md:py-24 px-4 sm:px-6 relative z-10 max-w-5xl mx-auto w-full text-center">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/95 dark:bg-[#1c1e54]/95 border border-[#e3e8ee] dark:border-[#273951] text-[#273951] dark:text-[#cbd5e1] text-[13px] shadow-[0_1px_3px_rgba(0,55,112,0.06)] mx-auto flex-wrap mb-6">
-            <span className="h-2 w-2 rounded-full bg-[#533afd] animate-pulse" />
-            <span className="font-semibold text-[#0d253d] dark:text-white">Inolas Nexus Identity</span>
-            <span className="text-[#a8c3de] dark:text-[#64748d]">•</span>
-            <span className="text-[#533afd] dark:text-[#b9b9f9] font-medium">OAuth 2.0 & OIDC</span>
-            <span className="text-[#a8c3de] dark:text-[#64748d]">•</span>
-            <span className="font-tabular text-[#273951] dark:text-[#cbd5e1] text-[12px]">RFC 6749 Compliant</span>
+        {/* Hero & Access Section */}
+        <main className="flex-1 flex flex-col justify-center items-center py-16 sm:py-24 px-4 sm:px-6 lg:px-8 relative z-10 max-w-7xl mx-auto w-full">
+          <div className="max-w-4xl w-full text-center space-y-6">
+            <div className="inline-flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-400">
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+              </span>
+              <span className="font-semibold text-slate-800 dark:text-slate-200">Identity & Access Management</span>
+              <span aria-hidden="true">·</span>
+              <span>OpenID Connect Certified</span>
+              <span aria-hidden="true">·</span>
+              <span className="text-indigo-600 dark:text-indigo-400">RFC 6749 & PKCE S256</span>
+            </div>
+
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.12]">
+              Enterprise Identity &
+              <span className="block mt-2 bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 bg-clip-text text-transparent">
+                Single Sign-On Infrastructure.
+              </span>
+            </h1>
+
+            <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
+              Federate user authentication across web, mobile, and backend services with cryptographic zero-knowledge trust, granular consent scopes, and seamless 1-click login.
+            </p>
+
+            <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <ContinueWithZenoaButton
+                portal="sso"
+                size="lg"
+                variant="primary"
+                className="w-full sm:w-auto shadow-md"
+              />
+              <a
+                href="/docs"
+                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 text-sm font-semibold transition-colors flex items-center justify-center gap-2 shadow-xs"
+              >
+                <FileText className="h-4 w-4 text-slate-500" />
+                <span>OAuth Specifications</span>
+              </a>
+            </div>
+
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Sign in with your verified developer account to register client applications, issue secrets, and test sandbox flows.
+            </p>
           </div>
 
-          <h1 className="text-[34px] sm:text-[46px] lg:text-[54px] font-bold tracking-tight text-[#0d253d] dark:text-white leading-[1.18] sm:leading-[1.14]">
-            OAuth 2.0 & OpenID Connect Console
-            <span className="block mt-2 text-[#533afd] dark:text-[#818cf8]">
-              Decentralized Identity Infrastructure.
-            </span>
-          </h1>
+          {/* Interactive Protocol Integration Showcase */}
+          <div className="mt-14 w-full max-w-4xl">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-950 text-slate-100 shadow-xl overflow-hidden text-left">
+              {/* Window Header */}
+              <div className="px-4 py-3 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 mr-3">
+                    <span className="w-3 h-3 rounded-full bg-rose-500/80 inline-block" />
+                    <span className="w-3 h-3 rounded-full bg-amber-500/80 inline-block" />
+                    <span className="w-3 h-3 rounded-full bg-emerald-500/80 inline-block" />
+                  </div>
+                  <div className="flex items-center gap-1 bg-slate-950/60 p-1 rounded-lg border border-slate-800/80">
+                    {(['react', 'nodejs', 'python', 'curl'] as OAuthCodeTab[]).map((tab) => (
+                      <button
+                        key={tab}
+                        onClick={() => setActiveCodeTab(tab)}
+                        className={`px-3 py-1 text-xs font-mono rounded-md transition-colors cursor-pointer ${
+                          activeCodeTab === tab 
+                            ? 'bg-indigo-600 text-white font-semibold' 
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {tab === 'react' ? 'React SDK' : tab === 'nodejs' ? 'Express' : tab === 'python' ? 'FastAPI' : 'cURL'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-          <p className="text-[16px] sm:text-[18px] font-normal text-[#273951] dark:text-[#cbd5e1] max-w-2xl mx-auto mt-4 leading-[1.6]">
-            Register third-party client applications, issue Client IDs & Secrets, whitelist authorized callback URIs, and integrate "Continue with {branding.app_name || 'Zenoa'}" authentication with cryptographic zero-knowledge security.
-          </p>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono text-slate-400 hidden sm:inline-block">
+                    {OAUTH_CODE_EXAMPLES[activeCodeTab].filename}
+                  </span>
+                  <button
+                    onClick={handleCopyCode}
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono text-slate-300 hover:text-white bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-md transition-colors cursor-pointer"
+                    title="Copy code snippet"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-emerald-400" />
+                        <span className="text-emerald-400 font-medium">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5 text-slate-400" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
 
-          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
-            <ContinueWithZenoaButton
-              portal="sso"
-              size="lg"
-              variant="primary"
-              className="w-full sm:w-auto shadow-lg"
-            />
-            <a
-              href="/docs"
-              className="w-full sm:w-auto px-6 py-3.5 sm:py-4 rounded-2xl bg-white dark:bg-[#121624] hover:bg-[#f6f9fc] dark:hover:bg-[#1c1e54] text-[#0d253d] dark:text-white border border-[#e3e8ee] dark:border-[#273951] text-[15px] font-medium transition-colors flex items-center justify-center gap-2 shadow-xs"
-            >
-              OAuth Documentation
-            </a>
+              {/* Code Content */}
+              <div className="p-5 font-mono text-xs sm:text-[13px] leading-relaxed overflow-x-auto selection:bg-indigo-500/30">
+                <pre className="text-slate-200 whitespace-pre">
+                  <code>{OAUTH_CODE_EXAMPLES[activeCodeTab].code}</code>
+                </pre>
+              </div>
+            </div>
           </div>
 
-          <p className="text-[12px] text-[#64748d] dark:text-[#94a3b8] mt-3">
-            Authenticate with your active {branding.app_name || 'Zenoa'} developer identity to access the management portal.
-          </p>
-
-          {/* Architecture Feature Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16 text-left w-full">
+          {/* Architecture Feature Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-20 text-left w-full max-w-6xl">
             <div className={`p-6 rounded-2xl border transition-all ${
-              isDark ? 'bg-[#121624]/90 border-[#273951] text-white' : 'bg-white border-[#e3e8ee] shadow-[0_1px_3px_rgba(0,55,112,0.06)] text-[#0d253d]'
+              isDark ? 'bg-slate-900/60 border-slate-800 text-white' : 'bg-white border-slate-200 shadow-sm text-slate-900'
             }`}>
-              <div className="h-11 w-11 rounded-xl bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 flex items-center justify-center mb-4 border border-[#533afd]/20">
+              <div className="h-10 w-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-4 border border-indigo-100 dark:border-indigo-800/60">
                 <Key className="h-5 w-5" />
               </div>
-              <h3 className="text-base font-bold mb-1.5">RFC 6749 Auth Codes</h3>
-              <p className="text-xs sm:text-sm text-[#64748d] dark:text-[#94a3b8] leading-relaxed">
-                Standard authorization code flow with high-entropy 256-bit secure auth codes, PKCE S256 verification, and server-to-server token exchange.
+              <h3 className="text-base font-bold mb-2">RFC 6749 Auth Code Flow</h3>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                Standard two-legged authorization exchange with high-entropy short-lived authorization codes, preventing credential exposure in client logs.
               </p>
             </div>
 
             <div className={`p-6 rounded-2xl border transition-all ${
-              isDark ? 'bg-[#121624]/90 border-[#273951] text-white' : 'bg-white border-[#e3e8ee] shadow-[0_1px_3px_rgba(0,55,112,0.06)] text-[#0d253d]'
+              isDark ? 'bg-slate-900/60 border-slate-800 text-white' : 'bg-white border-slate-200 shadow-sm text-slate-900'
             }`}>
-              <div className="h-11 w-11 rounded-xl bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 flex items-center justify-center mb-4 border border-[#533afd]/20">
+              <div className="h-10 w-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-4 border border-indigo-100 dark:border-indigo-800/60">
+                <ShieldCheck className="h-5 w-5" />
+              </div>
+              <h3 className="text-base font-bold mb-2">Mandatory PKCE S256</h3>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                Proof Key for Code Exchange (RFC 7636) with SHA-256 code verifier challenges, providing airtight security for public mobile and single-page apps.
+              </p>
+            </div>
+
+            <div className={`p-6 rounded-2xl border transition-all ${
+              isDark ? 'bg-slate-900/60 border-slate-800 text-white' : 'bg-white border-slate-200 shadow-sm text-slate-900'
+            }`}>
+              <div className="h-10 w-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-4 border border-indigo-100 dark:border-indigo-800/60">
                 <Globe className="h-5 w-5" />
               </div>
-              <h3 className="text-base font-bold mb-1.5">Strict Redirect Whitelisting</h3>
-              <p className="text-xs sm:text-sm text-[#64748d] dark:text-[#94a3b8] leading-relaxed">
-                Prevent token interception with exact protocol, domain, port, and path matching for web, desktop, and mobile callback URIs.
+              <h3 className="text-base font-bold mb-2">Strict URI Whitelisting</h3>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                Deterministic matching on protocol, subdomain, port, and callback paths to safeguard against open-redirect and token interception vectors.
               </p>
             </div>
 
             <div className={`p-6 rounded-2xl border transition-all ${
-              isDark ? 'bg-[#121624]/90 border-[#273951] text-white' : 'bg-white border-[#e3e8ee] shadow-[0_1px_3px_rgba(0,55,112,0.06)] text-[#0d253d]'
+              isDark ? 'bg-slate-900/60 border-slate-800 text-white' : 'bg-white border-slate-200 shadow-sm text-slate-900'
             }`}>
-              <div className="h-11 w-11 rounded-xl bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 flex items-center justify-center mb-4 border border-[#533afd]/20">
+              <div className="h-10 w-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-4 border border-indigo-100 dark:border-indigo-800/60">
+                <Fingerprint className="h-5 w-5" />
+              </div>
+              <h3 className="text-base font-bold mb-2">Granular Scopes & Claims</h3>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                Fine-grained control over identity claims (`openid`, `profile`, `email`, `phone`) giving end-users clear transparency and consent control.
+              </p>
+            </div>
+
+            <div className={`p-6 rounded-2xl border transition-all ${
+              isDark ? 'bg-slate-900/60 border-slate-800 text-white' : 'bg-white border-slate-200 shadow-sm text-slate-900'
+            }`}>
+              <div className="h-10 w-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-4 border border-indigo-100 dark:border-indigo-800/60">
                 <Code2 className="h-5 w-5" />
               </div>
-              <h3 className="text-base font-bold mb-1.5">Interactive Sandbox & SDKs</h3>
-              <p className="text-xs sm:text-sm text-[#64748d] dark:text-[#94a3b8] leading-relaxed">
-                Step-by-step simulator, embeddable button generator, and multi-language handlers for React, Node, Python, and Go.
+              <h3 className="text-base font-bold mb-2">Interactive Sandbox Suite</h3>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                Simulate full authorization handshakes, test token exchanges, and preview decoded claims with live error handling before going live.
               </p>
+            </div>
+
+            <div className={`p-6 rounded-2xl border transition-all ${
+              isDark ? 'bg-slate-900/60 border-slate-800 text-white' : 'bg-white border-slate-200 shadow-sm text-slate-900'
+            }`}>
+              <div className="h-10 w-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-4 border border-indigo-100 dark:border-indigo-800/60">
+                <Layers className="h-5 w-5" />
+              </div>
+              <h3 className="text-base font-bold mb-2">Drop-in UI & SDK Components</h3>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                Prebuilt accessible login buttons, responsive consent dialogs, and official SDK helpers for React, Next.js, Express, and FastAPI.
+              </p>
+            </div>
+          </div>
+
+          {/* 3-Step Lifecycle Overview */}
+          <div className="mt-20 max-w-5xl w-full text-center">
+            <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-2">
+              Three Steps to Production Identity
+            </h2>
+            <p className="text-sm text-slate-600 dark:text-slate-400 max-w-xl mx-auto mb-10">
+              Integrate single sign-on into your architecture in minutes.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
+              <div className={`p-6 rounded-2xl border ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">01</span>
+                <h4 className="text-base font-bold mt-2 text-slate-900 dark:text-white">Register Client App</h4>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed">
+                  Provide your application name, branding assets, and generate your production Client ID & Secret.
+                </p>
+              </div>
+
+              <div className={`p-6 rounded-2xl border ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">02</span>
+                <h4 className="text-base font-bold mt-2 text-slate-900 dark:text-white">Whitelist Callback URIs</h4>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed">
+                  Register authorized redirect endpoints for local development and production environments.
+                </p>
+              </div>
+
+              <div className={`p-6 rounded-2xl border ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">03</span>
+                <h4 className="text-base font-bold mt-2 text-slate-900 dark:text-white">Embed 1-Click Login</h4>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed">
+                  Drop in our Continue with {appName} button component and verify incoming JWT tokens server-side.
+                </p>
+              </div>
             </div>
           </div>
         </main>
 
         {/* Footer */}
-        <footer className={`border-t py-6 px-4 sm:px-6 text-center text-xs text-[#64748d] dark:text-[#94a3b8] mt-auto ${
-          isDark ? 'border-[#273951]/80 bg-[#0c1024]' : 'border-[#e3e8ee] bg-white'
+        <footer className={`border-t py-8 px-4 sm:px-6 lg:px-8 text-xs text-slate-600 dark:text-slate-400 mt-auto transition-colors ${
+          isDark ? 'border-slate-800/80 bg-[#080b18]' : 'border-slate-200 bg-white'
         }`}>
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p>&copy; {new Date().getFullYear()} {branding.app_name || 'Zenoa'} &bull; Inolas Nexus SSO. All rights reserved.</p>
-            <div className="flex items-center gap-4 text-[12px]">
-              <a href="/legal/terms" className="hover:text-[#533afd] transition-colors">Terms of Service</a>
-              <a href="/legal/privacy" className="hover:text-[#533afd] transition-colors">Privacy Policy</a>
-              <a href="/docs" className="hover:text-[#533afd] transition-colors">OAuth Specifications</a>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-slate-800 dark:text-slate-200">{appName}</span>
+              <span>&copy; {new Date().getFullYear()} All rights reserved.</span>
+            </div>
+            <div className="flex items-center gap-6 text-xs font-medium">
+              <a href="/legal/terms" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">Terms of Service</a>
+              <a href="/legal/privacy" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">Privacy Policy</a>
+              <a href="/developer" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">Developer Platform</a>
+              <a href="/docs" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">OAuth 2.0 Specifications</a>
             </div>
           </div>
         </footer>
@@ -411,7 +668,7 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               className={`w-full max-w-md p-6 rounded-2xl border shadow-2xl relative ${
-                isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+                isDark ? 'bg-[#0d1326] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
               }`}
             >
               <button
@@ -428,11 +685,11 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
                 </div>
                 <div>
                   <h3 className="text-base font-bold">Sign Out of SSO Console?</h3>
-                  <p className="text-xs text-[#64748d] dark:text-[#94a3b8]">You will return to the SSO Console landing page.</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">You will return to the SSO Console landing page.</p>
                 </div>
               </div>
 
-              <p className="text-xs sm:text-sm text-[#64748d] dark:text-[#94a3b8] mb-6 leading-relaxed">
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mb-6 leading-relaxed">
                 Signing out will safely terminate your active SSO administrative session. You will remain on this portal's landing page where you can reconnect anytime.
               </p>
 
@@ -441,7 +698,7 @@ export const SSOConsoleStandalone: React.FC<SSOConsoleStandaloneProps> = ({ curr
                   type="button"
                   onClick={() => setShowLogoutConfirm(false)}
                   className={`px-4 py-2.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
-                    isDark ? 'border-[#273951] hover:bg-[#1c1e54] text-[#cbd5e1]' : 'border-[#e3e8ee] hover:bg-[#f6f9fc] text-[#273951]'
+                    isDark ? 'border-slate-800 hover:bg-slate-800/60 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
                   }`}
                 >
                   Cancel

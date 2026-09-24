@@ -46,19 +46,15 @@ export const ContinueWithZenoaButton: React.FC<ContinueWithZenoaButtonProps> = (
 
     if (!targetRedirect) {
       const host = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
-      const isZenoaProdHost = host.endsWith('zenoa.in') || host.endsWith('zenoa.sbs');
+      const isZenoaProdHost = host.endsWith('zenoa.in');
       if (portal === 'developer') {
-        if (isZenoaProdHost && host.includes('developer.zenoa.sbs')) {
-          targetRedirect = 'https://developer.zenoa.sbs/developer';
-        } else if (isZenoaProdHost && host.includes('developer.zenoa.in')) {
+        if (isZenoaProdHost && host.includes('developer.zenoa.in')) {
           targetRedirect = 'https://developer.zenoa.in/developer';
         } else {
           targetRedirect = `${window.location.origin}/developer`;
         }
       } else {
-        if (isZenoaProdHost && (host.includes('console.zenoa.sbs') || host.includes('sso.zenoa.sbs'))) {
-          targetRedirect = 'https://console.zenoa.sbs/sso';
-        } else if (isZenoaProdHost && (host.includes('console.zenoa.in') || host.includes('sso.zenoa.in'))) {
+        if (isZenoaProdHost && (host.includes('console.zenoa.in') || host.includes('sso.zenoa.in'))) {
           targetRedirect = 'https://console.zenoa.in/sso';
         } else {
           targetRedirect = `${window.location.origin}/sso`;

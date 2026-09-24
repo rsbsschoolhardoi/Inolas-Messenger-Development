@@ -8,7 +8,8 @@ import {
   Sliders, Database, Fingerprint, HelpCircle, Flame, ShieldAlert,
   Server, Link2, CheckCircle, AlertTriangle, LayoutDashboard, Sun,
   Moon, ChevronRight, ChevronDown, ChevronUp, Search, Monitor, BookOpen, ShieldOff, ArrowLeft, Menu,
-  LogOut, Hash, Sparkle, Laptop, CheckCheck, Mail
+  LogOut, Hash, Sparkle, Laptop, CheckCheck, Mail, Zap, RotateCw, PlayCircle, ShieldX, Clock, ArrowDown,
+  RotateCcw, SlidersHorizontal, CornerDownRight
 } from 'lucide-react';
 import { UserData } from '../types';
 import { useBranding } from '../brandingUtils';
@@ -133,15 +134,30 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     actionType: 'created' | 'rotated';
   } | null>(null);
 
-  // Interactive Playground State
+  // Interactive Playground (Sandbox) State
   const [selectedTesterAppId, setSelectedTesterAppId] = useState<string>('');
   const [testRedirectUri, setTestRedirectUri] = useState<string>('');
+  const [playgroundGrantType, setPlaygroundGrantType] = useState<'authorization_code' | 'pkce' | 'client_credentials' | 'refresh_token'>('authorization_code');
+  const [playgroundScopes, setPlaygroundScopes] = useState<string[]>(['openid', 'profile', 'email']);
+  const [playgroundStateParam, setPlaygroundStateParam] = useState<string>(() => 'zen_state_' + Math.random().toString(36).substring(2, 10));
+  const [playgroundNonce, setPlaygroundNonce] = useState<string>(() => 'zen_nonce_' + Math.random().toString(36).substring(2, 10));
+  const [pkceVerifier, setPkceVerifier] = useState<string>(() => 'zen_pkce_verifier_' + Math.random().toString(36).substring(2, 14) + Math.random().toString(36).substring(2, 14));
+  const [pkceChallenge, setPkceChallenge] = useState<string>(() => 'zen_s256_challenge_' + Math.random().toString(36).substring(2, 16));
+  const [playgroundSimulatedError, setPlaygroundSimulatedError] = useState<'none' | 'invalid_client' | 'invalid_grant' | 'redirect_uri_mismatch' | 'invalid_scope' | 'expired_token'>('none');
   const [playgroundStep, setPlaygroundStep] = useState<'idle' | 'authorized' | 'token_exchanged' | 'userinfo_fetched'>('idle');
   const [playgroundAuthCode, setPlaygroundAuthCode] = useState<string>('');
   const [playgroundAccessToken, setPlaygroundAccessToken] = useState<string>('');
+  const [playgroundIdToken, setPlaygroundIdToken] = useState<string>('');
+  const [playgroundRefreshToken, setPlaygroundRefreshToken] = useState<string>('');
+  const [playgroundTokenExpiresIn, setPlaygroundTokenExpiresIn] = useState<number>(3600);
   const [playgroundUserResult, setPlaygroundUserResult] = useState<any>(null);
   const [isTesterRunning, setIsTesterRunning] = useState<boolean>(false);
+  const [autoRunInProgress, setAutoRunInProgress] = useState<boolean>(false);
   const [testerLog, setTesterLog] = useState<string[]>([]);
+  const [playgroundInspectorTab, setPlaygroundInspectorTab] = useState<'claims' | 'tokens' | 'http' | 'terminal' | 'curl'>('claims');
+  const [showAdvancedPlaygroundSettings, setShowAdvancedPlaygroundSettings] = useState<boolean>(false);
+  const [playgroundLatencyMs, setPlaygroundLatencyMs] = useState<number>(0);
+  const [playgroundRawHttp, setPlaygroundRawHttp] = useState<{ request: string; response: string; status: number; method: string; path: string } | null>(null);
 
   // Code Snippets Tab States
   const [docsLanguage, setDocsLanguage] = useState<'react' | 'nodejs' | 'python' | 'curl' | 'vanilla' | 'env'>('react');
@@ -150,6 +166,16 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
   const [appDropdownSearch, setAppDropdownSearch] = useState<string>('');
   const [snippetRedirectUri, setSnippetRedirectUri] = useState<string>('');
   const [showSnippetSecret, setShowSnippetSecret] = useState<boolean>(false);
+
+  // Expandable Client Cards State (Collapsed by default)
+  const [expandedAppIds, setExpandedAppIds] = useState<Record<string, boolean>>({});
+
+  const toggleAppExpanded = (appId: string) => {
+    setExpandedAppIds(prev => ({
+      ...prev,
+      [appId]: !prev[appId]
+    }));
+  };
 
   // Real-time Redirect URI management states
   const [expandedUriManagerAppId, setExpandedUriManagerAppId] = useState<string | null>(null);
@@ -205,9 +231,6 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     if (hostname.includes('zenoa.in')) {
       return 'https://accounts.zenoa.in/auth/sso';
     }
-    if (hostname.includes('zenoa.sbs')) {
-      return 'https://accounts.zenoa.sbs/auth/sso';
-    }
     const parts = hostname.split('.');
     if (parts.length >= 2 && !hostname.includes('localhost') && !hostname.includes('127.0.0.1') && !hostname.includes('run.app')) {
       return `https://accounts.${parts.slice(-2).join('.')}/auth/sso`;
@@ -221,9 +244,6 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     if (hostname.includes('zenoa.in')) {
       return 'https://accounts.zenoa.in/api/oauth/token';
     }
-    if (hostname.includes('zenoa.sbs')) {
-      return 'https://accounts.zenoa.sbs/api/oauth/token';
-    }
     return `${window.location.origin}/api/oauth/token`;
   };
 
@@ -232,9 +252,6 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     const hostname = window.location.hostname.toLowerCase();
     if (hostname.includes('zenoa.in')) {
       return 'https://accounts.zenoa.in/api/oauth/userinfo';
-    }
-    if (hostname.includes('zenoa.sbs')) {
-      return 'https://accounts.zenoa.sbs/api/oauth/userinfo';
     }
     return `${window.location.origin}/api/oauth/userinfo`;
   };
@@ -312,18 +329,18 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         if (!app.assigned_sbs_email) {
           const cleanName = (app.app_name || 'app').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16) || 'app';
           const seed = String(Math.abs((app.id || app.client_id || 'app').split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) % 9000 + 1000));
-          const assigned = `${cleanName}-${seed}@zenoa.sbs`;
+          const assigned = `${cleanName}-${seed}@zenoa.in`;
           if (db && app.id) {
             setDoc(doc(db, 'sso_applications', app.id), {
               assigned_sbs_email: assigned,
-              sbs_domain: 'zenoa.sbs',
+              sbs_domain: 'zenoa.in',
               is_sbs_email_locked: true
             }, { merge: true }).catch(() => {});
           }
           return {
             ...app,
             assigned_sbs_email: assigned,
-            sbs_domain: 'zenoa.sbs',
+            sbs_domain: 'zenoa.in',
             is_sbs_email_locked: true
           };
         }
@@ -596,10 +613,10 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
         const clientId = `zenoa_oauth_${randomId}`;
         const newAppId = `sso_app_${Date.now()}`;
 
-        // Automatic permanent zenoa.sbs email generation based on app name + 4-digit random code
+        // Automatic permanent zenoa.in email generation based on app name + 4-digit random code
         const cleanName = appName.trim().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16) || 'app';
         const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
-        const assignedSbsEmail = `${cleanName}-${randomCode}@zenoa.sbs`;
+        const assignedSbsEmail = `${cleanName}-${randomCode}@zenoa.in`;
 
         const newApp: SSOApp = {
           id: newAppId,
@@ -620,7 +637,7 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
           owner: ownerName,
           total_logins: 0,
           assigned_sbs_email: assignedSbsEmail,
-          sbs_domain: 'zenoa.sbs',
+          sbs_domain: 'zenoa.in',
           is_sbs_email_locked: true
         };
 
@@ -709,104 +726,545 @@ export const SSOPortal: React.FC<SSOPortalProps> = ({
     );
   }, [apps, searchQuery]);
 
+  // Helper to generate base64url string
+  const toBase64Url = (str: string) => {
+    try {
+      return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    } catch (e) {
+      return str;
+    }
+  };
+
+  // Generate Mock OpenID Connect ID Token (RS256 JWT)
+  const generateMockOidcIdToken = (claims: any, clientId: string, nonceVal: string) => {
+    const header = {
+      alg: 'RS256',
+      typ: 'JWT',
+      kid: 'zenoa_inolas_key_2026'
+    };
+    const now = Math.floor(Date.now() / 1000);
+    const payload = {
+      iss: typeof window !== 'undefined' && window.location.hostname.includes('zenoa.in') ? 'https://accounts.zenoa.in' : (typeof window !== 'undefined' ? window.location.origin : 'https://accounts.zenoa.in'),
+      sub: claims.sub || 'usr_zenoa_9901',
+      aud: clientId,
+      exp: now + 3600,
+      iat: now,
+      auth_time: now,
+      nonce: nonceVal || 'zen_nonce_' + Math.random().toString(36).substring(2, 10),
+      name: claims.name || 'Alex Developer',
+      preferred_username: claims.username || 'alex_dev',
+      email: claims.email || 'developer@zenoa.in',
+      email_verified: true,
+      phone_number: claims.phone || '+1 (555) 019-2834',
+      phone_number_verified: true,
+      picture: claims.avatar_url || '',
+      organization: 'Inolas Nexus Private Limited'
+    };
+
+    const headerB64 = toBase64Url(JSON.stringify(header));
+    const payloadB64 = toBase64Url(JSON.stringify(payload));
+    const mockSignature = toBase64Url('inolas_nexus_rs256_sig_' + Math.random().toString(36).substring(2));
+    return `${headerB64}.${payloadB64}.${mockSignature}`;
+  };
+
   // Active App for Playground
-  const activeTesterApp = apps.find(a => a.id === selectedTesterAppId) || apps[0] || null;
+  const activeTesterApp = useMemo(() => {
+    return apps.find(a => a.id === selectedTesterAppId) || apps[0] || {
+      id: 'sso_official_default',
+      client_id: 'zenoa_official_app',
+      client_secret: 'zen-oas_live_sec_9900112233445566778899aabbccddeeff',
+      app_name: branding.app_name || 'Zenoa Platform SSO',
+      redirect_uris: ['http://localhost:3000/auth/callback'],
+      scopes: ['openid', 'profile', 'email'],
+      environment: 'production' as const,
+      type: 'official_first_party',
+      created_at: Date.now()
+    };
+  }, [apps, selectedTesterAppId, branding.app_name]);
+
+  // Sync redirect uri when active app changes
+  useEffect(() => {
+    if (activeTesterApp && (!testRedirectUri || !activeTesterApp.redirect_uris?.includes(testRedirectUri))) {
+      setTestRedirectUri(activeTesterApp.redirect_uris?.[0] || 'http://localhost:3000/auth/callback');
+    }
+  }, [activeTesterApp]);
+
+  // Reset Playground State Handler
+  const handleResetPlayground = () => {
+    setPlaygroundStep('idle');
+    setPlaygroundAuthCode('');
+    setPlaygroundAccessToken('');
+    setPlaygroundIdToken('');
+    setPlaygroundRefreshToken('');
+    setPlaygroundUserResult(null);
+    setIsTesterRunning(false);
+    setAutoRunInProgress(false);
+    setTesterLog([]);
+    setPlaygroundRawHttp(null);
+    setPlaygroundLatencyMs(0);
+    setPlaygroundStateParam('zen_state_' + Math.random().toString(36).substring(2, 10));
+    setPlaygroundNonce('zen_nonce_' + Math.random().toString(36).substring(2, 10));
+    setPkceVerifier('zen_pkce_verifier_' + Math.random().toString(36).substring(2, 14) + Math.random().toString(36).substring(2, 14));
+    setPkceChallenge('zen_s256_challenge_' + Math.random().toString(36).substring(2, 16));
+    showNotification('success', 'Sandbox session reset with fresh state parameters');
+  };
 
   // Playground Execution Handlers
   const handlePlaygroundAuthorize = () => {
     if (!activeTesterApp) return;
     setIsTesterRunning(true);
+    const startTime = performance.now();
+    const effectiveRedirect = testRedirectUri || activeTesterApp.redirect_uris?.[0] || 'http://localhost:3000/auth/callback';
+    const effectiveHost = typeof window !== 'undefined' && window.location.hostname.includes('zenoa.in') ? 'accounts.zenoa.in' : (typeof window !== 'undefined' ? window.location.host : 'accounts.zenoa.in');
+
+    // Check Simulated Errors
+    if (playgroundSimulatedError === 'redirect_uri_mismatch') {
+      setTimeout(() => {
+        setIsTesterRunning(false);
+        setAutoRunInProgress(false);
+        const errLog = [
+          `[1/3] POST /auth/sso`,
+          `client_id: ${activeTesterApp.client_id}`,
+          `redirect_uri: https://unauthorized-domain.com/hack`,
+          `response_type: code`,
+          `scope: ${playgroundScopes.join(' ')}`,
+          `❌ 400 Bad Request — redirect_uri_mismatch`,
+          `Error: The redirect_uri provided is not registered for this OAuth client.`
+        ];
+        setTesterLog(errLog);
+        setPlaygroundRawHttp({
+          method: 'POST',
+          path: '/auth/sso',
+          status: 400,
+          request: JSON.stringify({ client_id: activeTesterApp.client_id, redirect_uri: 'https://unauthorized-domain.com/hack' }, null, 2),
+          response: JSON.stringify({ error: 'redirect_uri_mismatch', error_description: 'The redirect_uri provided is not whitelisted by Inolas Nexus Security' }, null, 2)
+        });
+        showNotification('error', 'Simulation: redirect_uri_mismatch (400)');
+      }, 200);
+      return;
+    }
+
+    if (playgroundSimulatedError === 'invalid_scope') {
+      setTimeout(() => {
+        setIsTesterRunning(false);
+        setAutoRunInProgress(false);
+        const errLog = [
+          `[1/3] POST /auth/sso`,
+          `client_id: ${activeTesterApp.client_id}`,
+          `scope: invalid_custom_restricted_scope`,
+          `❌ 400 Bad Request — invalid_scope`,
+          `Error: The requested scope is invalid, unknown, or malformed.`
+        ];
+        setTesterLog(errLog);
+        setPlaygroundRawHttp({
+          method: 'POST',
+          path: '/auth/sso',
+          status: 400,
+          request: JSON.stringify({ client_id: activeTesterApp.client_id, scope: 'invalid_custom_restricted_scope' }, null, 2),
+          response: JSON.stringify({ error: 'invalid_scope', error_description: 'The requested scope is unrecognized' }, null, 2)
+        });
+        showNotification('error', 'Simulation: invalid_scope (400)');
+      }, 200);
+      return;
+    }
+
+    const generatedCode = 'zen_ac_' + Math.random().toString(36).substring(2, 14) + Math.random().toString(36).substring(2, 8);
+    const requestPayload = {
+      client_id: activeTesterApp.client_id,
+      redirect_uri: effectiveRedirect,
+      response_type: 'code',
+      scope: playgroundScopes.join(' '),
+      state: playgroundStateParam,
+      nonce: playgroundNonce,
+      ...(playgroundGrantType === 'pkce' ? {
+        code_challenge: pkceChallenge,
+        code_challenge_method: 'S256'
+      } : {})
+    };
+
     setTesterLog([
-      `[1/3] POST /auth/sso`,
-      `client_id: ${activeTesterApp.client_id}`,
-      `redirect_uri: ${testRedirectUri || activeTesterApp.redirect_uris[0]}`,
-      `response_type: code`,
-      `scope: ${activeTesterApp.scopes.join(' ')}`,
-      `timestamp: ${new Date().toISOString()}`
+      `[1/3] POST /auth/sso (Authorization Code Request)`,
+      `Host: ${effectiveHost}`,
+      `Client ID: ${activeTesterApp.client_id} (${activeTesterApp.app_name})`,
+      `Grant Mode: ${playgroundGrantType === 'pkce' ? 'Authorization Code + PKCE (S256)' : 'Standard Auth Code'}`,
+      `Redirect URI: ${effectiveRedirect}`,
+      `Scope: ${playgroundScopes.join(' ')}`,
+      `State: ${playgroundStateParam}`,
+      `Nonce: ${playgroundNonce}`,
+      playgroundGrantType === 'pkce' ? `Code Challenge (S256): ${pkceChallenge}` : `Client Auth: Confidential Server Secret`
     ]);
 
     setTimeout(() => {
-      const generatedCode = 'zen_code_' + Math.random().toString(36).substring(2, 12);
+      const elapsed = Math.round(performance.now() - startTime) || 10;
+      setPlaygroundLatencyMs(elapsed);
       setPlaygroundAuthCode(generatedCode);
       setPlaygroundStep('authorized');
       setIsTesterRunning(false);
+
+      const responsePayload = {
+        code: generatedCode,
+        state: playgroundStateParam,
+        expires_in: 60,
+        callback_url: `${effectiveRedirect}?code=${generatedCode}&state=${playgroundStateParam}`
+      };
+
+      setPlaygroundRawHttp({
+        method: 'POST',
+        path: '/auth/sso',
+        status: 200,
+        request: JSON.stringify(requestPayload, null, 2),
+        response: JSON.stringify(responsePayload, null, 2)
+      });
+
       setTesterLog(prev => [
         ...prev,
-        `✓ 200 OK — Authorization Code issued!`,
-        `code: ${generatedCode}`,
-        `callback: ${testRedirectUri || activeTesterApp.redirect_uris[0]}?code=${generatedCode}`
+        `✓ 200 OK — Authorization Code Issued (${elapsed}ms)`,
+        `code: ${generatedCode} (TTL: 60s single-use)`,
+        `callback: ${effectiveRedirect}?code=${generatedCode}&state=${playgroundStateParam}`
       ]);
-      showNotification('success', 'Authorization Code generated');
-    }, 450);
+      showNotification('success', 'Authorization Code issued successfully');
+    }, 250);
   };
 
-  const handlePlaygroundExchangeToken = () => {
-    if (!activeTesterApp || !playgroundAuthCode) return;
+  const handlePlaygroundExchangeToken = (explicitCode?: string) => {
+    if (!activeTesterApp) return;
     setIsTesterRunning(true);
+    const startTime = performance.now();
+    const effectiveRedirect = testRedirectUri || activeTesterApp.redirect_uris?.[0] || 'http://localhost:3000/auth/callback';
+    const effectiveHost = typeof window !== 'undefined' && window.location.hostname.includes('zenoa.in') ? 'accounts.zenoa.in' : (typeof window !== 'undefined' ? window.location.host : 'accounts.zenoa.in');
+    const codeToUse = explicitCode || playgroundAuthCode || ('zen_ac_' + Math.random().toString(36).substring(2, 14));
+
+    // Simulated Errors
+    if (playgroundSimulatedError === 'invalid_client') {
+      setTimeout(() => {
+        setIsTesterRunning(false);
+        setAutoRunInProgress(false);
+        const errLog = [
+          ...testerLog,
+          `-----------------------------------------`,
+          `[2/3] POST /api/oauth/token`,
+          `❌ 401 Unauthorized — invalid_client`,
+          `Error: Client authentication failed (invalid client credentials).`
+        ];
+        setTesterLog(errLog);
+        setPlaygroundRawHttp({
+          method: 'POST',
+          path: '/api/oauth/token',
+          status: 401,
+          request: JSON.stringify({ grant_type: 'authorization_code', client_id: activeTesterApp.client_id, client_secret: 'invalid_secret' }, null, 2),
+          response: JSON.stringify({ error: 'invalid_client', error_description: 'Invalid client authentication secret' }, null, 2)
+        });
+        showNotification('error', 'Simulation: invalid_client (401)');
+      }, 200);
+      return;
+    }
+
+    if (playgroundSimulatedError === 'invalid_grant') {
+      setTimeout(() => {
+        setIsTesterRunning(false);
+        setAutoRunInProgress(false);
+        const errLog = [
+          ...testerLog,
+          `-----------------------------------------`,
+          `[2/3] POST /api/oauth/token`,
+          `code: ${codeToUse}`,
+          `❌ 400 Bad Request — invalid_grant`,
+          `Error: The authorization code is invalid or has already expired.`
+        ];
+        setTesterLog(errLog);
+        setPlaygroundRawHttp({
+          method: 'POST',
+          path: '/api/oauth/token',
+          status: 400,
+          request: JSON.stringify({ grant_type: 'authorization_code', code: 'expired_or_used_code' }, null, 2),
+          response: JSON.stringify({ error: 'invalid_grant', error_description: 'Authorization code has already been consumed' }, null, 2)
+        });
+        showNotification('error', 'Simulation: invalid_grant (400)');
+      }, 200);
+      return;
+    }
+
+    const tokenRequestPayload = {
+      grant_type: playgroundGrantType === 'client_credentials' ? 'client_credentials' : 'authorization_code',
+      client_id: activeTesterApp.client_id,
+      ...(playgroundGrantType === 'pkce'
+        ? { code_verifier: pkceVerifier }
+        : { client_secret: activeTesterApp.client_secret }),
+      code: codeToUse,
+      redirect_uri: effectiveRedirect
+    };
+
     setTesterLog(prev => [
       ...prev,
       `-----------------------------------------`,
-      `[2/3] POST /api/oauth/token`,
-      `grant_type: authorization_code`,
+      `[2/3] POST /api/oauth/token (Bearer & ID Token Exchange)`,
+      `Host: ${effectiveHost}`,
+      `grant_type: ${tokenRequestPayload.grant_type}`,
       `client_id: ${activeTesterApp.client_id}`,
-      `client_secret: ${activeTesterApp.client_secret.substring(0, 10)}... [Secured]`,
-      `code: ${playgroundAuthCode}`,
-      `redirect_uri: ${testRedirectUri || activeTesterApp.redirect_uris[0]}`
+      playgroundGrantType === 'pkce' ? `code_verifier: ${pkceVerifier}` : `client_secret: ${activeTesterApp.client_secret.substring(0, 10)}... [Secured]`,
+      `code: ${codeToUse}`,
+      `redirect_uri: ${effectiveRedirect}`
     ]);
 
     setTimeout(() => {
+      const elapsed = Math.round(performance.now() - startTime) || 12;
+      setPlaygroundLatencyMs(elapsed);
       const generatedAccessToken = 'zen_at_' + Math.random().toString(36).substring(2, 18) + '.' + Math.random().toString(36).substring(2, 18);
-      setPlaygroundAccessToken(generatedAccessToken);
-      setPlaygroundStep('token_exchanged');
-      setIsTesterRunning(false);
-      setTesterLog(prev => [
-        ...prev,
-        `✓ 200 OK — Bearer Access Token issued!`,
-        `token_type: Bearer`,
-        `expires_in: 3600 (1 hour)`,
-        `access_token: ${generatedAccessToken}`
-      ]);
-      showNotification('success', 'Bearer Access Token exchanged');
-    }, 450);
-  };
-
-  const handlePlaygroundFetchUserInfo = () => {
-    if (!playgroundAccessToken) return;
-    setIsTesterRunning(true);
-    setTesterLog(prev => [
-      ...prev,
-      `-----------------------------------------`,
-      `[3/3] GET /api/oauth/userinfo`,
-      `Authorization: Bearer ${playgroundAccessToken}`
-    ]);
-
-    setTimeout(() => {
-      const userInfoResult = {
+      const generatedRefreshToken = 'zen_rt_' + Math.random().toString(36).substring(2, 22);
+      
+      const mockClaims = {
         sub: currentUser?.zenoa_id || currentUser?.id || 'usr_zenoa_9901',
-        zenoa_id: currentUser?.zenoa_id || `${currentUser?.username || 'developer'}@zenoa`,
+        zenoa_id: currentUser?.zenoa_id || `${currentUser?.username || 'developer'}@zenoa.in`,
         username: currentUser?.username || 'alex_dev',
         name: currentUser?.display_name || 'Alex Developer',
-        email: currentUser?.email || currentUser?.zenoa_id || `${currentUser?.username || 'developer'}@zenoa`,
-        email_verified: Boolean(currentUser?.email),
+        email: currentUser?.email || `${currentUser?.username || 'developer'}@zenoa.in`,
+        phone: currentUser?.phone_number || currentUser?.mobile_number || '+1 (555) 019-2834',
+        avatar_url: currentUser?.avatar_url || ''
+      };
+
+      const generatedIdToken = generateMockOidcIdToken(mockClaims, activeTesterApp.client_id, playgroundNonce);
+
+      setPlaygroundAuthCode(codeToUse);
+      setPlaygroundAccessToken(generatedAccessToken);
+      setPlaygroundIdToken(generatedIdToken);
+      setPlaygroundRefreshToken(generatedRefreshToken);
+      setPlaygroundTokenExpiresIn(3600);
+      setPlaygroundStep('token_exchanged');
+      setIsTesterRunning(false);
+
+      const tokenResponse = {
+        token_type: 'Bearer',
+        access_token: generatedAccessToken,
+        id_token: generatedIdToken,
+        refresh_token: generatedRefreshToken,
+        expires_in: 3600,
+        scope: playgroundScopes.join(' ')
+      };
+
+      setPlaygroundRawHttp({
+        method: 'POST',
+        path: '/api/oauth/token',
+        status: 200,
+        request: JSON.stringify(tokenRequestPayload, null, 2),
+        response: JSON.stringify(tokenResponse, null, 2)
+      });
+
+      setTesterLog(prev => [
+        ...prev,
+        `✓ 200 OK — Bearer Access Token & ID Token Issued (${elapsed}ms)`,
+        `token_type: Bearer`,
+        `expires_in: 3600 (1 hour)`,
+        `access_token: ${generatedAccessToken}`,
+        `id_token (JWT RS256): ${generatedIdToken.substring(0, 32)}... [OIDC Valid]`,
+        `refresh_token: ${generatedRefreshToken}`
+      ]);
+      showNotification('success', 'Bearer Access Token and ID Token exchanged');
+    }, 250);
+  };
+
+  const handlePlaygroundFetchUserInfo = (explicitToken?: string) => {
+    if (!activeTesterApp) return;
+    setIsTesterRunning(true);
+    const startTime = performance.now();
+    const effectiveHost = typeof window !== 'undefined' && window.location.hostname.includes('zenoa.in') ? 'accounts.zenoa.in' : (typeof window !== 'undefined' ? window.location.host : 'accounts.zenoa.in');
+    const tokenToUse = explicitToken || playgroundAccessToken || ('zen_at_' + Math.random().toString(36).substring(2, 16) + '.' + Math.random().toString(36).substring(2, 16));
+
+    if (playgroundSimulatedError === 'expired_token') {
+      setTimeout(() => {
+        setIsTesterRunning(false);
+        setAutoRunInProgress(false);
+        const errLog = [
+          ...testerLog,
+          `-----------------------------------------`,
+          `[3/3] GET /api/oauth/userinfo`,
+          `Authorization: Bearer ${tokenToUse}`,
+          `❌ 401 Unauthorized — invalid_token`,
+          `Error: The access token provided is expired or revoked.`
+        ];
+        setTesterLog(errLog);
+        setPlaygroundRawHttp({
+          method: 'GET',
+          path: '/api/oauth/userinfo',
+          status: 401,
+          request: `GET /api/oauth/userinfo HTTP/1.1\nHost: ${effectiveHost}\nAuthorization: Bearer ${tokenToUse}`,
+          response: JSON.stringify({ error: 'invalid_token', error_description: 'Access token expired or revoked' }, null, 2)
+        });
+        showNotification('error', 'Simulation: expired_token (401 Unauthorized)');
+      }, 200);
+      return;
+    }
+
+    setTesterLog(prev => [
+      ...prev,
+      `-----------------------------------------`,
+      `[3/3] GET /api/oauth/userinfo (OIDC User Identity Claims)`,
+      `Host: ${effectiveHost}`,
+      `Authorization: Bearer ${tokenToUse.substring(0, 18)}...`,
+      `Accept: application/json`
+    ]);
+
+    setTimeout(() => {
+      const elapsed = Math.round(performance.now() - startTime) || 12;
+      setPlaygroundLatencyMs(elapsed);
+      const userInfoResult = {
+        sub: currentUser?.zenoa_id || currentUser?.id || 'usr_zenoa_9901',
+        zenoa_id: currentUser?.zenoa_id || `${currentUser?.username || 'developer'}@zenoa.in`,
+        username: currentUser?.username || 'alex_dev',
+        name: currentUser?.display_name || 'Alex Developer',
+        email: currentUser?.email || `${currentUser?.username || 'developer'}@zenoa.in`,
+        email_verified: Boolean(currentUser?.email || true),
         phone: currentUser?.phone_number || currentUser?.mobile_number || '+1 (555) 019-2834',
         phone_verified: true,
         avatar_url: currentUser?.avatar_url || '',
         avatar_seed: currentUser?.avatar_seed || 'felix',
-        status: currentUser?.custom_status || currentUser?.bio || 'Building on Zenoa OAuth 2.0',
+        organization: 'Inolas Nexus Private Limited',
         locale: 'en-US',
+        auth_time: Math.floor(Date.now() / 1000) - 120,
         updated_at: Math.floor(Date.now() / 1000)
       };
 
+      setPlaygroundAccessToken(tokenToUse);
       setPlaygroundUserResult(userInfoResult);
       setPlaygroundStep('userinfo_fetched');
       setIsTesterRunning(false);
+      setAutoRunInProgress(false);
+      setPlaygroundInspectorTab('claims');
+
+      setPlaygroundRawHttp({
+        method: 'GET',
+        path: '/api/oauth/userinfo',
+        status: 200,
+        request: `GET /api/oauth/userinfo HTTP/1.1\nHost: ${effectiveHost}\nAuthorization: Bearer ${tokenToUse}\nAccept: application/json`,
+        response: JSON.stringify(userInfoResult, null, 2)
+      });
+
       setTesterLog(prev => [
         ...prev,
-        `✓ 200 OK — User Identity Claims payload verified!`,
+        `✓ 200 OK — User Identity Claims Verified (${elapsed}ms)`,
         JSON.stringify(userInfoResult, null, 2)
       ]);
-      showNotification('success', 'User Identity Claims retrieved');
-    }, 450);
+      showNotification('success', 'User Identity Claims retrieved and verified');
+    }, 250);
+  };
+
+  const handlePlaygroundRefreshToken = () => {
+    if (!activeTesterApp) return;
+    setIsTesterRunning(true);
+    const startTime = performance.now();
+    const effectiveHost = typeof window !== 'undefined' && window.location.hostname.includes('zenoa.in') ? 'accounts.zenoa.in' : (typeof window !== 'undefined' ? window.location.host : 'accounts.zenoa.in');
+    const tokenToRefresh = playgroundRefreshToken || ('zen_rt_' + Math.random().toString(36).substring(2, 22));
+
+    setTesterLog(prev => [
+      ...prev,
+      `-----------------------------------------`,
+      `[Refresh] POST /api/oauth/token (Rotating Token Grant)`,
+      `Host: ${effectiveHost}`,
+      `grant_type: refresh_token`,
+      `client_id: ${activeTesterApp.client_id}`,
+      `refresh_token: ${tokenToRefresh}`
+    ]);
+
+    setTimeout(() => {
+      const elapsed = Math.round(performance.now() - startTime) || 10;
+      setPlaygroundLatencyMs(elapsed);
+      const newAccessToken = 'zen_at_rot_' + Math.random().toString(36).substring(2, 18) + '.' + Math.random().toString(36).substring(2, 18);
+      const newRefreshToken = 'zen_rt_rot_' + Math.random().toString(36).substring(2, 22);
+
+      setPlaygroundAccessToken(newAccessToken);
+      setPlaygroundRefreshToken(newRefreshToken);
+      setIsTesterRunning(false);
+
+      setTesterLog(prev => [
+        ...prev,
+        `✓ 200 OK — Access Token successfully refreshed (${elapsed}ms)`,
+        `new_access_token: ${newAccessToken}`,
+        `new_refresh_token: ${newRefreshToken}`
+      ]);
+      showNotification('success', 'Access token refreshed');
+    }, 250);
+  };
+
+  // Run End-to-End Flow Automatically
+  const handleRunFullPipeline = () => {
+    if (!activeTesterApp) return;
+    setAutoRunInProgress(true);
+    setIsTesterRunning(true);
+    setPlaygroundSimulatedError('none');
+    setPlaygroundInspectorTab('claims');
+
+    const effectiveHost = typeof window !== 'undefined' && window.location.hostname.includes('zenoa.in')
+      ? 'accounts.zenoa.in'
+      : (typeof window !== 'undefined' ? window.location.host : 'accounts.zenoa.in');
+
+    const startTime = performance.now();
+    const effectiveRedirect = testRedirectUri || activeTesterApp.redirect_uris?.[0] || 'http://localhost:3000/auth/callback';
+    const code = 'zen_ac_' + Math.random().toString(36).substring(2, 14) + Math.random().toString(36).substring(2, 8);
+    const accessToken = 'zen_at_' + Math.random().toString(36).substring(2, 16) + '.' + Math.random().toString(36).substring(2, 24);
+    const refreshToken = 'zen_rt_' + Math.random().toString(36).substring(2, 24);
+
+    const mockClaims = {
+      sub: currentUser?.zenoa_id || currentUser?.id || 'usr_zenoa_9901',
+      zenoa_id: currentUser?.zenoa_id || `${currentUser?.username || 'developer'}@zenoa.in`,
+      username: currentUser?.username || 'alex_dev',
+      name: currentUser?.display_name || 'Alex Developer',
+      email: currentUser?.email || `${currentUser?.username || 'developer'}@zenoa.in`,
+      email_verified: true,
+      phone_number: currentUser?.phone_number || currentUser?.mobile_number || '+1 (555) 019-2834',
+      phone_number_verified: true,
+      avatar_url: currentUser?.avatar_url || '',
+      avatar_seed: currentUser?.avatar_seed || 'felix',
+      organization: 'Inolas Nexus Private Limited',
+      locale: 'en-US',
+      auth_time: Math.floor(Date.now() / 1000),
+      updated_at: Math.floor(Date.now() / 1000)
+    };
+
+    const idToken = generateMockOidcIdToken(mockClaims, activeTesterApp.client_id, playgroundNonce);
+
+    // Update all states synchronously
+    setPlaygroundAuthCode(code);
+    setPlaygroundAccessToken(accessToken);
+    setPlaygroundIdToken(idToken);
+    setPlaygroundRefreshToken(refreshToken);
+    setPlaygroundTokenExpiresIn(3600);
+    setPlaygroundUserResult(mockClaims);
+    setPlaygroundStep('userinfo_fetched');
+
+    const elapsed = Math.round(performance.now() - startTime) || 15;
+    setPlaygroundLatencyMs(elapsed);
+    setIsTesterRunning(false);
+    setAutoRunInProgress(false);
+
+    setPlaygroundRawHttp({
+      method: 'GET',
+      path: '/api/oauth/userinfo',
+      status: 200,
+      request: `GET /api/oauth/userinfo HTTP/1.1\nHost: ${effectiveHost}\nAuthorization: Bearer ${accessToken}\nAccept: application/json`,
+      response: JSON.stringify(mockClaims, null, 2)
+    });
+
+    setTesterLog([
+      `[1/3] POST /auth/sso (Authorization Code Request)`,
+      `Host: ${effectiveHost}`,
+      `Client ID: ${activeTesterApp.client_id} (${activeTesterApp.app_name})`,
+      `Grant Mode: ${playgroundGrantType === 'pkce' ? 'Authorization Code + PKCE (S256)' : 'Standard Auth Code'}`,
+      `Redirect URI: ${effectiveRedirect}`,
+      `Scope: ${playgroundScopes.join(' ')}`,
+      `✓ 200 OK — Authorization Code Issued: ${code}`,
+      `-----------------------------------------`,
+      `[2/3] POST /api/oauth/token (Bearer & ID Token Exchange)`,
+      `✓ 200 OK — Bearer Access Token & ID Token Issued`,
+      `token_type: Bearer (expires_in: 3600s)`,
+      `access_token: ${accessToken}`,
+      `id_token (JWT RS256): ${idToken.substring(0, 36)}... [Verified]`,
+      `refresh_token: ${refreshToken}`,
+      `-----------------------------------------`,
+      `[3/3] GET /api/oauth/userinfo (OIDC User Identity Claims)`,
+      `✓ 200 OK — User Identity Claims Verified (${elapsed}ms)`,
+      JSON.stringify(mockClaims, null, 2)
+    ]);
+
+    showNotification('success', 'Full OAuth 2.0 & OIDC flow completed successfully!');
   };
 
   const activeSnippetApp = useMemo(() => {
@@ -1570,55 +2028,95 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
             {/* TAB 2: CLIENT REGISTRY                                                   */}
             {/* ========================================================================= */}
             {activeTab === 'apps' && (
-              <div className="space-y-4 animate-fade-in">
+              <div className="space-y-6 animate-fade-in">
                 {/* Search & Actions Bar */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="relative flex-1 max-w-md">
                     <input
                       type="text"
                       value={searchQuery}
                       onChange={e => setSearchQuery(e.target.value)}
-                      placeholder="Filter by application name or Client ID..."
-                      className={`w-full px-3.5 py-2 pl-9 text-xs rounded-xl border outline-none font-medium transition-all ${
+                      placeholder="Search applications by name or Client ID..."
+                      className={`w-full px-4 py-2.5 pl-10 text-xs rounded-xl border outline-none font-medium transition-all ${
                         isDark
-                          ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white'
-                          : 'bg-white border-slate-200 focus:border-indigo-500 text-slate-900'
+                          ? 'bg-[#0d1326] border-[#273951] focus:border-[#533afd] text-white placeholder:text-[#64748d]'
+                          : 'bg-white border-[#e3e8ee] focus:border-[#533afd] text-[#0d253d] placeholder:text-[#94a3b8]'
                       }`}
                     />
-                    <Globe className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                    <Search className="w-4 h-4 absolute left-3.5 top-3 text-[#64748d] dark:text-[#94a3b8]" />
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+                    {filteredApps.length > 0 && (
+                      <button
+                        onClick={() => {
+                          const allExpanded = filteredApps.every(a => expandedAppIds[a.id]);
+                          const nextState: Record<string, boolean> = {};
+                          filteredApps.forEach(a => {
+                            nextState[a.id] = !allExpanded;
+                          });
+                          setExpandedAppIds(nextState);
+                        }}
+                        className={`px-3 py-2.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 ${
+                          isDark ? 'border-[#273951] hover:bg-[#1c1e54] text-[#cbd5e1]' : 'border-[#e3e8ee] hover:bg-[#f6f9fc] text-[#273951]'
+                        }`}
+                        title="Expand or collapse all application cards"
+                      >
+                        {filteredApps.every(a => expandedAppIds[a.id]) ? (
+                          <>
+                            <ChevronUp className="w-3.5 h-3.5" />
+                            <span>Collapse All</span>
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="w-3.5 h-3.5" />
+                            <span>Expand All</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+
                     <button
                       onClick={fetchApps}
-                      className={`px-3 py-2 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-                        isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
+                      className={`px-3.5 py-2.5 rounded-xl border flex items-center gap-2 text-xs font-semibold transition-colors cursor-pointer ${
+                        isDark ? 'border-[#273951] hover:bg-[#1c1e54] text-[#cbd5e1]' : 'border-[#e3e8ee] hover:bg-[#f6f9fc] text-[#273951]'
                       }`}
+                      title="Refresh client registry list"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                      <span>Sync Registry</span>
+                      <span>Refresh</span>
+                    </button>
+
+                    <button
+                      onClick={() => { resetForm(); setActiveTab('create'); }}
+                      className="px-4 py-2.5 rounded-xl bg-[#533afd] hover:bg-[#4434d4] text-white text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer active:scale-[0.98]"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Register Client</span>
                     </button>
                   </div>
                 </div>
 
                 {/* Application Cards List */}
                 {isLoading ? (
-                  <div className="py-20 flex flex-col items-center justify-center gap-2 text-slate-400">
-                    <RefreshCw className="w-6 h-6 animate-spin text-indigo-500" />
+                  <div className="py-24 flex flex-col items-center justify-center gap-3 text-[#64748d] dark:text-[#94a3b8]">
+                    <RefreshCw className="w-7 h-7 animate-spin text-[#533afd]" />
                     <p className="text-xs font-medium">Loading client registry...</p>
                   </div>
                 ) : filteredApps.length === 0 ? (
-                  <div className={`p-10 rounded-2xl border text-center flex flex-col items-center justify-center gap-2.5 ${
-                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                  <div className={`p-12 rounded-2xl border text-center flex flex-col items-center justify-center gap-3 ${
+                    isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee] shadow-xs'
                   }`}>
-                    <Key className="w-10 h-10 text-slate-400 stroke-1" />
-                    <h3 className="font-bold text-sm text-slate-900 dark:text-white">No Client Applications Found</h3>
-                    <p className="text-xs text-slate-500 max-w-sm">
-                      Register your first OAuth 2.0 client to start using "Continue with {branding.app_name || 'Zenoa'}" authentication.
+                    <div className="w-12 h-12 rounded-2xl bg-[#533afd]/10 dark:bg-[#533afd]/20 flex items-center justify-center text-[#533afd] dark:text-[#818cf8]">
+                      <Key className="w-6 h-6 stroke-[1.5]" />
+                    </div>
+                    <h3 className="font-bold text-base text-[#0d253d] dark:text-white">No Client Applications Found</h3>
+                    <p className="text-xs text-[#64748d] dark:text-[#94a3b8] max-w-sm leading-relaxed">
+                      {searchQuery ? 'No registered applications match your search query.' : 'Register your first OAuth 2.0 client to start using Single Sign-On.'}
                     </p>
                     <button
                       onClick={() => { resetForm(); setActiveTab('create'); }}
-                      className="mt-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl cursor-pointer"
+                      className="mt-2 px-5 py-2.5 bg-[#533afd] hover:bg-[#4434d4] text-white text-xs font-bold rounded-xl cursor-pointer transition-all active:scale-[0.98]"
                     >
                       Register New Client
                     </button>
@@ -1627,392 +2125,338 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                   <div className="space-y-4">
                     {filteredApps.map(app => {
                       const isOfficial = app.id === 'sso_official_default';
-                      const isSecretVisible = revealedSecrets[app.id] || false;
+                      const isExpanded = !!expandedAppIds[app.id];
 
                       return (
                         <div
                           key={app.id}
-                          className={`p-5 sm:p-6 rounded-2xl border transition-all ${
+                          className={`rounded-2xl border transition-all duration-200 overflow-hidden ${
                             isDark
-                              ? 'bg-slate-900 border-slate-800 hover:border-slate-700'
-                              : 'bg-white border-slate-200 hover:border-slate-300 shadow-xs'
+                              ? isExpanded ? 'bg-[#0d1326] border-[#384c68] shadow-md' : 'bg-[#0d1326] border-[#273951] hover:border-[#384c68]'
+                              : isExpanded ? 'bg-white border-[#cbd5e1] shadow-md' : 'bg-white border-[#e3e8ee] hover:border-[#cbd5e1] shadow-xs'
                           }`}
                         >
-                          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
-                            <div className="flex items-start gap-3.5 min-w-0">
+                          {/* Top Row: Clean Compact Header */}
+                          <div className="p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                            <div
+                              onClick={() => toggleAppExpanded(app.id)}
+                              className="flex items-center gap-3.5 min-w-0 flex-1 cursor-pointer select-none group"
+                            >
                               <BrandLogo
                                 src={app.logo_url}
                                 name={app.app_name}
                                 size="md"
                               />
-                              <div className="min-w-0">
+
+                              <div className="min-w-0 space-y-1">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <h3 className="font-bold text-sm sm:text-base tracking-tight truncate text-slate-900 dark:text-white">{app.app_name}</h3>
+                                  <h3 className="font-bold text-sm sm:text-base tracking-tight truncate text-[#0d253d] dark:text-white group-hover:text-[#533afd] transition-colors">
+                                    {app.app_name}
+                                  </h3>
                                   {isOfficial && (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60">
-                                      Official System Client
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 border border-[#533afd]/20">
+                                      System
                                     </span>
                                   )}
-                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${
                                     app.environment === 'sandbox'
                                       ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800/40'
                                       : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40'
                                   }`}>
                                     {app.environment || 'Production'}
                                   </span>
-                                  {app.smtp_config?.enabled ? (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold border bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40 flex items-center gap-1">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                      <span>SMTP: {app.smtp_config.from_email}</span>
-                                    </span>
-                                  ) : (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium border bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 flex items-center gap-1">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                                      <span>Managed Relay</span>
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                                  {app.app_description || 'OAuth 2.0 Single Sign-On Identity Client'}
-                                </p>
-                              </div>
-                            </div>
-
-                            {/* Quick Actions */}
-                            <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                              <button
-                                onClick={() => {
-                                  if (onOpenConsentPreview) {
-                                    onOpenConsentPreview(app.client_id, app.redirect_uris[0] || window.location.origin);
-                                  } else {
-                                    window.open(`/auth/sso?client_id=${app.client_id}&redirect_uri=${encodeURIComponent(app.redirect_uris[0] || window.location.origin)}`, '_blank');
-                                  }
-                                }}
-                                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                                  isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
-                                }`}
-                                title="Preview User Consent Screen"
-                              >
-                                <Eye className="w-3.5 h-3.5 text-indigo-500" />
-                                <span>Consent Preview</span>
-                              </button>
-
-                              <button
-                                onClick={() => {
-                                  setSelectedSmtpAppId(app.id);
-                                  setActiveTab('smtp');
-                                }}
-                                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                                  app.smtp_config?.enabled
-                                    ? 'border-emerald-500/40 bg-emerald-50/50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
-                                    : isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
-                                }`}
-                                title="Configure Custom Email Delivery & SMTP"
-                              >
-                                <Mail className="w-3.5 h-3.5 text-blue-500" />
-                                <span>{app.smtp_config?.enabled ? 'Custom SMTP' : 'Setup SMTP'}</span>
-                              </button>
-
-                              <button
-                                onClick={() => {
-                                  setSelectedTesterAppId(app.id);
-                                  setTestRedirectUri(app.redirect_uris[0] || '');
-                                  setActiveTab('playground');
-                                }}
-                                className="px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                                title="Test in OAuth Sandbox"
-                              >
-                                <Play className="w-3.5 h-3.5" />
-                                <span>Test Sandbox</span>
-                              </button>
-
-                              <button
-                                onClick={() => startEditApp(app)}
-                                className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
-                                title="Edit Configuration"
-                              >
-                                <Edit3 className="w-4 h-4" />
-                              </button>
-
-                              {!isOfficial && (
-                                <button
-                                  onClick={() => setDeleteConfirmApp(app)}
-                                  className="p-2 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/50 text-rose-500 transition-colors cursor-pointer"
-                                  title="Delete Client"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Credentials Matrix */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-4">
-                            {/* Client ID */}
-                            <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                              <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1.5">
-                                <span>Client ID (Public Identifier)</span>
-                                <span className="text-[10px] text-emerald-500 font-mono font-bold">Public</span>
-                              </div>
-                              <div className="flex items-center justify-between gap-2">
-                                <code className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 break-all select-all">
-                                  {app.client_id}
-                                </code>
-                                <button
-                                  onClick={() => handleCopy(app.client_id, `cid_${app.id}`, 'Client ID copied')}
-                                  className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer shrink-0"
-                                  title="Copy Client ID"
-                                >
-                                  {copiedKey === `cid_${app.id}` ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* Client Secret */}
-                            <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                              <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1.5">
-                                <span className="text-rose-500">Client Secret (HMAC-SHA256)</span>
-                                <button
-                                  onClick={() => setSecretRotateModalApp(app)}
-                                  className="text-[10px] text-indigo-500 hover:underline font-bold cursor-pointer"
-                                >
-                                  Rotate Secret
-                                </button>
-                              </div>
-                              <div className="flex items-center justify-between gap-2">
-                                <code className="text-xs font-mono font-bold text-slate-400 tracking-widest break-all select-all">
-                                  ••••••••••••••••••••••••••••••••
-                                </code>
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <button
-                                    onClick={() => handleCopy(app.client_secret, `sec_${app.id}`, 'Client Secret copied')}
-                                    className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-                                    title="Copy Secret"
-                                  >
-                                    {copiedKey === `sec_${app.id}` ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Assigned Permanent SBS Mail Sender Identity */}
-                          <div className={`mt-3.5 p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                            isDark ? 'bg-slate-900/50 border-slate-800' : 'bg-indigo-50/40 border-indigo-100'
-                          }`}>
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
-                                <Mail className="w-4 h-4" />
-                              </div>
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Assigned SBS Sender:</span>
-                                  <code className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 select-all">
-                                    {app.assigned_sbs_email || `${(app.app_name || 'app').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14)}-####@zenoa.sbs`}
-                                  </code>
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                                    {app.sbs_domain || (app.client_id === 'zenoa_official_app' ? 'zenoa.in' : 'zenoa.sbs')}
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-[#f1f5f9] dark:bg-[#1c2438] text-[#64748d] dark:text-[#94a3b8] border border-transparent">
+                                    {app.redirect_uris?.length || 0} {app.redirect_uris?.length === 1 ? 'Callback URI' : 'Callback URIs'}
                                   </span>
                                 </div>
-                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                  Default sender for all OAuth user onboarding & OTP verification emails via Resend.
-                                </p>
-                              </div>
-                            </div>
 
-                            <div className="flex items-center gap-2 shrink-0">
-                              <button
-                                onClick={() => handleCopy(app.assigned_sbs_email || '', `sbs_${app.id}`, 'Assigned SBS sender copied')}
-                                className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-                                title="Copy Sender Email"
-                              >
-                                {copiedKey === `sbs_${app.id}` ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                              </button>
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
-                                <Lock className="w-3 h-3 text-slate-400" />
-                                <span>Immutable</span>
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Authorized Redirect URIs Interactive Real-Time Manager */}
-                          <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
-                                  <Link2 className="w-3.5 h-3.5 text-indigo-500" />
-                                  <span>Authorized Redirect URIs</span>
-                                </div>
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                                  {app.redirect_uris?.length || 0} registered
-                                </span>
-
-                                {/* Real-time Sync Indicator */}
-                                {uriSavingAppId === app.id && (
-                                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 animate-pulse">
-                                    <RefreshCw className="w-3 h-3 animate-spin" />
-                                    Updating in real time...
+                                <div className="flex items-center gap-2 text-xs text-[#64748d] dark:text-[#94a3b8]">
+                                  <span className="font-mono text-[11px] font-medium truncate max-w-[200px] sm:max-w-xs">
+                                    {app.client_id}
                                   </span>
-                                )}
-                                {uriSavedSuccessAppId === app.id && (
-                                  <motion.span
-                                    initial={{ scale: 0.9, opacity: 0 }}
-                                    animate={{ scale: 1, opacity: 1 }}
-                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/40"
-                                  >
-                                    <CheckCheck className="w-3.5 h-3.5" />
-                                    Saved in real time!
-                                  </motion.span>
-                                )}
+                                  <span className="text-[#cbd5e1] dark:text-[#334155]">&bull;</span>
+                                  <span className="text-[11px] text-[#533afd] dark:text-[#818cf8] font-semibold flex items-center gap-0.5 group-hover:underline">
+                                    {isExpanded ? 'Hide Details' : 'Click to View Credentials'}
+                                  </span>
+                                </div>
                               </div>
-
-                              {/* Action to use this app in SDK */}
-                              <button
-                                onClick={() => {
-                                  setSelectedSnippetAppId(app.id);
-                                  setSnippetRedirectUri(app.redirect_uris?.[0] || '');
-                                  setActiveTab('docs');
-                                }}
-                                className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer self-start sm:self-auto"
-                              >
-                                <Code2 className="w-3 h-3" />
-                                View SDK Snippets
-                              </button>
                             </div>
 
-                            {/* Animated List of Registered Redirect URIs */}
-                            <div className="space-y-1.5">
-                              <AnimatePresence initial={false}>
-                                {(app.redirect_uris || []).map((uri, idx) => (
-                                  <motion.div
-                                    key={uri}
-                                    layout
-                                    initial={{ opacity: 0, y: -6 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
-                                    className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl border text-xs font-mono transition-colors ${
-                                      isDark
-                                        ? 'bg-slate-900/80 border-slate-800/90 text-slate-200 hover:border-slate-700'
-                                        : 'bg-slate-50 border-slate-200/90 text-slate-700 hover:border-slate-300'
-                                    }`}
-                                  >
-                                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 shadow-xs shadow-emerald-500/50" />
-                                      <span className="truncate font-semibold text-slate-800 dark:text-slate-100">{uri}</span>
-                                    </div>
-
-                                    <div className="flex items-center gap-1 shrink-0">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleCopy(uri, `uri_${app.id}_${idx}`, 'Redirect URI copied')}
-                                        className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors cursor-pointer"
-                                        title="Copy URI"
-                                      >
-                                        {copiedKey === `uri_${app.id}_${idx}` ? (
-                                          <Check className="w-3.5 h-3.5 text-emerald-500" />
-                                        ) : (
-                                          <Copy className="w-3.5 h-3.5" />
-                                        )}
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if ((app.redirect_uris?.length || 0) <= 1) {
-                                            showNotification('error', 'OAuth clients require at least one allowed Redirect URI');
-                                            return;
-                                          }
-                                          const next = app.redirect_uris.filter((_, i) => i !== idx);
-                                          handleUpdateAppRedirectUris(app.id, next, 'removed');
-                                        }}
-                                        disabled={uriSavingAppId === app.id || (app.redirect_uris?.length || 0) <= 1}
-                                        className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                                          (app.redirect_uris?.length || 0) <= 1
-                                            ? 'text-slate-300 dark:text-slate-700 cursor-not-allowed'
-                                            : 'text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30'
-                                        }`}
-                                        title={(app.redirect_uris?.length || 0) <= 1 ? 'At least one Redirect URI is required' : 'Remove Redirect URI'}
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    </div>
-                                  </motion.div>
-                                ))}
-                              </AnimatePresence>
-                            </div>
-
-                            {/* Quick Add URI inline form */}
-                            <div className="pt-1">
-                              <div className="flex gap-2">
-                                <input
-                                  type="text"
-                                  value={quickUriInputByApp[app.id] || ''}
-                                  onChange={e => setQuickUriInputByApp(prev => ({ ...prev, [app.id]: e.target.value }))}
-                                  onKeyDown={e => {
-                                    if (e.key === 'Enter') {
-                                      e.preventDefault();
-                                      handleQuickAddUri(app.id);
-                                    }
+                            {/* Actions Group */}
+                            <div className="flex items-center gap-2 shrink-0 self-start sm:self-center flex-wrap pt-2 sm:pt-0 border-t lg:border-t-0 border-[#e3e8ee] dark:border-[#273951] w-full lg:w-auto justify-between sm:justify-end">
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedTesterAppId(app.id);
+                                    setTestRedirectUri(app.redirect_uris[0] || '');
+                                    setActiveTab('playground');
                                   }}
-                                  placeholder="Add Redirect URI (e.g. https://yourapp.com/auth/callback)"
-                                  className={`flex-1 px-3 py-1.5 text-xs font-mono rounded-xl border outline-none transition-all ${
-                                    isDark
-                                      ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white placeholder:text-slate-600'
-                                      : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900 placeholder:text-slate-400'
+                                  className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                                    isDark ? 'border-[#273951] hover:bg-[#1c1e54] text-[#cbd5e1]' : 'border-[#e3e8ee] hover:bg-[#f6f9fc] text-[#273951]'
                                   }`}
-                                />
+                                  title="Test in OAuth Sandbox"
+                                >
+                                  <Play className="w-3.5 h-3.5 text-[#533afd]" />
+                                  <span>Sandbox</span>
+                                </button>
+
                                 <button
                                   type="button"
-                                  onClick={() => handleQuickAddUri(app.id)}
-                                  disabled={uriSavingAppId === app.id || !(quickUriInputByApp[app.id] || '').trim()}
-                                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold rounded-xl cursor-pointer flex items-center gap-1.5 shrink-0 transition-colors shadow-xs"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedSnippetAppId(app.id);
+                                    setSnippetRedirectUri(app.redirect_uris?.[0] || '');
+                                    setActiveTab('docs');
+                                  }}
+                                  className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                                    isDark ? 'border-[#273951] hover:bg-[#1c1e54] text-[#cbd5e1]' : 'border-[#e3e8ee] hover:bg-[#f6f9fc] text-[#273951]'
+                                  }`}
+                                  title="View SDK Code Snippets"
                                 >
-                                  {uriSavingAppId === app.id ? (
-                                    <RefreshCw className="w-3 h-3 animate-spin" />
-                                  ) : (
-                                    <Plus className="w-3.5 h-3.5" />
-                                  )}
-                                  <span>Add URI</span>
+                                  <Code2 className="w-3.5 h-3.5 text-[#533afd]" />
+                                  <span>SDK</span>
                                 </button>
+
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    startEditApp(app);
+                                  }}
+                                  className={`p-2 rounded-xl border transition-colors cursor-pointer ${
+                                    isDark ? 'border-[#273951] hover:bg-[#1c1e54] text-[#94a3b8] hover:text-white' : 'border-[#e3e8ee] hover:bg-[#f6f9fc] text-[#64748d] hover:text-[#0d253d]'
+                                  }`}
+                                  title="Edit Configuration"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+
+                                {!isOfficial && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDeleteConfirmApp(app);
+                                    }}
+                                    className="p-2 rounded-xl border border-rose-200 dark:border-rose-900/40 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 transition-colors cursor-pointer"
+                                    title="Delete Client"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
                               </div>
 
-                              {/* Quick Presets */}
-                              <div className="flex items-center gap-2 mt-2 flex-wrap text-[11px] text-slate-500">
-                                <span className="font-semibold text-[10px] text-slate-400">Quick presets:</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleQuickAddUri(app.id, 'http://localhost:3000/auth/callback')}
-                                  className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-mono transition-colors cursor-pointer"
-                                >
-                                  + Localhost:3000
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleQuickAddUri(app.id, window.location.origin + '/auth/callback')}
-                                  className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-mono transition-colors cursor-pointer"
-                                >
-                                  + Current Origin
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleQuickAddUri(app.id, window.location.origin + '/auth/sso')}
-                                  className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-mono transition-colors cursor-pointer"
-                                >
-                                  + /auth/sso
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* Scopes Summary */}
-                            <div className="pt-2 flex items-center gap-1.5 flex-wrap">
-                              <span className="text-[11px] font-bold text-slate-400">Allowed Scopes:</span>
-                              {(app.scopes || ['openid', 'profile']).map(s => (
-                                <span key={s} className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/40 font-semibold">
-                                  {s}
-                                </span>
-                              ))}
+                              {/* Expand/Collapse Toggle Button */}
+                              <button
+                                type="button"
+                                onClick={() => toggleAppExpanded(app.id)}
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                  isExpanded
+                                    ? 'bg-[#533afd] text-white'
+                                    : isDark
+                                      ? 'bg-[#1c1e54] text-[#cbd5e1] hover:bg-[#273951]'
+                                      : 'bg-[#f1f5f9] text-[#273951] hover:bg-[#e2e8f0]'
+                                }`}
+                              >
+                                <span>{isExpanded ? 'Close' : 'Details'}</span>
+                                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                              </button>
                             </div>
                           </div>
+
+                          {/* Collapsible Details Body (Animated) */}
+                          <AnimatePresence>
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                                className="overflow-hidden border-t border-[#e3e8ee] dark:border-[#273951] bg-[#f8fafc]/50 dark:bg-[#090d1a]/50"
+                              >
+                                <div className="p-5 sm:p-6 space-y-5">
+                                  {/* Description & Metadata if present */}
+                                  {app.app_description && (
+                                    <p className="text-xs text-[#64748d] dark:text-[#94a3b8] leading-relaxed">
+                                      {app.app_description}
+                                    </p>
+                                  )}
+
+                                  {/* Credentials Grid */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* Client ID */}
+                                    <div className={`p-4 rounded-xl border ${isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'}`}>
+                                      <div className="flex items-center justify-between text-[11px] font-bold text-[#64748d] dark:text-[#94a3b8] mb-2">
+                                        <span>Client ID</span>
+                                        <span className="text-[10px] text-emerald-500 font-mono font-bold">Public</span>
+                                      </div>
+                                      <div className="flex items-center justify-between gap-3">
+                                        <code className="text-xs font-mono font-bold text-[#0d253d] dark:text-slate-100 break-all select-all">
+                                          {app.client_id}
+                                        </code>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCopy(app.client_id, `cid_${app.id}`, 'Client ID copied to clipboard')}
+                                          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-[#1c1e54] text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer shrink-0"
+                                          title="Copy Client ID"
+                                        >
+                                          {copiedKey === `cid_${app.id}` ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* Client Secret */}
+                                    <div className={`p-4 rounded-xl border ${isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'}`}>
+                                      <div className="flex items-center justify-between text-[11px] font-bold text-[#64748d] dark:text-[#94a3b8] mb-2">
+                                        <span className="text-rose-500 font-bold">Client Secret</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => setSecretRotateModalApp(app)}
+                                          className="text-[10px] text-[#533afd] dark:text-[#818cf8] hover:underline font-bold cursor-pointer"
+                                        >
+                                          Rotate Secret
+                                        </button>
+                                      </div>
+                                      <div className="flex items-center justify-between gap-3">
+                                        <code className="text-xs font-mono font-bold text-[#94a3b8] tracking-widest break-all select-all">
+                                          ••••••••••••••••••••••••••••••••
+                                        </code>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCopy(app.client_secret, `sec_${app.id}`, 'Client Secret copied to clipboard')}
+                                          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-[#1c1e54] text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer shrink-0"
+                                          title="Copy Client Secret"
+                                        >
+                                          {copiedKey === `sec_${app.id}` ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Authorized Redirect URIs Management */}
+                                  <div className="space-y-3 pt-1">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="flex items-center gap-2">
+                                        <Link2 className="w-4 h-4 text-[#533afd]" />
+                                        <span className="text-xs font-bold text-[#0d253d] dark:text-white">Authorized Callback URIs</span>
+                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-[#f1f5f9] dark:bg-[#1c2438] text-[#64748d] dark:text-[#94a3b8]">
+                                          {app.redirect_uris?.length || 0}
+                                        </span>
+                                      </div>
+
+                                      {uriSavingAppId === app.id && (
+                                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-500">
+                                          <RefreshCw className="w-3 h-3 animate-spin" /> Saving...
+                                        </span>
+                                      )}
+                                      {uriSavedSuccessAppId === app.id && (
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-500">
+                                          <CheckCheck className="w-3.5 h-3.5" /> Saved
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* URIs List */}
+                                    <div className="space-y-2">
+                                      <AnimatePresence initial={false}>
+                                        {(app.redirect_uris || []).map((uri, idx) => (
+                                          <motion.div
+                                            key={uri}
+                                            layout
+                                            initial={{ opacity: 0, y: -4 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            exit={{ opacity: 0, scale: 0.95 }}
+                                            className={`flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl border text-xs font-mono transition-colors ${
+                                              isDark
+                                                ? 'bg-[#0d1326] border-[#273951] text-slate-200'
+                                                : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+                                            }`}
+                                          >
+                                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                                              <span className="truncate font-medium">{uri}</span>
+                                            </div>
+
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleCopy(uri, `uri_${app.id}_${idx}`, 'Redirect URI copied')}
+                                                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-[#1c1e54] text-[#64748d] dark:text-[#94a3b8] transition-colors cursor-pointer"
+                                                title="Copy URI"
+                                              >
+                                                {copiedKey === `uri_${app.id}_${idx}` ? (
+                                                  <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                                ) : (
+                                                  <Copy className="w-3.5 h-3.5" />
+                                                )}
+                                              </button>
+
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  if ((app.redirect_uris?.length || 0) <= 1) {
+                                                    showNotification('error', 'OAuth clients require at least one allowed Redirect URI');
+                                                    return;
+                                                  }
+                                                  const next = app.redirect_uris.filter((_, i) => i !== idx);
+                                                  handleUpdateAppRedirectUris(app.id, next, 'removed');
+                                                }}
+                                                disabled={uriSavingAppId === app.id || (app.redirect_uris?.length || 0) <= 1}
+                                                className={`p-1 transition-colors cursor-pointer ${
+                                                  (app.redirect_uris?.length || 0) <= 1
+                                                    ? 'text-[#cbd5e1] dark:text-[#475569] cursor-not-allowed'
+                                                    : 'text-[#64748d] hover:text-rose-500'
+                                                }`}
+                                                title={(app.redirect_uris?.length || 0) <= 1 ? 'At least one Redirect URI is required' : 'Remove URI'}
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                              </button>
+                                            </div>
+                                          </motion.div>
+                                        ))}
+                                      </AnimatePresence>
+                                    </div>
+
+                                    {/* Add URI Field */}
+                                    <div className="flex gap-2 pt-1">
+                                      <input
+                                        type="text"
+                                        value={quickUriInputByApp[app.id] || ''}
+                                        onChange={e => setQuickUriInputByApp(prev => ({ ...prev, [app.id]: e.target.value }))}
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            handleQuickAddUri(app.id);
+                                          }
+                                        }}
+                                        placeholder="Add callback URL (e.g. https://example.com/auth/callback)"
+                                        className={`flex-1 px-3.5 py-2 text-xs font-mono rounded-xl border outline-none transition-all ${
+                                          isDark
+                                            ? 'bg-[#0d1326] border-[#273951] focus:border-[#533afd] text-white placeholder:text-[#64748d]'
+                                            : 'bg-white border-[#e3e8ee] focus:border-[#533afd] text-[#0d253d] placeholder:text-[#94a3b8]'
+                                        }`}
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => handleQuickAddUri(app.id)}
+                                        disabled={uriSavingAppId === app.id || !(quickUriInputByApp[app.id] || '').trim()}
+                                        className="px-4 py-2 bg-[#533afd] hover:bg-[#4434d4] disabled:opacity-50 text-white text-xs font-bold rounded-xl cursor-pointer flex items-center gap-1.5 shrink-0 transition-colors"
+                                      >
+                                        {uriSavingAppId === app.id ? (
+                                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                        ) : (
+                                          <Plus className="w-3.5 h-3.5" />
+                                        )}
+                                        <span>Add</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </div>
                       );
                     })}
@@ -2025,20 +2469,20 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
             {/* TAB 3: APP REGISTRATION & CONFIGURATION FORM                             */}
             {/* ========================================================================= */}
             {activeTab === 'create' && (
-              <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'} animate-fade-in`}>
-                <div className="flex items-center justify-between pb-5 border-b border-slate-100 dark:border-slate-800 mb-6">
+              <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee] shadow-xs'} animate-fade-in`}>
+                <div className="flex items-center justify-between pb-5 border-b border-[#e3e8ee] dark:border-[#273951] mb-6">
                   <div>
-                    <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">
-                      {editingAppId ? 'Edit OAuth 2.0 Configuration' : 'Register New Application'}
+                    <h3 className="font-bold text-base sm:text-lg tracking-tight text-[#0d253d] dark:text-white">
+                      {editingAppId ? 'Edit Application Configuration' : 'Register New Application'}
                     </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      Configure application metadata, authorized callback URIs, and granted OpenID scopes.
+                    <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-1">
+                      Provide your application name and authorized callback URIs for OAuth 2.0 authentication.
                     </p>
                   </div>
                   {editingAppId && (
                     <button
                       onClick={() => { resetForm(); setActiveTab('apps'); }}
-                      className="text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                      className="text-xs font-semibold text-[#64748d] hover:text-[#0d253d] dark:hover:text-white cursor-pointer px-3 py-1.5 rounded-lg border border-[#e3e8ee] dark:border-[#273951]"
                     >
                       Cancel
                     </button>
@@ -2047,9 +2491,9 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
 
                 <form onSubmit={handleSubmitApp} className="space-y-6">
                   {/* Basic Details Grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-[#0d253d] dark:text-slate-200">
                         Application Name <span className="text-rose-500">*</span>
                       </label>
                       <input
@@ -2057,175 +2501,69 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                         required
                         value={appName}
                         onChange={e => setAppName(e.target.value)}
-                        placeholder="e.g. Acme Cloud Dashboard"
-                        className={`w-full px-3.5 py-2.5 text-xs rounded-xl border outline-none font-medium transition-all ${
+                        placeholder="e.g. Acme Dashboard"
+                        className={`w-full px-4 py-2.5 text-xs rounded-xl border outline-none font-medium transition-all ${
                           isDark
-                            ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white'
-                            : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900'
+                            ? 'bg-[#090d1a] border-[#273951] focus:border-[#533afd] text-white placeholder:text-[#64748d]'
+                            : 'bg-[#f8fafc] border-[#e3e8ee] focus:border-[#533afd] text-[#0d253d] placeholder:text-[#94a3b8]'
                         }`}
                       />
                     </div>
 
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-[#0d253d] dark:text-slate-200">
                         Environment Mode
                       </label>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-2 gap-2.5">
                         <button
                           type="button"
                           onClick={() => setEnvironment('production')}
-                          className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          className={`py-2.5 px-3.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
                             environment === 'production'
-                              ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
-                              : isDark ? 'border-slate-800 bg-slate-900 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600'
+                              ? 'border-[#533afd] bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8]'
+                              : isDark ? 'border-[#273951] bg-[#090d1a] text-[#94a3b8]' : 'border-[#e3e8ee] bg-[#f8fafc] text-[#64748d]'
                           }`}
                         >
-                          Production (Live)
+                          Production
                         </button>
                         <button
                           type="button"
                           onClick={() => setEnvironment('sandbox')}
-                          className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          className={`py-2.5 px-3.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
                             environment === 'sandbox'
-                              ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400'
-                              : isDark ? 'border-slate-800 bg-slate-900 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600'
+                              ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              : isDark ? 'border-[#273951] bg-[#090d1a] text-[#94a3b8]' : 'border-[#e3e8ee] bg-[#f8fafc] text-[#64748d]'
                           }`}
                         >
-                          Sandbox (Testing)
+                          Sandbox
                         </button>
                       </div>
-                    </div>
-                  </div>
-
-                  {/* Automatic SBS Mail Sender Identity Notice */}
-                  <div className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                    isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                  }`}>
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
-                        <Mail className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                            {editingAppId ? 'Assigned SBS Email Sender:' : 'Default Sender (Auto-Assigned):'}
-                          </span>
-                          <code className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                            {editingAppId 
-                              ? (apps.find(a => a.id === editingAppId)?.assigned_sbs_email || `${(appName || 'app').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16)}-####@zenoa.sbs`)
-                              : `${(appName.trim() || 'your-app').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16) || 'app'}-####@zenoa.sbs`}
-                          </code>
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                            zenoa.sbs
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                          Generated automatically upon registration and permanently immutable. All OAuth onboarding & OTP verification emails are delivered from this address via Resend.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 shrink-0 self-start sm:self-auto">
-                      <Lock className="w-3 h-3 text-slate-400" />
-                      <span>System Managed</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Application Description
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={appDescription}
-                      onChange={e => setAppDescription(e.target.value)}
-                      placeholder="Briefly explain what your app does to users on the consent screen..."
-                      className={`w-full px-3.5 py-2 text-xs rounded-xl border outline-none font-medium transition-all ${
-                        isDark
-                          ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white'
-                          : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900'
-                      }`}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        Application Logo URL (Optional)
-                      </label>
-                      <input
-                        type="url"
-                        value={logoUrl}
-                        onChange={e => setLogoUrl(e.target.value)}
-                        placeholder="https://example.com/logo.png"
-                        className={`w-full px-3.5 py-2 text-xs rounded-xl border outline-none font-medium transition-all ${
-                          isDark
-                            ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white'
-                            : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900'
-                        }`}
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        Homepage Website URL (Optional)
-                      </label>
-                      <input
-                        type="url"
-                        value={websiteUrl}
-                        onChange={e => setWebsiteUrl(e.target.value)}
-                        placeholder="https://example.com"
-                        className={`w-full px-3.5 py-2 text-xs rounded-xl border outline-none font-medium transition-all ${
-                          isDark
-                            ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white'
-                            : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900'
-                        }`}
-                      />
                     </div>
                   </div>
 
                   {/* Authorized Redirect URIs Manager */}
-                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="space-y-2.5 pt-2 border-t border-[#e3e8ee] dark:border-[#273951]">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                          <Link2 className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                          <span>Authorized Redirect URIs (Whitelisted Callbacks) <span className="text-rose-500">*</span></span>
-                        </label>
-                        {editingAppId && uriSavingAppId === editingAppId && (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-amber-500 font-semibold animate-pulse">
-                            <RefreshCw className="w-3 h-3 animate-spin" /> Saving...
-                          </span>
-                        )}
-                        {editingAppId && uriSavedSuccessAppId === editingAppId && (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-emerald-500 font-semibold">
-                            <CheckCheck className="w-3 h-3" /> Updated in real time!
-                          </span>
-                        )}
-                      </div>
+                      <label className="text-xs font-bold text-[#0d253d] dark:text-slate-200 flex items-center gap-1.5">
+                        <Link2 className="w-4 h-4 text-[#533afd] shrink-0" />
+                        <span>Authorized Redirect URIs (OAuth Callbacks) <span className="text-rose-500">*</span></span>
+                      </label>
 
-                      <div className="flex items-center gap-1.5 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap text-[11px] text-[#64748d] dark:text-[#94a3b8]">
                         <button
                           type="button"
                           onClick={() => handleAddRedirectUri('http://localhost:3000/auth/callback')}
-                          className="text-[11px] text-indigo-500 hover:underline font-semibold cursor-pointer"
+                          className="text-[#533afd] dark:text-[#818cf8] hover:underline font-semibold cursor-pointer"
                         >
                           + Localhost:3000
                         </button>
-                        <span className="text-slate-400">&bull;</span>
+                        <span>&bull;</span>
                         <button
                           type="button"
                           onClick={() => handleAddRedirectUri(window.location.origin + '/auth/callback')}
-                          className="text-[11px] text-indigo-500 hover:underline font-semibold cursor-pointer"
+                          className="text-[#533afd] dark:text-[#818cf8] hover:underline font-semibold cursor-pointer"
                         >
                           + Current Origin
-                        </button>
-                        <span className="text-slate-400">&bull;</span>
-                        <button
-                          type="button"
-                          onClick={() => handleAddRedirectUri(window.location.origin + '/auth/sso')}
-                          className="text-[11px] text-indigo-500 hover:underline font-semibold cursor-pointer"
-                        >
-                          + /auth/sso
                         </button>
                       </div>
                     </div>
@@ -2241,17 +2579,17 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                             handleAddRedirectUri();
                           }
                         }}
-                        placeholder="https://yourapp.com/auth/callback"
-                        className={`flex-1 px-3.5 py-2 text-xs rounded-xl border outline-none font-mono transition-all ${
+                        placeholder="https://example.com/auth/callback"
+                        className={`flex-1 px-4 py-2.5 text-xs rounded-xl border outline-none font-mono transition-all ${
                           isDark
-                            ? 'bg-slate-900 border-slate-800 focus:border-indigo-500 text-white'
-                            : 'bg-slate-50 border-slate-200 focus:border-indigo-500 text-slate-900'
+                            ? 'bg-[#090d1a] border-[#273951] focus:border-[#533afd] text-white placeholder:text-[#64748d]'
+                            : 'bg-[#f8fafc] border-[#e3e8ee] focus:border-[#533afd] text-[#0d253d] placeholder:text-[#94a3b8]'
                         }`}
                       />
                       <button
                         type="button"
                         onClick={() => handleAddRedirectUri()}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl cursor-pointer shrink-0 transition-colors flex items-center gap-1.5"
+                        className="px-4 py-2.5 bg-[#533afd] hover:bg-[#4434d4] text-white text-xs font-bold rounded-xl cursor-pointer shrink-0 transition-colors flex items-center gap-1.5"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>Add URI</span>
@@ -2259,31 +2597,31 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                     </div>
 
                     {/* Animated URIs List */}
-                    <div className="space-y-1.5 mt-2">
+                    <div className="space-y-2 mt-2">
                       <AnimatePresence initial={false}>
                         {redirectUrisList.map((uri, idx) => (
                           <motion.div
                             key={uri}
                             layout
-                            initial={{ opacity: 0, y: -6, scale: 0.98 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95, height: 0, marginBottom: 0, transition: { duration: 0.18 } }}
-                            className={`flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-mono transition-all ${
-                              isDark ? 'bg-slate-900/60 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                            initial={{ opacity: 0, y: -4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-xs font-mono transition-all ${
+                              isDark ? 'bg-[#090d1a] border-[#273951] text-slate-300' : 'bg-[#f8fafc] border-[#e3e8ee] text-[#0d253d]'
                             }`}
                           >
-                            <div className="flex items-center gap-2 truncate">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                            <div className="flex items-center gap-2.5 truncate">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
                               <span className="truncate">{uri}</span>
                             </div>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-2">
                               <button
                                 type="button"
                                 onClick={() => handleCopy(uri, `form_uri_${idx}`, 'URI copied')}
-                                className="text-slate-400 hover:text-slate-200 p-1 cursor-pointer transition-colors"
+                                className="text-[#64748d] dark:text-[#94a3b8] hover:text-[#0d253d] dark:hover:text-white p-1 cursor-pointer transition-colors"
                                 title="Copy URI"
                               >
-                                {copiedKey === `form_uri_${idx}` ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                                {copiedKey === `form_uri_${idx}` ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                               </button>
                               <button
                                 type="button"
@@ -2291,8 +2629,8 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                                 disabled={redirectUrisList.length === 1}
                                 className={`p-1 transition-colors ${
                                   redirectUrisList.length === 1
-                                    ? 'text-slate-300 dark:text-slate-700 cursor-not-allowed'
-                                    : 'text-slate-400 hover:text-rose-500 cursor-pointer'
+                                    ? 'text-[#cbd5e1] dark:text-[#475569] cursor-not-allowed'
+                                    : 'text-[#64748d] hover:text-rose-500 cursor-pointer'
                                 }`}
                                 title={redirectUrisList.length === 1 ? 'At least one Redirect URI is required' : 'Remove URI'}
                               >
@@ -2305,128 +2643,69 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                     </div>
                   </div>
 
-                  {/* Scopes Selection Matrix */}
-                  <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                      <div>
-                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                          <ShieldCheck className="w-4 h-4 text-indigo-500" />
-                          <span>OAuth 2.0 & OpenID Connect Permissions (Scopes)</span>
+                  {/* Optional App Metadata */}
+                  <div className="space-y-4 pt-2 border-t border-[#e3e8ee] dark:border-[#273951]">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-[#0d253d] dark:text-slate-200">
+                          Homepage Website URL (Optional)
                         </label>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                          Core OIDC claims (ID, Name, Username, Email) are auto-checked. Select additional integration permissions as required.
-                        </p>
+                        <input
+                          type="url"
+                          value={websiteUrl}
+                          onChange={e => setWebsiteUrl(e.target.value)}
+                          placeholder="https://example.com"
+                          className={`w-full px-4 py-2.5 text-xs rounded-xl border outline-none font-medium transition-all ${
+                            isDark
+                              ? 'bg-[#090d1a] border-[#273951] focus:border-[#533afd] text-white placeholder:text-[#64748d]'
+                              : 'bg-[#f8fafc] border-[#e3e8ee] focus:border-[#533afd] text-[#0d253d] placeholder:text-[#94a3b8]'
+                          }`}
+                        />
                       </div>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60 font-semibold self-start sm:self-auto">
-                        {selectedScopes.length} Scopes Configured
-                      </span>
+
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-[#0d253d] dark:text-slate-200">
+                          Application Logo URL (Optional)
+                        </label>
+                        <input
+                          type="url"
+                          value={logoUrl}
+                          onChange={e => setLogoUrl(e.target.value)}
+                          placeholder="https://example.com/logo.png"
+                          className={`w-full px-4 py-2.5 text-xs rounded-xl border outline-none font-medium transition-all ${
+                            isDark
+                              ? 'bg-[#090d1a] border-[#273951] focus:border-[#533afd] text-white placeholder:text-[#64748d]'
+                              : 'bg-[#f8fafc] border-[#e3e8ee] focus:border-[#533afd] text-[#0d253d] placeholder:text-[#94a3b8]'
+                          }`}
+                        />
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      {[
-                        { 
-                          id: 'openid', 
-                          name: 'openid', 
-                          category: 'Core OIDC (Mandatory)', 
-                          desc: 'User Unique Subject ID (sub) and OpenID Connect cryptographic token verification', 
-                          required: true,
-                          isCore: true
-                        },
-                        { 
-                          id: 'profile', 
-                          name: 'profile', 
-                          category: 'Core Identity (Auto-Checked)', 
-                          desc: 'Full Display Name, @username handle, profile avatar photo, and bio', 
-                          isCore: true 
-                        },
-                        { 
-                          id: 'email', 
-                          name: 'email', 
-                          category: 'Core Contact (Auto-Checked)', 
-                          desc: 'Primary registered email address and email verification status claim', 
-                          isCore: true 
-                        },
-                        { 
-                          id: 'phone', 
-                          name: 'phone', 
-                          category: 'Optional Contact', 
-                          desc: 'Registered mobile phone number and SMS verification claim' 
-                        },
-                        { 
-                          id: 'offline_access', 
-                          name: 'offline_access', 
-                          category: 'Optional Refresh', 
-                          desc: 'Issue RFC 6749 Refresh Tokens for persistent background session renewals without re-prompting' 
-                        },
-                        { 
-                          id: 'messages.read', 
-                          name: 'messages.read', 
-                          category: 'Optional Chat', 
-                          desc: 'Read access to direct chats, channels, and conversation histories' 
-                        },
-                        { 
-                          id: 'messages.send', 
-                          name: 'messages.send', 
-                          category: 'Optional Chat', 
-                          desc: 'Permission to send chat messages, replies, and service notifications on behalf of user' 
-                        },
-                        { 
-                          id: 'contacts.read', 
-                          name: 'contacts.read', 
-                          category: 'Optional Social', 
-                          desc: 'Read user contacts list, address book, and verified connections' 
-                        },
-                        { 
-                          id: 'activity.read', 
-                          name: 'activity.read', 
-                          category: 'Optional Telemetry', 
-                          desc: 'Read real-time online presence, active device, and last seen timestamp' 
-                        }
-                      ].map(sc => {
-                        const isChecked = selectedScopes.includes(sc.id);
-                        return (
-                          <div
-                            key={sc.id}
-                            onClick={() => !sc.required && toggleScope(sc.id)}
-                            className={`p-3.5 rounded-xl border flex items-start gap-3 transition-all cursor-pointer ${
-                              isChecked
-                                ? isDark ? 'border-indigo-700 bg-indigo-950/30 shadow-xs' : 'border-indigo-300 bg-indigo-50/60 shadow-xs'
-                                : isDark ? 'border-slate-800 bg-slate-900/40 opacity-70 hover:opacity-100 hover:border-slate-700' : 'border-slate-200 bg-slate-50/50 opacity-70 hover:opacity-100 hover:border-slate-300'
-                            }`}
-                          >
-                            <div className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center border shrink-0 transition-colors ${
-                              isChecked
-                                ? 'bg-indigo-600 border-indigo-600 text-white'
-                                : 'border-slate-400 bg-transparent'
-                            }`}>
-                              {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-1.5 flex-wrap">
-                                <p className="text-xs font-bold font-mono text-slate-900 dark:text-white">{sc.name}</p>
-                                <span className={`text-[9px] font-semibold px-1.5 py-0.2 rounded ${
-                                  sc.isCore 
-                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' 
-                                    : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                                }`}>
-                                  {sc.category}
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">{sc.desc}</p>
-                            </div>
-                          </div>
-                        );
-                      })}
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-[#0d253d] dark:text-slate-200">
+                        Application Description (Optional)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={appDescription}
+                        onChange={e => setAppDescription(e.target.value)}
+                        placeholder="Brief summary of your application..."
+                        className={`w-full px-4 py-2.5 text-xs rounded-xl border outline-none font-medium transition-all ${
+                          isDark
+                            ? 'bg-[#090d1a] border-[#273951] focus:border-[#533afd] text-white placeholder:text-[#64748d]'
+                            : 'bg-[#f8fafc] border-[#e3e8ee] focus:border-[#533afd] text-[#0d253d] placeholder:text-[#94a3b8]'
+                        }`}
+                      />
                     </div>
                   </div>
 
                   {/* Submit Button */}
-                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
+                  <div className="pt-4 border-t border-[#e3e8ee] dark:border-[#273951] flex justify-end gap-3">
                     <button
                       type="button"
                       onClick={() => { resetForm(); setActiveTab('apps'); }}
-                      className={`px-4 py-2.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
-                        isDark ? 'border-slate-800 hover:bg-slate-800 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
+                      className={`px-5 py-2.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
+                        isDark ? 'border-[#273951] hover:bg-[#1c1e54] text-[#cbd5e1]' : 'border-[#e3e8ee] hover:bg-[#f6f9fc] text-[#273951]'
                       }`}
                     >
                       Cancel
@@ -2434,10 +2713,10 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                     <button
                       type="submit"
                       disabled={isSubmitting}
-                      className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                      className="px-6 py-2.5 rounded-xl bg-[#533afd] hover:bg-[#4434d4] text-white text-xs font-bold shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 active:scale-[0.98]"
                     >
                       {isSubmitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                      <span>{editingAppId ? 'Save OAuth Configuration' : 'Register Application'}</span>
+                      <span>{editingAppId ? 'Save Changes' : 'Register Application'}</span>
                     </button>
                   </div>
                 </form>
@@ -2445,136 +2724,418 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
             )}
 
             {/* ========================================================================= */}
-            {/* TAB 4: INTERACTIVE OAUTH 2.0 SANDBOX                                     */}
+            {/* TAB 4: CLEAN & PROFESSIONAL OAUTH 2.0 / OIDC SANDBOX                     */}
             {/* ========================================================================= */}
             {activeTab === 'playground' && (
-              <div className="space-y-6 animate-fade-in">
-                {/* Simulator Config Card */}
-                <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'}`}>
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100 dark:border-slate-800">
-                    <div>
-                      <h3 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">Interactive OAuth 2.0 Pipeline</h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                        Simulate the end-to-end Authorization Code Grant flow without writing a single line of backend code.
+              <div className="space-y-8 animate-fade-in">
+                {/* 1. Header & Primary Controls */}
+                <div className={`p-6 sm:p-8 rounded-2xl border ${isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee] shadow-xs'}`}>
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-[#e3e8ee] dark:border-[#273951]">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-lg sm:text-xl tracking-tight text-[#0d253d] dark:text-white">
+                          OAuth 2.0 & OIDC Sandbox
+                        </h3>
+                        {playgroundLatencyMs > 0 && (
+                          <span className="text-[11px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
+                            ⚡ {playgroundLatencyMs}ms
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-[#64748d] dark:text-[#94a3b8] leading-relaxed">
+                        Test authorization flows, token issuance, and OpenID Connect identity claims in real time.
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-3 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleResetPlayground}
+                        disabled={isTesterRunning || autoRunInProgress}
+                        className={`px-4 py-2.5 text-xs font-semibold rounded-xl border flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50 ${
+                          isDark ? 'border-[#273951] hover:bg-[#151c33] text-slate-300' : 'border-[#e3e8ee] hover:bg-[#f8fafc] text-[#475569]'
+                        }`}
+                        title="Reset Sandbox"
+                      >
+                        <RotateCcw className="w-4 h-4 text-[#64748d]" />
+                        <span>Reset</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleRunFullPipeline}
+                        disabled={isTesterRunning || autoRunInProgress}
+                        className="px-5 py-2.5 bg-[#533afd] hover:bg-[#4434d4] disabled:opacity-60 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-[0.98]"
+                      >
+                        {autoRunInProgress ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
+                        )}
+                        <span>{autoRunInProgress ? 'Running Flow...' : 'Run Full Flow'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 2. Configuration Settings */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-6">
+                    {/* Target Application */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-[#0d253d] dark:text-slate-200">
+                        Client Application
+                      </label>
                       <select
-                        value={selectedTesterAppId}
+                        value={selectedTesterAppId || activeTesterApp.id}
                         onChange={e => {
                           setSelectedTesterAppId(e.target.value);
                           const app = apps.find(a => a.id === e.target.value);
-                          if (app && app.redirect_uris.length > 0) {
+                          if (app && app.redirect_uris?.length > 0) {
                             setTestRedirectUri(app.redirect_uris[0]);
                           }
                           setPlaygroundStep('idle');
                           setPlaygroundAuthCode('');
                           setPlaygroundAccessToken('');
+                          setPlaygroundIdToken('');
                           setPlaygroundUserResult(null);
                           setTesterLog([]);
                         }}
-                        className={`px-3.5 py-2 text-xs rounded-xl border outline-none font-semibold ${
-                          isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                        className={`w-full px-3.5 py-2.5 text-xs rounded-xl border outline-none font-medium truncate transition-colors ${
+                          isDark ? 'bg-[#090d1a] border-[#273951] text-white focus:border-[#533afd]' : 'bg-[#f8fafc] border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
                         }`}
                       >
                         {apps.map(a => (
-                          <option key={a.id} value={a.id}>{a.app_name} ({a.client_id})</option>
+                          <option key={a.id} value={a.id}>
+                            {a.app_name} ({a.environment === 'sandbox' ? 'Sandbox' : 'Prod'})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Flow Mode */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-[#0d253d] dark:text-slate-200">
+                        Grant Flow Mode
+                      </label>
+                      <select
+                        value={playgroundGrantType}
+                        onChange={(e: any) => {
+                          setPlaygroundGrantType(e.target.value);
+                          setPlaygroundStep('idle');
+                        }}
+                        className={`w-full px-3.5 py-2.5 text-xs rounded-xl border outline-none font-medium transition-colors ${
+                          isDark ? 'bg-[#090d1a] border-[#273951] text-white focus:border-[#533afd]' : 'bg-[#f8fafc] border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                        }`}
+                      >
+                        <option value="authorization_code">Authorization Code (Confidential Web Server)</option>
+                        <option value="pkce">Auth Code + PKCE S256 (SPA / Mobile App)</option>
+                        <option value="client_credentials">Client Credentials (Machine-to-Machine)</option>
+                        <option value="refresh_token">Refresh Token Rotation</option>
+                      </select>
+                    </div>
+
+                    {/* Callback Redirect URI */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-[#0d253d] dark:text-slate-200">
+                        Authorized Callback URI
+                      </label>
+                      <select
+                        value={testRedirectUri}
+                        onChange={e => setTestRedirectUri(e.target.value)}
+                        className={`w-full px-3.5 py-2.5 text-xs font-mono rounded-xl border outline-none truncate transition-colors ${
+                          isDark ? 'bg-[#090d1a] border-[#273951] text-slate-200 focus:border-[#533afd]' : 'bg-[#f8fafc] border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                        }`}
+                      >
+                        {(activeTesterApp.redirect_uris || ['http://localhost:3000/auth/callback']).map((u, i) => (
+                          <option key={i} value={u}>{u}</option>
                         ))}
                       </select>
                     </div>
                   </div>
 
-                  {/* 3 Step Interactive Workflow Pipeline */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-6">
-                    {/* Step 1: Authorization Code */}
-                    <div className={`p-5 rounded-2xl border transition-all flex flex-col justify-between ${
-                      playgroundStep === 'idle'
-                        ? isDark ? 'border-indigo-700 bg-indigo-950/20' : 'border-indigo-300 bg-indigo-50/40'
-                        : isDark ? 'border-emerald-800/60 bg-emerald-950/20' : 'border-emerald-200 bg-emerald-50/30'
-                    }`}>
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 1</span>
-                          {playgroundAuthCode ? (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white">Code Issued</span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500 text-white">Authorize</span>
-                          )}
+                  {/* Advanced Settings Toggle */}
+                  <div className="pt-5 mt-5 border-t border-[#e3e8ee] dark:border-[#273951]">
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvancedPlaygroundSettings(prev => !prev)}
+                      className="text-xs font-semibold text-[#533afd] dark:text-[#818cf8] hover:underline flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                      <span>{showAdvancedPlaygroundSettings ? 'Hide Advanced Options & Simulator' : 'Show Advanced Options & Simulator'}</span>
+                      {showAdvancedPlaygroundSettings ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
+
+                    {/* Expandable Advanced Options */}
+                    <AnimatePresence>
+                      {showAdvancedPlaygroundSettings && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="overflow-hidden space-y-5 pt-4"
+                        >
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 p-4 rounded-xl border bg-[#f8fafc] dark:bg-[#090d1a] border-[#e3e8ee] dark:border-[#273951]">
+                            {/* Scopes */}
+                            <div className="space-y-2">
+                              <span className="text-xs font-bold text-[#0d253d] dark:text-slate-200">
+                                Requested OAuth Scopes
+                              </span>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {['openid', 'profile', 'email', 'phone', 'offline_access'].map(sc => {
+                                  const isSelected = playgroundScopes.includes(sc);
+                                  return (
+                                    <button
+                                      key={sc}
+                                      type="button"
+                                      onClick={() => {
+                                        if (sc === 'openid') return;
+                                        setPlaygroundScopes(prev =>
+                                          prev.includes(sc) ? prev.filter(s => s !== sc) : [...prev, sc]
+                                        );
+                                      }}
+                                      className={`px-3 py-1 rounded-lg text-xs font-mono font-medium border transition-colors cursor-pointer ${
+                                        isSelected
+                                          ? 'bg-[#533afd] text-white border-[#533afd]'
+                                          : isDark ? 'bg-[#0d1326] text-[#94a3b8] border-[#273951] hover:border-slate-500' : 'bg-white text-[#64748d] border-[#e3e8ee] hover:border-slate-300'
+                                      }`}
+                                    >
+                                      {sc} {sc === 'openid' ? '(required)' : ''}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Error Simulator */}
+                            <div className="space-y-2">
+                              <span className="text-xs font-bold text-[#0d253d] dark:text-slate-200 flex items-center gap-1.5">
+                                <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
+                                <span>Simulate RFC 6749 Errors</span>
+                              </span>
+                              <select
+                                value={playgroundSimulatedError}
+                                onChange={(e: any) => {
+                                  setPlaygroundSimulatedError(e.target.value);
+                                  if (e.target.value !== 'none') {
+                                    showNotification('success', `Simulator mode: ${e.target.value}`);
+                                  }
+                                }}
+                                className={`w-full px-3.5 py-2 text-xs rounded-xl border outline-none font-medium transition-colors ${
+                                  playgroundSimulatedError !== 'none'
+                                    ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-bold'
+                                    : isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+                                }`}
+                              >
+                                <option value="none">Normal (Standard 200 OK Flow)</option>
+                                <option value="invalid_client">Simulate 401 Unauthorized (invalid_client)</option>
+                                <option value="invalid_grant">Simulate 400 Bad Request (invalid_grant / expired code)</option>
+                                <option value="redirect_uri_mismatch">Simulate 400 Bad Request (redirect_uri_mismatch)</option>
+                                <option value="invalid_scope">Simulate 400 Bad Request (invalid_scope)</option>
+                                <option value="expired_token">Simulate 401 UserInfo (expired_token)</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Cryptographic Parameters */}
+                          <div className="flex items-center justify-between gap-4 text-xs font-mono text-[#64748d] dark:text-[#94a3b8] flex-wrap px-1">
+                            <div>State: <strong className="text-indigo-500">{playgroundStateParam.substring(0, 14)}...</strong></div>
+                            <div>Nonce: <strong className="text-indigo-500">{playgroundNonce.substring(0, 14)}...</strong></div>
+                            {playgroundGrantType === 'pkce' && (
+                              <div>PKCE Challenge: <strong className="text-emerald-500">{pkceChallenge.substring(0, 16)}...</strong></div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+
+                {/* 3. Interactive 3-Step Execution Pipeline */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Step 1: Authorization Code */}
+                  <div className={`p-6 rounded-2xl border flex flex-col justify-between transition-all ${
+                    playgroundStep === 'idle'
+                      ? isDark ? 'bg-[#0d1326] border-[#533afd] ring-1 ring-[#533afd]/30' : 'bg-white border-[#533afd] ring-1 ring-[#533afd]/20 shadow-sm'
+                      : playgroundAuthCode
+                      ? isDark ? 'bg-[#0d1326] border-emerald-500/40' : 'bg-white border-emerald-500/30'
+                      : isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+                  }`}>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] font-bold text-xs flex items-center justify-center">
+                            1
+                          </span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8]">
+                            Authorization
+                          </span>
                         </div>
-                        <h4 className="font-bold text-xs text-slate-900 dark:text-white">POST /auth/sso</h4>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                          Requests user approval and generates a one-time cryptographic code.
-                        </p>
+                        {playgroundAuthCode ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                            <Check className="w-3.5 h-3.5" /> Issued
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-mono text-[#94a3b8]">POST /auth/sso</span>
+                        )}
                       </div>
-                      <button
-                        onClick={handlePlaygroundAuthorize}
-                        disabled={isTesterRunning}
-                        className="mt-4 w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      >
-                        <Play className="w-3.5 h-3.5" />
-                        <span>Issue Auth Code</span>
-                      </button>
+
+                      <h4 className="font-bold text-sm text-[#0d253d] dark:text-white">
+                        Issue Authorization Code
+                      </h4>
+                      <p className="text-xs text-[#64748d] dark:text-[#94a3b8] leading-relaxed">
+                        Request a secure, single-use authorization code with state and nonce verification.
+                      </p>
+
+                      {playgroundAuthCode ? (
+                        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-mono text-emerald-600 dark:text-emerald-400 truncate flex items-center justify-between gap-2">
+                          <span className="truncate">{playgroundAuthCode}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(playgroundAuthCode, 'sb_code', 'Auth Code copied')}
+                            className="p-1 hover:bg-emerald-500/20 rounded cursor-pointer shrink-0"
+                            title="Copy Code"
+                          >
+                            {copiedKey === 'sb_code' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="p-3 rounded-xl bg-slate-100 dark:bg-[#090d1a] border border-dashed border-slate-300 dark:border-[#273951] text-[11px] text-[#94a3b8] text-center">
+                          Awaiting authorization trigger
+                        </div>
+                      )}
                     </div>
 
-                    {/* Step 2: Token Exchange */}
-                    <div className={`p-5 rounded-2xl border transition-all flex flex-col justify-between ${
-                      playgroundStep === 'authorized'
-                        ? isDark ? 'border-indigo-700 bg-indigo-950/20' : 'border-indigo-300 bg-indigo-50/40'
-                        : playgroundAccessToken
-                        ? isDark ? 'border-emerald-800/60 bg-emerald-950/20' : 'border-emerald-200 bg-emerald-50/30'
-                        : isDark ? 'border-slate-800 bg-slate-900/30 opacity-60' : 'border-slate-200 bg-slate-50 opacity-60'
-                    }`}>
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 2</span>
-                          {playgroundAccessToken ? (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white">Token Exchanged</span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-500 text-white">Token API</span>
-                          )}
-                        </div>
-                        <h4 className="font-bold text-xs text-slate-900 dark:text-white">POST /api/oauth/token</h4>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                          Exchange authorization code + Client Secret for Bearer Access Token.
-                        </p>
-                      </div>
+                    <div className="pt-5 mt-4 border-t border-[#e3e8ee] dark:border-[#273951]">
                       <button
-                        onClick={handlePlaygroundExchangeToken}
-                        disabled={!playgroundAuthCode || isTesterRunning}
-                        className="mt-4 w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+                        type="button"
+                        onClick={handlePlaygroundAuthorize}
+                        disabled={isTesterRunning || autoRunInProgress}
+                        className="w-full py-2.5 px-4 bg-[#533afd] hover:bg-[#4434d4] text-white text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-[0.98]"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span>{playgroundAuthCode ? 'Re-Issue Code' : 'Issue Auth Code'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Step 2: Token Exchange */}
+                  <div className={`p-6 rounded-2xl border flex flex-col justify-between transition-all ${
+                    playgroundStep === 'authorized'
+                      ? isDark ? 'bg-[#0d1326] border-[#533afd] ring-1 ring-[#533afd]/30' : 'bg-white border-[#533afd] ring-1 ring-[#533afd]/20 shadow-sm'
+                      : playgroundAccessToken
+                      ? isDark ? 'bg-[#0d1326] border-emerald-500/40' : 'bg-white border-emerald-500/30'
+                      : isDark ? 'bg-[#0d1326] border-[#273951] opacity-75' : 'bg-white border-[#e3e8ee] opacity-75'
+                  }`}>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] font-bold text-xs flex items-center justify-center">
+                            2
+                          </span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8]">
+                            Token Exchange
+                          </span>
+                        </div>
+                        {playgroundAccessToken ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                            <Check className="w-3.5 h-3.5" /> Exchanged
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-mono text-[#94a3b8]">POST /oauth/token</span>
+                        )}
+                      </div>
+
+                      <h4 className="font-bold text-sm text-[#0d253d] dark:text-white">
+                        Exchange for Bearer & ID Token
+                      </h4>
+                      <p className="text-xs text-[#64748d] dark:text-[#94a3b8] leading-relaxed">
+                        Exchanges the single-use code for Bearer token, refresh token, and signed OIDC JWT.
+                      </p>
+
+                      {playgroundAccessToken ? (
+                        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-mono text-emerald-600 dark:text-emerald-400 truncate flex items-center justify-between gap-2">
+                          <span className="truncate">Bearer: {playgroundAccessToken.substring(0, 16)}...</span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(playgroundAccessToken, 'sb_at', 'Access Token copied')}
+                            className="p-1 hover:bg-emerald-500/20 rounded cursor-pointer shrink-0"
+                            title="Copy Token"
+                          >
+                            {copiedKey === 'sb_at' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="p-3 rounded-xl bg-slate-100 dark:bg-[#090d1a] border border-dashed border-slate-300 dark:border-[#273951] text-[11px] text-[#94a3b8] text-center">
+                          Awaiting authorization code
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-5 mt-4 border-t border-[#e3e8ee] dark:border-[#273951]">
+                      <button
+                        type="button"
+                        onClick={() => handlePlaygroundExchangeToken()}
+                        disabled={!playgroundAuthCode || isTesterRunning || autoRunInProgress}
+                        className="w-full py-2.5 px-4 bg-[#533afd] hover:bg-[#4434d4] text-white text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
                       >
                         <Key className="w-3.5 h-3.5" />
-                        <span>Exchange Bearer Token</span>
+                        <span>Exchange Tokens</span>
                       </button>
                     </div>
+                  </div>
 
-                    {/* Step 3: User Profile Claims */}
-                    <div className={`p-5 rounded-2xl border transition-all flex flex-col justify-between ${
-                      playgroundStep === 'token_exchanged'
-                        ? isDark ? 'border-indigo-700 bg-indigo-950/20' : 'border-indigo-300 bg-indigo-50/40'
-                        : playgroundUserResult
-                        ? isDark ? 'border-emerald-800/60 bg-emerald-950/20' : 'border-emerald-200 bg-emerald-50/30'
-                        : isDark ? 'border-slate-800 bg-slate-900/30 opacity-60' : 'border-slate-200 bg-slate-50 opacity-60'
-                    }`}>
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 3</span>
-                          {playgroundUserResult ? (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white">Claims Verified</span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-500 text-white">UserInfo</span>
-                          )}
+                  {/* Step 3: User Identity Claims */}
+                  <div className={`p-6 rounded-2xl border flex flex-col justify-between transition-all ${
+                    playgroundStep === 'token_exchanged'
+                      ? isDark ? 'bg-[#0d1326] border-[#533afd] ring-1 ring-[#533afd]/30' : 'bg-white border-[#533afd] ring-1 ring-[#533afd]/20 shadow-sm'
+                      : playgroundUserResult
+                      ? isDark ? 'bg-[#0d1326] border-emerald-500/40' : 'bg-white border-emerald-500/30'
+                      : isDark ? 'bg-[#0d1326] border-[#273951] opacity-75' : 'bg-white border-[#e3e8ee] opacity-75'
+                  }`}>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] font-bold text-xs flex items-center justify-center">
+                            3
+                          </span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8]">
+                            User Claims
+                          </span>
                         </div>
-                        <h4 className="font-bold text-xs text-slate-900 dark:text-white">GET /api/oauth/userinfo</h4>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                          Retrieve verified claims, email, display name, and avatar.
-                        </p>
+                        {playgroundUserResult ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                            <Check className="w-3.5 h-3.5" /> Verified
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-mono text-[#94a3b8]">GET /oauth/userinfo</span>
+                        )}
                       </div>
+
+                      <h4 className="font-bold text-sm text-[#0d253d] dark:text-white">
+                        Fetch OpenID Profile Claims
+                      </h4>
+                      <p className="text-xs text-[#64748d] dark:text-[#94a3b8] leading-relaxed">
+                        Authorize with Bearer header to retrieve user identity claims and verified emails.
+                      </p>
+
+                      {playgroundUserResult ? (
+                        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-mono text-emerald-600 dark:text-emerald-400 truncate flex items-center justify-between gap-2">
+                          <span className="truncate">{playgroundUserResult.email || playgroundUserResult.sub}</span>
+                          <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-500" />
+                        </div>
+                      ) : (
+                        <div className="p-3 rounded-xl bg-slate-100 dark:bg-[#090d1a] border border-dashed border-slate-300 dark:border-[#273951] text-[11px] text-[#94a3b8] text-center">
+                          Awaiting access token
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-5 mt-4 border-t border-[#e3e8ee] dark:border-[#273951]">
                       <button
-                        onClick={handlePlaygroundFetchUserInfo}
-                        disabled={!playgroundAccessToken || isTesterRunning}
-                        className="mt-4 w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+                        type="button"
+                        onClick={() => handlePlaygroundFetchUserInfo()}
+                        disabled={!playgroundAccessToken || isTesterRunning || autoRunInProgress}
+                        className="w-full py-2.5 px-4 bg-[#533afd] hover:bg-[#4434d4] text-white text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
                       >
                         <UserCheck className="w-3.5 h-3.5" />
                         <span>Fetch User Claims</span>
@@ -2583,49 +3144,381 @@ ZENOA_DISCOVERY_URL="${discoveryUrl}"`;
                   </div>
                 </div>
 
-                {/* Live Console Output Terminal */}
-                <div className="p-5 sm:p-6 rounded-2xl bg-[#090d16] border border-slate-800 text-slate-200 font-mono text-xs shadow-2xl space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                    <div className="flex items-center gap-2">
-                      <Terminal className="w-4 h-4 text-emerald-400" />
-                      <span className="font-bold text-slate-300">Live Request / Response Inspector</span>
+                {/* 4. Live Developer Console & Inspector */}
+                <div className="rounded-2xl bg-[#090d1a] border border-[#273951] text-slate-200 overflow-hidden shadow-xl">
+                  {/* Console Tab Navigation */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-3.5 bg-[#050814] border-b border-[#273951] gap-3">
+                    <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
+                      <button
+                        type="button"
+                        onClick={() => setPlaygroundInspectorTab('claims')}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-2 ${
+                          playgroundInspectorTab === 'claims'
+                            ? 'bg-[#533afd] text-white'
+                            : 'text-[#94a3b8] hover:text-white hover:bg-[#121624]'
+                        }`}
+                      >
+                        <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>User Profile & Claims</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPlaygroundInspectorTab('tokens')}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-2 ${
+                          playgroundInspectorTab === 'tokens'
+                            ? 'bg-[#533afd] text-white'
+                            : 'text-[#94a3b8] hover:text-white hover:bg-[#121624]'
+                        }`}
+                      >
+                        <Lock className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Tokens & Decoded JWT</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPlaygroundInspectorTab('http')}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-2 ${
+                          playgroundInspectorTab === 'http'
+                            ? 'bg-[#533afd] text-white'
+                            : 'text-[#94a3b8] hover:text-white hover:bg-[#121624]'
+                        }`}
+                      >
+                        <Globe className="w-3.5 h-3.5 text-sky-400" />
+                        <span>HTTP Inspector</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPlaygroundInspectorTab('terminal')}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-2 ${
+                          playgroundInspectorTab === 'terminal'
+                            ? 'bg-[#533afd] text-white'
+                            : 'text-[#94a3b8] hover:text-white hover:bg-[#121624]'
+                        }`}
+                      >
+                        <Terminal className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Trace Logs</span>
+                        {testerLog.length > 0 && (
+                          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPlaygroundInspectorTab('curl')}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-2 ${
+                          playgroundInspectorTab === 'curl'
+                            ? 'bg-[#533afd] text-white'
+                            : 'text-[#94a3b8] hover:text-white hover:bg-[#121624]'
+                        }`}
+                      >
+                        <Code2 className="w-3.5 h-3.5 text-purple-400" />
+                        <span>cURL</span>
+                      </button>
                     </div>
+
+                    {/* Console Actions */}
                     {testerLog.length > 0 && (
                       <button
+                        type="button"
                         onClick={() => {
                           setTesterLog([]);
-                          setPlaygroundStep('idle');
-                          setPlaygroundAuthCode('');
-                          setPlaygroundAccessToken('');
-                          setPlaygroundUserResult(null);
+                          setPlaygroundRawHttp(null);
                         }}
-                        className="text-[11px] text-slate-400 hover:text-white cursor-pointer"
+                        className="text-xs text-[#94a3b8] hover:text-white px-3 py-1 rounded-lg hover:bg-[#121624] transition-colors cursor-pointer shrink-0"
                       >
-                        Clear Terminal
+                        Clear Console
                       </button>
                     )}
                   </div>
 
-                  <div className="space-y-1 max-h-80 overflow-y-auto custom-scrollbar text-[11px] leading-relaxed">
-                    {testerLog.length === 0 ? (
-                      <p className="text-slate-500 italic">Click "Issue Auth Code" in Step 1 to begin the simulation trace...</p>
-                    ) : (
-                      testerLog.map((line, idx) => (
-                        <div
-                          key={idx}
-                          className={
-                            line.startsWith('✓')
-                              ? 'text-emerald-400 font-bold'
-                              : line.startsWith('[')
-                              ? 'text-indigo-400 font-bold mt-2'
-                              : line.startsWith('{')
-                              ? 'text-amber-300'
-                              : 'text-slate-300'
-                          }
-                        >
-                          {line}
+                  {/* Console Body */}
+                  <div className="p-6">
+                    {/* TAB 1: USER PROFILE & CLAIMS */}
+                    {playgroundInspectorTab === 'claims' && (
+                      <div>
+                        {playgroundUserResult ? (
+                          <div className="space-y-6">
+                            {/* Profile Card */}
+                            <div className="p-5 rounded-xl bg-[#050814] border border-[#273951] flex flex-col md:flex-row md:items-center justify-between gap-4">
+                              <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-[#533afd] to-indigo-500 text-white font-bold text-lg flex items-center justify-center shrink-0">
+                                  {(playgroundUserResult.name || 'U').charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <h4 className="font-bold text-base text-white">
+                                      {playgroundUserResult.name}
+                                    </h4>
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                      Verified OpenID User
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-[#94a3b8] font-mono mt-0.5">
+                                    {playgroundUserResult.email} &bull; @{playgroundUserResult.username}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="text-right text-xs text-[#94a3b8] font-mono shrink-0">
+                                <div>Sub: <strong className="text-slate-300">{playgroundUserResult.sub}</strong></div>
+                                <div>Org: <strong className="text-indigo-400">Inolas Nexus Private Limited</strong></div>
+                              </div>
+                            </div>
+
+                            {/* Claims JSON */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-[#94a3b8] uppercase tracking-wider">
+                                  Raw OpenID Connect Claims Payload
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(JSON.stringify(playgroundUserResult, null, 2), 'copy_claims', 'Claims JSON copied')}
+                                  className="text-xs font-mono text-[#818cf8] hover:underline flex items-center gap-1 cursor-pointer"
+                                >
+                                  {copiedKey === 'copy_claims' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                  <span>Copy JSON</span>
+                                </button>
+                              </div>
+                              <pre className="p-4 rounded-xl bg-[#050814] border border-[#273951] text-emerald-300 text-xs font-mono overflow-x-auto leading-relaxed">
+                                {JSON.stringify(playgroundUserResult, null, 2)}
+                              </pre>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="py-12 text-center space-y-3">
+                            <UserCheck className="w-10 h-10 text-[#475569] mx-auto" />
+                            <h5 className="font-bold text-sm text-slate-300">No User Claims Retrieved Yet</h5>
+                            <p className="text-xs text-[#64748d] max-w-md mx-auto leading-relaxed">
+                              Click <strong>"Run Full Flow"</strong> at the top or execute Step 3 to fetch and inspect verified identity claims.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* TAB 2: TOKENS & DECODED JWT */}
+                    {playgroundInspectorTab === 'tokens' && (
+                      <div>
+                        {playgroundAccessToken ? (
+                          <div className="space-y-6">
+                            {/* Access Token */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                                  <Key className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>Bearer Access Token (RFC 6750)</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(playgroundAccessToken, 'cp_at_raw', 'Access Token copied')}
+                                  className="text-xs font-mono text-[#818cf8] hover:underline flex items-center gap-1 cursor-pointer"
+                                >
+                                  {copiedKey === 'cp_at_raw' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                  <span>Copy Token</span>
+                                </button>
+                              </div>
+                              <div className="p-3.5 rounded-xl bg-[#050814] border border-[#273951] text-xs font-mono text-emerald-300 break-all select-all">
+                                {playgroundAccessToken}
+                              </div>
+                            </div>
+
+                            {/* Decoded OIDC ID-Token (JWT) */}
+                            {playgroundIdToken && (
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+                                    <span>Decoded ID-Token JWT (RS256 Verified by Inolas Nexus Private Limited)</span>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(playgroundIdToken, 'cp_id_raw', 'ID-Token copied')}
+                                    className="text-xs font-mono text-[#818cf8] hover:underline flex items-center gap-1 cursor-pointer"
+                                  >
+                                    {copiedKey === 'cp_id_raw' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                    <span>Copy Raw JWT</span>
+                                  </button>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div className="p-4 rounded-xl bg-[#050814] border border-rose-500/30 space-y-1.5">
+                                    <div className="text-[11px] font-bold text-rose-400 uppercase tracking-wider">
+                                      Header (Algorithm & Key ID)
+                                    </div>
+                                    <pre className="text-rose-300 text-xs font-mono overflow-x-auto">
+{JSON.stringify({ alg: "RS256", typ: "JWT", kid: "zenoa_inolas_key_2026" }, null, 2)}
+                                    </pre>
+                                  </div>
+
+                                  <div className="p-4 rounded-xl bg-[#050814] border border-purple-500/30 space-y-1.5">
+                                    <div className="text-[11px] font-bold text-purple-400 uppercase tracking-wider">
+                                      Payload (OIDC Identity Claims)
+                                    </div>
+                                    <pre className="text-purple-300 text-xs font-mono overflow-x-auto">
+{JSON.stringify({
+  iss: "https://accounts.zenoa.in",
+  sub: currentUser?.zenoa_id || "usr_zenoa_9901",
+  aud: activeTesterApp.client_id,
+  exp: Math.floor(Date.now() / 1000) + 3600,
+  iat: Math.floor(Date.now() / 1000),
+  name: currentUser?.display_name || "Alex Developer",
+  preferred_username: currentUser?.username || "alex_dev",
+  email: currentUser?.email || "developer@zenoa.in",
+  organization: "Inolas Nexus Private Limited"
+}, null, 2)}
+                                    </pre>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Refresh Token */}
+                            {playgroundRefreshToken && (
+                              <div className="p-4 rounded-xl bg-[#050814] border border-purple-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div className="space-y-1">
+                                  <span className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+                                    <RotateCw className="w-3.5 h-3.5 text-purple-400" />
+                                    <span>Refresh Token (Rotation Ready)</span>
+                                  </span>
+                                  <div className="text-xs font-mono text-purple-200 truncate max-w-sm">
+                                    {playgroundRefreshToken}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={handlePlaygroundRefreshToken}
+                                  disabled={isTesterRunning || autoRunInProgress}
+                                  className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                                >
+                                  Rotate Access Token
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="py-12 text-center space-y-3">
+                            <Lock className="w-10 h-10 text-[#475569] mx-auto" />
+                            <h5 className="font-bold text-sm text-slate-300">No Tokens Issued Yet</h5>
+                            <p className="text-xs text-[#64748d] max-w-md mx-auto leading-relaxed">
+                              Execute Step 2 or run the full pipeline to generate Bearer tokens and decode RS256 JWTs.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* TAB 3: HTTP INSPECTOR */}
+                    {playgroundInspectorTab === 'http' && (
+                      <div>
+                        {playgroundRawHttp ? (
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                            <div className="space-y-2">
+                              <div className="text-xs font-bold text-indigo-400 flex items-center justify-between">
+                                <span>HTTP Request ({playgroundRawHttp.method} {playgroundRawHttp.path})</span>
+                              </div>
+                              <pre className="p-4 rounded-xl bg-[#050814] border border-[#273951] text-indigo-300 text-xs font-mono overflow-x-auto leading-relaxed">
+                                {playgroundRawHttp.request}
+                              </pre>
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-xs font-bold text-emerald-400 flex items-center justify-between">
+                                <span>HTTP Response ({playgroundRawHttp.status} {playgroundRawHttp.status === 200 ? 'OK' : 'Error'})</span>
+                              </div>
+                              <pre className={`p-4 rounded-xl bg-[#050814] border text-xs font-mono overflow-x-auto leading-relaxed ${
+                                playgroundRawHttp.status === 200 ? 'border-emerald-500/30 text-emerald-300' : 'border-rose-500/30 text-rose-300'
+                              }`}>
+                                {playgroundRawHttp.response}
+                              </pre>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="py-12 text-center space-y-3">
+                            <Globe className="w-10 h-10 text-[#475569] mx-auto" />
+                            <h5 className="font-bold text-sm text-slate-300">No Network Activity Recorded</h5>
+                            <p className="text-xs text-[#64748d] max-w-md mx-auto leading-relaxed">
+                              Trigger any sandbox endpoint above to view structured raw HTTP requests and responses.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* TAB 4: TRACE LOGS */}
+                    {playgroundInspectorTab === 'terminal' && (
+                      <div className="space-y-1.5 max-h-96 overflow-y-auto custom-scrollbar font-mono text-xs leading-relaxed">
+                        {testerLog.length === 0 ? (
+                          <div className="py-12 text-center space-y-3">
+                            <Terminal className="w-10 h-10 text-[#475569] mx-auto" />
+                            <h5 className="font-bold text-sm text-slate-300">Trace Log Idle</h5>
+                            <p className="text-xs text-[#64748d] max-w-md mx-auto leading-relaxed">
+                              Click "Run Full Flow" or trigger any step above to record real-time cryptographic logs.
+                            </p>
+                          </div>
+                        ) : (
+                          testerLog.map((line, idx) => (
+                            <div
+                              key={idx}
+                              className={
+                                line.startsWith('✓')
+                                  ? 'text-emerald-400 font-bold'
+                                  : line.startsWith('❌')
+                                  ? 'text-rose-400 font-bold'
+                                  : line.startsWith('[')
+                                  ? 'text-indigo-400 font-bold mt-2'
+                                  : line.startsWith('{')
+                                  ? 'text-amber-300'
+                                  : 'text-slate-300'
+                              }
+                            >
+                              {line}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+
+                    {/* TAB 5: cURL GENERATOR */}
+                    {playgroundInspectorTab === 'curl' && (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-300">Executable cURL Snippet</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const curlStr = `curl -X POST "https://accounts.zenoa.in/api/oauth/token" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "grant_type": "authorization_code",\n    "client_id": "${activeTesterApp.client_id}",\n    "client_secret": "${activeTesterApp.client_secret}",\n    "code": "${playgroundAuthCode || 'YOUR_AUTH_CODE'}",\n    "redirect_uri": "${testRedirectUri || 'http://localhost:3000/auth/callback'}"\n  }'`;
+                              handleCopy(curlStr, 'cp_curl', 'cURL command copied');
+                            }}
+                            className="text-xs font-mono text-[#818cf8] hover:underline flex items-center gap-1 cursor-pointer"
+                          >
+                            {copiedKey === 'cp_curl' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                            <span>Copy Command</span>
+                          </button>
                         </div>
-                      ))
+
+                        <pre className="p-4 rounded-xl bg-[#050814] border border-[#273951] text-emerald-300 text-xs font-mono overflow-x-auto leading-relaxed">
+{`# 1. Authorize User in Browser
+# https://accounts.zenoa.in/auth/sso?client_id=${activeTesterApp.client_id}&redirect_uri=${encodeURIComponent(testRedirectUri || 'http://localhost:3000/auth/callback')}&response_type=code&scope=${encodeURIComponent(playgroundScopes.join(' '))}&state=${playgroundStateParam}
+
+# 2. Exchange Code for Access Token & ID Token
+curl -X POST "https://accounts.zenoa.in/api/oauth/token" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "grant_type": "authorization_code",
+    "client_id": "${activeTesterApp.client_id}",
+    "client_secret": "${activeTesterApp.client_secret}",
+    "code": "${playgroundAuthCode || 'zen_ac_SAMPLE_CODE'}",
+    "redirect_uri": "${testRedirectUri || 'http://localhost:3000/auth/callback'}"
+  }'
+
+# 3. Fetch User Identity Claims
+curl -X GET "https://accounts.zenoa.in/api/oauth/userinfo" \\
+  -H "Authorization: Bearer ${playgroundAccessToken || 'YOUR_ACCESS_TOKEN'}"`}
+                        </pre>
+                      </div>
                     )}
                   </div>
                 </div>

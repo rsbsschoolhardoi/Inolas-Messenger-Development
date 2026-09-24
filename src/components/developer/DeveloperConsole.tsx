@@ -244,12 +244,10 @@ export const DeveloperConsoleStandalone: React.FC = () => {
 
   const redirectToAccountsAuth = () => {
     const host = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
-    const isZenoaProdHost = host.endsWith('zenoa.in') || host.endsWith('zenoa.sbs');
+    const isZenoaProdHost = host.endsWith('zenoa.in');
     let redirectUri = `${window.location.origin}/developer`;
     if (isZenoaProdHost) {
-      if (host.includes('developer.zenoa.sbs')) {
-        redirectUri = 'https://developer.zenoa.sbs/developer';
-      } else if (host.includes('developer.zenoa.in')) {
+      if (host.includes('developer.zenoa.in')) {
         redirectUri = 'https://developer.zenoa.in/developer';
       }
     }
