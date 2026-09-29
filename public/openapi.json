@@ -1,30 +1,66 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Zenoa Developer & Sovereign Communication API",
-    "version": "1.0.4",
-    "description": "Production REST API for Zenoa Messenger by Inolas Nexus. Supports automated bot messaging, cryptographic OTP generation & verification, and OAuth 2.0 Single Sign-On (SSO).",
+    "title": "Zenoa Sovereign Developer & Omnichannel AI API",
+    "version": "2.5.0",
+    "description": "Production REST API & AI SDK for Zenoa Messenger and Business Suite by Inolas Nexus. Supports Carrier-Grade OTP Verification, Direct Bot Messaging, Autonomous Business AI Concierge, and Storefront Live Chat integrations.",
     "contact": {
       "name": "Zenoa Developer Operations",
       "url": "https://zenoa.in/developer",
       "email": "support@zenoa.in"
+    },
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     }
   },
   "servers": [
     {
       "url": "https://zenoa.in",
-      "description": "Production Server"
+      "description": "Production Live Server"
     },
     {
       "url": "http://localhost:3000",
-      "description": "Local Development Server"
+      "description": "Sandbox & Local Development Server"
     }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API_KEY",
+        "description": "Unified API Key passed as Authorization: Bearer <ZENOA_API_KEY>"
+      },
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Zenoa-Api-Key",
+        "description": "Unified API Key passed as X-Zenoa-Api-Key: <ZENOA_API_KEY>"
+      }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": false },
+          "error": { "type": "string", "example": "UNAUTHORIZED" },
+          "message": { "type": "string", "example": "Invalid or missing ZENOA_API_KEY in Authorization header." },
+          "status": { "type": "integer", "example": 401 }
+        }
+      }
+    }
+  },
+  "security": [
+    { "BearerAuth": [] },
+    { "ApiKeyAuth": [] }
   ],
   "paths": {
     "/api/health": {
       "get": {
         "summary": "System Health Check",
-        "description": "Returns operational uptime and API health status.",
+        "description": "Returns operational uptime, active latency SLA, and API gateway health status.",
+        "security": [],
         "responses": {
           "200": {
             "description": "Service is healthy and responding",
@@ -33,86 +69,23 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "status": { "type": "string", "example": "ok" },
-                    "service": { "type": "string", "example": "zenoa-developer-api" },
-                    "timestamp": { "type": "string", "example": "2026-09-16T12:00:00.000Z" }
+                    "status": { "type": "string", "example": "ready" },
+                    "version": { "type": "string", "example": "2.5.0" },
+                    "environment": { "type": "string", "example": "production" },
+                    "latency_sla": { "type": "string", "example": "< 400ms" },
+                    "uptime_sla": { "type": "string", "example": "99.99%" }
                   }
                 }
               }
             }
           }
-        }
-      }
-    },
-    "/api/v1/messages/send": {
-      "post": {
-        "summary": "Send Bot Message to User",
-        "description": "Dispatches a verified bot message to any Zenoa user DM. Requires Service Account client credentials.",
-        "security": [
-          { "ClientIdSecretAuth": [] },
-          { "BasicAuth": [] },
-          { "BearerAuth": [] }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["recipient"],
-                "properties": {
-                  "recipient": {
-                    "type": "string",
-                    "description": "Target Zenoa username (e.g. 'azad1' or '@azad1') or mobile number.",
-                    "example": "azad1"
-                  },
-                  "message": {
-                    "type": "string",
-                    "description": "Text content of the message. (Aliases: 'text', 'content')",
-                    "example": "Hello from your automated bot!"
-                  },
-                  "media_url": {
-                    "type": "string",
-                    "description": "Optional image or file URL attachment.",
-                    "example": "https://images.unsplash.com/photo-1579202673506-ca3ce28943ef"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Message dispatched successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "message": { "type": "string", "example": "Message delivered successfully to user DM." },
-                    "recipient": { "type": "string", "example": "azad1" },
-                    "chat_id": { "type": "string", "example": "dm_bot_azad1" },
-                    "message_id": { "type": "string", "example": "msg_89f2a7b1c3" }
-                  }
-                }
-              }
-            }
-          },
-          "400": { "description": "Bad Request: Missing recipient or message body" },
-          "401": { "description": "Unauthorized: Invalid or missing client_id/client_secret" },
-          "404": { "description": "Recipient user not found on Zenoa" }
         }
       }
     },
     "/api/v1/otp/send": {
       "post": {
-        "summary": "Send One-Time Passcode (OTP)",
-        "description": "Dispatches a cryptographically secure verification OTP code via verified Zenoa bot DM.",
-        "security": [
-          { "ClientIdSecretAuth": [] },
-          { "BasicAuth": [] }
-        ],
+        "summary": "Dispatch Carrier OTP",
+        "description": "Dispatches a cryptographic one-time passcode to recipient phone number or Zenoa handle in sub-second latency.",
         "requestBody": {
           "required": true,
           "content": {
@@ -121,21 +94,10 @@
                 "type": "object",
                 "required": ["recipient"],
                 "properties": {
-                  "recipient": {
-                    "type": "string",
-                    "description": "Target username or registered phone number",
-                    "example": "azad1"
-                  },
-                  "expiry_mins": {
-                    "type": "integer",
-                    "description": "Expiration time in minutes (default: 10, max: 1440)",
-                    "example": 10
-                  },
-                  "custom_code": {
-                    "type": "string",
-                    "description": "Optional custom 4-8 digit OTP. If omitted, system generates random 6-digit PIN.",
-                    "example": "492015"
-                  }
+                  "recipient": { "type": "string", "description": "Target mobile number (e.g. '+919876543210') or Zenoa @handle", "example": "+919876543210" },
+                  "template_type": { "type": "string", "enum": ["standard_otp", "2fa_auth", "password_reset", "transaction_auth"], "default": "standard_otp" },
+                  "custom_code": { "type": "string", "description": "Optional custom 4-6 digit numeric passcode", "example": "482910" },
+                  "expiry_mins": { "type": "integer", "default": 10, "example": 10 }
                 }
               }
             }
@@ -143,33 +105,30 @@
         },
         "responses": {
           "200": {
-            "description": "OTP generated and delivered",
+            "description": "OTP generated and dispatched successfully",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "success": { "type": "boolean", "example": true },
-                    "message": { "type": "string", "example": "OTP dispatched successfully" },
-                    "recipient": { "type": "string", "example": "azad1" },
-                    "expires_in_minutes": { "type": "integer", "example": 10 }
+                    "request_id": { "type": "string", "example": "req_otp_89f2a7b1c3" },
+                    "recipient": { "type": "string", "example": "+919876543210" },
+                    "expiry_mins": { "type": "integer", "example": 10 },
+                    "status": { "type": "string", "example": "dispatched" }
                   }
                 }
               }
             }
           },
-          "401": { "description": "Unauthorized" }
+          "401": { "$ref": "#/components/schemas/ErrorResponse" }
         }
       }
     },
     "/api/v1/otp/verify": {
       "post": {
-        "summary": "Verify One-Time Passcode (OTP)",
-        "description": "Validates an OTP submitted by the end-user.",
-        "security": [
-          { "ClientIdSecretAuth": [] },
-          { "BasicAuth": [] }
-        ],
+        "summary": "Verify OTP Passcode",
+        "description": "Cryptographically validates user-entered OTP passcode against active delivery ledger.",
         "requestBody": {
           "required": true,
           "content": {
@@ -178,8 +137,8 @@
                 "type": "object",
                 "required": ["recipient", "code"],
                 "properties": {
-                  "recipient": { "type": "string", "example": "azad1" },
-                  "code": { "type": "string", "description": "The OTP code to verify", "example": "492015" }
+                  "recipient": { "type": "string", "example": "+919876543210" },
+                  "code": { "type": "string", "example": "482910" }
                 }
               }
             }
@@ -194,33 +153,47 @@
                   "type": "object",
                   "properties": {
                     "success": { "type": "boolean", "example": true },
-                    "message": { "type": "string", "example": "OTP verified successfully" },
-                    "verified": { "type": "boolean", "example": true }
+                    "verified": { "type": "boolean", "example": true },
+                    "recipient": { "type": "string", "example": "+919876543210" },
+                    "message": { "type": "string", "example": "Passcode verified successfully." }
                   }
                 }
               }
             }
           },
-          "400": { "description": "Invalid or expired OTP" }
+          "400": {
+            "description": "Invalid or expired passcode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": false },
+                    "verified": { "type": "boolean", "example": false },
+                    "error": { "type": "string", "example": "INVALID_CODE" }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
-    "/api/v1/sso/token": {
+    "/api/v1/bot/send": {
       "post": {
-        "summary": "OAuth 2.0 / SSO Token Exchange",
-        "description": "Exchanges an authorization code or client credentials for an access token.",
+        "summary": "Send Bot Message",
+        "description": "Dispatches direct bot notifications or rich markdown cards to user inboxes.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["client_id", "client_secret"],
+                "required": ["recipient", "message"],
                 "properties": {
-                  "client_id": { "type": "string" },
-                  "client_secret": { "type": "string" },
-                  "code": { "type": "string", "description": "Authorization code from /sso flow" },
-                  "grant_type": { "type": "string", "example": "authorization_code" }
+                  "recipient": { "type": "string", "example": "@customer_handle" },
+                  "message": { "type": "string", "example": "**Order #ORD-88219 has shipped!**\\nCarrier: FedEx Priority" },
+                  "media_url": { "type": "string", "example": "https://example.com/receipt.png" }
                 }
               }
             }
@@ -228,15 +201,16 @@
         },
         "responses": {
           "200": {
-            "description": "Access token granted",
+            "description": "Message dispatched successfully",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "access_token": { "type": "string" },
-                    "token_type": { "type": "string", "example": "Bearer" },
-                    "expires_in": { "type": "integer", "example": 3600 }
+                    "success": { "type": "boolean", "example": true },
+                    "message_id": { "type": "string", "example": "msg_9847192847" },
+                    "recipient": { "type": "string", "example": "@customer_handle" },
+                    "status": { "type": "string", "example": "delivered" }
                   }
                 }
               }
@@ -245,23 +219,44 @@
         }
       }
     },
-    "/api/v1/sso/userinfo": {
-      "get": {
-        "summary": "Get User Profile (SSO)",
-        "description": "Retrieves the authenticated user's sovereign profile information using Bearer token.",
-        "security": [{ "BearerAuth": [] }],
+    "/api/business/chat": {
+      "post": {
+        "summary": "Autonomous AI Business Concierge",
+        "description": "Processes customer storefront inquiries using autonomous AI reasoning with order and cart context.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["session_id", "message"],
+                "properties": {
+                  "session_id": { "type": "string", "example": "cust_sess_98210" },
+                  "message": { "type": "string", "example": "Where is my order #ORD-88219?" },
+                  "customer_context": {
+                    "type": "object",
+                    "properties": {
+                      "customer_name": { "type": "string", "example": "Rohit Verma" },
+                      "order_id": { "type": "string", "example": "#ORD-88219" },
+                      "cart_value": { "type": "string", "example": "₹14,999.00" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "User profile data",
+            "description": "AI response generated",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "sub": { "type": "string", "example": "azad1" },
-                    "username": { "type": "string", "example": "azad1" },
-                    "display_name": { "type": "string", "example": "Aman Azad" },
-                    "avatar_url": { "type": "string" }
+                    "success": { "type": "boolean", "example": true },
+                    "reply": { "type": "string", "example": "Hello Rohit! Your order #ORD-88219 has shipped via BlueDart." },
+                    "session_id": { "type": "string", "example": "cust_sess_98210" }
                   }
                 }
               }
@@ -269,25 +264,30 @@
           }
         }
       }
-    }
-  },
-  "components": {
-    "securitySchemes": {
-      "ClientIdSecretAuth": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-Client-Id",
-        "description": "Provide X-Client-Id and X-Client-Secret headers simultaneously."
-      },
-      "BasicAuth": {
-        "type": "http",
-        "scheme": "basic",
-        "description": "Basic authentication using client_id:client_secret encoded in base64."
-      },
-      "BearerAuth": {
-        "type": "http",
-        "scheme": "bearer",
-        "description": "Bearer token authentication (OAuth access token or Bearer client_id:client_secret)."
+    },
+    "/api/business/conversations/{id}": {
+      "get": {
+        "summary": "Retrieve Customer Conversation",
+        "description": "Fetches thread history and agent handover metadata for a conversation session.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conversation history retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string", "example": "conv_8819" },
+                    "messages": { "type": "array", "items": { "type": "object" } }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   }

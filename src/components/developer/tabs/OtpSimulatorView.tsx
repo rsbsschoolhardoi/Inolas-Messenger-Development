@@ -3,6 +3,7 @@ import {
   Zap, Send, CheckCircle2, AlertCircle, RefreshCw, Copy, Check, 
   ArrowRight, ShieldCheck, Play, Sparkles, MessageSquare, Terminal
 } from 'lucide-react';
+import { CustomSelect } from '../common/CustomSelect';
 
 const safeBase64Encode = (str: string): string => {
   try {
@@ -285,18 +286,16 @@ export const OtpSimulatorView: React.FC<OtpSimulatorViewProps> = ({
                   <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#64748d] dark:text-[#94a3b8]">
                     Template Format
                   </label>
-                  <select
+                  <CustomSelect
                     value={templateType}
-                    onChange={e => setTemplateType(e.target.value)}
-                    className={`w-full px-3 py-2.5 rounded-xl border text-xs font-semibold outline-none cursor-pointer ${
-                      isDark ? 'bg-[#121624] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
-                    }`}
-                  >
-                    <option value="standard_otp">Standard OTP Verification</option>
-                    <option value="2fa_auth">Two-Factor Auth (2FA)</option>
-                    <option value="password_reset">Password Reset Code</option>
-                    <option value="transaction_auth">Transaction Authorization</option>
-                  </select>
+                    onChange={(val) => setTemplateType(val)}
+                    options={[
+                      { value: 'standard_otp', label: 'Standard OTP Verification' },
+                      { value: '2fa_auth', label: 'Two-Factor Auth (2FA)' },
+                      { value: 'password_reset', label: 'Password Reset Code' },
+                      { value: 'transaction_auth', label: 'Transaction Authorization' },
+                    ]}
+                  />
                 </div>
 
                 <div>

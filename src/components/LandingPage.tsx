@@ -1077,13 +1077,44 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               Sovereign private messenger with zero-cloud message retention. Engineered for sovereign communication, private accounts, and real-time bots.
             </p>
             <div className="flex flex-wrap items-center gap-3 pt-1 text-[12px] text-[#533afd] dark:text-[#818cf8]">
-              <a href="/developer" className="hover:underline">Developer Console</a>
+              <a 
+                href="/developer" 
+                onClick={(e) => { e.preventDefault(); handleNavigate('/developer'); }}
+                className="hover:underline cursor-pointer"
+              >
+                Developer Console
+              </a>
               <span>•</span>
-              <a href="/sso" className="hover:underline">Zenoa OAuth SSO</a>
+              <a 
+                href="/sso" 
+                onClick={(e) => { e.preventDefault(); handleNavigate('/sso'); }}
+                className="hover:underline cursor-pointer"
+              >
+                Zenoa OAuth SSO
+              </a>
               <span>•</span>
-              <a href="/docs" className="hover:underline">API Docs</a>
+              <a 
+                href="/docs" 
+                onClick={(e) => { e.preventDefault(); handleNavigate('/docs'); }}
+                className="hover:underline cursor-pointer"
+              >
+                API Docs
+              </a>
               <span>•</span>
-              <a href="/llms.txt" className="hover:underline">llms.txt</a>
+              <a 
+                href="/business" 
+                onClick={(e) => { e.preventDefault(); handleNavigate('/business'); }}
+                className="hover:underline cursor-pointer"
+              >
+                Zenoa Business
+              </a>
+              <span>•</span>
+              <a 
+                href="/llms.txt" 
+                className="hover:underline"
+              >
+                llms.txt
+              </a>
             </div>
           </div>
 

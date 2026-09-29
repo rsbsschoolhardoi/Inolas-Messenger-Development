@@ -119,12 +119,63 @@
         "owner_user_id": { "type": "string" },
         "linked_at": { "type": "number" }
       }
+    },
+    "BusinessApp": {
+      "title": "Business App",
+      "description": "Zenoa Business enterprise application profile and live chat configuration",
+      "type": "object",
+      "properties": {
+        "client_id": { "type": "string" },
+        "app_name": { "type": "string" },
+        "category": { "type": "string" },
+        "archetype": { "type": "string" },
+        "owner_username": { "type": "string" },
+        "ai_enabled": { "type": "boolean" },
+        "created_at": { "type": "number" }
+      }
+    },
+    "BusinessConversation": {
+      "title": "Business Conversation",
+      "description": "Live customer support session with dual-track triage",
+      "type": "object",
+      "properties": {
+        "app_id": { "type": "string" },
+        "customer_session_id": { "type": "string" },
+        "intent": { "type": "string" },
+        "status": { "type": "string" },
+        "last_message": { "type": "string" },
+        "created_at": { "type": "number" }
+      }
+    },
+    "BusinessMessage": {
+      "title": "Business Message",
+      "description": "Live chat message between customer, AI agent, or human support",
+      "type": "object",
+      "properties": {
+        "conversation_id": { "type": "string" },
+        "app_id": { "type": "string" },
+        "sender_type": { "type": "string" },
+        "text": { "type": "string" },
+        "created_at": { "type": "number" }
+      }
     }
   },
   "firestore": {
     "users/{userId}": {
       "schema": "User",
       "description": "User profile documents"
+    },
+    "business_apps/{appId}": {
+      "schema": "BusinessApp",
+      "description": "Zenoa Business enterprise apps and widget configurations"
+    },
+    "business_conversations/{conversationId}": {
+      "schema": "BusinessConversation",
+      "description": "Live customer support conversations and telemetry"
+    },
+    "business_messages/{messageId}": {
+      "schema": "BusinessMessage",
+      "description": "Live support chat messages"
     },
     "follow_requests/{requestId}": {
       "schema": "FollowRequest",

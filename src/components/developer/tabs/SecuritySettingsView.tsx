@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Settings, ShieldCheck, Lock, Globe, AlertTriangle, 
-  RotateCw, Check, Copy, Radio, Shield, Sparkles, Layers,
-  Bot, Camera, Trash2, Upload, ExternalLink, KeyRound, 
-  Info, AlertCircle, RefreshCw, X, ChevronRight
+  RotateCw, Check, Shield, Radio, Bot, Trash2, Upload, 
+  KeyRound, RefreshCw, X, Layers, Building2, Zap, ArrowRight
 } from 'lucide-react';
+import { DeveloperCategoryTier } from '../../../types';
 
 interface SecuritySettingsViewProps {
   app: any;
   environment?: 'test' | 'live';
+  categoryTier?: DeveloperCategoryTier;
   onSetEnvironment?: (env: 'test' | 'live') => void;
+  onOpenCategoryUpgrade?: () => void;
   showToast: (msg: string) => void;
   onUpdateApp: (updates: any) => Promise<void>;
   onRotateKey: () => Promise<void>;
@@ -26,7 +28,9 @@ const safeTrim = (val: unknown): string => {
 export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
   app,
   environment = 'test',
+  categoryTier = 'business',
   onSetEnvironment,
+  onOpenCategoryUpgrade,
   showToast,
   onUpdateApp,
   onRotateKey,
@@ -54,7 +58,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Controlled Modals (Zero native window.confirm)
+  // Controlled Modals
   const [showRotateModal, setShowRotateModal] = useState(false);
   const [rotateConfirmedTerms, setRotateConfirmedTerms] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
@@ -120,7 +124,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      showToast('Please select a valid image file (PNG, JPG, WebP).');
+      showToast('Please select a valid image file');
       return;
     }
 
@@ -139,7 +143,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
           ctx.drawImage(img, sx, sy, size, size, 0, 0, 256, 256);
           const base64Url = canvas.toDataURL('image/jpeg', 0.88);
           onUpdateApp({ avatar_url: base64Url });
-          showToast('Profile picture updated and synced with service account profile.');
+          showToast('Brand logo updated successfully');
         }
       };
       img.src = event.target?.result as string;
@@ -149,7 +153,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
 
   const handleRemovePhoto = () => {
     onUpdateApp({ avatar_url: null });
-    showToast('Service account profile picture removed.');
+    showToast('Brand logo removed');
   };
 
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -165,10 +169,9 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
             .filter(Boolean)
         : [];
 
-      // Validate email format if provided
       const trimmedEmail = safeTrim(supportEmail);
       if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-        showToast('Please provide a valid support email address.');
+        showToast('Please provide a valid support email address');
         setIsSaving(false);
         return;
       }
@@ -184,7 +187,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
       });
 
       setSaveSuccess(true);
-      showToast('Service account settings saved & applied permanently!');
+      showToast('Settings saved successfully');
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
       showToast('Failed to save settings: ' + (err?.message || 'Network error'));
@@ -200,7 +203,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
       await onRotateKey();
       setShowRotateModal(false);
       setRotateConfirmedTerms(false);
-      showToast('API credentials rotated successfully! Active secrets refreshed.');
+      showToast('API credentials rotated and new keys generated');
     } catch (err: any) {
       showToast('Key rotation failed: ' + (err?.message || 'Server error'));
     } finally {
@@ -213,7 +216,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
     const entered = deleteConfirmationInput.trim().toLowerCase().replace(/^@/, '');
     
     if (entered !== requiredHandle) {
-      showToast(`Please type @${requiredHandle} to confirm decommissioning.`);
+      showToast(`Please type @${requiredHandle} to confirm decommissioning`);
       return;
     }
 
@@ -234,188 +237,185 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
   const rawBotHandle = (app?.bot_username || app?.id || 'service_account').replace(/^@/, '');
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-8 max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-200 dark:border-zinc-800">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2.5 text-[#0d253d] dark:text-white">
-            <Settings className="h-6 w-6 text-[#533afd] dark:text-[#818cf8]" />
-            Settings & Service Account Controls
+          <h2 className="text-xl font-extrabold tracking-tight flex items-center gap-2.5 text-zinc-900 dark:text-zinc-100">
+            <Settings className="h-5 w-5 text-[#533afd] dark:text-[#818cf8]" />
+            <span>Settings and Security Controls</span>
           </h2>
-          <p className="text-xs sm:text-sm text-[#64748d] dark:text-[#94a3b8] mt-1">
-            Configure service account identity, customer support endpoints, network whitelisting, and credential lifecycle.
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+            Manage application identity, brand contacts, category tier, and API security.
           </p>
         </div>
 
         {hasUnsavedChanges && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-semibold animate-pulse self-start sm:self-auto">
-            <AlertCircle className="h-4 w-4 shrink-0" />
+          <div className="flex items-center gap-2 text-xs font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-3.5 py-1.5 rounded-xl border border-amber-200 dark:border-amber-900/60">
+            <AlertTriangle className="h-3.5 w-3.5" />
             <span>Unsaved Changes</span>
           </div>
         )}
       </div>
 
-      {/* 1. OPERATIONAL ENVIRONMENT MODE */}
-      <div className={`rounded-2xl p-5 shadow-xs space-y-4 border ${
-        isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+      {/* 1. Category Tier Banner */}
+      <div className={`rounded-2xl p-6 border transition-all ${
+        isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d] shadow-xs'
       }`}>
-        <div className={`flex items-center justify-between border-b pb-3 ${
-          isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
-        }`}>
-          <div>
-            <h3 className="text-sm font-bold flex items-center gap-2 text-[#0d253d] dark:text-white">
-              <Layers className="h-4 w-4 text-[#533afd] dark:text-[#818cf8]" />
-              Gateway Environment Mode
-            </h3>
-            <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-0.5">
-              Toggles between the zero-credit sandbox simulator and the live carrier-backed production network.
-            </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className="h-12 w-12 rounded-xl bg-[#533afd]/10 border border-[#533afd]/20 text-[#533afd] dark:text-[#818cf8] flex items-center justify-center shrink-0">
+              {categoryTier === 'messenger' ? (
+                <Zap className="h-6 w-6" />
+              ) : categoryTier === 'business' ? (
+                <Building2 className="h-6 w-6" />
+              ) : (
+                <Layers className="h-6 w-6" />
+              )}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                  Current Category
+                </span>
+              </div>
+              <h3 className="text-base font-bold capitalize mt-0.5">
+                {categoryTier === 'messenger' ? 'Messenger Plan' : categoryTier === 'business' ? 'Business Suite' : 'Hybrid Enterprise'}
+              </h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-xl leading-relaxed">
+                {categoryTier === 'messenger' 
+                  ? 'Messaging bot endpoints, webhook event delivery, and OTP simulator are active.' 
+                  : categoryTier === 'business' 
+                    ? 'AI Customer Copilot, inbox management, canned replies, and rate limit protections are active.' 
+                    : 'Unified Omnichannel Gateway with unrestricted access to Messenger and Business tools.'}
+              </p>
+            </div>
           </div>
-          <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border ${
-            environment === 'test' 
-              ? 'bg-amber-500/10 text-amber-500 border-amber-500/30' 
-              : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
-          }`}>
-            {environment === 'test' ? 'Sandbox Mode' : 'Live Production'}
-          </span>
+
+          {onOpenCategoryUpgrade && (
+            <button
+              type="button"
+              onClick={onOpenCategoryUpgrade}
+              className="px-4 py-2.5 rounded-xl bg-[#533afd] hover:bg-[#432ec4] text-white text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer shrink-0 active:scale-[0.99]"
+            >
+              <span>Switch or Upgrade Category</span>
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
+      </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-          {/* Sandbox Option */}
-          <div 
-            onClick={() => {
-              onSetEnvironment?.('test');
-              showToast('Switched to Sandbox (Test) mode.');
-            }}
-            className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
-              environment === 'test'
-                ? isDark 
-                  ? 'border-amber-500/80 bg-amber-500/10 ring-1 ring-amber-500/30' 
-                  : 'border-amber-500 bg-amber-50/50 shadow-2xs'
-                : isDark 
-                  ? 'border-[#273951] hover:border-[#384b66] bg-[#121624]' 
-                  : 'border-[#e3e8ee] hover:border-[#cbd5e1] bg-[#f6f9fc]/50'
-            }`}
-          >
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="flex items-center gap-2 font-bold text-xs text-amber-500">
-                <Radio className={`h-3.5 w-3.5 ${environment === 'test' ? 'animate-pulse' : ''}`} />
-                Test (Sandbox) Environment
-              </span>
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 uppercase">
-                Free • 0 Credits
-              </span>
-            </div>
-            <p className="text-xs text-[#64748d] dark:text-[#94a3b8] leading-normal">
-              Simulates webhook deliveries, transactional dispatches, and SDK calls with zero quota consumption.
+      {/* 2. Runtime Environment Panel */}
+      <div className={`rounded-xl p-5 border transition-all ${
+        isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-zinc-200 text-zinc-900 shadow-2xs'
+      }`}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Runtime Environment
+            </h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              {environment === 'test' 
+                ? 'Sandbox Mode: Free simulated bot and webhook traffic without deducting quota balance.'
+                : 'Production Mode: Live gateway routing real messages directly to end-users.'}
             </p>
-            <div className="mt-2.5 text-[11px] font-bold text-amber-500">
-              {environment === 'test' ? '✓ Currently Active' : 'Click to Activate'}
-            </div>
           </div>
 
-          {/* Live Production Option */}
-          <div 
-            onClick={() => {
-              onSetEnvironment?.('live');
-              showToast('Switched to Live Production mode.');
-            }}
-            className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
-              environment === 'live'
-                ? isDark 
-                  ? 'border-emerald-500/80 bg-emerald-500/10 ring-1 ring-emerald-500/30' 
-                  : 'border-emerald-600 bg-emerald-50/50 shadow-2xs'
-                : isDark 
-                  ? 'border-[#273951] hover:border-[#384b66] bg-[#121624]' 
-                  : 'border-[#e3e8ee] hover:border-[#cbd5e1] bg-[#f6f9fc]/50'
-            }`}
-          >
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="flex items-center gap-2 font-bold text-xs text-emerald-500">
-                <Shield className="h-3.5 w-3.5" />
-                Live (Production) Environment
-              </span>
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 uppercase">
-                Production SLA
-              </span>
-            </div>
-            <p className="text-xs text-[#64748d] dark:text-[#94a3b8] leading-normal">
-              Directly delivers authenticated messages and OTPs to real destination end-users across carrier networks.
-            </p>
-            <div className="mt-2.5 text-[11px] font-bold text-emerald-500">
-              {environment === 'live' ? '✓ Currently Active' : 'Click to Activate'}
-            </div>
+          {/* Clean Segmented Switcher */}
+          <div className="inline-flex p-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                onSetEnvironment?.('test');
+                showToast('Switched to Sandbox Mode');
+              }}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                environment === 'test'
+                  ? 'bg-amber-500 text-white shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              Sandbox (Test)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onSetEnvironment?.('live');
+                showToast('Switched to Production Mode');
+              }}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                environment === 'live'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              Production (Live)
+            </button>
           </div>
         </div>
       </div>
 
-      {/* 2. PRIMARY FORM: PROFILE & OPERATIONAL SETTINGS */}
-      <form onSubmit={handleSaveSettings} className="space-y-4">
-        {/* Immutable Protocol Identifiers (Read-only banner) */}
-        <div className={`rounded-2xl p-5 shadow-xs border ${
-          isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+      {/* 3. Main Settings Form */}
+      <form onSubmit={handleSaveSettings} className="space-y-8">
+        {/* Protocol Identifiers */}
+        <div className={`rounded-2xl p-6 border transition-all ${
+          isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d] shadow-xs'
         }`}>
-          <div className="flex items-center justify-between border-b pb-3 mb-4 border-[#e3e8ee] dark:border-[#273951]">
-            <div className="flex items-center gap-2">
-              <Lock className="h-4 w-4 text-amber-500" />
-              <h3 className="text-sm font-bold">Service Account Protocol Identity</h3>
-            </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-[#e3e8ee] dark:border-[#273951] text-[#64748d] dark:text-[#94a3b8]">
-              Fixed Protocol Binding
-            </span>
+          <div className="flex items-center justify-between pb-4 border-b border-zinc-200 dark:border-zinc-800 mb-4">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
+              <Lock className="h-4 w-4 text-[#533afd] dark:text-[#818cf8]" />
+              <span>Service Details</span>
+            </h3>
+            <span className="text-xs text-zinc-400">Registered Handles</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'}`}>
-              <div className="text-[11px] font-medium text-[#64748d] dark:text-[#94a3b8]">Service Account Name</div>
-              <div className="text-sm font-bold text-[#0d253d] dark:text-white mt-0.5">{app?.app_name || 'Business Service'}</div>
-              <div className="text-[10px] text-[#94a3b8] dark:text-[#64748d] mt-1">Immutable across protocol certificates</div>
+            <div className={`p-4 rounded-xl border ${isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f8fafc] border-[#e2e8f0]'}`}>
+              <div className="text-xs text-zinc-500 font-medium">Service Account Name</div>
+              <div className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mt-1">{app?.app_name || 'Business Service'}</div>
+              <div className="text-[11px] text-zinc-400 mt-1">Bound to registered service account</div>
             </div>
 
-            <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'}`}>
-              <div className="text-[11px] font-medium text-[#64748d] dark:text-[#94a3b8]">Bot Handle / Protocol ID</div>
-              <div className="text-sm font-bold text-[#533afd] dark:text-[#818cf8] mt-0.5 font-mono">@{rawBotHandle}</div>
-              <div className="text-[10px] text-[#94a3b8] dark:text-[#64748d] mt-1">Unique sovereign routing address</div>
+            <div className={`p-4 rounded-xl border ${isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f8fafc] border-[#e2e8f0]'}`}>
+              <div className="text-xs text-zinc-500 font-medium">Routing Handle</div>
+              <div className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mt-1 font-mono">@{rawBotHandle}</div>
+              <div className="text-[11px] text-zinc-400 mt-1">Unique protocol destination address</div>
             </div>
           </div>
         </div>
 
-        {/* Public Profile & Contact Info */}
-        <div className={`rounded-2xl p-5 shadow-xs space-y-4 border ${
-          isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+        {/* Brand Profile and Information */}
+        <div className={`rounded-2xl p-6 border transition-all ${
+          isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d] shadow-xs'
         }`}>
-          <div className={`flex items-center justify-between border-b pb-3 ${
-            isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
-          }`}>
-            <h3 className="text-sm font-bold flex items-center gap-2 text-[#0d253d] dark:text-white">
+          <div className="flex items-center justify-between pb-4 border-b border-zinc-200 dark:border-zinc-800 mb-5">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
               <Bot className="h-4 w-4 text-[#533afd] dark:text-[#818cf8]" />
-              Public Entity Profile & Contacts
+              <span>Public Entity Profile and Branding</span>
             </h3>
-            <span className="text-xs text-[#64748d] dark:text-[#94a3b8]">
-              Shown to users in conversation info
-            </span>
+            <span className="text-xs text-zinc-400">Visible to End Users</span>
           </div>
 
-          {/* Avatar Upload */}
-          <div className={`rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border ${
-            isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'
+          {/* Logo Upload */}
+          <div className={`rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border mb-5 ${
+            isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f8fafc] border-[#e2e8f0]'
           }`}>
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="relative h-12 w-12 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-800 border-2 border-[#533afd]/40 shadow-xs shrink-0 flex items-center justify-center">
+            <div className="flex items-center gap-3.5">
+              <div className="h-12 w-12 rounded-xl overflow-hidden bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 shrink-0 flex items-center justify-center">
                 {app?.avatar_url ? (
-                  <img src={app.avatar_url} alt="Service Account Avatar" className="w-full h-full object-cover rounded-full" />
+                  <img src={app.avatar_url} alt="Brand Logo" className="w-full h-full object-cover" />
                 ) : (
-                  <Bot className="h-6 w-6 text-[#64748d] dark:text-[#94a3b8]" />
+                  <Bot className="h-6 w-6 text-zinc-500" />
                 )}
               </div>
               <div>
-                <h4 className="text-xs font-bold text-[#0d253d] dark:text-white">Profile Photo / Brand Logo</h4>
-                <p className="text-[11px] text-[#64748d] dark:text-[#94a3b8]">Square JPG, PNG, or WebP. Centered into a circular avatar.</p>
+                <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">Brand Logo and Icon</h4>
+                <p className="text-xs text-zinc-500">Square image file in PNG or JPG format</p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <label className="cursor-pointer px-3.5 py-1.5 bg-[#533afd] hover:bg-[#432ec4] text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-colors">
+            <div className="flex items-center gap-2.5 shrink-0">
+              <label className="cursor-pointer px-4 py-2 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 hover:bg-zinc-800 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs">
                 <Upload className="h-3.5 w-3.5" />
                 <span>Upload Logo</span>
                 <input type="file" accept="image/*" onChange={handleImageFileSelect} className="hidden" />
@@ -425,9 +425,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
                 <button
                   type="button"
                   onClick={handleRemovePhoto}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
-                    isDark ? 'bg-[#1c1e54] border-[#273951] text-rose-400 hover:bg-rose-500/20' : 'bg-white border-[#e3e8ee] text-rose-600 hover:bg-rose-50'
-                  }`}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold border border-rose-200 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
                 >
                   Remove
                 </button>
@@ -435,158 +433,146 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
             </div>
           </div>
 
-          <div className="space-y-3.5">
+          <div className="space-y-4">
             <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
-                Bio / Service Description
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                Service Description
               </label>
               <textarea
                 rows={2}
                 value={appDescription}
                 onChange={e => setAppDescription(e.target.value)}
-                placeholder="Official transactional alerts and customer communication channel."
-                className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs resize-none transition-all ${
-                  isDark 
-                    ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
-                    : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                placeholder="Official customer support and notification dispatch channel"
+                className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs leading-relaxed transition-colors ${
+                  isDark ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' : 'bg-white border-[#e3e8ee] text-zinc-900 focus:border-[#533afd]'
                 }`}
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
-                  Primary Website URL
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                  Official Website URL
                 </label>
                 <input
                   type="url"
                   value={websiteUrl}
                   onChange={e => setWebsiteUrl(e.target.value)}
-                  placeholder="https://company.example.com"
-                  className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs transition-all ${
-                    isDark 
-                      ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
-                      : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                  placeholder="https://example.com"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs transition-colors ${
+                    isDark ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' : 'bg-white border-[#e3e8ee] text-zinc-900 focus:border-[#533afd]'
                   }`}
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
-                  Additional Documentation or Status Links
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                  Additional Documentation Link
                 </label>
                 <input
                   type="text"
                   value={additionalWebsites}
                   onChange={e => setAdditionalWebsites(e.target.value)}
-                  placeholder="https://docs.example.com, https://status.example.com"
-                  className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs transition-all ${
-                    isDark 
-                      ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
-                      : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                  placeholder="https://docs.example.com"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs transition-colors ${
+                    isDark ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' : 'bg-white border-[#e3e8ee] text-zinc-900 focus:border-[#533afd]'
                   }`}
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
-                  Customer Support Email
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                  Support Email Address
                 </label>
                 <input
                   type="email"
                   value={supportEmail}
                   onChange={e => setSupportEmail(e.target.value)}
-                  placeholder="support@company.example.com"
-                  className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs transition-all ${
-                    isDark 
-                      ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
-                      : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                  placeholder="support@example.com"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs transition-colors ${
+                    isDark ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' : 'bg-white border-[#e3e8ee] text-zinc-900 focus:border-[#533afd]'
                   }`}
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
-                  Customer Support Phone / Hotline
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                  Support Telephone Hotline
                 </label>
                 <input
                   type="tel"
                   value={supportPhone}
                   onChange={e => setSupportPhone(e.target.value)}
                   placeholder="+91 1800 123 4567"
-                  className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs transition-all ${
-                    isDark 
-                      ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
-                      : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                  className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs transition-colors ${
+                    isDark ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' : 'bg-white border-[#e3e8ee] text-zinc-900 focus:border-[#533afd]'
                   }`}
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
-                Physical Office / Corporate Address
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                Physical Office Address
               </label>
               <textarea
                 rows={2}
                 value={officeAddress}
                 onChange={e => setOfficeAddress(e.target.value)}
-                placeholder="Tech Tower, 4th Floor, Electronic City, Bengaluru, Karnataka, 560100"
-                className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs resize-none transition-all ${
-                  isDark 
-                    ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
-                    : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+                placeholder="Innovation Park, Electronic City, Bengaluru"
+                className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-xs leading-relaxed transition-colors ${
+                  isDark ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' : 'bg-white border-[#e3e8ee] text-zinc-900 focus:border-[#533afd]'
                 }`}
               />
             </div>
           </div>
         </div>
 
-        {/* IP Access Control */}
-        <div className={`rounded-2xl p-5 shadow-xs space-y-3 border ${
-          isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+        {/* Network IP Access Whitelist */}
+        <div className={`rounded-2xl p-6 border transition-all ${
+          isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d] shadow-xs'
         }`}>
-          <div className="flex items-center justify-between border-b pb-3 border-[#e3e8ee] dark:border-[#273951]">
-            <h3 className="text-sm font-bold flex items-center gap-2 text-[#0d253d] dark:text-white">
+          <div className="flex items-center justify-between pb-4 border-b border-zinc-200 dark:border-zinc-800 mb-4">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
               <Globe className="h-4 w-4 text-[#533afd] dark:text-[#818cf8]" />
-              Network IP Access Whitelist
+              <span>Network IP Whitelist</span>
             </h3>
-            <span className="text-[11px] text-[#64748d] dark:text-[#94a3b8]">Optional Security Layer</span>
+            <span className="text-xs text-zinc-400">Optional Security Layer</span>
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
-              Allowed Server IP Addresses / CIDRs (Comma-separated)
+            <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
+              Whitelisted Server IP Addresses
             </label>
             <input
               type="text"
               value={allowedIps}
               onChange={e => setAllowedIps(e.target.value)}
-              placeholder="e.g. 192.168.1.10, 10.0.0.0/24 (Leave blank to permit any ingress source)"
-              className={`w-full px-3.5 py-2.5 rounded-xl border font-mono text-xs outline-none transition-all ${
-                isDark 
-                  ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
-                  : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
+              placeholder="e.g. 192.168.1.10, 10.0.0.0/24 or leave empty to allow all"
+              className={`w-full px-3.5 py-2.5 rounded-xl border font-mono text-xs outline-none transition-colors ${
+                isDark ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' : 'bg-white border-[#e3e8ee] text-zinc-900 focus:border-[#533afd]'
               }`}
             />
-            <p className="text-[11px] text-[#64748d] dark:text-[#94a3b8] mt-1.5">
-              When configured, API dispatches matching this service account will reject incoming requests from unauthorized origins.
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+              Comma-separated list of IPv4 or IPv6 addresses authorized to dispatch requests using your credentials.
             </p>
           </div>
         </div>
 
-        {/* Save Bar */}
+        {/* Sticky Save Bar */}
         <div className="flex items-center justify-between pt-2">
-          <div className="text-xs text-[#64748d] dark:text-[#94a3b8]">
+          <div className="text-xs text-zinc-500">
             {hasUnsavedChanges ? (
-              <span className="text-amber-600 dark:text-amber-400 font-medium">
-                You have unsaved changes. Remember to click save.
+              <span className="text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1.5">
+                <AlertTriangle className="h-4 w-4" />
+                <span>You have unsaved changes</span>
               </span>
             ) : (
-              <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                <Check className="h-3.5 w-3.5" /> All settings synced
+              <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1.5">
+                <Check className="h-4 w-4" />
+                <span>All settings saved and synchronized</span>
               </span>
             )}
           </div>
@@ -594,17 +580,17 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
           <button
             type="submit"
             disabled={isSaving || (!hasUnsavedChanges && !saveSuccess)}
-            className="px-6 py-2.5 bg-[#533afd] hover:bg-[#432ec4] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+            className="px-6 py-2.5 bg-[#533afd] hover:bg-[#432ec4] disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-[0.99]"
           >
             {isSaving ? (
               <>
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                <span>Saving Changes...</span>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span>Saving Configuration...</span>
               </>
             ) : saveSuccess ? (
               <>
-                <Check className="h-3.5 w-3.5 text-emerald-300" />
-                <span>Saved Successfully!</span>
+                <Check className="h-4 w-4 text-emerald-300" />
+                <span>Saved Successfully</span>
               </>
             ) : (
               <>
@@ -616,37 +602,37 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
         </div>
       </form>
 
-      {/* 3. DEDICATED CRYPTOGRAPHIC GOVERNANCE & LIFECYCLE (Structured, High-Security UI) */}
-      <div className={`rounded-2xl p-5 shadow-xs border ${
-        isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+      {/* 4. Credentials & Decommission Governance */}
+      <div className={`rounded-2xl p-6 border transition-all ${
+        isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d] shadow-xs'
       }`}>
-        <div className="flex items-start justify-between gap-4 border-b pb-4 mb-4 border-[#e3e8ee] dark:border-[#273951]">
+        <div className="flex items-start justify-between gap-4 pb-4 border-b border-zinc-200 dark:border-zinc-800 mb-4">
           <div>
-            <h3 className="text-sm font-bold flex items-center gap-2 text-[#0d253d] dark:text-white">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
               <KeyRound className="h-4 w-4 text-[#533afd] dark:text-[#818cf8]" />
-              Cryptographic Credentials & Lifecycle Governance
+              <span>Key Lifecycle and Security</span>
             </h3>
-            <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-1">
-              Actions in this section carry immediate operational impact. Access is restricted and requires explicit confirmation.
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              Rotate authentication credentials or decommission service accounts.
             </p>
           </div>
-          <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-[#64748d] dark:text-[#94a3b8] shrink-0">
-            High Privilege
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+            Security Controls
           </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Key Rotation Action Card */}
-          <div className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${
-            isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'
+          {/* Key Rotation Card */}
+          <div className={`p-5 rounded-xl border flex flex-col justify-between gap-4 ${
+            isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f8fafc] border-[#e2e8f0]'
           }`}>
             <div>
-              <div className="flex items-center gap-2 text-xs font-bold text-[#0d253d] dark:text-white">
+              <div className="flex items-center gap-2 text-xs font-bold text-zinc-900 dark:text-zinc-100">
                 <RotateCw className="h-4 w-4 text-amber-500" />
                 <span>Rotate API Credentials</span>
               </div>
-              <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-1.5 leading-relaxed">
-                Immediately revokes the active Client Secret and provisions a fresh key. All deployed SDKs and backend processes will require updated secrets.
+              <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">
+                Immediately revokes the active Client Secret and generates fresh keys. Deployed services will require updated authorization headers.
               </p>
             </div>
 
@@ -656,25 +642,25 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
                 setRotateConfirmedTerms(false);
                 setShowRotateModal(true);
               }}
-              className="mt-2 w-full py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
+              className="w-full py-2.5 px-4 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
-              <RotateCw className="h-3.5 w-3.5" />
-              <span>Initiate Key Rotation</span>
+              <RotateCw className="h-3.5 w-3.5 text-amber-500" />
+              <span>Rotate Secret Key</span>
             </button>
           </div>
 
-          {/* Delete Service Account Action Card */}
+          {/* Delete Service Account Card */}
           {onDeleteApp && (
-            <div className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${
-              isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'
+            <div className={`p-5 rounded-xl border flex flex-col justify-between gap-4 ${
+              isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f8fafc] border-[#e2e8f0]'
             }`}>
               <div>
-                <div className="flex items-center gap-2 text-xs font-bold text-[#0d253d] dark:text-white">
+                <div className="flex items-center gap-2 text-xs font-bold text-rose-600 dark:text-rose-400">
                   <Trash2 className="h-4 w-4 text-rose-500" />
                   <span>Decommission Service Account</span>
                 </div>
-                <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-1.5 leading-relaxed">
-                  Permanently deletes this service account, revokes all API tokens, deletes webhook routes, and unbinds the bot handle.
+                <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">
+                  Permanently deletes this service account, revokes all API tokens, disconnects webhooks, and releases the bot handle.
                 </p>
               </div>
 
@@ -684,7 +670,7 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
                   setDeleteConfirmationInput('');
                   setShowDeleteModal(true);
                 }}
-                className="mt-2 w-full py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
+                className="w-full py-2.5 px-4 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer border-rose-300 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40"
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 <span>Decommission Account</span>
@@ -694,82 +680,65 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
         </div>
       </div>
 
-      {/* MODAL 1: HIGH PRIVILEGE KEY ROTATION MODAL */}
+      {/* Rotate Key Confirmation Modal */}
       {showRotateModal && (
         <div 
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="rotate-modal-title"
         >
-          <div className={`border w-full max-w-lg rounded-2xl p-6 sm:p-7 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150 ${
-            isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+          <div className={`border w-full max-w-md rounded-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150 ${
+            isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-zinc-900 shadow-2xl'
           }`}>
             <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20">
-                  <RotateCw className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 id="rotate-modal-title" className="text-base font-bold text-[#0d253d] dark:text-white">
-                    Rotate Service Account Secrets
-                  </h3>
-                  <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-0.5">
-                    Target: @{rawBotHandle} ({app?.app_name})
-                  </p>
-                </div>
+              <div>
+                <h3 className="text-base font-extrabold text-zinc-900 dark:text-white">
+                  Rotate API Secret Key
+                </h3>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  Target handle: @{rawBotHandle}
+                </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowRotateModal(false)}
-                className="p-1.5 rounded-lg text-[#64748d] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer"
-                aria-label="Close modal"
+                className="p-1 text-zinc-400 hover:text-zinc-600 cursor-pointer"
               >
-                <X className="h-5 w-5" />
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className={`p-4 rounded-xl border text-xs leading-relaxed space-y-2.5 ${
+            <div className={`p-4 rounded-xl border text-xs leading-relaxed space-y-2 ${
               isDark ? 'bg-amber-950/20 border-amber-500/30 text-amber-200' : 'bg-amber-50 border-amber-200 text-amber-900'
             }`}>
               <div className="font-bold flex items-center gap-1.5">
-                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
-                <span>Operational Downtime Warning</span>
+                <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                <span>Service Interruption Notice</span>
               </div>
               <p>
-                When credentials are cycled, the existing Client Secret becomes invalid immediately. Any active production server, worker, or SDK instance sending dispatches with the old secret will receive <strong>HTTP 401 Unauthorized</strong>.
+                When credentials are cycled, the existing Client Secret becomes invalid immediately. Any active service instance using the old secret will receive HTTP 401 Unauthorized.
               </p>
-              <ul className="list-disc list-inside space-y-1 text-[11px] opacity-90">
-                <li>Active tokens will expire instantly.</li>
-                <li>New client secret must be copied and updated in your <code>.env</code> file.</li>
-                <li>Sandbox mode credentials can be independently tested before production rotation.</li>
-              </ul>
             </div>
 
-            {/* Checkbox acknowledgment */}
-            <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer select-none transition-colors ${
-              rotateConfirmedTerms 
-                ? isDark ? 'bg-[#1b233a] border-[#533afd]' : 'bg-indigo-50 border-[#533afd]'
-                : isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'
+            <label className={`flex items-start gap-2.5 p-3.5 rounded-xl border cursor-pointer text-xs ${
+              isDark ? 'bg-zinc-900/40 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
             }`}>
               <input
                 type="checkbox"
                 checked={rotateConfirmedTerms}
                 onChange={e => setRotateConfirmedTerms(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded accent-[#533afd] cursor-pointer"
+                className="mt-0.5 rounded border-zinc-300 text-[#533afd] focus:ring-0 cursor-pointer"
               />
-              <span className="text-xs text-[#0d253d] dark:text-white font-medium leading-normal">
-                I understand the operational blast radius and confirm that I am ready to replace the credentials in my production infrastructure.
+              <span className="text-zinc-600 dark:text-zinc-400">
+                I understand that rotating this secret will revoke current keys across deployed environments.
               </span>
             </label>
 
-            <div className="flex items-center justify-end gap-3 pt-2">
+            <div className="flex gap-2.5 pt-2">
               <button
                 type="button"
                 onClick={() => setShowRotateModal(false)}
-                className={`px-4 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
-                  isDark ? 'bg-[#121624] hover:bg-[#1b233a] text-white' : 'bg-[#f6f9fc] hover:bg-[#e3e8ee] text-[#0d253d]'
-                }`}
+                className="flex-1 py-2.5 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 cursor-pointer"
               >
                 Cancel
               </button>
@@ -777,102 +746,72 @@ export const SecuritySettingsView: React.FC<SecuritySettingsViewProps> = ({
                 type="button"
                 disabled={!rotateConfirmedTerms || isRotating}
                 onClick={executeKeyRotation}
-                className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-40 shadow-xs flex items-center gap-2 cursor-pointer transition-all"
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-[#533afd] text-white hover:bg-[#432ec4] disabled:opacity-40 cursor-pointer transition-colors"
               >
-                <RotateCw className={`h-3.5 w-3.5 ${isRotating ? 'animate-spin' : ''}`} />
-                <span>{isRotating ? 'Generating Secrets...' : 'Execute Key Rotation'}</span>
+                {isRotating ? 'Rotating...' : 'Confirm Rotation'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL 2: DECOMMISSION SERVICE ACCOUNT MODAL */}
+      {/* Decommission Account Modal */}
       {showDeleteModal && (
         <div 
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="delete-modal-title"
         >
-          <div className={`border w-full max-w-lg rounded-2xl p-6 sm:p-7 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150 ${
-            isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+          <div className={`border w-full max-w-md rounded-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150 ${
+            isDark ? 'bg-[#0d1326] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-zinc-900 shadow-2xl'
           }`}>
             <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-rose-500/10 text-rose-500 border border-rose-500/20">
-                  <Trash2 className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 id="delete-modal-title" className="text-base font-bold text-[#0d253d] dark:text-white">
-                    Decommission Service Account
-                  </h3>
-                  <p className="text-xs text-rose-500 font-semibold mt-0.5">
-                    Permanent & Irreversible Operation
-                  </p>
-                </div>
+              <div>
+                <h3 className="text-base font-extrabold text-rose-600 dark:text-rose-400">
+                  Decommission Service Account
+                </h3>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  Permanent action for @{rawBotHandle}
+                </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowDeleteModal(false)}
-                className="p-1.5 rounded-lg text-[#64748d] hover:text-[#0d253d] dark:hover:text-white transition-colors cursor-pointer"
-                aria-label="Close modal"
+                className="p-1 text-zinc-400 hover:text-zinc-600 cursor-pointer"
               >
-                <X className="h-5 w-5" />
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className={`p-4 rounded-xl border text-xs leading-relaxed space-y-2.5 ${
-              isDark ? 'bg-rose-950/20 border-rose-500/30 text-rose-200' : 'bg-rose-50 border-rose-200 text-rose-900'
-            }`}>
-              <p className="font-bold">
-                You are about to permanently decommission @{rawBotHandle} ({app?.app_name}).
-              </p>
-              <ul className="list-disc list-inside space-y-1 text-[11px] opacity-90">
-                <li>All active client credentials will be revoked immediately.</li>
-                <li>Configured webhooks and active carrier dispatch queues will terminate.</li>
-                <li>The bot handle will be freed from the directory.</li>
-              </ul>
-            </div>
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+              This will permanently revoke all API access, disable connected webhooks, and release the handle. Type <span className="font-mono font-bold text-zinc-900 dark:text-white">@{rawBotHandle}</span> to confirm.
+            </p>
 
-            <div>
-              <label className="block text-xs font-semibold text-[#0d253d] dark:text-white mb-2">
-                Type <span className="font-mono font-bold text-rose-500 select-all">@{rawBotHandle}</span> to confirm decommissioning:
-              </label>
-              <input
-                type="text"
-                value={deleteConfirmationInput}
-                onChange={e => setDeleteConfirmationInput(e.target.value)}
-                placeholder={`@${rawBotHandle}`}
-                className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-mono outline-none transition-all ${
-                  isDark 
-                    ? 'bg-[#121624] border-[#273951] text-white focus:border-rose-500' 
-                    : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-rose-500'
-                }`}
-              />
-            </div>
+            <input
+              type="text"
+              value={deleteConfirmationInput}
+              onChange={e => setDeleteConfirmationInput(e.target.value)}
+              placeholder={`@${rawBotHandle}`}
+              className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-mono outline-none ${
+                isDark ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-zinc-50 border-zinc-300 text-zinc-900'
+              }`}
+            />
 
-            <div className="flex items-center justify-end gap-3 pt-2">
+            <div className="flex gap-2.5 pt-2">
               <button
                 type="button"
                 onClick={() => setShowDeleteModal(false)}
-                className={`px-4 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
-                  isDark ? 'bg-[#121624] hover:bg-[#1b233a] text-white' : 'bg-[#f6f9fc] hover:bg-[#e3e8ee] text-[#0d253d]'
-                }`}
+                className="flex-1 py-2.5 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                disabled={
-                  deleteConfirmationInput.trim().toLowerCase().replace(/^@/, '') !== rawBotHandle.toLowerCase() ||
-                  isDeleting
-                }
+                disabled={deleteConfirmationInput.trim().toLowerCase().replace(/^@/, '') !== rawBotHandle.toLowerCase() || isDeleting}
                 onClick={executeDeleteApp}
-                className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40 shadow-xs flex items-center gap-2 cursor-pointer transition-all"
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-40 cursor-pointer transition-colors"
               >
-                <Trash2 className="h-3.5 w-3.5" />
-                <span>{isDeleting ? 'Decommissioning...' : 'Permanently Decommission'}</span>
+                {isDeleting ? 'Deleting...' : 'Decommission'}
               </button>
             </div>
           </div>

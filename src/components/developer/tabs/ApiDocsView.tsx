@@ -9,6 +9,7 @@ import {
 import { generateDocsData, DocEndpoint, DocCategory } from '../docs/docsData';
 import { ApiPlayground } from '../docs/ApiPlayground';
 import { MarkdownRenderer, renderInlineFormatting } from '../docs/MarkdownRenderer';
+import { CodeBlock } from '../common/CodeBlock';
 
 interface ApiDocsViewProps {
   app: any;
@@ -557,27 +558,33 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
               </div>
 
               {/* Code Viewer */}
-              <div className={`relative group rounded-2xl overflow-hidden border shadow-md ${
-                isDark ? 'border-[#1e2736] bg-[#080c14]' : 'border-[#273951] bg-[#0c1024]'
+              <div className={`relative group rounded-2xl overflow-hidden border shadow-xs ${
+                isDark ? 'border-[#1e2736] bg-[#0c1024]' : 'border-slate-200 bg-white'
               }`}>
-                <div className="p-3 bg-[#0e1420] border-b border-[#1e2736] flex items-center justify-between">
+                <div className={`p-3 border-b flex items-center justify-between ${
+                  isDark ? 'bg-[#0e1420] border-[#1e2736]' : 'bg-slate-50 border-slate-200'
+                }`}>
                   <div className="flex items-center gap-2">
                     <div className="flex gap-1.5">
                       <div className="w-2.5 h-2.5 rounded-full bg-rose-500/80"></div>
                       <div className="w-2.5 h-2.5 rounded-full bg-amber-500/80"></div>
                       <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></div>
                     </div>
-                    <span className="text-[11px] font-mono text-slate-400 ml-2">
+                    <span className={`text-[11px] font-mono ml-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
                       {selectedLang === 'node' ? 'index.js' : selectedLang === 'python' ? 'app.py' : selectedLang === 'go' ? 'main.go' : selectedLang === 'java' ? 'ZenoaClient.java' : 'terminal'}
                     </span>
                   </div>
 
                   <button
                     onClick={() => handleCopy((currentEndpoint.snippets as any)[selectedLang] || currentEndpoint.snippets.curl, `${selectedLang.toUpperCase()} Code`)}
-                    className="px-3 py-1 bg-[#151c28] hover:bg-[#1a2332] text-slate-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer border border-[#222d40]"
+                    className={`px-3 py-1 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer border ${
+                      isDark 
+                        ? 'bg-[#151c28] hover:bg-[#1a2332] text-slate-200 border-[#222d40]' 
+                        : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-2xs'
+                    }`}
                   >
                     {copiedLabel === `${selectedLang.toUpperCase()} Code` ? (
-                      <Check className="h-3 w-3 text-emerald-400" />
+                      <Check className="h-3 w-3 text-emerald-500" />
                     ) : (
                       <Copy className="h-3 w-3" />
                     )}
@@ -585,9 +592,12 @@ export const ApiDocsView: React.FC<ApiDocsViewProps> = ({
                   </button>
                 </div>
 
-                <pre className="p-5 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed max-h-96 overflow-y-auto">
-                  {(currentEndpoint.snippets as any)[selectedLang] || currentEndpoint.snippets.curl}
-                </pre>
+                <CodeBlock
+                  code={(currentEndpoint.snippets as any)[selectedLang] || currentEndpoint.snippets.curl}
+                  language={selectedLang}
+                  themeMode={themeMode}
+                  maxHeight="400px"
+                />
               </div>
             </div>
 

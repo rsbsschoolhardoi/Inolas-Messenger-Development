@@ -380,3 +380,134 @@ export interface LinkedDeviceItem {
   isCurrent?: boolean;
 }
 
+// ==========================================
+// ZENOA BUSINESS PLATFORM INTERFACES
+// ==========================================
+
+export type AppArchetype = 'personal_dev' | 'business_enterprise' | 'hybrid_gateway';
+export type DeveloperCategoryTier = 'messenger' | 'business' | 'hybrid';
+export type BusinessCategory = 'ecommerce' | 'saas' | 'hospitality' | 'services' | 'general';
+export type BusinessPlatformTarget = 'web' | 'mobile' | 'hybrid';
+export type ConversationIntent = 'pre_purchase' | 'post_purchase_issue' | 'technical' | 'general';
+export type ConversationStatus = 'open' | 'pending_human' | 'resolved' | 'closed';
+export type ConversationPriority = 'low' | 'normal' | 'high' | 'urgent';
+
+export interface CustomerContext {
+  customer_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
+  current_page_url?: string;
+  page_title?: string;
+  cart_value?: string;
+  cart_items?: Array<{ name: string; qty: number; price: number }>;
+  order_id?: string;
+  order_status?: string;
+  device_type?: string;
+  location?: string;
+  ip?: string;
+}
+
+export interface BusinessApp {
+  id: string;
+  client_id: string;
+  app_name: string;
+  bot_username?: string;
+  category: BusinessCategory;
+  platform_target: BusinessPlatformTarget;
+  archetype: AppArchetype;
+  category_tier?: DeveloperCategoryTier;
+  owner_username: string;
+  owner_id?: string;
+  assigned_agents: string[]; // ["@support_lead", "@store_owner"]
+  ai_enabled: boolean;
+  ai_provider?: 'google' | 'openai' | 'anthropic' | 'groq' | 'custom';
+  ai_model: string; // e.g. "gemini-2.5-flash", "gpt-4o", "claude-3-5-sonnet"
+  ai_api_key?: string; // Custom developer/merchant API key
+  ai_custom_endpoint?: string; // Custom OpenAI-compatible or Ollama endpoint
+  ai_system_prompt: string;
+  ai_temperature?: number;
+  ai_confidence_threshold?: number;
+  ai_tone?: 'concise' | 'friendly' | 'technical' | 'formal';
+  rate_limiting?: {
+    enabled: boolean;
+    customer_cooldown_seconds?: number; // min seconds between customer bubble messages (default 3s)
+    max_messages_per_minute: number; // max customer messages per minute (default 8)
+    burst_cooldown_seconds: number; // temporary lockout on flood (default 20s)
+    agent_cooldown_ms: number; // merchant rapid-reply throttle (default 700ms)
+    max_agent_messages_per_minute?: number; // max agent messages per minute (default 25)
+    ip_abuse_block_minutes: number; // default: 10
+    max_input_length?: number; // max chars per customer bubble message (default 500)
+    anti_spam_keywords?: string[]; // auto-drop spam phrases
+  };
+  pre_purchase_auto_respond: boolean;
+  post_purchase_instant_escalate: boolean;
+  welcome_message?: string;
+  fallback_human_message?: string;
+  escalation_webhook_url?: string;
+  auto_resolve_minutes?: number;
+  business_hours?: {
+    enabled: boolean;
+    timezone: string;
+    start_time: string;
+    end_time: string;
+    away_message: string;
+  };
+  auto_triage_rules?: Array<{
+    id: string;
+    name: string;
+    condition_type: 'keyword' | 'intent' | 'order_status' | 'cart_value';
+    match_value: string;
+    action: 'escalate_human' | 'trigger_ai' | 'apply_tag' | 'send_canned';
+    action_payload?: string;
+    is_active: boolean;
+  }>;
+  knowledge_faqs?: Array<{
+    id: string;
+    question: string;
+    answer: string;
+    category?: string;
+  }>;
+  widget_theme: {
+    primary_color: string;
+    greeting_title: string;
+    greeting_subtitle: string;
+    position: 'bottom-right' | 'bottom-left';
+  };
+  quick_replies?: Array<{ id: string; shortcut: string; title: string; content: string }>;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface BusinessConversation {
+  id: string;
+  app_id: string;
+  customer_session_id: string;
+  customer: CustomerContext;
+  intent: ConversationIntent;
+  status: ConversationStatus;
+  priority: ConversationPriority;
+  assigned_agent?: string;
+  ai_active: boolean;
+  messages_count: number;
+  last_message: string;
+  last_message_time: number;
+  last_sender: 'customer' | 'agent' | 'ai';
+  unread_for_agent: boolean;
+  unread_for_customer: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface BusinessMessage {
+  id: string;
+  conversation_id: string;
+  app_id: string;
+  sender_type: 'customer' | 'agent' | 'ai' | 'system';
+  sender_name: string;
+  sender_id?: string;
+  text: string;
+  created_at: number;
+  read: boolean;
+  metadata?: any;
+}
+

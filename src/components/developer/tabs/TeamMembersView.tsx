@@ -3,6 +3,7 @@ import {
   Users, UserPlus, Shield, ShieldCheck, Mail, Trash2, 
   RefreshCw, CheckCircle2, Clock, MoreVertical, Key, Eye, Wrench
 } from 'lucide-react';
+import { CustomSelect } from '../common/CustomSelect';
 
 interface TeamMembersViewProps {
   app: any;
@@ -296,21 +297,18 @@ export const TeamMembersView: React.FC<TeamMembersViewProps> = ({
                         Admin (Owner)
                       </span>
                     ) : (
-                      <select
-                        value={member.role}
-                        onChange={e => handleUpdateRole(member.id, e.target.value as any)}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border outline-none cursor-pointer ${
-                          member.role === 'admin'
-                            ? 'bg-[#533afd]/15 text-[#533afd] dark:text-[#818cf8] border-[#533afd]/30'
-                            : member.role === 'developer'
-                            ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
-                            : isDark ? 'bg-[#121624] text-slate-300 border-[#273951]' : 'bg-slate-50 text-slate-700 border-slate-200'
-                        }`}
-                      >
-                        <option value="admin">Admin</option>
-                        <option value="developer">Developer</option>
-                        <option value="viewer">Viewer</option>
-                      </select>
+                      <div className="w-32">
+                        <CustomSelect
+                          value={member.role}
+                          onChange={(val) => handleUpdateRole(member.id, val as any)}
+                          size="sm"
+                          options={[
+                            { value: 'admin', label: 'Admin' },
+                            { value: 'developer', label: 'Developer' },
+                            { value: 'viewer', label: 'Viewer' },
+                          ]}
+                        />
+                      </div>
                     )}
                   </td>
 

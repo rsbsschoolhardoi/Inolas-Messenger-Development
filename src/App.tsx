@@ -14,6 +14,8 @@ import { LegalPortalPage, LegalDocType } from "./components/legal/LegalPortalPag
 import { NearwaysLegalPage, NearwaysDocType } from "./components/legal/NearwaysLegalPage";
 import { DeveloperConsoleStandalone } from './components/developer/DeveloperConsole';
 import { DocumentationStandalone } from './components/developer/DocumentationStandalone';
+import { ZenoaBusinessStandalone } from './components/business/ZenoaBusinessStandalone';
+import { BusinessWidgetDemo } from './components/business/BusinessWidgetDemo';
 import { ConcurrentLogoutModal } from './components/ConcurrentLogoutModal';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MediaPreviewLightbox } from './components/MediaPreviewLightbox';
@@ -9140,6 +9142,8 @@ export default function App() {
   const isAppSubdomain = currentHostname.startsWith("app.");
   // 6. web.zenoa.in / web.zenoa.sbs -> Standalone Web QR Code Messenger
   const isWebSubdomain = currentHostname.startsWith("web.");
+  // 7. business.zenoa.in / biz.zenoa.in -> Dedicated Zenoa Business Platform
+  const isBusinessSubdomain = currentHostname.startsWith("business.") || currentHostname.startsWith("biz.");
 
   // Dedicated Account & Security Management Portal check (account.zenoa.in or /account)
   const isAccountPortal = isAccountSubdomain || currentPathname === "/account" || currentPathname.startsWith("/account/") || currentSearchParams.get("view") === "account";
@@ -9153,8 +9157,14 @@ export default function App() {
   // Dedicated Documentation check (docs.zenoa.in or /docs)
   const isDocsRoute = isDocsSubdomain || currentPathname === "/docs" || currentPathname.startsWith("/docs/") || currentPathname === "/documentation" || currentSearchParams.get("view") === "docs";
 
+  // Dedicated Zenoa Business check (business.zenoa.in or /business)
+  const isBusinessRoute = isBusinessSubdomain || currentPathname === "/business" || currentPathname.startsWith("/business/") || currentSearchParams.get("view") === "business";
+
+  // Dedicated Live Chat Store & Widget Demo check (/widget-demo)
+  const isWidgetDemoRoute = currentPathname === "/widget-demo" || currentPathname.startsWith("/widget-demo/") || currentSearchParams.get("view") === "widget-demo";
+
   // A. Accounts / OAuth 2.0 Consent Screen (accounts.zenoa.in, /auth/sso, /oauth, or client_id query param when not on dedicated portal routes)
-  const isSSOAuthConsent = !isAccountPortal && !isDeveloperRoute && !isSSOConsoleRoute && !isDocsRoute && (isAccountsSubdomain || currentPathname === "/auth/sso" || currentPathname === "/oauth" || currentSearchParams.has("client_id") || currentSearchParams.has("redirect_uri"));
+  const isSSOAuthConsent = !isAccountPortal && !isDeveloperRoute && !isSSOConsoleRoute && !isDocsRoute && !isBusinessRoute && !isWidgetDemoRoute && (isAccountsSubdomain || currentPathname === "/auth/sso" || currentPathname === "/oauth" || currentSearchParams.has("client_id") || currentSearchParams.has("redirect_uri"));
 
   const dbUserObj = userUsername ? users[userUsername.toLowerCase()] : null;
 
@@ -9332,6 +9342,56 @@ export default function App() {
     currentSearchParams.get("view") === "developer"
   );
   if (isDeveloperPath) return <DeveloperConsoleStandalone />;
+
+  // E. Dedicated Zenoa Business Platform (business.zenoa.in or /business)
+  if (isBusinessRoute) {
+    return (
+      <ZenoaBusinessStandalone
+        currentUser={currentUserObj}
+        onNavigateToMessenger={() => {
+          try {
+            window.history.pushState({}, '', '/app');
+            window.location.href = '/app';
+          } catch (_) {
+            window.location.href = '/app';
+          }
+        }}
+        onNavigateToDeveloper={() => {
+          try {
+            window.history.pushState({}, '', '/developer');
+            window.location.href = '/developer';
+          } catch (_) {
+            window.location.href = '/developer';
+          }
+        }}
+        onNavigateToDemo={() => {
+          try {
+            window.history.pushState({}, '', '/widget-demo');
+            window.location.href = '/widget-demo';
+          } catch (_) {
+            window.location.href = '/widget-demo';
+          }
+        }}
+      />
+    );
+  }
+
+  // F. Dedicated Live Store & Chat Widget Interactive Demo (/widget-demo)
+  if (isWidgetDemoRoute) {
+    return (
+      <BusinessWidgetDemo
+        onBackToBusiness={() => {
+          try {
+            window.history.pushState({}, '', '/business');
+            window.location.href = '/business';
+          } catch (_) {
+            window.location.href = '/business';
+          }
+        }}
+        themeMode={themeMode}
+      />
+    );
+  }
 
   // E. Standalone App & Web Messenger Services
   // App: Direct access to real messenger (Direct login, signup, saved accounts, full messenger)
@@ -9884,6 +9944,15 @@ export default function App() {
             >
               <Palette className="h-5 w-5 stroke-[2.2]" />
             </button>
+
+            {/* Zenoa Business Console Switcher */}
+            <a 
+              href="/business"
+              className="relative p-3 rounded-2xl transition-all cursor-pointer group flex items-center justify-center w-12 h-12 text-[#64748d] dark:text-[#94a3b8] hover:bg-indigo-50 dark:hover:bg-indigo-950/40 hover:text-indigo-600 dark:hover:text-indigo-400"
+              title="Switch to Zenoa Business Console"
+            >
+              <Building2 className="h-5 w-5 stroke-[2.2]" />
+            </a>
           </nav>
         </div>
 

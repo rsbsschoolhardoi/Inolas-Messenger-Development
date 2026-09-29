@@ -1,152 +1,125 @@
 ---
-title: Zenoa Full Specification | Inolas Nexus Sovereign Platform
-description: Complete architectural specification, API endpoints, SDK examples, and zero-retention routing directory for Zenoa by Inolas Nexus.
-date: 2026-09-16
+title: Zenoa Full Specification | Inolas Nexus Sovereign Platform & AI Ecosystem
+description: Complete architectural specification, API endpoints, multi-language SDK examples, Carrier OTP, Autonomous Business AI Concierge, and directory for Zenoa by Inolas Nexus.
+date: 2026-09-29
 url: https://zenoa.in/
 ---
 
 # Zenoa (Inolas Nexus) - Full System Specification & Documentation
 
-> **Zenoa** (https://zenoa.in) is the sovereign private messaging platform, developer ecosystem, and identity protocol, architected and founded by **Inolas Nexus**.
-
-## Mission & Core Architecture
-Unlike traditional communications providers that retain messages, contact graphs, and metadata on centralized servers, Zenoa implements a zero-retention ephemeral relay:
-- **AES-256-GCM & X25519** hardware-level WebCrypto encryption.
-- **Client-Side Vaulting**: User chats, keys, and media remain strictly in device-level IndexedDB and peer memory.
-- **Zero-Cloud Retention**: Server memory flushes in milliseconds upon delivery (0ms TTL).
-- **Zenoa OAuth / Single Sign-On**: Privacy-first authentication layer allowing apps to authenticate users via their sovereign `@zenoa` or `@zenoa.in` identity without harvesting emails or phone numbers.
-- **Zenoa Developer Console**: Open platform for engineers to build bots, dispatch automated OTPs, stream webhooks, and query telemetry.
+> **Zenoa** (https://zenoa.in) is the sovereign private communication ecosystem, business AI copilot platform, and developer gateway founded and architected by **Inolas Nexus**.
 
 ---
 
-## Complete Route & API Directory
+## 1. Core Architecture & Privacy Principles
+- **Carrier-Grade Ephemeral Relay**: Zero cloud-side message retention, hardware-grade WebCrypto cryptography.
+- **Unified Developer Authentication**: Standard single API Key (`ZENOA_API_KEY`) passed via HTTP `Authorization: Bearer <ZENOA_API_KEY>` or `X-Zenoa-Api-Key: <ZENOA_API_KEY>`.
+- **Autonomous AI Copilot Engine**: Real-time customer cart, order status, and catalog reasoning with sub-500ms conversational inference.
+- **Storefront Live Chat Integration**: 1-line script embed supporting both Floating Bubble and Embedded Inline Tab modes.
 
-### 1. Public Portals
+---
+
+## 2. Developer Category Tiers
+1. **Messenger Plan (`messenger`)**: Sub-second Carrier OTPs (`/api/v1/otp/send`, `/api/v1/otp/verify`) & Direct Bot DMs (`/api/v1/bot/send`).
+2. **Business Suite (`business`)**: Autonomous AI Concierge (`/api/business/chat`), Conversations (`/api/business/conversations/:id`), and Live Storefront Chat Widget (`/widget/live-chat.js`).
+3. **Hybrid Enterprise (`hybrid`)**: Unified Omnichannel Gateway supporting both Carrier OTP/Bot DMs, Autonomous Business AI Copilot, and Realtime Telemetry Analytics.
+
+---
+
+## 3. Complete Route & API Directory
+
+### Public & Developer Portals
 - **Homepage / Messenger**: [https://zenoa.in/](https://zenoa.in/)
-- **App Direct Messenger**: [https://app.zenoa.in/](https://app.zenoa.in/)
-- **Web QR Companion**: [https://web.zenoa.in/](https://web.zenoa.in/)
-
-### 2. Developer & Enterprise APIs
 - **Developer Console**: [https://zenoa.in/developer](https://zenoa.in/developer)
-- **API Documentation**: [https://zenoa.in/docs](https://zenoa.in/docs)
-- **OpenAPI 3.1 Spec**: [https://zenoa.in/openapi.json](https://zenoa.in/openapi.json)
+- **Interactive Documentation**: [https://zenoa.in/docs](https://zenoa.in/docs)
+- **OpenAPI 3.1.0 Spec**: [https://zenoa.in/openapi.json](https://zenoa.in/openapi.json)
+- **Agent Specification**: [https://zenoa.in/auth.md](https://zenoa.in/auth.md)
 
-### 3. API Endpoints Table
-- `GET /api/health` — Checks system health & uptime.
-- `POST /api/v1/messages/send` — Sends automated bot messages to users (`X-Client-Id` & `X-Client-Secret`).
-- `POST /api/v1/otp/send` — Dispatches 6-digit cryptographic OTP (`X-Client-Id` & `X-Client-Secret`).
-- `POST /api/v1/otp/verify` — Validates user-submitted OTP codes.
-- `POST /api/v1/sso/token` — OAuth 2.0 token exchange (`authorization_code` or `client_credentials`).
-- `GET /api/v1/sso/userinfo` — Returns user sovereign profile (`Bearer <access_token>`).
+### Verified REST Endpoints
+- `GET /api/health` — Returns system uptime, version, and latency SLA.
+- `POST /api/v1/otp/send` — Dispatches carrier OTP passcode to phone or handle.
+- `POST /api/v1/otp/verify` — Validates recipient OTP passcode.
+- `POST /api/v1/bot/send` — Dispatches rich bot notifications & cards.
+- `POST /api/business/chat` — Autonomous business AI customer copilot inference.
+- `GET /api/business/conversations/:id` — Retrieves customer conversation history.
+- `POST /api/business/conversations/:id/canned` — Dispatches pre-approved canned reply.
+- `GET /openapi.json` — Complete machine-readable OpenAPI 3.1.0 schema.
 
 ---
 
-## Integration Guide for AI Agents & Vibe Coding
+## 4. Multi-Language SDK Snippets
 
-### TypeScript SDK Wrapper Example
+### TypeScript (Universal)
 ```typescript
 import axios from 'axios';
 
 export class ZenoaClient {
-  private clientId: string;
-  private clientSecret: string;
+  private apiKey: string;
   private baseUrl: string;
 
-  constructor(clientId: string, clientSecret: string, baseUrl = 'https://zenoa.in') {
-    this.clientId = clientId;
-    this.clientSecret = clientSecret;
+  constructor(apiKey = process.env.ZENOA_API_KEY || "YOUR_ZENOA_API_KEY", baseUrl = "https://zenoa.in") {
+    this.apiKey = apiKey;
     this.baseUrl = baseUrl;
   }
 
-  private get headers() {
+  private headers() {
     return {
-      'Content-Type': 'application/json',
-      'X-Client-Id': this.clientId,
-      'X-Client-Secret': this.clientSecret,
+      "Authorization": `Bearer ${this.apiKey}`,
+      "X-Zenoa-Api-Key": this.apiKey,
+      "Content-Type": "application/json"
     };
   }
 
-  async sendMessage(recipient: string, message: string, mediaUrl?: string) {
-    const res = await axios.post(
-      `${this.baseUrl}/api/v1/messages/send`,
-      { recipient, message, media_url: mediaUrl },
-      { headers: this.headers }
-    );
-    return res.data;
-  }
-
-  async sendOtp(recipient: string, expiryMinutes = 10) {
-    const res = await axios.post(
-      `${this.baseUrl}/api/v1/otp/send`,
-      { recipient, expiry_mins: expiryMinutes },
-      { headers: this.headers }
-    );
+  async sendOtp(recipient: string, templateType = "standard_otp") {
+    const res = await axios.post(`${this.baseUrl}/api/v1/otp/send`, { recipient, template_type: templateType }, { headers: this.headers() });
     return res.data;
   }
 
   async verifyOtp(recipient: string, code: string) {
-    const res = await axios.post(
-      `${this.baseUrl}/api/v1/otp/verify`,
-      { recipient, code },
-      { headers: this.headers }
-    );
+    const res = await axios.post(`${this.baseUrl}/api/v1/otp/verify`, { recipient, code }, { headers: this.headers() });
+    return res.data;
+  }
+
+  async chat(sessionId: string, message: string, context: Record<string, any> = {}) {
+    const res = await axios.post(`${this.baseUrl}/api/business/chat`, { session_id: sessionId, message, customer_context: context }, { headers: this.headers() });
     return res.data;
   }
 }
 ```
 
-### Python SDK Wrapper Example
+### Python 3 SDK
 ```python
 import os
 import requests
 
 class ZenoaClient:
-    def __init__(self, client_id=None, client_secret=None, base_url="https://zenoa.in"):
-        self.client_id = client_id or os.getenv("ZENOA_CLIENT_ID")
-        self.client_secret = client_secret or os.getenv("ZENOA_CLIENT_SECRET")
-        self.base_url = base_url
-        self.headers = {
-            "Content-Type": "application/json",
-            "X-Client-Id": self.client_id,
-            "X-Client-Secret": self.client_secret
+    def __init__(self, api_key: str = None):
+        self.api_key = api_key or os.getenv("ZENOA_API_KEY", "YOUR_ZENOA_API_KEY")
+        self.base_url = "https://zenoa.in"
+
+    def _headers(self):
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "X-Zenoa-Api-Key": self.api_key,
+            "Content-Type": "application/json"
         }
 
-    def send_message(self, recipient: str, message: str, media_url: str = None) -> dict:
-        url = f"{self.base_url}/api/v1/messages/send"
-        payload = {"recipient": recipient, "message": message}
-        if media_url:
-            payload["media_url"] = media_url
-        resp = requests.post(url, json=payload, headers=self.headers)
-        resp.raise_for_status()
-        return resp.json()
+    def send_otp(self, recipient: str, template_type: str = "standard_otp"):
+        return requests.post(f"{self.base_url}/api/v1/otp/send", json={"recipient": recipient, "template_type": template_type}, headers=self._headers()).json()
 
-    def send_otp(self, recipient: str, expiry_mins: int = 10) -> dict:
-        url = f"{self.base_url}/api/v1/otp/send"
-        payload = {"recipient": recipient, "expiry_mins": expiry_mins}
-        resp = requests.post(url, json=payload, headers=self.headers)
-        resp.raise_for_status()
-        return resp.json()
-
-    def verify_otp(self, recipient: str, code: str) -> bool:
-        url = f"{self.base_url}/api/v1/otp/verify"
-        payload = {"recipient": recipient, "code": code}
-        resp = requests.post(url, json=payload, headers=self.headers)
-        return resp.status_code == 200 and resp.json().get("success", False)
+    def chat(self, session_id: str, message: str, context: dict = None):
+        return requests.post(f"{self.base_url}/api/business/chat", json={"session_id": session_id, "message": message, "customer_context": context or {}}, headers=self._headers()).json()
 ```
 
----
-
-## Machine-Readable Manifests
-- **LLM Summary**: [https://zenoa.in/llms.txt](https://zenoa.in/llms.txt)
-- **Full LLM Context**: [https://zenoa.in/llms-full.txt](https://zenoa.in/llms-full.txt)
-- **Robots Policy**: [https://zenoa.in/robots.txt](https://zenoa.in/robots.txt)
-- **XML Sitemap**: [https://zenoa.in/sitemap.xml](https://zenoa.in/sitemap.xml)
-- **OpenAPI Schema**: [https://zenoa.in/openapi.json](https://zenoa.in/openapi.json)
-
----
-
-## Organization & Lineage
-- **Product**: Zenoa (Zenoa Messenger)
-- **Parent Enterprise**: Inolas Nexus
-- **Platform Scope**: Global Sovereign Communication Protocol & Developer Ecosystem
-- **License**: Sovereign Privacy & Open Developer Protocol
+### Web Storefront Live Chat Embed
+```html
+<!-- Floating Bubble Mode -->
+<script 
+  src="https://zenoa.in/widget/live-chat.js" 
+  data-api-key="YOUR_ZENOA_API_KEY" 
+  data-category="business"
+  data-mode="bubble"
+  data-position="bottom-right"
+  async>
+</script>
+```

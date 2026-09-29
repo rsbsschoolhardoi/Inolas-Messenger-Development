@@ -4,6 +4,7 @@ import {
   ChevronRight, Copy, Check, Play, Clock, ArrowUpRight, ArrowDownLeft,
   Terminal, Shield, Eye, X, CornerDownRight, Zap
 } from 'lucide-react';
+import { CustomSelect } from '../common/CustomSelect';
 
 interface ApiLogsViewProps {
   app: any;
@@ -208,23 +209,22 @@ export const ApiLogsView: React.FC<ApiLogsViewProps> = ({
           </div>
 
           {/* Endpoint Filter */}
-          <select
-            value={endpointFilter}
-            onChange={e => setEndpointFilter(e.target.value)}
-            className={`px-3 py-1.5 rounded-xl border text-xs font-semibold outline-none cursor-pointer ${
-              isDark 
-                ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
-                : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
-            }`}
-          >
-            <option value="all">All Endpoints</option>
-            <option value="otp/send">/api/v1/otp/send</option>
-            <option value="otp/verify">/api/v1/otp/verify</option>
-            <option value="bot/send">/api/v1/bot/send</option>
-            <option value="bot/broadcast">/api/v1/bot/broadcast</option>
-            <option value="sso">/api/v1/sso/*</option>
-            <option value="webhook">Webhook Test</option>
-          </select>
+          <div className="w-48">
+            <CustomSelect
+              value={endpointFilter}
+              onChange={(val) => setEndpointFilter(val)}
+              size="sm"
+              options={[
+                { value: 'all', label: 'All Endpoints' },
+                { value: 'otp/send', label: '/api/v1/otp/send' },
+                { value: 'otp/verify', label: '/api/v1/otp/verify' },
+                { value: 'bot/send', label: '/api/v1/bot/send' },
+                { value: 'bot/broadcast', label: '/api/v1/bot/broadcast' },
+                { value: 'sso', label: '/api/v1/sso/*' },
+                { value: 'webhook', label: 'Webhook Test' },
+              ]}
+            />
+          </div>
         </div>
 
         {/* Search */}

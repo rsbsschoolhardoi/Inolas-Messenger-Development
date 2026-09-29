@@ -53,6 +53,18 @@ if (resend) {
   console.log("Resend API key missing; operating in dev email simulation mode");
 }
 
+// Initialize Gemini GenAI client for Zenoa Business Autonomous Triage
+import { GoogleGenAI } from '@google/genai';
+let geminiAiClient: GoogleGenAI | null = null;
+try {
+  if (process.env.GEMINI_API_KEY) {
+    geminiAiClient = new GoogleGenAI();
+    console.log("Gemini AI Client initialized successfully for Business Autonomous Triage");
+  }
+} catch (gErr) {
+  console.warn("Gemini AI Client initialization notice:", gErr);
+}
+
 // BYO-SMTP Configuration Interface for SSO & Developer Applications
 export interface SmtpConfigPayload {
   enabled?: boolean;
@@ -6508,6 +6520,1148 @@ app.post('/api/v1/account/export-data', async (req: any, res: any) => {
     console.error('[ACCOUNT_PORTAL] Export error:', err);
     return res.status(500).json({ success: false, error: 'Failed to export account data.' });
   }
+});
+
+// ==========================================
+// ZENOA BUSINESS PLATFORM BACKEND APIS
+// ==========================================
+
+const inMemoryBusinessApps = new Map<string, any>();
+const inMemoryBusinessConversations = new Map<string, any>();
+const inMemoryBusinessMessages = new Map<string, any[]>();
+
+// Rate Limiting & Anti-Spam Tracking Maps
+interface RateLimitTracker {
+  count: number;
+  windowStart: number;
+  lastRequestTime: number;
+  blockedUntil?: number;
+}
+const customerSessionRateLimits = new Map<string, RateLimitTracker>();
+const agentCooldownTracker = new Map<string, number>();
+
+const checkBusinessRateLimit = (
+  key: string, 
+  maxPerMin: number = 8, 
+  burstCooldownSec: number = 20,
+  minIntervalSec: number = 3
+): { allowed: boolean; retryAfter?: number; reason?: string } => {
+  const now = Date.now();
+  let record = customerSessionRateLimits.get(key);
+  if (!record) {
+    record = { count: 1, windowStart: now, lastRequestTime: now };
+    customerSessionRateLimits.set(key, record);
+    return { allowed: true };
+  }
+
+  // 1. Check if currently under temporary burst lockout
+  if (record.blockedUntil && record.blockedUntil > now) {
+    const remaining = Math.ceil((record.blockedUntil - now) / 1000);
+    return { 
+      allowed: false, 
+      retryAfter: remaining, 
+      reason: `Anti-flood protection active. Please wait ${remaining}s before sending another message.` 
+    };
+  }
+
+  // 2. Minimum interval throttle check (e.g., minimum 3s between consecutive customer bubble messages)
+  const elapsedSinceLast = now - (record.lastRequestTime || 0);
+  const minIntervalMs = minIntervalSec * 1000;
+  if (minIntervalMs > 0 && elapsedSinceLast < minIntervalMs) {
+    const waitSec = Math.ceil((minIntervalMs - elapsedSinceLast) / 1000);
+    return {
+      allowed: false,
+      retryAfter: waitSec,
+      reason: `Please slow down. Wait ${waitSec}s before sending another message.`
+    };
+  }
+
+  // 3. Reset sliding 60s window
+  if (now - record.windowStart > 60000) {
+    record.count = 1;
+    record.windowStart = now;
+    record.lastRequestTime = now;
+    delete record.blockedUntil;
+    return { allowed: true };
+  }
+
+  record.count++;
+  record.lastRequestTime = now;
+
+  // 4. Exceeded maximum messages per minute threshold
+  if (record.count > maxPerMin) {
+    record.blockedUntil = now + (burstCooldownSec * 1000);
+    return { 
+      allowed: false, 
+      retryAfter: burstCooldownSec, 
+      reason: `Rate limit of ${maxPerMin} messages/minute exceeded. Lockout active for ${burstCooldownSec}s.` 
+    };
+  }
+
+  return { allowed: true };
+};
+
+// Multi-Provider AI Dispatch Engine (Google Gemini, OpenAI, Anthropic, Groq, Mistral, OpenRouter, Custom VPS)
+async function callMultiProviderAi({
+  provider,
+  model,
+  apiKey,
+  customEndpoint,
+  systemPrompt,
+  userMessage,
+  temperature = 0.3
+}: {
+  provider: string;
+  model: string;
+  apiKey?: string;
+  customEndpoint?: string;
+  systemPrompt: string;
+  userMessage: string;
+  temperature?: number;
+}): Promise<string> {
+  const normalizedProvider = (provider || 'google').toLowerCase();
+
+  // 1. Google Gemini
+  if (normalizedProvider === 'google') {
+    let clientToUse = geminiAiClient;
+    if (apiKey && safeTrim(apiKey)) {
+      clientToUse = new GoogleGenAI({ apiKey: safeTrim(apiKey) });
+    }
+    if (!clientToUse) throw new Error('Google Gemini API key not configured.');
+    const resp = await clientToUse.models.generateContent({
+      model: model || 'gemini-2.5-flash',
+      contents: userMessage,
+      config: {
+        systemInstruction: systemPrompt,
+        temperature: temperature
+      }
+    });
+    return resp?.text ? resp.text.trim() : '';
+  }
+
+  // 2. OpenAI
+  if (normalizedProvider === 'openai') {
+    if (!apiKey) throw new Error('OpenAI API key required.');
+    const resp = await axios.post('https://api.openai.com/v1/chat/completions', {
+      model: model || 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+      temperature: temperature
+    }, {
+      headers: {
+        'Authorization': `Bearer ${safeTrim(apiKey)}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 15000
+    });
+    return resp.data?.choices?.[0]?.message?.content?.trim() || '';
+  }
+
+  // 3. Anthropic Claude
+  if (normalizedProvider === 'anthropic') {
+    if (!apiKey) throw new Error('Anthropic Claude API key required.');
+    const resp = await axios.post('https://api.anthropic.com/v1/messages', {
+      model: model || 'claude-3-5-sonnet-20241022',
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: [
+        { role: 'user', content: userMessage }
+      ],
+      temperature: temperature
+    }, {
+      headers: {
+        'x-api-key': safeTrim(apiKey),
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json'
+      },
+      timeout: 15000
+    });
+    return resp.data?.content?.[0]?.text?.trim() || '';
+  }
+
+  // 4. Groq
+  if (normalizedProvider === 'groq') {
+    if (!apiKey) throw new Error('Groq API key required.');
+    const resp = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+      model: model || 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+      temperature: temperature
+    }, {
+      headers: {
+        'Authorization': `Bearer ${safeTrim(apiKey)}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 15000
+    });
+    return resp.data?.choices?.[0]?.message?.content?.trim() || '';
+  }
+
+  // 5. Mistral AI
+  if (normalizedProvider === 'mistral') {
+    if (!apiKey) throw new Error('Mistral API key required.');
+    const resp = await axios.post('https://api.mistral.ai/v1/chat/completions', {
+      model: model || 'mistral-large-latest',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+      temperature: temperature
+    }, {
+      headers: {
+        'Authorization': `Bearer ${safeTrim(apiKey)}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 15000
+    });
+    return resp.data?.choices?.[0]?.message?.content?.trim() || '';
+  }
+
+  // 6. OpenRouter Universal
+  if (normalizedProvider === 'openrouter') {
+    if (!apiKey) throw new Error('OpenRouter API key required.');
+    const resp = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+      model: model || 'google/gemini-2.5-flash',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+      temperature: temperature
+    }, {
+      headers: {
+        'Authorization': `Bearer ${safeTrim(apiKey)}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://zenoa.in',
+        'X-Title': 'Zenoa Developer Console'
+      },
+      timeout: 15000
+    });
+    return resp.data?.choices?.[0]?.message?.content?.trim() || '';
+  }
+
+  // 7. Custom / Self-Hosted VPS endpoint (Ollama / vLLM / Localhost)
+  if (normalizedProvider === 'custom') {
+    const endpoint = customEndpoint || 'http://localhost:11434/v1/chat/completions';
+    const headers: any = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = `Bearer ${safeTrim(apiKey)}`;
+    const resp = await axios.post(endpoint, {
+      model: model || 'default',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+      temperature: temperature
+    }, {
+      headers,
+      timeout: 15000
+    });
+    return resp.data?.choices?.[0]?.message?.content?.trim() || '';
+  }
+
+  throw new Error(`Unsupported AI provider: ${provider}`);
+}
+
+// 0. POST /api/business/test-ai-key - Test & verify custom developer API key
+app.post('/api/business/test-ai-key', async (req: any, res: any) => {
+  const startTime = Date.now();
+  try {
+    const { provider = 'google', model = 'gemini-2.5-flash', api_key, custom_endpoint } = req.body || {};
+    const reply = await callMultiProviderAi({
+      provider,
+      model,
+      apiKey: api_key,
+      customEndpoint: custom_endpoint,
+      systemPrompt: 'You are an API probe test validator. Respond with the single word "Verified".',
+      userMessage: 'Verify API credentials connection.',
+      temperature: 0.1
+    });
+
+    const latencyMs = Date.now() - startTime;
+    return res.json({
+      success: true,
+      verified: true,
+      provider,
+      model,
+      latency_ms: latencyMs,
+      reply: reply || 'Verified'
+    });
+  } catch (err: any) {
+    const latencyMs = Date.now() - startTime;
+    const errorMsg = err.response?.data?.error?.message || err.message || 'API Key verification probe failed.';
+    return res.status(400).json({
+      success: false,
+      verified: false,
+      error: errorMsg,
+      latency_ms: latencyMs
+    });
+  }
+});
+
+// 0b. POST /api/business/test-webhook - Dispatch live test payload to escalation webhook
+app.post('/api/business/test-webhook', async (req: any, res: any) => {
+  const startTime = Date.now();
+  try {
+    const { webhook_url, event = 'escalation_test', payload = {} } = req.body || {};
+    if (!webhook_url || !safeTrim(webhook_url)) {
+      return res.status(400).json({ success: false, error: 'Webhook URL is required.' });
+    }
+
+    const testPayload = {
+      event,
+      timestamp: new Date().toISOString(),
+      app_id: payload.app_id || 'biz_test_probe',
+      customer: {
+        name: 'Alex Johnson (Probe Test)',
+        email: 'alex.test@example.com',
+        order_id: '#ORD-PROBE-991',
+        message: 'This is an automated webhook connectivity test from Zenoa Developer Console.'
+      },
+      ...payload
+    };
+
+    const response = await axios.post(safeTrim(webhook_url), testPayload, {
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Zenoa-Business-Webhook-Probe/2.0'
+      },
+      timeout: 8000
+    });
+
+    const latencyMs = Date.now() - startTime;
+    return res.json({
+      success: true,
+      delivered: true,
+      status_code: response.status,
+      status_text: response.statusText,
+      latency_ms: latencyMs,
+      payload_sent: testPayload
+    });
+  } catch (err: any) {
+    const latencyMs = Date.now() - startTime;
+    const statusCode = err.response?.status || 500;
+    const errorMsg = err.response?.data?.message || err.message || 'Webhook dispatch failed.';
+    return res.status(400).json({
+      success: false,
+      delivered: false,
+      status_code: statusCode,
+      error: errorMsg,
+      latency_ms: latencyMs
+    });
+  }
+});
+
+// 0c. POST /api/business/simulate-abuse - Live Rate Limit & Throttle probe tester for Developer Console
+app.post('/api/business/simulate-abuse', async (req: any, res: any) => {
+  try {
+    const { app_id, burst_count = 5, simulation_type = 'customer_flood' } = req.body || {};
+    const testKey = `sim_${simulation_type}_${app_id || 'test'}_${Date.now()}`;
+    const results: Array<{ attempt: number; allowed: boolean; reason?: string }> = [];
+
+    let blocked = false;
+    for (let i = 1; i <= Math.min(burst_count, 15); i++) {
+      const check = checkBusinessRateLimit(testKey, 4, 15, 2);
+      results.push({
+        attempt: i,
+        allowed: check.allowed,
+        reason: check.reason
+      });
+      if (!check.allowed) blocked = true;
+    }
+
+    return res.json({
+      success: true,
+      simulated: true,
+      total_burst_attempts: results.length,
+      throttle_triggered: blocked,
+      logs: results
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 1. GET /api/business/apps - Fetch business app settings
+app.get('/api/business/apps', async (req: any, res: any) => {
+  try {
+    const ownerUsername = safeTrim(req.query.owner || req.query.owner_username).toLowerCase().replace(/^@/, '');
+    const appId = safeTrim(req.query.app_id || req.query.id);
+    const clientId = safeTrim(req.query.client_id);
+
+    // Search in-memory first
+    let foundApp: any = null;
+    if (appId && inMemoryBusinessApps.has(appId)) {
+      foundApp = inMemoryBusinessApps.get(appId);
+    } else if (clientId) {
+      for (const app of inMemoryBusinessApps.values()) {
+        if (app.client_id === clientId) { foundApp = app; break; }
+      }
+    } else if (ownerUsername) {
+      for (const app of inMemoryBusinessApps.values()) {
+        if (app.owner_username?.toLowerCase() === ownerUsername) { foundApp = app; break; }
+      }
+    }
+
+    // Check Firestore
+    if (!foundApp && db) {
+      try {
+        if (appId) {
+          const snap = await getDoc(doc(db, 'business_apps', appId));
+          if (snap.exists()) foundApp = { id: snap.id, ...snap.data() };
+        } else if (clientId) {
+          const q = query(collection(db, 'business_apps'), where('client_id', '==', clientId));
+          const qSnap = await getDocs(q);
+          if (!qSnap.empty) foundApp = { id: qSnap.docs[0].id, ...qSnap.docs[0].data() };
+        } else if (ownerUsername) {
+          const q = query(collection(db, 'business_apps'), where('owner_username', '==', ownerUsername));
+          const qSnap = await getDocs(q);
+          if (!qSnap.empty) foundApp = { id: qSnap.docs[0].id, ...qSnap.docs[0].data() };
+        }
+      } catch (fErr) {
+        console.warn('[BUSINESS_API] Firestore fetch notice:', fErr);
+      }
+    }
+
+    // If still not found and an owner or app_id was specified, auto-provision default business app
+    if (!foundApp && (ownerUsername || appId)) {
+      const defaultId = appId || `biz_${ownerUsername || 'default'}`;
+      const defaultClientId = clientId || `zen_biz_${Date.now().toString(36)}`;
+      foundApp = {
+        id: defaultId,
+        client_id: defaultClientId,
+        app_name: ownerUsername ? `${ownerUsername.charAt(0).toUpperCase() + ownerUsername.slice(1)} Store` : 'Zenoa Merchant Support',
+        bot_username: ownerUsername ? `${ownerUsername}_support` : 'zenoa_support',
+        category: 'ecommerce',
+        platform_target: 'hybrid',
+        archetype: 'business_enterprise',
+        owner_username: ownerUsername || 'merchant',
+        assigned_agents: ownerUsername ? [`@${ownerUsername}`] : ['@support_lead'],
+        ai_enabled: true,
+        ai_model: 'gemini-2.5-flash',
+        ai_system_prompt: 'You are the intelligent customer concierge for this store. Help customers find sizes, explain shipping (3-5 business days), and describe return policies (14 days return). If customer reports order delay or issue, apologize warmly and advise that a live specialist has been notified.',
+        pre_purchase_auto_respond: true,
+        post_purchase_instant_escalate: true,
+        business_hours: {
+          enabled: false,
+          timezone: 'Asia/Kolkata',
+          start_time: '09:00',
+          end_time: '21:00',
+          away_message: 'Our live team is currently away. Leave your message and order ID, and we will prioritize your ticket first thing in the morning.'
+        },
+        widget_theme: {
+          primary_color: '#533afd',
+          greeting_title: 'Need help with your order or sizing?',
+          greeting_subtitle: 'Chat live with our team or ask our AI assistant 24/7.',
+          position: 'bottom-right'
+        },
+        quick_replies: [
+          { id: 'qr_1', shortcut: '/shipping', title: 'Shipping Policy', content: 'We ship orders within 24 hours. Delivery takes 3-5 business days with live tracking.' },
+          { id: 'qr_2', shortcut: '/returns', title: 'Return & Exchange', content: 'We offer hassle-free 14-day exchanges and returns. Keep tags and box intact!' },
+          { id: 'qr_3', shortcut: '/order_delay', title: 'Delayed Shipment VIP Alert', content: 'I have personally escalated your order to our warehouse dispatch supervisor. Tracking update will be dispatched to your phone.' }
+        ],
+        created_at: Date.now(),
+        updated_at: Date.now()
+      };
+
+      inMemoryBusinessApps.set(foundApp.id, foundApp);
+      if (db) {
+        setDoc(doc(db, 'business_apps', foundApp.id), foundApp).catch(() => {});
+      }
+    }
+
+    return res.json({ success: true, app: foundApp });
+  } catch (err: any) {
+    console.error('[BUSINESS_API] App fetch error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 2. POST /api/business/apps - Create or update business app
+app.post('/api/business/apps', async (req: any, res: any) => {
+  try {
+    const payload = req.body || {};
+    const appId = safeTrim(payload.id || payload.app_id) || `biz_${Date.now().toString(36)}`;
+    const owner = safeTrim(payload.owner_username).replace(/^@/, '') || 'merchant';
+
+    const updatedApp = {
+      ...payload,
+      id: appId,
+      owner_username: owner,
+      updated_at: Date.now()
+    };
+
+    inMemoryBusinessApps.set(appId, updatedApp);
+    if (db) {
+      await setDoc(doc(db, 'business_apps', appId), updatedApp, { merge: true }).catch(err => {
+        console.warn('[BUSINESS_API] Firestore save app warning:', err);
+      });
+    }
+
+    return res.json({ success: true, app: updatedApp });
+  } catch (err: any) {
+    console.error('[BUSINESS_API] App save error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3. GET /api/business/conversations - List conversations for a business app
+app.get('/api/business/conversations', async (req: any, res: any) => {
+  try {
+    const appId = safeTrim(req.query.app_id);
+    const status = safeTrim(req.query.status);
+    const intent = safeTrim(req.query.intent);
+
+    let list: any[] = [];
+
+    // Check in-memory first
+    for (const conv of inMemoryBusinessConversations.values()) {
+      if (!appId || conv.app_id === appId) {
+        if (!status || conv.status === status) {
+          if (!intent || conv.intent === intent) {
+            list.push(conv);
+          }
+        }
+      }
+    }
+
+    // If Firestore has more, load from Firestore
+    if (db && appId) {
+      try {
+        const q = query(collection(db, 'business_conversations'), where('app_id', '==', appId));
+        const qSnap = await getDocs(q);
+        const map = new Map<string, any>();
+        list.forEach(item => map.set(item.id, item));
+        qSnap.forEach(docSnap => {
+          map.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+        });
+        list = Array.from(map.values());
+      } catch (fErr) {
+        console.warn('[BUSINESS_API] Firestore conversations query warning:', fErr);
+      }
+    }
+
+    // Sort descending by last_message_time
+    list.sort((a, b) => (b.last_message_time || b.updated_at || 0) - (a.last_message_time || a.updated_at || 0));
+
+    // Provide seed demo conversations if empty so the merchant dashboard is immediately rich & functional
+    if (list.length === 0 && appId) {
+      const sample1: any = {
+        id: `conv_${Date.now()}_1`,
+        app_id: appId,
+        customer_session_id: 'cust_sess_99182',
+        customer: {
+          customer_name: 'Rohit Verma',
+          customer_email: 'rohit.v@example.com',
+          customer_phone: '+91 98112 34567',
+          current_page_url: 'https://store.in/products/air-jordan-retro-9',
+          page_title: 'Air Jordan Retro 9 — Midnight Navy',
+          cart_value: '₹14,999',
+          cart_items: [{ name: 'Air Jordan Retro 9 (UK 9)', qty: 1, price: 14999 }],
+          order_id: '#ORD-88219',
+          order_status: 'Out for delivery (Delayed by 24h)',
+          device_type: 'Mobile Safari • iOS 18',
+          location: 'New Delhi, India'
+        },
+        intent: 'post_purchase_issue',
+        status: 'pending_human',
+        priority: 'urgent',
+        assigned_agent: '@store_owner',
+        ai_active: false,
+        messages_count: 2,
+        last_message: 'Hi, my order #ORD-88219 was supposed to arrive yesterday. Can someone check tracking?',
+        last_message_time: Date.now() - 1000 * 60 * 3,
+        last_sender: 'customer',
+        unread_for_agent: true,
+        unread_for_customer: false,
+        created_at: Date.now() - 1000 * 60 * 15,
+        updated_at: Date.now() - 1000 * 60 * 3
+      };
+
+      const sample2: any = {
+        id: `conv_${Date.now()}_2`,
+        app_id: appId,
+        customer_session_id: 'cust_sess_44102',
+        customer: {
+          customer_name: 'Pooja Hegde',
+          customer_email: 'pooja.h@example.com',
+          customer_phone: '+91 97234 11223',
+          current_page_url: 'https://store.in/products/linen-oversized-shirt',
+          page_title: 'Linen Oversized Shirt — Cream White',
+          cart_value: '₹2,499',
+          cart_items: [{ name: 'Linen Oversized Shirt', qty: 1, price: 2499 }],
+          device_type: 'Chrome 128 • Windows 11',
+          location: 'Bengaluru, India'
+        },
+        intent: 'pre_purchase',
+        status: 'open',
+        priority: 'normal',
+        assigned_agent: undefined,
+        ai_active: true,
+        messages_count: 4,
+        last_message: 'Our linen shirts feature a relaxed oversized drape! If you prefer a tailored fit, we recommend ordering one size down.',
+        last_message_time: Date.now() - 1000 * 60 * 12,
+        last_sender: 'ai',
+        unread_for_agent: false,
+        unread_for_customer: false,
+        created_at: Date.now() - 1000 * 60 * 20,
+        updated_at: Date.now() - 1000 * 60 * 12
+      };
+
+      list = [sample1, sample2];
+      list.forEach(c => inMemoryBusinessConversations.set(c.id, c));
+      
+      // Store sample messages
+      inMemoryBusinessMessages.set(sample1.id, [
+        {
+          id: 'msg_s1_1',
+          conversation_id: sample1.id,
+          app_id: appId,
+          sender_type: 'customer',
+          sender_name: 'Rohit Verma',
+          text: 'Hi, my order #ORD-88219 was supposed to arrive yesterday. Can someone check tracking?',
+          created_at: Date.now() - 1000 * 60 * 3,
+          read: false
+        }
+      ]);
+
+      inMemoryBusinessMessages.set(sample2.id, [
+        {
+          id: 'msg_s2_1',
+          conversation_id: sample2.id,
+          app_id: appId,
+          sender_type: 'customer',
+          sender_name: 'Pooja Hegde',
+          text: 'Does this shirt run true to size or should I size down?',
+          created_at: Date.now() - 1000 * 60 * 13,
+          read: true
+        },
+        {
+          id: 'msg_s2_2',
+          conversation_id: sample2.id,
+          app_id: appId,
+          sender_type: 'ai',
+          sender_name: 'Zenoa AI Assistant',
+          text: 'Our linen shirts feature a relaxed oversized drape! If you prefer a tailored fit, we recommend ordering one size down. You can also view our full chest dimension chart on the product tab.',
+          created_at: Date.now() - 1000 * 60 * 12,
+          read: true
+        }
+      ]);
+    }
+
+    return res.json({ success: true, conversations: list });
+  } catch (err: any) {
+    console.error('[BUSINESS_API] Conversations fetch error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 4. POST /api/business/conversations - Create or find conversation from customer widget
+app.post('/api/business/conversations', async (req: any, res: any) => {
+  try {
+    const { app_id, customer_session_id, customer = {}, intent = 'general', initial_message } = req.body || {};
+    if (!app_id || !customer_session_id) {
+      return res.status(400).json({ success: false, error: 'Missing app_id or customer_session_id' });
+    }
+
+    const convId = `conv_${app_id}_${customer_session_id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+
+    let existing: any = inMemoryBusinessConversations.get(convId);
+    if (!existing && db) {
+      try {
+        const snap = await getDoc(doc(db, 'business_conversations', convId));
+        if (snap.exists()) existing = { id: snap.id, ...snap.data() };
+      } catch (e) {}
+    }
+
+    const isPostPurchase = intent === 'post_purchase_issue' || !!customer.order_id;
+    const now = Date.now();
+
+    const conversationData = {
+      id: convId,
+      app_id,
+      customer_session_id,
+      customer: {
+        ...(existing?.customer || {}),
+        ...customer
+      },
+      intent: isPostPurchase ? 'post_purchase_issue' : intent,
+      status: isPostPurchase ? 'pending_human' : (existing?.status || 'open'),
+      priority: isPostPurchase ? 'urgent' : 'normal',
+      ai_active: isPostPurchase ? false : true,
+      messages_count: (existing?.messages_count || 0) + (initial_message ? 1 : 0),
+      last_message: initial_message || existing?.last_message || 'Conversation initiated',
+      last_message_time: now,
+      last_sender: initial_message ? 'customer' : (existing?.last_sender || 'customer'),
+      unread_for_agent: true,
+      unread_for_customer: false,
+      created_at: existing?.created_at || now,
+      updated_at: now
+    };
+
+    inMemoryBusinessConversations.set(convId, conversationData);
+    if (db) {
+      setDoc(doc(db, 'business_conversations', convId), conversationData, { merge: true }).catch(() => {});
+    }
+
+    // If initial_message provided, record message
+    if (initial_message) {
+      const msgId = `msg_${now}_${Math.random().toString(36).substring(2, 6)}`;
+      const messageObj = {
+        id: msgId,
+        conversation_id: convId,
+        app_id,
+        sender_type: 'customer',
+        sender_name: customer.customer_name || 'Guest Customer',
+        text: initial_message,
+        created_at: now,
+        read: false
+      };
+
+      const msgs = inMemoryBusinessMessages.get(convId) || [];
+      msgs.push(messageObj);
+      inMemoryBusinessMessages.set(convId, msgs);
+
+      if (db) {
+        setDoc(doc(db, 'business_messages', msgId), messageObj).catch(() => {});
+      }
+    }
+
+    return res.json({ success: true, conversation: conversationData });
+  } catch (err: any) {
+    console.error('[BUSINESS_API] Create conversation error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 5. GET /api/business/conversations/:id/messages - Get message history
+app.get('/api/business/conversations/:id/messages', async (req: any, res: any) => {
+  try {
+    const convId = req.params.id;
+    let msgs: any[] = inMemoryBusinessMessages.get(convId) || [];
+
+    if (msgs.length === 0 && db) {
+      try {
+        const q = query(collection(db, 'business_messages'), where('conversation_id', '==', convId));
+        const qSnap = await getDocs(q);
+        qSnap.forEach(d => msgs.push({ id: d.id, ...d.data() }));
+        inMemoryBusinessMessages.set(convId, msgs);
+      } catch (e) {}
+    }
+
+    msgs.sort((a, b) => a.created_at - b.created_at);
+    return res.json({ success: true, messages: msgs });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 6. POST /api/business/conversations/:id/messages - Send a message (Agent or Customer) with Rate Limiting
+app.post('/api/business/conversations/:id/messages', async (req: any, res: any) => {
+  try {
+    const convId = req.params.id;
+    const { text, sender_type = 'customer', sender_name = 'User', sender_id, app_id } = req.body || {};
+
+    if (!text || !safeTrim(text)) {
+      return res.status(400).json({ success: false, error: 'Text cannot be empty' });
+    }
+
+    // 1. Fetch app config for rate limiting rules
+    let app = inMemoryBusinessApps.get(app_id);
+    if (!app && db && app_id) {
+      try {
+        const snap = await getDoc(doc(db, 'business_apps', app_id));
+        if (snap.exists()) app = snap.data();
+      } catch (e) {}
+    }
+
+    const rateLimits = app?.rate_limiting || {
+      enabled: true,
+      customer_cooldown_seconds: 3,
+      max_messages_per_minute: 8,
+      burst_cooldown_seconds: 20,
+      agent_cooldown_ms: 700,
+      max_input_length: 500
+    };
+
+    const now = Date.now();
+
+    // 2. Check Customer Rate Limits & Anti-Abuse
+    if (sender_type === 'customer' && rateLimits.enabled !== false) {
+      // Check maximum message character length
+      const maxLen = rateLimits.max_input_length || 500;
+      if (text.length > maxLen) {
+        return res.status(400).json({
+          success: false,
+          error: `Message exceeds maximum allowed length of ${maxLen} characters.`,
+          rate_limited: true
+        });
+      }
+
+      // Check anti-spam keywords filter
+      if (rateLimits.anti_spam_keywords && Array.isArray(rateLimits.anti_spam_keywords)) {
+        const lower = text.toLowerCase();
+        const spamHit = rateLimits.anti_spam_keywords.some((kw: string) => kw && lower.includes(kw.toLowerCase().trim()));
+        if (spamHit) {
+          return res.status(400).json({
+            success: false,
+            error: 'Message filtered by store anti-spam shield.',
+            rate_limited: true
+          });
+        }
+      }
+
+      const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'session_client';
+      const rateLimitKey = `cust_${app_id || 'app'}_${convId}_${String(clientIp).split(',')[0]}`;
+      const check = checkBusinessRateLimit(
+        rateLimitKey,
+        rateLimits.max_messages_per_minute || 8,
+        rateLimits.burst_cooldown_seconds || 20,
+        rateLimits.customer_cooldown_seconds || 3
+      );
+
+      if (!check.allowed) {
+        return res.status(429).json({
+          success: false,
+          error: check.reason || 'Rate limit exceeded. Please wait a moment before sending another message.',
+          retry_after: check.retryAfter || 15,
+          rate_limited: true
+        });
+      }
+    }
+
+    // 3. Check Agent Rapid-Fire Cooldown Throttle
+    if (sender_type === 'agent' && rateLimits.enabled !== false) {
+      const agentKey = `agent_${sender_id || sender_name || 'rep'}`;
+      const lastAgentTime = agentCooldownTracker.get(agentKey) || 0;
+      const agentCooldown = rateLimits.agent_cooldown_ms ?? 700;
+      if (now - lastAgentTime < agentCooldown) {
+        const waitMs = agentCooldown - (now - lastAgentTime);
+        return res.status(429).json({
+          success: false,
+          error: `Agent throttle active. Cooldown ${agentCooldown}ms between rapid replies. Try again in ${waitMs}ms.`,
+          retry_after: Math.ceil(waitMs / 1000),
+          rate_limited: true
+        });
+      }
+      agentCooldownTracker.set(agentKey, now);
+    }
+
+    const msgId = `msg_${now}_${Math.random().toString(36).substring(2, 7)}`;
+    const newMsg = {
+      id: msgId,
+      conversation_id: convId,
+      app_id: app_id || '',
+      sender_type,
+      sender_name,
+      sender_id: sender_id || '',
+      text: safeTrim(text),
+      created_at: now,
+      read: false
+    };
+
+    const msgs = inMemoryBusinessMessages.get(convId) || [];
+    msgs.push(newMsg);
+    inMemoryBusinessMessages.set(convId, msgs);
+
+    if (db) {
+      setDoc(doc(db, 'business_messages', msgId), newMsg).catch(() => {});
+    }
+
+    // Update conversation record
+    const conv = inMemoryBusinessConversations.get(convId);
+    if (conv) {
+      conv.last_message = newMsg.text;
+      conv.last_message_time = now;
+      conv.last_sender = sender_type;
+      conv.messages_count = (conv.messages_count || 0) + 1;
+      if (sender_type === 'customer') {
+        conv.unread_for_agent = true;
+      } else {
+        conv.unread_for_customer = true;
+      }
+      inMemoryBusinessConversations.set(convId, conv);
+
+      if (db) {
+        updateDoc(doc(db, 'business_conversations', convId), {
+          last_message: newMsg.text,
+          last_message_time: now,
+          last_sender: sender_type,
+          messages_count: conv.messages_count,
+          unread_for_agent: conv.unread_for_agent,
+          unread_for_customer: conv.unread_for_customer,
+          updated_at: now
+        }).catch(() => {});
+      }
+    }
+
+    return res.json({ success: true, message: newMsg });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 7. PATCH /api/business/conversations/:id/status - Update conversation state / AI toggle
+app.patch('/api/business/conversations/:id/status', async (req: any, res: any) => {
+  try {
+    const convId = req.params.id;
+    const { status, ai_active, priority, assigned_agent } = req.body || {};
+
+    const conv = inMemoryBusinessConversations.get(convId);
+    if (!conv) {
+      return res.status(404).json({ success: false, error: 'Conversation not found' });
+    }
+
+    if (status !== undefined) conv.status = status;
+    if (ai_active !== undefined) conv.ai_active = Boolean(ai_active);
+    if (priority !== undefined) conv.priority = priority;
+    if (assigned_agent !== undefined) conv.assigned_agent = assigned_agent;
+    conv.updated_at = Date.now();
+
+    inMemoryBusinessConversations.set(convId, conv);
+
+    if (db) {
+      updateDoc(doc(db, 'business_conversations', convId), {
+        ...(status !== undefined && { status }),
+        ...(ai_active !== undefined && { ai_active: Boolean(ai_active) }),
+        ...(priority !== undefined && { priority }),
+        ...(assigned_agent !== undefined && { assigned_agent }),
+        updated_at: conv.updated_at
+      }).catch(() => {});
+    }
+
+    return res.json({ success: true, conversation: conv });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 8. POST /api/business/triage-ai - Autonomous Pre-Purchase AI Co-Pilot response
+app.post('/api/business/triage-ai', async (req: any, res: any) => {
+  try {
+    const { message, app_id, conversation_id, customer_context = {} } = req.body || {};
+    const text = safeTrim(message);
+    const lowerText = text.toLowerCase();
+
+    // 1. Fetch store's AI prompt & knowledge base if available
+    let app = inMemoryBusinessApps.get(app_id);
+    if (!app && db && app_id) {
+      try {
+        const snap = await getDoc(doc(db, 'business_apps', app_id));
+        if (snap.exists()) app = snap.data();
+      } catch (e) {}
+    }
+
+    // Rate limit check for AI triage requests
+    const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'triage_client';
+    const rateLimitKey = `triage_${app_id || 'app'}_${conversation_id || 'anon'}_${String(clientIp).split(',')[0]}`;
+    const rateCheck = checkBusinessRateLimit(
+      rateLimitKey, 
+      app?.rate_limiting?.max_messages_per_minute || 8, 
+      app?.rate_limiting?.burst_cooldown_seconds || 20,
+      app?.rate_limiting?.customer_cooldown_seconds || 3
+    );
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        success: false,
+        error: rateCheck.reason || 'AI evaluation rate limit reached. Please wait a moment.',
+        retry_after: rateCheck.retryAfter || 15,
+        rate_limited: true
+      });
+    }
+
+    let aiReply = '';
+
+    // Check custom knowledge FAQs first (Exact / high relevance matching)
+    if (app?.knowledge_faqs && Array.isArray(app.knowledge_faqs)) {
+      for (const faq of app.knowledge_faqs) {
+        const qWords = faq.question.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
+        const matchCount = qWords.filter((w: string) => lowerText.includes(w)).length;
+        if (matchCount >= 2 || (qWords.length === 1 && lowerText.includes(qWords[0]))) {
+          aiReply = faq.answer;
+          break;
+        }
+      }
+    }
+
+    // Check custom auto-triage rules
+    if (!aiReply && app?.auto_triage_rules && Array.isArray(app.auto_triage_rules)) {
+      for (const rule of app.auto_triage_rules) {
+        if (!rule.is_active) continue;
+        if (rule.condition_type === 'keyword' && lowerText.includes(rule.match_value.toLowerCase())) {
+          if (rule.action === 'escalate_human') {
+            aiReply = rule.action_payload || app.fallback_human_message || 'I have escalated this issue to our priority human support team. A representative will be with you shortly.';
+          } else if (rule.action === 'send_canned' && rule.action_payload) {
+            aiReply = rule.action_payload;
+          }
+          break;
+        }
+      }
+    }
+
+    // Call Multi-Provider AI (Google Gemini, OpenAI, Anthropic, Groq, Custom) if AI is enabled
+    if (!aiReply && app?.ai_enabled !== false) {
+      try {
+        const toneInstruction = app.ai_tone === 'concise' ? 'Keep responses very brief, direct, and under 35 words.' :
+          app.ai_tone === 'technical' ? 'Provide structured, technical specifications and parameters.' :
+          app.ai_tone === 'formal' ? 'Maintain a polite, formal executive customer service tone.' :
+          'Be a helpful, warm store shopping concierge.';
+
+        const systemPrompt = `${app.ai_system_prompt || 'You are an intelligent customer concierge for this store.'}
+${toneInstruction}
+Customer context: Name: ${customer_context.customer_name || 'Shopper'}, Cart: ${customer_context.cart_value || 'None'}, Order: ${customer_context.order_id || 'None'}.
+Do not mention internal technical terms. If the user asks about an order problem or delivery issue, politely advise that a human support specialist is being notified.`;
+
+        aiReply = await callMultiProviderAi({
+          provider: app.ai_provider || 'google',
+          model: app.ai_model || 'gemini-2.5-flash',
+          apiKey: app.ai_api_key,
+          customEndpoint: app.ai_custom_endpoint,
+          systemPrompt,
+          userMessage: text,
+          temperature: app.ai_temperature ?? 0.3
+        });
+      } catch (providerErr: any) {
+        console.warn('[BUSINESS_API] Multi-provider AI dispatch notice:', providerErr.message);
+      }
+    }
+
+    // Heuristic fallback if empty or provider error
+    if (!aiReply) {
+      if (lowerText.includes('size') || lowerText.includes('fit') || lowerText.includes('sizing') || lowerText.includes('measurement')) {
+        aiReply = 'Our apparel and items generally fit true to size. If you are in between sizes or prefer an oversized drape, sizing up by one step is recommended. Check product dimensions for exact measurements.';
+      } else if (lowerText.includes('return') || lowerText.includes('exchange') || lowerText.includes('refund')) {
+        aiReply = 'We offer an instant, hassle-free 14-day exchange and return policy on all eligible items. Items should have all tags intact with original packaging.';
+      } else if (lowerText.includes('ship') || lowerText.includes('delivery') || lowerText.includes('how long') || lowerText.includes('time')) {
+        aiReply = 'All standard orders are processed and dispatched within 24 hours. Standard delivery takes 3 to 5 business days, with live tracking.';
+      } else if (lowerText.includes('coupon') || lowerText.includes('discount') || lowerText.includes('promo') || lowerText.includes('offer')) {
+        aiReply = 'You can use code "WELCOME10" at checkout for 10% off your first order! Free shipping is also automatically applied on orders above ₹1,999.';
+      } else if (lowerText.includes('order') || lowerText.includes('delayed') || lowerText.includes('damage') || lowerText.includes('wrong') || lowerText.includes('cancel')) {
+        aiReply = app?.fallback_human_message || 'I understand your concern regarding your order. Because this requires verifying sensitive shipping and payment logs, I have escalated this conversation directly to our senior human support team.';
+      } else {
+        aiReply = app?.welcome_message || `Hello! I am your virtual shopping assistant for ${app?.app_name || 'this store'}. How can I assist you with product specs, sizing, shipping, or returns today?`;
+      }
+    }
+
+    // Auto-record AI message in conversation
+    if (conversation_id) {
+      const now = Date.now();
+      const aiMsgId = `msg_ai_${now}_${Math.random().toString(36).substring(2, 6)}`;
+      const aiMsgObj = {
+        id: aiMsgId,
+        conversation_id,
+        app_id: app_id || '',
+        sender_type: 'ai',
+        sender_name: `${app?.app_name || 'Store'} AI Co-Pilot`,
+        text: aiReply,
+        created_at: now,
+        read: false
+      };
+
+      const msgs = inMemoryBusinessMessages.get(conversation_id) || [];
+      msgs.push(aiMsgObj);
+      inMemoryBusinessMessages.set(conversation_id, msgs);
+
+      if (db) {
+        setDoc(doc(db, 'business_messages', aiMsgId), aiMsgObj).catch(() => {});
+        updateDoc(doc(db, 'business_conversations', conversation_id), {
+          last_message: aiReply,
+          last_message_time: now,
+          last_sender: 'ai',
+          unread_for_customer: true,
+          updated_at: now
+        }).catch(() => {});
+      }
+    }
+
+    return res.json({ success: true, reply: aiReply });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 9. GET /widget/live-chat.js - Deliver lightweight standalone embeddable chat script
+app.get('/widget/live-chat.js', (req: any, res: any) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+
+  const scriptContent = `
+(function() {
+  if (window.ZenoaChatInitialized) return;
+  window.ZenoaChatInitialized = true;
+
+  var currentScript = document.currentScript || (function() {
+    var scripts = document.getElementsByTagName('script');
+    return scripts[scripts.length - 1];
+  })();
+
+  var appId = currentScript ? currentScript.getAttribute('data-app-id') : 'biz_default';
+  var primaryColor = (currentScript && currentScript.getAttribute('data-primary-color')) || '#533afd';
+  var position = (currentScript && currentScript.getAttribute('data-position')) || 'bottom-right';
+
+  var rootUrl = window.location.origin;
+
+  // Create floating container
+  var container = document.createElement('div');
+  container.id = 'zenoa-live-chat-root';
+  container.style.position = 'fixed';
+  container.style.zIndex = '2147483647';
+  container.style[position === 'bottom-left' ? 'left' : 'right'] = '24px';
+  container.style.bottom = '24px';
+  container.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+  // Floating Bubble Button
+  var button = document.createElement('button');
+  button.id = 'zenoa-chat-trigger-btn';
+  button.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>';
+  button.style.width = '56px';
+  button.style.height = '56px';
+  button.style.borderRadius = '28px';
+  button.style.backgroundColor = primaryColor;
+  button.style.color = '#ffffff';
+  button.style.border = 'none';
+  button.style.boxShadow = '0 8px 24px rgba(0,0,0,0.18)';
+  button.style.cursor = 'pointer';
+  button.style.display = 'flex';
+  button.style.alignItems = 'center';
+  button.style.justifyContent = 'center';
+  button.style.transition = 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)';
+
+  button.onmouseenter = function() { button.style.transform = 'scale(1.06)'; };
+  button.onmouseleave = function() { button.style.transform = 'scale(1.0)'; };
+
+  // Chat iFrame
+  var iframe = document.createElement('iframe');
+  iframe.id = 'zenoa-chat-window-frame';
+  iframe.src = rootUrl + '/widget-demo?embed=true&app_id=' + encodeURIComponent(appId);
+  iframe.style.display = 'none';
+  iframe.style.width = '380px';
+  iframe.style.height = '620px';
+  iframe.style.maxWidth = 'calc(100vw - 32px)';
+  iframe.style.maxHeight = 'calc(100vh - 100px)';
+  iframe.style.border = 'none';
+  iframe.style.borderRadius = '20px';
+  iframe.style.boxShadow = '0 16px 48px rgba(0,0,0,0.22)';
+  iframe.style.marginBottom = '16px';
+
+  var isOpen = false;
+  button.onclick = function() {
+    isOpen = !isOpen;
+    iframe.style.display = isOpen ? 'block' : 'none';
+    button.innerHTML = isOpen 
+      ? '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
+      : '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>';
+  };
+
+  container.appendChild(iframe);
+  container.appendChild(button);
+  document.body.appendChild(container);
+})();
+`;
+  return res.send(scriptContent);
 });
 
 // Fallback for unmatched API routes to ensure they always return JSON instead of HTML

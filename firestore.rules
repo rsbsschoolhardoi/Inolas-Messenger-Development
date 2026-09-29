@@ -144,6 +144,22 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // 15. Developer Apps & Zenoa Business Ecosystem
+    match /developer_apps/{appId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+    match /business_apps/{appId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+    match /business_conversations/{conversationId} {
+      allow read, write: if true;
+    }
+    match /business_messages/{messageId} {
+      allow read, write: if true;
+    }
+
     // Default catch-all: Deny all unmatched paths
     match /{document=**} {
       allow read, write: if false;

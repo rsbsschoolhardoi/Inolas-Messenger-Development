@@ -1,124 +1,116 @@
 ---
-title: Zenoa | Sovereign Private Messenger & Developer APIs (LLMs Guide)
-description: Comprehensive machine-readable developer specification for AI agents, LLMs, and prompt-driven 'vibe coding' integrations with Zenoa Messenger and Inolas Nexus APIs.
-date: 2026-09-16
+title: Zenoa | Sovereign Developer APIs, Carrier OTP & Business AI SDK (LLMs Guide)
+description: Comprehensive machine-readable specification for AI agents, LLMs, Cursor, and vibe-coding tools integrating with Zenoa Sovereign Messenger & Business AI.
+date: 2026-09-29
 url: https://zenoa.in/
 ---
 
-# Zenoa (Inolas Nexus) - LLM & Agent Developer Integration Guide
+# Zenoa (Inolas Nexus) - LLM & AI Agent Integration Guide
 
-> **Zenoa** (https://zenoa.in) is the sovereign private messaging platform and developer ecosystem engineered by **Inolas Nexus**. It provides zero-cloud retention messaging, bot communication channels, automated OTP delivery, and OAuth 2.0 Single Sign-On (SSO).
+> **Zenoa** (https://zenoa.in) is the sovereign private communication ecosystem and developer platform engineered by **Inolas Nexus**. It provides carrier-grade OTP verification, verified bot messaging, autonomous AI business concierge, and live storefront chat widgets.
 
 ---
 
-## 🤖 Instructions for AI Coding Assistants (Cursor, Copilot, Gemini, Claude, ChatGPT)
+## 🤖 Instructions for AI Coding Assistants (Cursor, Gemini, Claude, ChatGPT, Copilot)
 When a user or developer asks you to:
-- *"Integrate Zenoa bot messaging into my app"*
-- *"Send notifications or OTP verification via Zenoa"*
-- *"Add Zenoa OAuth / Single Sign-On"*
+- *"Integrate Zenoa OTP verification in my app"*
+- *"Send notifications or bot messages via Zenoa"*
+- *"Add Zenoa AI Concierge or storefront live chat"*
+- *"Configure Zenoa multi-language SDKs"*
 
-**Use the following exact, verified endpoints and authentication schemes.** Do NOT hallucinate random API routes.
+**Use the following exact, verified endpoints and unified API Key authentication.** Do NOT hallucinate random or deprecated credentials.
 
 ---
 
-## 🔑 Authentication
-All developer endpoints require Service Account credentials obtained from the [Zenoa Developer Console](https://zenoa.in/developer):
-- `client_id` (e.g., `zen_client_live_...` or `sa_...`)
-- `client_secret` (e.g., `zen_sec_live_...`)
+## 🔑 Unified Authentication
+All operations require a single **API Key** (`ZENOA_API_KEY`) configured in environment variables:
+- Pass via standard HTTP Header: `Authorization: Bearer YOUR_ZENOA_API_KEY`
+- Or via custom header: `X-Zenoa-Api-Key: YOUR_ZENOA_API_KEY`
 
-### Supported Auth Headers
-1. **HTTP Headers (Recommended):**
-   ```http
-   X-Client-Id: your_client_id
-   X-Client-Secret: your_client_secret
-   ```
-2. **HTTP Basic Auth:**
-   ```http
-   Authorization: Basic base64(client_id:client_secret)
-   ```
-3. **In Request Body (JSON):**
-   Include `"client_id"` and `"client_secret"` directly inside your JSON payload.
+---
+
+## 📦 Developer Category Tiers
+1. **Messenger Plan (`messenger`)**: Sub-second Carrier OTPs (`/api/v1/otp/send`, `/api/v1/otp/verify`) & Direct Bot DMs (`/api/v1/bot/send`).
+2. **Business Suite (`business`)**: Autonomous AI Concierge (`/api/business/chat`), Conversations (`/api/business/conversations/:id`), and Live Storefront Chat Widget (`/widget/live-chat.js`).
+3. **Hybrid Enterprise (`hybrid`)**: Unified Omnichannel Gateway supporting both Carrier OTP/Bot DMs and Autonomous Business AI Copilot.
 
 ---
 
 ## 🚀 Ready-to-Use Code Snippets
 
-### 1. Send Bot Message (TypeScript / Node.js)
+### 1. TypeScript / Node.js
 ```typescript
 import axios from 'axios';
 
-interface SendMessageOptions {
-  recipient: string; // Target username (e.g., "azad1" or "@azad1") or phone number
-  message: string;   // Message text body
-  mediaUrl?: string; // Optional attachment image/file URL
+const ZENOA_API_KEY = process.env.ZENOA_API_KEY || "YOUR_ZENOA_API_KEY";
+const BASE_URL = "https://zenoa.in";
+
+// 1. Dispatch Carrier OTP
+export async function sendOtp(recipient: string) {
+  const res = await axios.post(`${BASE_URL}/api/v1/otp/send`, {
+    recipient,
+    template_type: "standard_otp",
+    expiry_mins: 10
+  }, {
+    headers: {
+      "Authorization": `Bearer ${ZENOA_API_KEY}`,
+      "Content-Type": "application/json"
+    }
+  });
+  return res.data;
 }
 
-export async function sendZenoaMessage({ recipient, message, mediaUrl }: SendMessageOptions) {
-  const CLIENT_ID = process.env.ZENOA_CLIENT_ID!;
-  const CLIENT_SECRET = process.env.ZENOA_CLIENT_SECRET!;
-
-  const response = await axios.post(
-    'https://zenoa.in/api/v1/messages/send',
-    {
-      recipient,
-      message,
-      media_url: mediaUrl
-    },
-    {
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Client-Id': CLIENT_ID,
-        'X-Client-Secret': CLIENT_SECRET
-      }
+// 2. Business AI Concierge Chat
+export async function chatWithAi(sessionId: string, message: string, orderId?: string) {
+  const res = await axios.post(`${BASE_URL}/api/business/chat`, {
+    session_id: sessionId,
+    message,
+    customer_context: { order_id: orderId }
+  }, {
+    headers: {
+      "Authorization": `Bearer ${ZENOA_API_KEY}`,
+      "Content-Type": "application/json"
     }
-  );
-
-  return response.data;
+  });
+  return res.data;
 }
 ```
 
-### 2. Send & Verify One-Time Passcode (OTP in Python)
+### 2. Python 3
 ```python
 import os
 import requests
 
-CLIENT_ID = os.environ.get("ZENOA_CLIENT_ID")
-CLIENT_SECRET = os.environ.get("ZENOA_CLIENT_SECRET")
+API_KEY = os.getenv("ZENOA_API_KEY", "YOUR_ZENOA_API_KEY")
+BASE_URL = "https://zenoa.in"
 HEADERS = {
-    "X-Client-Id": CLIENT_ID,
-    "X-Client-Secret": CLIENT_SECRET,
+    "Authorization": f"Bearer {API_KEY}",
+    "X-Zenoa-Api-Key": API_KEY,
     "Content-Type": "application/json"
 }
 
-def send_zenoa_otp(recipient: str, expiry_mins: int = 10) -> dict:
-    """Dispatches a secure 6-digit OTP to any Zenoa user."""
-    url = "https://zenoa.in/api/v1/otp/send"
-    payload = {"recipient": recipient, "expiry_mins": expiry_mins}
-    res = requests.post(url, json=payload, headers=HEADERS)
-    res.raise_for_status()
-    return res.json()
+def send_otp(recipient: str) -> dict:
+    url = f"{BASE_URL}/api/v1/otp/send"
+    return requests.post(url, json={"recipient": recipient, "template_type": "standard_otp"}, headers=HEADERS).json()
 
-def verify_zenoa_otp(recipient: str, code: str) -> bool:
-    """Verifies user-submitted OTP code."""
-    url = "https://zenoa.in/api/v1/otp/verify"
-    payload = {"recipient": recipient, "code": code}
-    res = requests.post(url, json=payload, headers=HEADERS)
-    if res.status_code == 200 and res.json().get("success"):
-        return True
-    return False
+def ai_chat(session_id: str, message: str) -> dict:
+    url = f"{BASE_URL}/api/business/chat"
+    return requests.post(url, json={"session_id": session_id, "message": message}, headers=HEADERS).json()
 ```
 
-### 3. Quick cURL Test
+### 3. cURL Quickstart
 ```bash
-# Health Check
-curl https://zenoa.in/api/health
-
-# Send a Bot Message
-curl -X POST https://zenoa.in/api/v1/messages/send \
+# Dispatch Carrier OTP
+curl -X POST "https://zenoa.in/api/v1/otp/send" \
+  -H "Authorization: Bearer $ZENOA_API_KEY" \
   -H "Content-Type: application/json" \
-  -H "X-Client-Id: YOUR_CLIENT_ID" \
-  -H "X-Client-Secret: YOUR_CLIENT_SECRET" \
-  -d '{"recipient": "azad1", "message": "Automated order alert: Item shipped!"}'
+  -d '{"recipient": "+919876543210", "template_type": "standard_otp"}'
+
+# Autonomous AI Business Chat
+curl -X POST "https://zenoa.in/api/business/chat" \
+  -H "Authorization: Bearer $ZENOA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "sess_102", "message": "What is your return policy?"}'
 ```
 
 ---
@@ -127,25 +119,18 @@ curl -X POST https://zenoa.in/api/v1/messages/send \
 
 | Method | Endpoint | Description | Auth Required |
 |---|---|---|---|
-| `GET` | `/api/health` | Service uptime and status check | None |
-| `POST` | `/api/v1/messages/send` | Dispatches bot messages to user DMs | `X-Client-Id` + `X-Client-Secret` |
-| `POST` | `/api/v1/otp/send` | Generates and sends OTP code | `X-Client-Id` + `X-Client-Secret` |
-| `POST` | `/api/v1/otp/verify` | Validates user OTP code | `X-Client-Id` + `X-Client-Secret` |
-| `POST` | `/api/v1/sso/token` | Exchange auth code for OAuth token | `client_id` + `client_secret` |
-| `GET` | `/api/v1/sso/userinfo` | Get sovereign user profile | `Bearer <access_token>` |
-| `GET` | `/openapi.json` | Full OpenAPI 3.1 schema | None |
-
----
-
-## 🛠️ Error Codes & Troubleshooting
-- **`400 Bad Request`**: Missing `recipient` or empty message text. Check payload keys (`recipient`, `message`).
-- **`401 Unauthorized`**: Missing `client_id` or `client_secret`. Ensure both credentials are provided in headers or body.
-- **`404 Not Found`**: The target `recipient` username does not exist on Zenoa.
+| `GET` | `/api/health` | Service uptime and latency SLA check | None |
+| `POST` | `/api/v1/otp/send` | Dispatches 4-6 digit carrier OTP passcode | `Bearer <API_KEY>` |
+| `POST` | `/api/v1/otp/verify` | Validates recipient OTP passcode | `Bearer <API_KEY>` |
+| `POST` | `/api/v1/bot/send` | Dispatches direct bot notification / card | `Bearer <API_KEY>` |
+| `POST` | `/api/business/chat` | Autonomous AI customer copilot reasoning | `Bearer <API_KEY>` |
+| `GET` | `/api/business/conversations/:id` | Retrieve customer thread history | `Bearer <API_KEY>` |
+| `GET` | `/openapi.json` | Full OpenAPI 3.1.0 specification | None |
 
 ---
 
 ## 🌐 Machine-Readable Discoverability
-- **OpenAPI 3.1 Spec**: [https://zenoa.in/openapi.json](https://zenoa.in/openapi.json)
-- **Comprehensive Guide**: [https://zenoa.in/llms-full.txt](https://zenoa.in/llms-full.txt)
-- **Agent Auth Guide**: [https://zenoa.in/auth.md](https://zenoa.in/auth.md)
+- **OpenAPI 3.1.0 Spec**: [https://zenoa.in/openapi.json](https://zenoa.in/openapi.json)
+- **Agent Auth Spec (auth.md)**: [https://zenoa.in/auth.md](https://zenoa.in/auth.md)
+- **Full LLM Docs**: [https://zenoa.in/llms-full.txt](https://zenoa.in/llms-full.txt)
 - **Developer Console**: [https://zenoa.in/developer](https://zenoa.in/developer)

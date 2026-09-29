@@ -3,6 +3,7 @@ import {
   FileCode, Plus, CheckCircle2, Clock, XCircle, Trash2, Send, 
   Sparkles, RefreshCw, Eye, Copy, Check, Filter, Search, AlertCircle, ShieldCheck
 } from 'lucide-react';
+import { CustomSelect } from '../common/CustomSelect';
 
 interface MessageTemplatesViewProps {
   app: any;
@@ -323,36 +324,32 @@ export const MessageTemplatesView: React.FC<MessageTemplatesViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <select
-            value={filterCategory}
-            onChange={e => setFilterCategory(e.target.value)}
-            className={`px-3 py-2 rounded-xl text-xs outline-none cursor-pointer border ${
-              isDark 
-                ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
-                : 'bg-[#f6f9fc] border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
-            }`}
-          >
-            <option value="ALL">All Categories</option>
-            <option value="AUTHENTICATION">Authentication (OTP)</option>
-            <option value="TRANSACTIONAL">Transactional</option>
-            <option value="SECURITY">Security</option>
-            <option value="MARKETING">Marketing</option>
-          </select>
+          <div className="w-44">
+            <CustomSelect
+              value={filterCategory}
+              onChange={(val) => setFilterCategory(val)}
+              options={[
+                { value: 'ALL', label: 'All Categories' },
+                { value: 'AUTHENTICATION', label: 'Authentication OTP' },
+                { value: 'TRANSACTIONAL', label: 'Transactional' },
+                { value: 'SECURITY', label: 'Security' },
+                { value: 'MARKETING', label: 'Marketing' },
+              ]}
+            />
+          </div>
 
-          <select
-            value={filterStatus}
-            onChange={e => setFilterStatus(e.target.value)}
-            className={`px-3 py-2 rounded-xl text-xs outline-none cursor-pointer border ${
-              isDark 
-                ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
-                : 'bg-[#f6f9fc] border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
-            }`}
-          >
-            <option value="ALL">All Statuses</option>
-            <option value="approved">Approved</option>
-            <option value="pending_review">Pending Review</option>
-            <option value="rejected">Rejected</option>
-          </select>
+          <div className="w-40">
+            <CustomSelect
+              value={filterStatus}
+              onChange={(val) => setFilterStatus(val)}
+              options={[
+                { value: 'ALL', label: 'All Statuses' },
+                { value: 'approved', label: 'Approved' },
+                { value: 'pending_review', label: 'Pending Review' },
+                { value: 'rejected', label: 'Rejected' },
+              ]}
+            />
+          </div>
         </div>
       </div>
 
@@ -516,18 +513,16 @@ export const MessageTemplatesView: React.FC<MessageTemplatesViewProps> = ({
                   <label className="block font-bold uppercase tracking-wider mb-1 text-[#64748d] dark:text-[#94a3b8]">
                     Category
                   </label>
-                  <select
+                  <CustomSelect
                     value={newTplCategory}
-                    onChange={e => setNewTplCategory(e.target.value as any)}
-                    className={`w-full px-3 py-2 rounded-xl border text-xs outline-none cursor-pointer ${
-                      isDark ? 'bg-[#121624] border-[#273951] text-white' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
-                    }`}
-                  >
-                    <option value="AUTHENTICATION">Authentication (OTP)</option>
-                    <option value="TRANSACTIONAL">Transactional Receipt</option>
-                    <option value="SECURITY">Security Alert</option>
-                    <option value="MARKETING">Marketing & Updates</option>
-                  </select>
+                    onChange={(val) => setNewTplCategory(val as any)}
+                    options={[
+                      { value: 'AUTHENTICATION', label: 'Authentication OTP' },
+                      { value: 'TRANSACTIONAL', label: 'Transactional Receipt' },
+                      { value: 'SECURITY', label: 'Security Alert' },
+                      { value: 'MARKETING', label: 'Marketing and Updates' },
+                    ]}
+                  />
                 </div>
               </div>
 

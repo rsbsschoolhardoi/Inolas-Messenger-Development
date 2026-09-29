@@ -4,6 +4,7 @@ import {
   Copy, Check, Send, Clock, Key, Eye, EyeOff, RotateCcw, HelpCircle,
   ExternalLink, ChevronRight, Terminal
 } from 'lucide-react';
+import { CustomSelect } from '../common/CustomSelect';
 
 interface WebhooksViewProps {
   app: any;
@@ -362,20 +363,16 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
               <label className="block text-xs font-bold uppercase tracking-wider text-[#64748d] dark:text-[#94a3b8] mb-1.5">
                 Event Type to Test
               </label>
-              <select
+              <CustomSelect
                 value={selectedTestEvent}
-                onChange={e => setSelectedTestEvent(e.target.value)}
-                className={`w-full px-3 py-2 rounded-xl border text-xs font-semibold outline-none cursor-pointer ${
-                  isDark 
-                    ? 'bg-[#121624] border-[#273951] text-white focus:border-[#533afd]' 
-                    : 'bg-white border-[#e3e8ee] text-[#0d253d] focus:border-[#533afd]'
-                }`}
-              >
-                <option value="otp.verified">otp.verified (Recipient Verified OTP)</option>
-                <option value="otp.sent">otp.sent (OTP Dispatched to DM)</option>
-                <option value="message.delivered">message.delivered (Bot Message Delivered)</option>
-                <option value="test.ping">test.ping (Standard Heartbeat Ping)</option>
-              </select>
+                onChange={(val) => setSelectedTestEvent(val)}
+                options={[
+                  { value: 'otp.verified', label: 'otp.verified', description: 'Recipient Verified OTP' },
+                  { value: 'otp.sent', label: 'otp.sent', description: 'OTP Dispatched to DM' },
+                  { value: 'message.delivered', label: 'message.delivered', description: 'Bot Message Delivered' },
+                  { value: 'test.ping', label: 'test.ping', description: 'Standard Heartbeat Ping' },
+                ]}
+              />
             </div>
 
             {/* Test Payload Preview */}

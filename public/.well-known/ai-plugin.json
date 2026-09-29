@@ -1,0 +1,22 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Zenoa Developer & Business AI",
+  "name_for_model": "zenoa_api",
+  "description_for_human": "Send Carrier OTPs, dispatch verified bot notifications, and interact with Autonomous Business AI Concierge via Zenoa by Inolas Nexus.",
+  "description_for_model": "Plugin and tool suite for Zenoa APIs. Allows AI models to dispatch carrier-verified OTPs (/api/v1/otp/send, /api/v1/otp/verify), send bot notifications (/api/v1/bot/send), and query business AI customer conversations (/api/business/chat). Authenticate with API Key using Bearer token or X-Zenoa-Api-Key.",
+  "auth": {
+    "type": "service_http",
+    "authorization_type": "bearer",
+    "verification_tokens": {
+      "openai": "zenoa_verified_token"
+    }
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://zenoa.in/openapi.json",
+    "is_user_authenticated": false
+  },
+  "logo_url": "https://zenoa.in/favicon.ico",
+  "contact_email": "support@zenoa.in",
+  "legal_info_url": "https://zenoa.in/terms"
+}

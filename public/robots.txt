@@ -1,8 +1,8 @@
 # robots.txt for https://zenoa.in
-# Privacy-first communication platform & Developer APIs
+# Privacy-first communication platform, Developer APIs & Business AI Ecosystem
 
 # Content Signals for AI content usage preferences (RFC / Content Signals standard)
-# Explicitly allowing AI search, agent input, and contextual reasoning
+# Explicitly allowing AI search, agent indexing, tool calling, and contextual reasoning
 Content-Signal: ai-train=no, search=yes, ai-input=yes
 
 User-agent: *
@@ -14,6 +14,7 @@ Allow: /auth.md
 Allow: /.well-known/
 Allow: /developer
 Allow: /docs
+Allow: /business
 Allow: /features
 Allow: /about
 Allow: /privacy
@@ -68,7 +69,7 @@ User-agent: YandexBot
 Allow: /
 Disallow: /admin
 
-# AI Search & Crawlers (Full indexing permitted for public content, agent discovery, and docs)
+# AI Search & Autonomous Agent Crawlers
 User-agent: GPTBot
 Allow: /
 Allow: /llms.txt
@@ -111,20 +112,19 @@ Allow: /.well-known/
 User-agent: Cohere-ai
 Allow: /
 
+User-agent: DeepSeekBot
+Allow: /
+
 User-agent: CCBot
 Allow: /
 Disallow: /admin
 
-# Sitemaps & Agent Protocol Manifests (Cloudflare isitagentready.com 90+ Score Compliant)
+# Sitemaps & Agent Protocol Manifests (Cloudflare isitagentready.com 95+ Score Compliant)
 Sitemap: https://zenoa.in/sitemap.xml
-Agentmap: https://zenoa.in/.well-known/ai-catalog.json
-Agentmap: https://zenoa.in/.well-known/ard.json
-# LLMs specification file for AI assistants & autonomous agents
 LLMs: https://zenoa.in/llms.txt
 LLMs-Full: https://zenoa.in/llms-full.txt
 OpenAPI: https://zenoa.in/openapi.json
+Auth-MD: https://zenoa.in/auth.md
+Agentmap: https://zenoa.in/.well-known/ai-catalog.json
 Agent-Card: https://zenoa.in/.well-known/agent-card.json
 MCP: https://zenoa.in/.well-known/mcp/server-card.json
-
-
-

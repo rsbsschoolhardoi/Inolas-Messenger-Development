@@ -1,97 +1,64 @@
 ---
 title: Zenoa Agent Authentication & Authorization Guide (auth.md)
-description: Complete specification for AI agents, MCP clients, and autonomous bots to register, authenticate, and access sovereign Zenoa endpoints.
-date: 2026-09-12
+description: Complete specification for AI agents, MCP clients, and autonomous bots to authenticate and interact with Zenoa Sovereign Developer & Business AI APIs.
+date: 2026-09-29
 url: https://zenoa.in/auth.md
+agent_auth:
+  version: "2.5"
+  skill: "https://zenoa.in/auth.md"
+  openapi: "https://zenoa.in/openapi.json"
+  supported_auth_schemes:
+    - bearer_api_key
+    - header_api_key
+  supported_tiers:
+    - messenger
+    - business
+    - hybrid
 ---
 
-# Zenoa Agent Authentication Guide (`auth.md`)
+# Zenoa Agent Authentication Specification (auth.md)
 
-This document provides autonomous AI agents, Model Context Protocol (MCP) clients, and automated software agents with complete instructions to register, authenticate, and interact with the **Zenoa Sovereign Privacy Messenger** and developer ecosystem (engineered by **Inolas Nexus**).
-
----
-
-## 1. Quick Discovery Endpoints
-- **OpenID Connect Discovery**: [`https://zenoa.in/.well-known/openid-configuration`](https://zenoa.in/.well-known/openid-configuration)
-- **OAuth 2.0 Authorization Server**: [`https://zenoa.in/.well-known/oauth-authorization-server`](https://zenoa.in/.well-known/oauth-authorization-server)
-- **OAuth 2.0 Protected Resource**: [`https://zenoa.in/.well-known/oauth-protected-resource`](https://zenoa.in/.well-known/oauth-protected-resource)
-- **API Catalog (RFC 9727)**: [`https://zenoa.in/.well-known/api-catalog`](https://zenoa.in/.well-known/api-catalog)
-- **MCP Server Card (SEP-1649)**: [`https://zenoa.in/.well-known/mcp/server-card.json`](https://zenoa.in/.well-known/mcp/server-card.json)
-- **Agent Skills Index (RFC v0.2.0)**: [`https://zenoa.in/.well-known/agent-skills/index.json`](https://zenoa.in/.well-known/agent-skills/index.json)
-- **AI Resource Discovery (ARD)**: [`https://zenoa.in/.well-known/ai-catalog.json`](https://zenoa.in/.well-known/ai-catalog.json)
+This document specifies the authentication protocol for autonomous AI agents, Model Context Protocol (MCP) clients, and vibe-coding assistants integrating with **Zenoa Sovereign Messenger & Developer APIs** (by Inolas Nexus).
 
 ---
 
-## 2. Dynamic Agent Registration Flow
+## 1. Unified Authentication Protocol
 
-Autonomous agents can register programmatic identities via the Dynamic Client Registration endpoint:
+All Zenoa APIs use a unified **API Key** authentication scheme. Agents and backend microservices authenticate their requests using either:
 
+### Method A: HTTP Bearer Authorization (Standard)
 ```http
-POST /api/v1/agents/register HTTP/1.1
+POST /api/v1/otp/send HTTP/1.1
 Host: zenoa.in
+Authorization: Bearer YOUR_ZENOA_API_KEY
 Content-Type: application/json
-
-{
-  "client_name": "Autonomous-Assistant-01",
-  "identity_type": "ed25519_pubkey",
-  "public_key": "MCowBQYDK2VwAyEA...",
-  "scopes": ["zenoa:read", "zenoa:messages", "zenoa:bots"]
-}
 ```
 
-### Response
-```json
-{
-  "client_id": "agent_zenoa_9f8c2b1a",
-  "client_secret": "zsec_live_4a78bc91e4f3a...",
-  "token_endpoint": "https://zenoa.in/api/v1/oauth/token",
-  "expires_in": 2592000
-}
-```
-
----
-
-## 3. Obtaining Access Tokens (Client Credentials Grant)
-
+### Method B: Custom Header (`X-Zenoa-Api-Key`)
 ```http
-POST /api/v1/oauth/token HTTP/1.1
+POST /api/business/chat HTTP/1.1
 Host: zenoa.in
-Content-Type: application/x-www-form-urlencoded
-
-grant_type=client_credentials&client_id=agent_zenoa_9f8c2b1a&client_secret=zsec_live_4a78bc91e4f3a...&scope=zenoa:messages
-```
-
-### Response
-```json
-{
-  "access_token": "zat_eyJhbGciOiJSUzI1NiIs...",
-  "token_type": "Bearer",
-  "expires_in": 3600,
-  "scope": "zenoa:messages"
-}
-```
-
----
-
-## 4. Authenticated API Calls
-
-Include the Bearer token in the `Authorization` header for all requests:
-
-```http
-POST /api/v1/messages/send HTTP/1.1
-Host: zenoa.in
-Authorization: Bearer zat_eyJhbGciOiJSUzI1NiIs...
+X-Zenoa-Api-Key: YOUR_ZENOA_API_KEY
 Content-Type: application/json
-
-{
-  "recipient": "alex",
-  "content": "Automated status report from Agent-01",
-  "ephemeral": true
-}
 ```
 
 ---
 
-## 5. Revocation and Rotation
-- **Token Revocation Endpoint**: `https://zenoa.in/api/v1/agents/revoke`
-- **Key Rotation**: Supported via Ed25519 signature headers (`X-Zenoa-Agent-Signature`).
+## 2. API Capabilities by Developer Category
+
+| Tier | Primary Capability | Available Endpoints |
+|---|---|---|
+| **Messenger** (`messenger`) | High-speed Carrier OTP & Bot Notifications | `/api/v1/otp/send`, `/api/v1/otp/verify`, `/api/v1/bot/send` |
+| **Business Suite** (`business`) | Autonomous AI Concierge & Storefront Widget | `/api/business/chat`, `/api/business/conversations/:id`, `/widget/live-chat.js` |
+| **Hybrid Gateway** (`hybrid`) | Omnichannel Multi-Modal Integration | Full Access (OTP + Bot DMs + Business AI Copilot + Analytics) |
+
+---
+
+## 3. Autonomous AI Agent Discovery Endpoints
+
+- **OpenAPI 3.1.0 Specification**: `https://zenoa.in/openapi.json`
+- **Agent Specification (auth.md)**: `https://zenoa.in/auth.md`
+- **LLM Manifest**: `https://zenoa.in/llms.txt`
+- **LLM Full Documentation**: `https://zenoa.in/llms-full.txt`
+- **Service Health Check**: `https://zenoa.in/api/health`
+- **Developer Console**: `https://zenoa.in/developer`
