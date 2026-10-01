@@ -34,6 +34,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
   const [user, setUser] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<ConsoleView>('landing');
+  const [securityAlert, setSecurityAlert] = useState<string | null>(null);
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
     try {
       const saved = localStorage.getItem('zenoa_dev_theme') || localStorage.getItem('zenoa_theme_mode');
@@ -59,6 +60,11 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     setThemeMode(prev => prev === 'light' ? 'dark' : 'light');
   };
 
+  /**
+   * Real-time verification of user against live Firestore database.
+   * If user document does not exist, they are DELETED and must be rejected immediately!
+   * NEVER re-create deleted users.
+   */
   const fetchFullUserProfile = async (searchIdent: string, uid?: string): Promise<{ profile: UserData | null; status: 'ok' | 'not_found' | 'suspended' }> => {
     if (!db) return { profile: null, status: 'ok' };
     try {
@@ -68,13 +74,13 @@ export const DeveloperConsoleStandalone: React.FC = () => {
         if (uidSnap.exists()) snap = uidSnap;
       }
 
-      if (!snap) {
+      if (!snap && searchIdent) {
         const clean = searchIdent.trim().toLowerCase().replace(/^@/, '');
         const userDoc = await getDoc(doc(db, 'users', clean));
         if (userDoc.exists()) snap = userDoc;
       }
 
-      if (!snap) {
+      if (!snap && searchIdent) {
         const clean = searchIdent.trim().toLowerCase().replace(/^@/, '');
         const usersRef = collection(db, 'users');
         const uq = query(usersRef, where('username', '==', clean));
@@ -82,6 +88,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
         if (!uSnap.empty) snap = uSnap.docs[0];
       }
 
+      // If document does NOT exist in Firestore, account has been deleted!
       if (!snap || !snap.exists()) {
         return { profile: null, status: 'not_found' };
       }
@@ -91,7 +98,9 @@ export const DeveloperConsoleStandalone: React.FC = () => {
         data.status === 'suspended' || 
         data.status === 'blocked' || 
         data.status === 'deactivated' || 
+        data.status === 'deleted' ||
         data.is_deleted === true || 
+        data.deleted_at ||
         data.deactivated === true || 
         data.disabled === true ||
         data.is_suspended === true;
@@ -103,8 +112,20 @@ export const DeveloperConsoleStandalone: React.FC = () => {
       return { profile: { id: snap.id, ...data } as UserData, status: 'ok' };
     } catch (err) {
       console.warn('Developer console user fetch error:', err);
-      return { profile: null, status: 'ok' };
+      return { profile: null, status: 'not_found' };
     }
+  };
+
+  const purgeAllUserSessions = (reasonMsg: string) => {
+    try {
+      localStorage.removeItem('zenoa_dev_console_user');
+      localStorage.removeItem('zenoa_user');
+      localStorage.removeItem('zenoa_sso_console_user');
+      sessionStorage.setItem('zenoa_dev_console_logged_out', 'true');
+    } catch (e) {}
+    setUser(null);
+    setView('landing');
+    setSecurityAlert(reasonMsg);
   };
 
   useEffect(() => {
@@ -112,24 +133,25 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     let unsubscribe = () => {};
 
     const resolveAuthHandshake = async () => {
-      // Check if returning from OAuth handshake with code / payload
       const searchParams = new URLSearchParams(window.location.search);
       const hasOAuthReturn = searchParams.has('code') || searchParams.has('payload');
-      
+      const isExplicitPortal = searchParams.get('view') === 'portal';
+
+      // 1. Check if returning from fresh OAuth handshake with code / payload
       if (hasOAuthReturn) {
         try {
           sessionStorage.removeItem('zenoa_dev_console_logged_out');
         } catch (e) {}
 
-        let resolvedOAuthUser: UserData | null = null;
+        let candidateOAuthUser: UserData | null = null;
 
-        // If payload is present in query, parse it as instant verified session
+        // Parse payload if present
         const rawPayload = searchParams.get('payload');
         if (rawPayload) {
           try {
             const decoded = JSON.parse(safeBase64Decode(rawPayload));
             if (decoded && (decoded.username || decoded.sub || decoded.uid)) {
-              resolvedOAuthUser = {
+              candidateOAuthUser = {
                 id: decoded.sub || decoded.uid || `user_${decoded.username}`,
                 zenoa_id: decoded.zenoa_id || `${decoded.username}@zenoa`,
                 username: (decoded.username || 'developer').replace(/^@/, ''),
@@ -149,14 +171,14 @@ export const DeveloperConsoleStandalone: React.FC = () => {
         }
 
         // Fallback: If code is present without payload, lookup auth code from Firestore oauth_codes
-        if (!resolvedOAuthUser && searchParams.has('code') && db) {
+        if (!candidateOAuthUser && searchParams.has('code') && db) {
           const codeParam = searchParams.get('code')!;
           try {
             const codeSnap = await getDoc(doc(db, 'oauth_codes', codeParam));
             if (codeSnap.exists()) {
               const cData = codeSnap.data();
               if (cData && cData.user_data) {
-                resolvedOAuthUser = cData.user_data;
+                candidateOAuthUser = cData.user_data;
               }
             }
           } catch (codeErr) {
@@ -164,100 +186,86 @@ export const DeveloperConsoleStandalone: React.FC = () => {
           }
         }
 
-        if (!resolvedOAuthUser) {
-          try {
-            const raw = localStorage.getItem('zenoa_dev_console_user') || localStorage.getItem('zenoa_user');
-            if (raw) resolvedOAuthUser = JSON.parse(raw);
-          } catch (e) {}
-        }
-
-        // Clean query parameters from address bar to keep URL clean and prevent re-evaluating used codes
+        // Clean query parameters from address bar to keep URL clean
         window.history.replaceState({}, document.title, window.location.pathname);
 
-        if (resolvedOAuthUser) {
-          localStorage.setItem('zenoa_dev_console_user', JSON.stringify(resolvedOAuthUser));
-          localStorage.setItem('zenoa_user', JSON.stringify(resolvedOAuthUser));
-          setUser(resolvedOAuthUser);
+        if (candidateOAuthUser) {
+          // MANDATORY REAL-TIME DATABASE VALIDATION: Verify account exists and is not deleted in DB
+          const res = await fetchFullUserProfile(candidateOAuthUser.username, candidateOAuthUser.id);
+          if (!isMounted) return;
+
+          if (res.status === 'not_found') {
+            // Account was deleted in DB! DO NOT RE-CREATE! Purge and block!
+            purgeAllUserSessions(`Account Security Violation: User account @${candidateOAuthUser.username} has been deleted from the database. Access denied.`);
+            setLoading(false);
+            return;
+          }
+
+          if (res.status === 'suspended') {
+            // Account is deactivated or suspended in DB
+            purgeAllUserSessions(`Account Security Violation: User account @${candidateOAuthUser.username} has been deactivated or suspended. Access denied.`);
+            setLoading(false);
+            return;
+          }
+
+          // Verified active user from database
+          const activeUser = res.profile || candidateOAuthUser;
+          localStorage.setItem('zenoa_dev_console_user', JSON.stringify(activeUser));
+          setUser(activeUser);
           setView('portal');
           setLoading(false);
-
-          // Refresh profile attributes in background without ever kicking out authenticated OAuth user
-          fetchFullUserProfile(resolvedOAuthUser.username, resolvedOAuthUser.id).then(res => {
-            if (!isMounted) return;
-            if (res.status === 'suspended') {
-              localStorage.removeItem('zenoa_dev_console_user');
-              localStorage.removeItem('zenoa_user');
-              setUser(null);
-              setView('landing');
-            } else if (res.profile) {
-              setUser(res.profile);
-              localStorage.setItem('zenoa_dev_console_user', JSON.stringify(res.profile));
-            } else {
-              // Ensure user profile document exists in Firestore for downstream relations
-              if (db && resolvedOAuthUser) {
-                setDoc(doc(db, 'users', resolvedOAuthUser.id || resolvedOAuthUser.username), {
-                  ...resolvedOAuthUser,
-                  updated_at: Date.now()
-                }, { merge: true }).catch(() => {});
-              }
-            }
-          }).catch(() => {});
           return;
         }
       }
 
-      // Mandatory login check: If user explicitly logged out in this session and NOT returning from fresh OAuth
-      const isLoggedOut = !hasOAuthReturn && sessionStorage.getItem('zenoa_dev_console_logged_out') === 'true';
+      // 2. Check existing local dev session if not logged out
+      const isLoggedOut = sessionStorage.getItem('zenoa_dev_console_logged_out') === 'true';
 
-      // 1. Check if user already authorized via Zenoa OAuth / SSO session
       if (!isLoggedOut) {
         try {
-          const storedDevUser = localStorage.getItem('zenoa_dev_console_user') || localStorage.getItem('zenoa_user');
+          const storedDevUser = localStorage.getItem('zenoa_dev_console_user');
           if (storedDevUser) {
             const parsed = JSON.parse(storedDevUser);
             if (parsed && (parsed.username || parsed.id)) {
-              // Instantly render portal synchronously
-              setUser(parsed);
-              setView('portal');
-              setLoading(false);
+              // Real-time verification against DB before setting state
+              const res = await fetchFullUserProfile(parsed.username || parsed.id, parsed.id);
+              if (!isMounted) return;
 
-              // Fetch any updated attributes asynchronously without destroying valid local session
-              fetchFullUserProfile(parsed.username || parsed.id, parsed.id).then(res => {
-                if (!isMounted) return;
-                if (res.status === 'suspended') {
-                  localStorage.removeItem('zenoa_dev_console_user');
-                  localStorage.removeItem('zenoa_user');
-                  setUser(null);
-                  setView('landing');
-                } else if (res.profile) {
-                  setUser(res.profile);
-                  localStorage.setItem('zenoa_dev_console_user', JSON.stringify(res.profile));
-                }
-              }).catch(() => {});
+              if (res.status === 'not_found') {
+                // Deleted user found in local cache! Purge it immediately!
+                purgeAllUserSessions(`Account Security Alert: Account @${parsed.username || parsed.id} no longer exists in the database. Session terminated.`);
+                setLoading(false);
+                return;
+              }
+
+              if (res.status === 'suspended') {
+                purgeAllUserSessions(`Account Security Alert: Account @${parsed.username || parsed.id} has been deactivated or suspended. Session terminated.`);
+                setLoading(false);
+                return;
+              }
+
+              const verifiedUser = res.profile || parsed;
+              setUser(verifiedUser);
+              localStorage.setItem('zenoa_dev_console_user', JSON.stringify(verifiedUser));
+
+              // Authenticated users go directly to developer portal/onboarding
+              const isExplicitLanding = searchParams.get('view') === 'landing';
+              if (isExplicitLanding) {
+                setView('landing');
+              } else {
+                setView('portal');
+              }
+              setLoading(false);
               return;
             }
           }
         } catch (e) {}
       }
 
-      if (!isLoggedOut && auth) {
-        unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-          if (!isMounted) return;
-          if (fbUser) {
-            const res = await fetchFullUserProfile(fbUser.email || fbUser.uid, fbUser.uid);
-            if (res.profile && isMounted) {
-              setUser(res.profile);
-              setView('portal');
-              setLoading(false);
-              return;
-            }
-          }
-
-          if (isMounted) setLoading(false);
-        });
-      } else {
-        setLoading(false);
-      }
+      // Default: Landing page is active
+      setUser(null);
+      setView('landing');
+      setLoading(false);
     };
 
     resolveAuthHandshake();
@@ -272,6 +280,10 @@ export const DeveloperConsoleStandalone: React.FC = () => {
     try {
       sessionStorage.removeItem('zenoa_dev_console_logged_out');
       const res = await fetchFullUserProfile(authenticatedUser.username, authenticatedUser.id);
+      if (res.status === 'not_found' || res.status === 'suspended') {
+        purgeAllUserSessions(`Account Security Violation: User account @${authenticatedUser.username} has been deleted or deactivated in the database. Access denied.`);
+        return;
+      }
       const userToUse = res.profile || authenticatedUser;
       setUser(userToUse);
       setView('portal');
@@ -302,12 +314,7 @@ export const DeveloperConsoleStandalone: React.FC = () => {
   };
 
   const handleLogout = () => {
-    try {
-      localStorage.removeItem('zenoa_dev_console_user');
-      sessionStorage.setItem('zenoa_dev_console_logged_out', 'true');
-    } catch (e) {}
-    setUser(null);
-    setView('landing');
+    purgeAllUserSessions('You have successfully signed out of Developer Platform.');
   };
 
   if (loading) {
@@ -326,11 +333,19 @@ export const DeveloperConsoleStandalone: React.FC = () => {
       {view === 'landing' && (
         <LandingView 
           user={user} 
-          onOpenConsole={() => setView('portal')} 
+          onOpenConsole={() => {
+            if (user) {
+              setView('portal');
+            } else {
+              redirectToAccountsAuth();
+            }
+          }} 
           onShowAuth={redirectToAccountsAuth} 
           onSwitchAccount={handleLogout}
           themeMode={themeMode}
           onToggleTheme={toggleTheme}
+          securityAlert={securityAlert}
+          onDismissAlert={() => setSecurityAlert(null)}
         />
       )}
       

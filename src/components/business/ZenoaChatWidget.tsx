@@ -2,12 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Send, AlertCircle, Check, 
   X, ShoppingBag, ShieldAlert, RefreshCw,
-  User, MessageSquare
+  User, MessageSquare, Maximize2, Minimize2, Ticket,
+  Zap, Headphones, Sparkles
 } from 'lucide-react';
 import { BusinessApp, BusinessConversation, BusinessMessage, CustomerContext } from '../../types';
 
+export type WidgetCategoryMode = 'bubble_ai_only' | 'contextual_in_app' | 'priority_ticket';
+
 interface ZenoaChatWidgetProps {
   appId?: string;
+  widgetMode?: WidgetCategoryMode;
   initialCustomerContext?: CustomerContext;
   primaryColor?: string;
   themeMode?: 'light' | 'dark';
@@ -17,6 +21,7 @@ interface ZenoaChatWidgetProps {
 
 export const ZenoaChatWidget: React.FC<ZenoaChatWidgetProps> = ({
   appId = 'biz_default',
+  widgetMode,
   initialCustomerContext = {},
   primaryColor = '#18181b',
   themeMode = 'light',
@@ -33,6 +38,21 @@ export const ZenoaChatWidget: React.FC<ZenoaChatWidgetProps> = ({
   const [orderIdInput, setOrderIdInput] = useState(initialCustomerContext.order_id || '');
   const [phoneInput, setPhoneInput] = useState(initialCustomerContext.customer_phone || '');
   const [nameInput, setNameInput] = useState(initialCustomerContext.customer_name || '');
+  const [ticketId, setTicketId] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Determine active category mode: prop > query param > app setting > default
+  const queryMode = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('mode') as WidgetCategoryMode : null;
+  const activeMode: WidgetCategoryMode = widgetMode || queryMode || (app as any)?.widget_mode || 'contextual_in_app';
+
+  // Toggle fullscreen state and notify parent iframe if embedded
+  const toggleFullscreen = () => {
+    const nextState = !isFullscreen;
+    setIsFullscreen(nextState);
+    if (typeof window !== 'undefined' && window.parent) {
+      window.parent.postMessage({ type: 'zenoa_widget_fullscreen_toggle', fullscreen: nextState }, '*');
+    }
+  };
   
   // Rate limiting & anti-abuse client guard
   const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
@@ -148,7 +168,7 @@ export const ZenoaChatWidget: React.FC<ZenoaChatWidgetProps> = ({
   const handleStartPrePurchaseChat = async () => {
     setLoading(true);
     try {
-      const initialText = "Hello, I have a question regarding product specifications and sizing.";
+      const initialText = "Hello! I would like to inquire about your services and available features.";
       const res = await fetch('/api/business/conversations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -394,9 +414,11 @@ export const ZenoaChatWidget: React.FC<ZenoaChatWidgetProps> = ({
   };
 
   return (
-    <div className={`flex flex-col h-full w-full select-none overflow-hidden font-sans ${
+    <div className={`flex flex-col h-full w-full overflow-hidden font-sans ${
+      isFullscreen ? 'fixed inset-0 z-[2147483647] rounded-none w-screen h-screen' : ''
+    } ${
       themeMode === 'dark' ? 'bg-[#121215] text-[#f4f4f5]' : 'bg-white text-[#09090b]'
-    } ${isStandalone ? 'rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-xl' : ''}`}>
+    } ${isStandalone && !isFullscreen ? 'rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-xl' : ''}`}>
       
       {/* 1. MINIMAL HEADER */}
       <div className={`px-4 py-3 border-b flex items-center justify-between shrink-0 transition-colors ${
@@ -404,26 +426,48 @@ export const ZenoaChatWidget: React.FC<ZenoaChatWidgetProps> = ({
       }`}>
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="h-7 w-7 rounded-lg bg-white/10 text-white flex items-center justify-center font-semibold text-xs shrink-0">
-            {app?.app_name?.charAt(0) || 'S'}
+            {activeMode === 'bubble_ai_only' ? <Sparkles className="h-4 w-4" /> : activeMode === 'priority_ticket' ? <Ticket className="h-4 w-4 text-rose-400" /> : <Headphones className="h-4 w-4" />}
           </div>
 
           <div className="min-w-0">
-            <h3 className="font-semibold text-xs tracking-tight text-white truncate">
-              {app?.app_name || 'Support'}
+            <h3 className="font-semibold text-xs tracking-tight text-white truncate flex items-center gap-1.5">
+              <span>{app?.app_name || 'Customer Support'}</span>
+              {activeMode === 'priority_ticket' && (
+                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                  Priority Desk
+                </span>
+              )}
             </h3>
             <p className="text-[10px] text-zinc-300 font-mono flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              <span>{activeConversation?.intent === 'post_purchase_issue' ? 'Escalated' : 'Active'}</span>
+              <span>
+                {activeMode === 'bubble_ai_only' 
+                  ? 'Pure Automation & AI' 
+                  : activeMode === 'priority_ticket' 
+                    ? (ticketId ? `Ticket: #${ticketId}` : 'Incident Escalation')
+                    : (activeConversation?.intent === 'post_purchase_issue' ? 'Escalated to Agent' : 'AI + Live Agent')}
+              </span>
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-1">
+          {/* Fullscreen Expansion Toggle Button */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? "Restore window" : "Expand to fullscreen"}
+            className="p-1 rounded-md text-zinc-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+          >
+            {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+          </button>
+
           {activeConversation && (
             <button
               onClick={() => {
                 setActiveConversation(null);
                 setMessages([]);
+                setTicketId(null);
               }}
               title="Reset conversation"
               className="p-1 rounded-md text-zinc-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
@@ -446,19 +490,25 @@ export const ZenoaChatWidget: React.FC<ZenoaChatWidgetProps> = ({
 
       {/* 2. BODY WORKSPACE */}
       {!activeConversation ? (
-        // VIEW A: DUAL-TRACK TRIAGE OPTIONS
+        // VIEW A: MODE-SPECIFIC TRIAGE OPTIONS
         <div className="flex-1 p-4 sm:p-5 flex flex-col justify-between overflow-y-auto">
           <div className="space-y-3">
             <div className="p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 space-y-1">
               <h4 className="font-semibold text-xs text-zinc-900 dark:text-white">
-                {app?.widget_theme?.greeting_title || 'How can we help?'}
+                {activeMode === 'priority_ticket' 
+                  ? 'Urgent Support & Incident Escalation' 
+                  : (app?.widget_theme?.greeting_title || 'How can we help?')}
               </h4>
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-normal">
-                {app?.widget_theme?.greeting_subtitle || 'Select an option below to start a conversation.'}
+                {activeMode === 'priority_ticket'
+                  ? 'File an escalation for post-delivery issues, completed ride disputes, or damaged items.'
+                  : activeMode === 'bubble_ai_only'
+                    ? 'Ask any question. Our automated AI co-pilot provides instant 24/7 answers.'
+                    : (app?.widget_theme?.greeting_subtitle || 'Start an inquiry or connect with a support specialist.')}
               </p>
             </div>
 
-            {/* TRACK 1: PRE-PURCHASE */}
+            {/* TRACK 1: AUTOMATED AI CO-PILOT (Available in all modes) */}
             <button
               onClick={handleStartPrePurchaseChat}
               disabled={loading}
@@ -466,54 +516,72 @@ export const ZenoaChatWidget: React.FC<ZenoaChatWidgetProps> = ({
             >
               <div className="flex items-start gap-3">
                 <div className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 group-hover:bg-zinc-900 group-hover:text-white dark:group-hover:bg-white dark:group-hover:text-zinc-900 transition-colors shrink-0">
-                  <ShoppingBag className="h-4 w-4" />
+                  <Sparkles className="h-4 w-4" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between">
                     <span className="font-medium text-xs text-zinc-900 dark:text-white">
-                      Product &amp; Sizing Inquiries
+                      {activeMode === 'priority_ticket' ? 'Instant AI Incident Triage' : 'Automated AI Co-Pilot'}
                     </span>
-                    <span className="text-[10px] font-mono text-zinc-400">
-                      Automated
+                    <span className="text-[10px] font-mono text-emerald-500 font-semibold">
+                      Instant
                     </span>
                   </div>
                   <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-normal">
-                    Instant guidance on fit, dimensions, and specifications.
+                    {activeMode === 'priority_ticket'
+                      ? 'Self-service verification and instant FAQ troubleshooting.'
+                      : 'Real-time guidance, knowledge base answers, and service details.'}
                   </p>
                 </div>
               </div>
             </button>
 
-            {/* TRACK 2: ORDER ISSUE / DELAY */}
-            <button
-              onClick={() => setShowOrderInputModal(true)}
-              disabled={loading}
-              className="w-full text-left p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-zinc-400 dark:hover:border-zinc-700 transition-colors group cursor-pointer"
-            >
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 group-hover:bg-zinc-900 group-hover:text-white dark:group-hover:bg-white dark:group-hover:text-zinc-900 transition-colors shrink-0">
-                  <ShieldAlert className="h-4 w-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-xs text-zinc-900 dark:text-white">
-                      Order Issue or Delay
-                    </span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
-                      Priority
-                    </span>
+            {/* TRACK 2: LIVE HUMAN AGENT HANDOFF (Available in contextual_in_app and priority_ticket) */}
+            {activeMode !== 'bubble_ai_only' && (
+              <button
+                onClick={() => setShowOrderInputModal(true)}
+                disabled={loading}
+                className={`w-full text-left p-3.5 rounded-xl border transition-colors group cursor-pointer ${
+                  activeMode === 'priority_ticket'
+                    ? 'border-rose-500/30 bg-rose-500/5 hover:border-rose-500/60 dark:bg-rose-950/20'
+                    : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-zinc-400 dark:hover:border-zinc-700'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className={`p-2 rounded-lg transition-colors shrink-0 ${
+                    activeMode === 'priority_ticket'
+                      ? 'bg-rose-500/10 text-rose-500'
+                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 group-hover:bg-zinc-900 group-hover:text-white dark:group-hover:bg-white dark:group-hover:text-zinc-900'
+                  }`}>
+                    {activeMode === 'priority_ticket' ? <Ticket className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
                   </div>
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-normal">
-                    Direct handoff to a human representative with order lookup.
-                  </p>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-xs text-zinc-900 dark:text-white">
+                        {activeMode === 'priority_ticket' ? 'Generate Real Incident Ticket' : 'Connect with Live Agent'}
+                      </span>
+                      <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold ${
+                        activeMode === 'priority_ticket'
+                          ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400'
+                          : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
+                      }`}>
+                        {activeMode === 'priority_ticket' ? 'URGENT' : 'Live Agent'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-normal">
+                      {activeMode === 'priority_ticket'
+                        ? 'Generates verified ticket ID and immediately pages priority support team.'
+                        : 'Direct handoff to a human representative in Business Messenger.'}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </button>
+              </button>
+            )}
           </div>
 
           <div className="pt-3 text-center border-t border-zinc-100 dark:border-zinc-800">
             <span className="text-[10px] font-mono text-zinc-400">
-              Live Support Session
+              {activeMode === 'bubble_ai_only' ? 'Autonomous AI Channel' : 'Omnichannel Business Messenger'}
             </span>
           </div>
         </div>
@@ -525,12 +593,23 @@ export const ZenoaChatWidget: React.FC<ZenoaChatWidgetProps> = ({
           <div className="px-3.5 py-1.5 text-[11px] font-medium flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#121215] text-zinc-600 dark:text-zinc-300">
             <span className="truncate">
               {activeConversation.intent === 'post_purchase_issue' 
-                ? `Order Support: ${activeConversation.customer?.order_id || 'Active'}` 
-                : 'Product Assistant'}
+                ? (ticketId ? `Ticket #${ticketId}` : `Order: ${activeConversation.customer?.order_id || 'Active'}`) 
+                : (activeMode === 'bubble_ai_only' ? 'Automated AI Co-Pilot' : 'Product & Service Assistant')}
             </span>
-            <span className="text-[10px] font-mono text-zinc-400 shrink-0">
-              {activeConversation.status === 'pending_human' ? 'Awaiting reply' : 'Connected'}
-            </span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[10px] font-mono text-zinc-400">
+                {activeConversation.status === 'pending_human' ? 'Awaiting Agent' : 'Connected'}
+              </span>
+              {activeMode !== 'bubble_ai_only' && activeConversation.status !== 'pending_human' && (
+                <button
+                  type="button"
+                  onClick={() => setShowOrderInputModal(true)}
+                  className="px-2 py-0.5 rounded text-[10px] font-semibold bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 hover:opacity-90 transition-opacity cursor-pointer"
+                >
+                  {activeMode === 'priority_ticket' ? 'Escalate' : 'Agent'}
+                </button>
+              )}
+            </div>
           </div>
 
           {/* MESSAGES LIST */}
@@ -559,7 +638,7 @@ export const ZenoaChatWidget: React.FC<ZenoaChatWidgetProps> = ({
                   </div>
 
                   <div 
-                    className={`max-w-[85%] px-3 py-2 rounded-xl text-xs leading-relaxed ${
+                    className={`max-w-[85%] px-3 py-2 rounded-xl text-xs leading-relaxed select-text ${
                       isMe 
                         ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900' 
                         : 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-700/60'
@@ -603,7 +682,7 @@ export const ZenoaChatWidget: React.FC<ZenoaChatWidgetProps> = ({
                 maxLength={app?.rate_limiting?.max_input_length || 500}
                 placeholder={cooldownRemaining > 0 ? `Please wait ${cooldownRemaining}s...` : "Type message..."}
                 disabled={cooldownRemaining > 0}
-                className="w-full pl-3 pr-14 py-1.5 rounded-lg text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 outline-none focus:border-zinc-400 dark:focus:border-zinc-600 text-zinc-900 dark:text-white transition-colors disabled:opacity-50"
+                className="w-full pl-3 pr-14 py-1.5 rounded-lg text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 outline-none focus:border-zinc-400 dark:focus:border-zinc-600 text-zinc-900 dark:text-white transition-colors disabled:opacity-50 select-text"
               />
               {inputText.length > 20 && (
                 <span className="absolute right-2 text-[9px] font-mono text-zinc-400 select-none">

@@ -389,7 +389,7 @@ export type DeveloperCategoryTier = 'messenger' | 'business' | 'hybrid';
 export type BusinessCategory = 'ecommerce' | 'saas' | 'hospitality' | 'services' | 'general';
 export type BusinessPlatformTarget = 'web' | 'mobile' | 'hybrid';
 export type ConversationIntent = 'pre_purchase' | 'post_purchase_issue' | 'technical' | 'general';
-export type ConversationStatus = 'open' | 'pending_human' | 'resolved' | 'closed';
+export type ConversationStatus = 'open' | 'pending_human' | 'automated' | 'resolved' | 'closed';
 export type ConversationPriority = 'low' | 'normal' | 'high' | 'urgent';
 
 export interface CustomerContext {

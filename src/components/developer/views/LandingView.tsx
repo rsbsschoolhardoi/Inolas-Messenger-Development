@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   ArrowRight, ShieldCheck, Zap, Key, Sun, Moon, ArrowLeft, Terminal, 
   Lock, Code2, Webhook, Cpu, Copy, Check, Server, Activity, Shield,
-  Layers, ExternalLink, ChevronRight, FileText
+  Layers, ExternalLink, ChevronRight, FileText, Sparkles
 } from 'lucide-react';
 import { UserData } from '../../../types';
 import { useBranding } from '../../../brandingUtils';
@@ -17,6 +17,8 @@ interface LandingViewProps {
   onSwitchAccount: () => void;
   themeMode?: 'light' | 'dark';
   onToggleTheme?: () => void;
+  securityAlert?: string | null;
+  onDismissAlert?: () => void;
 }
 
 type CodeTab = 'curl' | 'nodejs' | 'python' | 'go';
@@ -108,7 +110,9 @@ export const LandingView: React.FC<LandingViewProps> = ({
   onShowAuth, 
   onSwitchAccount,
   themeMode = 'light',
-  onToggleTheme
+  onToggleTheme,
+  securityAlert,
+  onDismissAlert
 }) => {
   useEffect(() => {
     if (themeMode === 'dark') {
@@ -211,13 +215,22 @@ export const LandingView: React.FC<LandingViewProps> = ({
             )}
 
             {user ? (
-              <button 
-                onClick={onOpenConsole} 
-                className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-semibold transition-all shadow-sm flex items-center gap-2 cursor-pointer active:scale-[0.98]"
-              >
-                <span>Console</span>
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={onOpenConsole} 
+                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-semibold transition-all shadow-sm flex items-center gap-2 cursor-pointer active:scale-[0.98]"
+                >
+                  <span>Console</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={onSwitchAccount}
+                  title="Switch or log out"
+                  className="p-2 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                >
+                  Logout
+                </button>
+              </div>
             ) : (
               <ContinueWithZenoaButton
                 portal="developer"
@@ -232,7 +245,30 @@ export const LandingView: React.FC<LandingViewProps> = ({
       </header>
 
       {/* Main Content Hero */}
-      <main className="flex-1 flex flex-col justify-center items-center py-16 sm:py-24 px-4 sm:px-6 lg:px-8 relative z-10 max-w-7xl mx-auto w-full">
+      <main className="flex-1 flex flex-col justify-center items-center py-12 sm:py-20 px-4 sm:px-6 lg:px-8 relative z-10 max-w-7xl mx-auto w-full">
+        {/* Real-Time Security Verification Alert (If user deleted or deactivated in DB) */}
+        {securityAlert && (
+          <div className="w-full max-w-4xl mb-6 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs font-medium flex items-center justify-between gap-3 shadow-lg shadow-rose-950/10 animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <Shield className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="font-bold text-xs uppercase tracking-wider">Authentication Security Alert</p>
+                <p className="text-[12px] opacity-90 mt-0.5">{securityAlert}</p>
+              </div>
+            </div>
+            {onDismissAlert && (
+              <button 
+                onClick={onDismissAlert} 
+                className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-700 dark:text-rose-300 text-xs font-semibold cursor-pointer shrink-0"
+              >
+                Dismiss
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Editorial Pill & Headline */}
         <div className="max-w-4xl w-full text-center space-y-6">
           <div className="inline-flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-400">
@@ -241,9 +277,9 @@ export const LandingView: React.FC<LandingViewProps> = ({
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
             <span className="font-semibold text-slate-800 dark:text-slate-200">{appName} Core Engine</span>
-            <span aria-hidden="true">·</span>
+            <span aria-hidden="true">&bull;</span>
             <span>REST & WebSocket APIs</span>
-            <span aria-hidden="true">·</span>
+            <span aria-hidden="true">&bull;</span>
             <span className="text-indigo-600 dark:text-indigo-400">v2.4 Production Ready</span>
           </div>
 
@@ -255,7 +291,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
           </h1>
 
           <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            The enterprise platform for programmatic messaging, real-time webhook streaming, transactional OTP delivery, and verified bot infrastructure.
+            The enterprise developer platform featuring two specialized services: Backend <strong>Business Service Accounts</strong> and Front-Facing <strong>Live Chat & AI Automation Widgets</strong>.
           </p>
 
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -265,7 +301,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
                   onClick={onOpenConsole} 
                   className="w-full sm:w-auto px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-semibold transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
                 >
-                  <span>Open Console (@{user.username})</span>
+                  <span>Open Developer Console (@{user.username})</span>
                   <ArrowRight className="h-4 w-4" />
                 </button>
                 <a 
@@ -299,6 +335,77 @@ export const LandingView: React.FC<LandingViewProps> = ({
                 </a>
               </>
             )}
+          </div>
+        </div>
+
+        {/* Dual Category Presentation */}
+        <div className="mt-14 max-w-5xl w-full grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
+          {/* Service 1: Business Service Account */}
+          <div className={`p-6 sm:p-8 rounded-3xl border transition-all ${
+            isDark ? 'bg-[#0f1528] border-slate-800 shadow-xl' : 'bg-white border-slate-200 shadow-md'
+          }`}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="h-10 w-10 rounded-2xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center">
+                <Terminal className="h-5 w-5" />
+              </div>
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-500 border border-indigo-500/20">
+                Service Account
+              </span>
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+              Business Service Account
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
+              Engineered for backend systems and server-to-server automation. Direct Bot DM delivery (@sa_handle), Carrier Passcode OTP dispatches, long-format API credentials, and signed real-time webhooks.
+            </p>
+            <ul className="mt-5 space-y-2 text-xs text-slate-600 dark:text-slate-300">
+              <li className="flex items-center gap-2">
+                <Check className="h-4 w-4 text-indigo-500 shrink-0" />
+                <span>REST & WebSocket Bot Gateway</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Check className="h-4 w-4 text-indigo-500 shrink-0" />
+                <span>Carrier Passcode OTP Service</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Check className="h-4 w-4 text-indigo-500 shrink-0" />
+                <span>Instant Secret Rotation & Scoped Keys</span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Service 2: Zenoa Widget & Automation System */}
+          <div className={`p-6 sm:p-8 rounded-3xl border transition-all ${
+            isDark ? 'bg-[#0f1528] border-slate-800 shadow-xl' : 'bg-white border-slate-200 shadow-md'
+          }`}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="h-10 w-10 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                Widget & Automation
+              </span>
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+              Widget & Automation System
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
+              Customer-facing live chat and AI automation. Choose between Floating Bubbles, In-App Embedded components, and High-Priority Incident Support with automated escalation into Business Messenger.
+            </p>
+            <ul className="mt-5 space-y-2 text-xs text-slate-600 dark:text-slate-300">
+              <li className="flex items-center gap-2">
+                <Check className="h-4 w-4 text-emerald-500 shrink-0" />
+                <span>3 Categories: Bubble, Embed & VIP Incident</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Check className="h-4 w-4 text-emerald-500 shrink-0" />
+                <span>Knowledge Base FAQs & Third-Party Name Parsing</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Check className="h-4 w-4 text-emerald-500 shrink-0" />
+                <span>Live Escalation Queue to Business Messenger</span>
+              </li>
+            </ul>
           </div>
         </div>
 

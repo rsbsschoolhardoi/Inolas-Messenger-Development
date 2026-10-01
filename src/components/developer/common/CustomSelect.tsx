@@ -88,7 +88,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   return (
     <div 
       ref={containerRef} 
-      className={`relative inline-block w-full text-left font-sans select-none z-30 ${className}`}
+      className={`relative inline-block w-full text-left font-sans select-none ${isOpen ? 'z-[100]' : 'z-20'} ${className}`}
       id={id}
     >
       {/* Trigger Button */}

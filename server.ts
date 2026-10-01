@@ -3181,13 +3181,7 @@ app.post(['/api/v1/sso/token', '/v1/sso/token', '/api/oauth/token', '/api/v1/oau
             } catch (qErr) {}
           }
 
-          if (!uDoc.exists() && codeData.user_data) {
-            // Self-heal: account was authenticated during OAuth issuance, upsert record into users collection
-            await setDoc(doc(db, 'users', codeData.user_id || cleanU), {
-              ...codeData.user_data,
-              updated_at: Date.now()
-            }, { merge: true }).catch(() => {});
-          } else if (!uDoc.exists()) {
+          if (!uDoc.exists()) {
             return res.status(403).json({
               error: 'invalid_grant',
               error_description: 'Account security error: User account has been deleted from the database. Token exchange rejected.'
@@ -6884,7 +6878,52 @@ app.post('/api/business/simulate-abuse', async (req: any, res: any) => {
   }
 });
 
-// 1. GET /api/business/apps - Fetch business app settings
+// 0. POST /api/auth/verify-live - Strict real-time database validation for active user accounts
+app.post('/api/auth/verify-live', async (req: any, res: any) => {
+  try {
+    const { username, id } = req.body || {};
+    const cleanU = safeTrim(username).toLowerCase().replace(/^@/, '');
+    const cleanId = safeTrim(id);
+
+    if (!cleanU && !cleanId) {
+      return res.status(400).json({ success: false, valid: false, error: 'Username or user ID is required.' });
+    }
+
+    if (!db) {
+      return res.json({ success: true, valid: true });
+    }
+
+    let snap: any = null;
+    if (cleanId) {
+      const s = await getDoc(doc(db, 'users', cleanId));
+      if (s.exists()) snap = s;
+    }
+    if (!snap && cleanU) {
+      const s = await getDoc(doc(db, 'users', cleanU));
+      if (s.exists()) snap = s;
+    }
+    if (!snap && cleanU) {
+      const q = query(collection(db, 'users'), where('username', '==', cleanU));
+      const qSnap = await getDocs(q);
+      if (!qSnap.empty) snap = qSnap.docs[0];
+    }
+
+    if (!snap || !snap.exists()) {
+      return res.json({ success: false, valid: false, error: 'User account does not exist in the database or has been deleted.' });
+    }
+
+    const data = snap.data();
+    if (data.is_deleted === true || data.status === 'suspended' || data.status === 'deactivated' || data.disabled === true || data.is_suspended === true) {
+      return res.json({ success: false, valid: false, error: 'User account has been deactivated, deleted, or suspended.' });
+    }
+
+    return res.json({ success: true, valid: true, user: { id: snap.id, ...data } });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, valid: false, error: err.message });
+  }
+});
+
+// 1. GET /api/business/apps - Fetch business app settings (syncs with both business_apps and developer_apps)
 app.get('/api/business/apps', async (req: any, res: any) => {
   try {
     const ownerUsername = safeTrim(req.query.owner || req.query.owner_username).toLowerCase().replace(/^@/, '');
@@ -6905,7 +6944,7 @@ app.get('/api/business/apps', async (req: any, res: any) => {
       }
     }
 
-    // Check Firestore
+    // Check Firestore business_apps collection
     if (!foundApp && db) {
       try {
         if (appId) {
@@ -6925,42 +6964,59 @@ app.get('/api/business/apps', async (req: any, res: any) => {
       }
     }
 
-    // If still not found and an owner or app_id was specified, auto-provision default business app
+    // Also check Firestore developer_apps collection so updates from developer console apply everywhere!
+    if (!foundApp && db) {
+      try {
+        if (appId) {
+          const snap = await getDoc(doc(db, 'developer_apps', appId));
+          if (snap.exists()) foundApp = { id: snap.id, ...snap.data() };
+        } else if (ownerUsername) {
+          const q = query(collection(db, 'developer_apps'), where('owner', '==', ownerUsername));
+          const qSnap = await getDocs(q);
+          if (!qSnap.empty) foundApp = { id: qSnap.docs[0].id, ...qSnap.docs[0].data() };
+        }
+      } catch (devErr) {
+        console.warn('[BUSINESS_API] developer_apps fetch notice:', devErr);
+      }
+    }
+
+    // If still not found and an owner or app_id was specified, provision clean customizable business app
     if (!foundApp && (ownerUsername || appId)) {
       const defaultId = appId || `biz_${ownerUsername || 'default'}`;
       const defaultClientId = clientId || `zen_biz_${Date.now().toString(36)}`;
       foundApp = {
         id: defaultId,
         client_id: defaultClientId,
-        app_name: ownerUsername ? `${ownerUsername.charAt(0).toUpperCase() + ownerUsername.slice(1)} Store` : 'Zenoa Merchant Support',
+        app_name: ownerUsername ? `${ownerUsername.charAt(0).toUpperCase() + ownerUsername.slice(1)} Support` : 'Customer Support Assistant',
         bot_username: ownerUsername ? `${ownerUsername}_support` : 'zenoa_support',
-        category: 'ecommerce',
+        category: 'general',
         platform_target: 'hybrid',
         archetype: 'business_enterprise',
         owner_username: ownerUsername || 'merchant',
         assigned_agents: ownerUsername ? [`@${ownerUsername}`] : ['@support_lead'],
         ai_enabled: true,
         ai_model: 'gemini-2.5-flash',
-        ai_system_prompt: 'You are the intelligent customer concierge for this store. Help customers find sizes, explain shipping (3-5 business days), and describe return policies (14 days return). If customer reports order delay or issue, apologize warmly and advise that a live specialist has been notified.',
+        ai_system_prompt: 'You are the intelligent assistant for this service. Assist customers with their inquiries according to configured knowledge base rules. If the user requires human intervention, state politely that a support representative is being notified.',
         pre_purchase_auto_respond: true,
         post_purchase_instant_escalate: true,
+        widget_mode: 'contextual_in_app',
         business_hours: {
           enabled: false,
           timezone: 'Asia/Kolkata',
           start_time: '09:00',
           end_time: '21:00',
-          away_message: 'Our live team is currently away. Leave your message and order ID, and we will prioritize your ticket first thing in the morning.'
+          away_message: 'Our live team is currently away. Please leave your message and inquiry details, and we will prioritize your ticket first thing.'
         },
         widget_theme: {
           primary_color: '#533afd',
-          greeting_title: 'Need help with your order or sizing?',
-          greeting_subtitle: 'Chat live with our team or ask our AI assistant 24/7.',
+          greeting_title: 'How can we assist you today?',
+          greeting_subtitle: 'Chat live with our AI assistant or connect with a support specialist.',
           position: 'bottom-right'
         },
+        knowledge_faqs: [],
+        auto_triage_rules: [],
         quick_replies: [
-          { id: 'qr_1', shortcut: '/shipping', title: 'Shipping Policy', content: 'We ship orders within 24 hours. Delivery takes 3-5 business days with live tracking.' },
-          { id: 'qr_2', shortcut: '/returns', title: 'Return & Exchange', content: 'We offer hassle-free 14-day exchanges and returns. Keep tags and box intact!' },
-          { id: 'qr_3', shortcut: '/order_delay', title: 'Delayed Shipment VIP Alert', content: 'I have personally escalated your order to our warehouse dispatch supervisor. Tracking update will be dispatched to your phone.' }
+          { id: 'qr_1', shortcut: '/help', title: 'Get Help', content: 'How can I assist you with your inquiry today?' }
         ],
         created_at: Date.now(),
         updated_at: Date.now()
@@ -6997,6 +7053,9 @@ app.post('/api/business/apps', async (req: any, res: any) => {
     if (db) {
       await setDoc(doc(db, 'business_apps', appId), updatedApp, { merge: true }).catch(err => {
         console.warn('[BUSINESS_API] Firestore save app warning:', err);
+      });
+      await setDoc(doc(db, 'developer_apps', appId), updatedApp, { merge: true }).catch(err => {
+        console.warn('[BUSINESS_API] Firestore save developer_apps warning:', err);
       });
     }
 
@@ -7045,111 +7104,6 @@ app.get('/api/business/conversations', async (req: any, res: any) => {
 
     // Sort descending by last_message_time
     list.sort((a, b) => (b.last_message_time || b.updated_at || 0) - (a.last_message_time || a.updated_at || 0));
-
-    // Provide seed demo conversations if empty so the merchant dashboard is immediately rich & functional
-    if (list.length === 0 && appId) {
-      const sample1: any = {
-        id: `conv_${Date.now()}_1`,
-        app_id: appId,
-        customer_session_id: 'cust_sess_99182',
-        customer: {
-          customer_name: 'Rohit Verma',
-          customer_email: 'rohit.v@example.com',
-          customer_phone: '+91 98112 34567',
-          current_page_url: 'https://store.in/products/air-jordan-retro-9',
-          page_title: 'Air Jordan Retro 9 — Midnight Navy',
-          cart_value: '₹14,999',
-          cart_items: [{ name: 'Air Jordan Retro 9 (UK 9)', qty: 1, price: 14999 }],
-          order_id: '#ORD-88219',
-          order_status: 'Out for delivery (Delayed by 24h)',
-          device_type: 'Mobile Safari • iOS 18',
-          location: 'New Delhi, India'
-        },
-        intent: 'post_purchase_issue',
-        status: 'pending_human',
-        priority: 'urgent',
-        assigned_agent: '@store_owner',
-        ai_active: false,
-        messages_count: 2,
-        last_message: 'Hi, my order #ORD-88219 was supposed to arrive yesterday. Can someone check tracking?',
-        last_message_time: Date.now() - 1000 * 60 * 3,
-        last_sender: 'customer',
-        unread_for_agent: true,
-        unread_for_customer: false,
-        created_at: Date.now() - 1000 * 60 * 15,
-        updated_at: Date.now() - 1000 * 60 * 3
-      };
-
-      const sample2: any = {
-        id: `conv_${Date.now()}_2`,
-        app_id: appId,
-        customer_session_id: 'cust_sess_44102',
-        customer: {
-          customer_name: 'Pooja Hegde',
-          customer_email: 'pooja.h@example.com',
-          customer_phone: '+91 97234 11223',
-          current_page_url: 'https://store.in/products/linen-oversized-shirt',
-          page_title: 'Linen Oversized Shirt — Cream White',
-          cart_value: '₹2,499',
-          cart_items: [{ name: 'Linen Oversized Shirt', qty: 1, price: 2499 }],
-          device_type: 'Chrome 128 • Windows 11',
-          location: 'Bengaluru, India'
-        },
-        intent: 'pre_purchase',
-        status: 'open',
-        priority: 'normal',
-        assigned_agent: undefined,
-        ai_active: true,
-        messages_count: 4,
-        last_message: 'Our linen shirts feature a relaxed oversized drape! If you prefer a tailored fit, we recommend ordering one size down.',
-        last_message_time: Date.now() - 1000 * 60 * 12,
-        last_sender: 'ai',
-        unread_for_agent: false,
-        unread_for_customer: false,
-        created_at: Date.now() - 1000 * 60 * 20,
-        updated_at: Date.now() - 1000 * 60 * 12
-      };
-
-      list = [sample1, sample2];
-      list.forEach(c => inMemoryBusinessConversations.set(c.id, c));
-      
-      // Store sample messages
-      inMemoryBusinessMessages.set(sample1.id, [
-        {
-          id: 'msg_s1_1',
-          conversation_id: sample1.id,
-          app_id: appId,
-          sender_type: 'customer',
-          sender_name: 'Rohit Verma',
-          text: 'Hi, my order #ORD-88219 was supposed to arrive yesterday. Can someone check tracking?',
-          created_at: Date.now() - 1000 * 60 * 3,
-          read: false
-        }
-      ]);
-
-      inMemoryBusinessMessages.set(sample2.id, [
-        {
-          id: 'msg_s2_1',
-          conversation_id: sample2.id,
-          app_id: appId,
-          sender_type: 'customer',
-          sender_name: 'Pooja Hegde',
-          text: 'Does this shirt run true to size or should I size down?',
-          created_at: Date.now() - 1000 * 60 * 13,
-          read: true
-        },
-        {
-          id: 'msg_s2_2',
-          conversation_id: sample2.id,
-          app_id: appId,
-          sender_type: 'ai',
-          sender_name: 'Zenoa AI Assistant',
-          text: 'Our linen shirts feature a relaxed oversized drape! If you prefer a tailored fit, we recommend ordering one size down. You can also view our full chest dimension chart on the product tab.',
-          created_at: Date.now() - 1000 * 60 * 12,
-          read: true
-        }
-      ]);
-    }
 
     return res.json({ success: true, conversations: list });
   } catch (err: any) {
@@ -7454,6 +7408,9 @@ app.post('/api/business/triage-ai', async (req: any, res: any) => {
       } catch (e) {}
     }
 
+    // Extract third-party customer name
+    const customerName = customer_context.customer_name || customer_context.user_name || customer_context.display_name || 'Customer';
+
     // Rate limit check for AI triage requests
     const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'triage_client';
     const rateLimitKey = `triage_${app_id || 'app'}_${conversation_id || 'anon'}_${String(clientIp).split(',')[0]}`;
@@ -7473,13 +7430,24 @@ app.post('/api/business/triage-ai', async (req: any, res: any) => {
     }
 
     let aiReply = '';
+    let isEscalated = false;
+
+    // Check if customer explicitly requests human agent or triggers manual intervention
+    const humanKeywords = ['agent', 'human', 'talk to human', 'representative', 'complaint', 'manager', 'speak to agent', 'real person', 'support agent'];
+    const requiresHuman = humanKeywords.some(kw => lowerText.includes(kw));
+
+    if (requiresHuman) {
+      isEscalated = true;
+      aiReply = app?.fallback_human_message || `Hello ${customerName}, I have escalated your query directly to our live human support team. A team representative will connect with you shortly.`;
+    }
 
     // Check custom knowledge FAQs first (Exact / high relevance matching)
-    if (app?.knowledge_faqs && Array.isArray(app.knowledge_faqs)) {
+    if (!aiReply && app?.knowledge_faqs && Array.isArray(app.knowledge_faqs)) {
       for (const faq of app.knowledge_faqs) {
-        const qWords = faq.question.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
+        if (!faq.question || !faq.answer) continue;
+        const qWords = faq.question.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
         const matchCount = qWords.filter((w: string) => lowerText.includes(w)).length;
-        if (matchCount >= 2 || (qWords.length === 1 && lowerText.includes(qWords[0]))) {
+        if (matchCount >= Math.min(2, qWords.length) || lowerText.includes(faq.question.toLowerCase())) {
           aiReply = faq.answer;
           break;
         }
@@ -7489,10 +7457,11 @@ app.post('/api/business/triage-ai', async (req: any, res: any) => {
     // Check custom auto-triage rules
     if (!aiReply && app?.auto_triage_rules && Array.isArray(app.auto_triage_rules)) {
       for (const rule of app.auto_triage_rules) {
-        if (!rule.is_active) continue;
+        if (!rule.is_active || !rule.match_value) continue;
         if (rule.condition_type === 'keyword' && lowerText.includes(rule.match_value.toLowerCase())) {
           if (rule.action === 'escalate_human') {
-            aiReply = rule.action_payload || app.fallback_human_message || 'I have escalated this issue to our priority human support team. A representative will be with you shortly.';
+            isEscalated = true;
+            aiReply = rule.action_payload || app?.fallback_human_message || `Issue flagged for live support. A representative has been alerted for ${customerName}.`;
           } else if (rule.action === 'send_canned' && rule.action_payload) {
             aiReply = rule.action_payload;
           }
@@ -7501,18 +7470,32 @@ app.post('/api/business/triage-ai', async (req: any, res: any) => {
       }
     }
 
-    // Call Multi-Provider AI (Google Gemini, OpenAI, Anthropic, Groq, Custom) if AI is enabled
+    // Call Multi-Provider AI (Google Gemini, OpenAI, Anthropic, Groq, Custom) if AI is enabled and not escalated
     if (!aiReply && app?.ai_enabled !== false) {
       try {
         const toneInstruction = app.ai_tone === 'concise' ? 'Keep responses very brief, direct, and under 35 words.' :
           app.ai_tone === 'technical' ? 'Provide structured, technical specifications and parameters.' :
           app.ai_tone === 'formal' ? 'Maintain a polite, formal executive customer service tone.' :
-          'Be a helpful, warm store shopping concierge.';
+          'Be a helpful, warm customer service concierge.';
 
-        const systemPrompt = `${app.ai_system_prompt || 'You are an intelligent customer concierge for this store.'}
+        let systemPrompt = `${app.ai_system_prompt || `You are an intelligent customer assistant for ${app?.app_name || 'our service'}.`}
 ${toneInstruction}
-Customer context: Name: ${customer_context.customer_name || 'Shopper'}, Cart: ${customer_context.cart_value || 'None'}, Order: ${customer_context.order_id || 'None'}.
-Do not mention internal technical terms. If the user asks about an order problem or delivery issue, politely advise that a human support specialist is being notified.`;
+Customer Name: ${customerName}.`;
+
+        if (customer_context.product_specs) {
+          systemPrompt += `\n\n=== LIVE ITEM / PRODUCT / ORDER SPECIFICATIONS ===
+${customer_context.product_specs}
+
+GROUNDING & TRUTHFULNESS DIRECTIVES:
+1. You are checking this specific item's live specifications in real time.
+2. Answer the user's question accurately based STRICTLY on the real item specifications provided above.
+3. If an amenity, ingredient, technical spec, or warranty is present in the specifications, confirm it clearly. If it is NOT in the specifications, state honestly that it is not listed.
+4. Respond in the exact language or dialect the user used (Hindi, Hinglish, English, Bengali, Marathi, Spanish, etc.).
+5. Keep your tone realistic, helpful, warm, and conversational. Do not output raw JSON or internal variable names.`;
+        } else {
+          systemPrompt += `\nContext: Cart Value: ${customer_context.cart_value || 'None'}, Order ID: ${customer_context.order_id || 'None'}.
+Address the user naturally. If the request requires human intervention, state politely that a human agent is being assigned.`;
+        }
 
         aiReply = await callMultiProviderAi({
           provider: app.ai_provider || 'google',
@@ -7528,24 +7511,12 @@ Do not mention internal technical terms. If the user asks about an order problem
       }
     }
 
-    // Heuristic fallback if empty or provider error
+    // Clean neutral fallback if still empty
     if (!aiReply) {
-      if (lowerText.includes('size') || lowerText.includes('fit') || lowerText.includes('sizing') || lowerText.includes('measurement')) {
-        aiReply = 'Our apparel and items generally fit true to size. If you are in between sizes or prefer an oversized drape, sizing up by one step is recommended. Check product dimensions for exact measurements.';
-      } else if (lowerText.includes('return') || lowerText.includes('exchange') || lowerText.includes('refund')) {
-        aiReply = 'We offer an instant, hassle-free 14-day exchange and return policy on all eligible items. Items should have all tags intact with original packaging.';
-      } else if (lowerText.includes('ship') || lowerText.includes('delivery') || lowerText.includes('how long') || lowerText.includes('time')) {
-        aiReply = 'All standard orders are processed and dispatched within 24 hours. Standard delivery takes 3 to 5 business days, with live tracking.';
-      } else if (lowerText.includes('coupon') || lowerText.includes('discount') || lowerText.includes('promo') || lowerText.includes('offer')) {
-        aiReply = 'You can use code "WELCOME10" at checkout for 10% off your first order! Free shipping is also automatically applied on orders above ₹1,999.';
-      } else if (lowerText.includes('order') || lowerText.includes('delayed') || lowerText.includes('damage') || lowerText.includes('wrong') || lowerText.includes('cancel')) {
-        aiReply = app?.fallback_human_message || 'I understand your concern regarding your order. Because this requires verifying sensitive shipping and payment logs, I have escalated this conversation directly to our senior human support team.';
-      } else {
-        aiReply = app?.welcome_message || `Hello! I am your virtual shopping assistant for ${app?.app_name || 'this store'}. How can I assist you with product specs, sizing, shipping, or returns today?`;
-      }
+      aiReply = app?.welcome_message || `Hello ${customerName}! How can our support team or automated assistant help you today?`;
     }
 
-    // Auto-record AI message in conversation
+    // Auto-record AI message & update conversation state in memory + DB
     if (conversation_id) {
       const now = Date.now();
       const aiMsgId = `msg_ai_${now}_${Math.random().toString(36).substring(2, 6)}`;
@@ -7553,8 +7524,8 @@ Do not mention internal technical terms. If the user asks about an order problem
         id: aiMsgId,
         conversation_id,
         app_id: app_id || '',
-        sender_type: 'ai',
-        sender_name: `${app?.app_name || 'Store'} AI Co-Pilot`,
+        sender_type: isEscalated ? 'system' : 'ai',
+        sender_name: isEscalated ? 'Escalation Router' : `${app?.app_name || 'Store'} AI Assistant`,
         text: aiReply,
         created_at: now,
         read: false
@@ -7564,15 +7535,33 @@ Do not mention internal technical terms. If the user asks about an order problem
       msgs.push(aiMsgObj);
       inMemoryBusinessMessages.set(conversation_id, msgs);
 
+      const updatePayload: any = {
+        last_message: aiReply,
+        last_message_time: now,
+        last_sender: isEscalated ? 'system' : 'ai',
+        unread_for_customer: true,
+        updated_at: now
+      };
+
+      if (isEscalated) {
+        updatePayload.status = 'pending_human';
+        updatePayload.needs_human = true;
+        updatePayload.priority = 'high';
+        updatePayload.ai_active = false;
+      } else {
+        updatePayload.status = 'automated';
+        updatePayload.needs_human = false;
+      }
+
+      const conv = inMemoryBusinessConversations.get(conversation_id);
+      if (conv) {
+        Object.assign(conv, updatePayload);
+        inMemoryBusinessConversations.set(conversation_id, conv);
+      }
+
       if (db) {
         setDoc(doc(db, 'business_messages', aiMsgId), aiMsgObj).catch(() => {});
-        updateDoc(doc(db, 'business_conversations', conversation_id), {
-          last_message: aiReply,
-          last_message_time: now,
-          last_sender: 'ai',
-          unread_for_customer: true,
-          updated_at: now
-        }).catch(() => {});
+        updateDoc(doc(db, 'business_conversations', conversation_id), updatePayload).catch(() => {});
       }
     }
 
@@ -7637,6 +7626,7 @@ app.get('/widget/live-chat.js', (req: any, res: any) => {
   var iframe = document.createElement('iframe');
   iframe.id = 'zenoa-chat-window-frame';
   iframe.src = rootUrl + '/widget-demo?embed=true&app_id=' + encodeURIComponent(appId);
+  iframe.setAttribute('allow', 'fullscreen; clipboard-write');
   iframe.style.display = 'none';
   iframe.style.width = '380px';
   iframe.style.height = '620px';
@@ -7646,8 +7636,41 @@ app.get('/widget/live-chat.js', (req: any, res: any) => {
   iframe.style.borderRadius = '20px';
   iframe.style.boxShadow = '0 16px 48px rgba(0,0,0,0.22)';
   iframe.style.marginBottom = '16px';
+  iframe.style.transition = 'width 0.25s ease, height 0.25s ease, border-radius 0.25s ease';
 
   var isOpen = false;
+  var isFullscreen = false;
+
+  window.addEventListener('message', function(event) {
+    if (event.data && event.data.type === 'zenoa_widget_fullscreen_toggle') {
+      isFullscreen = !!event.data.fullscreen;
+      if (isFullscreen) {
+        iframe.style.position = 'fixed';
+        iframe.style.top = '0';
+        iframe.style.left = '0';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '100vw';
+        iframe.style.height = '100vh';
+        iframe.style.maxWidth = '100vw';
+        iframe.style.maxHeight = '100vh';
+        iframe.style.borderRadius = '0';
+        iframe.style.margin = '0';
+        iframe.style.zIndex = '2147483647';
+        if (button) button.style.display = 'none';
+      } else {
+        iframe.style.position = 'static';
+        iframe.style.width = '380px';
+        iframe.style.height = '620px';
+        iframe.style.maxWidth = 'calc(100vw - 32px)';
+        iframe.style.maxHeight = 'calc(100vh - 100px)';
+        iframe.style.borderRadius = '20px';
+        iframe.style.marginBottom = '16px';
+        if (button) button.style.display = 'flex';
+      }
+    }
+  });
+
   button.onclick = function() {
     isOpen = !isOpen;
     iframe.style.display = isOpen ? 'block' : 'none';

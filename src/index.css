@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import url('https://api.fontshare.com/v2/css?f[]=satoshi@900,700,500,400,300&display=swap');
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -23,8 +24,7 @@
   --stripi-lemon: #9b6829;
   --stripi-shadow-blue: #003770;
 
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-feature-settings: "ss01" on;
+  font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -32,8 +32,7 @@
 }
 
 body, button, input, textarea, select {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-feature-settings: "ss01" on;
+  font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

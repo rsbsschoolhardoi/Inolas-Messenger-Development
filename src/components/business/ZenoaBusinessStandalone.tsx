@@ -329,10 +329,10 @@ export const ZenoaBusinessStandalone: React.FC<ZenoaBusinessStandaloneProps> = (
     }
 
     if (filterTrack === 'vip_human') {
-      return c.intent === 'post_purchase_issue' || c.status === 'pending_human';
+      return (c as any).needs_human === true || c.status === 'pending_human' || c.status === 'open' || c.intent === 'post_purchase_issue' || c.priority === 'high' || c.priority === 'urgent';
     }
     if (filterTrack === 'ai_managed') {
-      return c.intent === 'pre_purchase' && c.ai_active;
+      return (c as any).needs_human !== true && c.status !== 'pending_human' && (c.ai_active || c.status === 'automated');
     }
     if (filterTrack === 'resolved') {
       return c.status === 'resolved' || c.status === 'closed';
@@ -340,9 +340,9 @@ export const ZenoaBusinessStandalone: React.FC<ZenoaBusinessStandaloneProps> = (
     return true;
   });
 
-  const vipCount = conversations.filter(c => c.intent === 'post_purchase_issue' || c.status === 'pending_human').length;
-  const aiCount = conversations.filter(c => c.intent === 'pre_purchase').length;
-  const resolvedCount = conversations.filter(c => c.status === 'resolved').length;
+  const vipCount = conversations.filter(c => (c as any).needs_human === true || c.status === 'pending_human' || c.status === 'open' || c.intent === 'post_purchase_issue' || c.priority === 'high').length;
+  const aiCount = conversations.filter(c => (c as any).needs_human !== true && c.status !== 'pending_human' && (c.ai_active || c.status === 'automated')).length;
+  const resolvedCount = conversations.filter(c => c.status === 'resolved' || c.status === 'closed').length;
 
   const embedScriptTag = `<script 
   src="${typeof window !== 'undefined' ? window.location.origin : 'https://zenoa.in'}/widget/live-chat.js" 
@@ -353,7 +353,7 @@ export const ZenoaBusinessStandalone: React.FC<ZenoaBusinessStandaloneProps> = (
 </script>`;
 
   return (
-    <div className={`h-screen w-full flex flex-col font-sans select-none overflow-hidden ${
+    <div className={`h-screen w-full flex flex-col font-sans overflow-hidden ${
       themeMode === 'dark' ? 'bg-[#09090b] text-[#f4f4f5]' : 'bg-[#fafafa] text-[#09090b]'
     }`}>
       

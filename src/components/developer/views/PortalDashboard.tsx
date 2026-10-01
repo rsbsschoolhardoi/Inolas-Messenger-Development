@@ -4,7 +4,7 @@ import {
   Copy, Check, RefreshCw, AlertTriangle, Download, Plus, ChevronRight, Menu, X,
   Webhook, Terminal, ArrowLeft, FileCode, CreditCard, Users, Shield, Radio,
   LayoutDashboard, Eye, EyeOff, Sun, Moon, Building2, ShoppingBag, Sparkles, ExternalLink,
-  Layers, BarChart3
+  Layers, BarChart3, Globe, Bot, CheckCircle2
 } from 'lucide-react';
 import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../../firebaseClient';
@@ -29,7 +29,7 @@ import { BusinessAutomationAiView } from '../tabs/BusinessAutomationAiView';
 import { AnalyticsView } from '../tabs/AnalyticsView';
 import { FeatureLockedCard } from '../common/FeatureLockedCard';
 import { CategoryUpgradeModal } from '../common/CategoryUpgradeModal';
-import { DeveloperGettingStartedView, generateLongApiKey } from '../common/DeveloperGettingStartedView';
+import { DeveloperGettingStartedView, DeveloperGettingStartedData, generateLongApiKey } from '../common/DeveloperGettingStartedView';
 import { CustomSelect } from '../common/CustomSelect';
 import { CodeBlock } from '../common/CodeBlock';
 import { ErrorBoundary } from '../../common/ErrorBoundary';
@@ -293,21 +293,39 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
   const createServiceAccountCore = async ({
     appNameInput,
     botUsernameInput,
-    categoryTierInput = 'business',
+    serviceTypeInput = 'service_account',
+    categoryTierInput = 'messenger',
     industryCategoryInput = 'ecommerce',
     platformTargetInput = 'hybrid',
     envInput = 'test',
     apiKeyNameInput,
-    customApiKeyInput
+    customApiKeyInput,
+    serviceCategoryInput,
+    selectedScopesInput,
+    webhookUrlInput,
+    widgetCategoryInput,
+    assistantNameInput,
+    enableThirdPartyUserNameInput,
+    aiSystemPromptInput,
+    organizationNameInput
   }: {
     appNameInput: string;
     botUsernameInput?: string;
+    serviceTypeInput?: 'service_account' | 'widget_automation' | 'hybrid';
     categoryTierInput?: DeveloperCategoryTier;
     industryCategoryInput?: any;
     platformTargetInput?: any;
     envInput?: 'test' | 'live';
     apiKeyNameInput?: string;
     customApiKeyInput?: string;
+    serviceCategoryInput?: string;
+    selectedScopesInput?: string[];
+    webhookUrlInput?: string;
+    widgetCategoryInput?: 'bubble' | 'in_app_embed' | 'high_priority_escalation';
+    assistantNameInput?: string;
+    enableThirdPartyUserNameInput?: boolean;
+    aiSystemPromptInput?: string;
+    organizationNameInput?: string;
   }) => {
     const finalAppName = appNameInput.trim();
     if (!finalAppName) return;
@@ -324,12 +342,16 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
       const cleanDevUser = currentUser.username.toLowerCase().replace(/[^a-z0-9._]/g, '');
       const existingApp = apps.find(a => a.id === `sa_${cleanDevUser}`) || apps[0];
 
+      const defaultPrefix = serviceTypeInput === 'service_account'
+        ? (envInput === 'test' ? 'zsa_test_' : 'zsa_live_')
+        : (envInput === 'test' ? 'zwg_test_' : 'zwg_live_');
+
       const liveApiKey = (envInput === 'live' && customApiKeyInput) 
         ? customApiKeyInput 
-        : existingApp?.api_key || generateLongApiKey('live');
+        : existingApp?.api_key || generateLongApiKey('live', defaultPrefix);
       const testApiKey = (envInput === 'test' && customApiKeyInput) 
         ? customApiKeyInput 
-        : existingApp?.test_api_key || generateLongApiKey('test');
+        : existingApp?.test_api_key || generateLongApiKey('test', defaultPrefix);
 
       const clientId = liveApiKey;
       const clientSecret = existingApp?.client_secret || generateDevConsoleSecret('live');
@@ -354,9 +376,11 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
         owner: currentUser.username,
         owner_id: currentUser.id || '',
         app_name: finalAppName,
+        organization_name: organizationNameInput || '',
         bot_username: finalBotUsername,
         archetype: mappedArchetype,
         category_tier: categoryTierInput,
+        service_type: serviceTypeInput,
         category: industryCategoryInput,
         platform_target: platformTargetInput,
         environment: envInput,
@@ -372,6 +396,11 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
         is_verified: true,
         verified_type: 'purple',
         onboarding_completed: true,
+        webhook_url: webhookUrlInput || '',
+        scopes: selectedScopesInput || ['messages:send', 'otp:dispatch', 'webhooks:receive', 'users:verify'],
+        widget_category: widgetCategoryInput || 'bubble',
+        assistant_name: assistantNameInput || 'Support Concierge',
+        enable_third_party_user_name: enableThirdPartyUserNameInput !== false,
         created_at: existingApp?.created_at || Date.now(),
         updated_at: Date.now()
       };
@@ -386,61 +415,77 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
         const appRef = doc(collection(db, 'developer_apps'), appDocId);
         await setDoc(appRef, newAppData, { merge: true });
 
-        const bizAppRef = doc(db, 'business_apps', appDocId);
-        await setDoc(bizAppRef, {
-          id: appDocId,
-          client_id: clientId,
-          app_name: finalAppName,
-          bot_username: finalBotUsername,
-          category: industryCategoryInput,
-          platform_target: platformTargetInput,
-          archetype: mappedArchetype,
-          category_tier: categoryTierInput,
-          owner_username: currentUser.username,
-          owner_id: currentUser.id || '',
-          assigned_agents: [`@${currentUser.username}`],
-          ai_enabled: true,
-          ai_model: 'gemini-2.5-flash',
-          ai_system_prompt: `You are the friendly, expert assistant for ${finalAppName}. Help customers with product recommendations, order status, return policies, and sizing inquiries.`,
-          pre_purchase_auto_respond: true,
-          post_purchase_instant_escalate: true,
-          widget_theme: {
-            primary_color: '#533afd',
-            greeting_title: `Welcome to ${finalAppName}!`,
-            greeting_subtitle: 'How can we assist you today?',
-            position: 'bottom-right'
-          },
-          updated_at: Date.now()
-        }, { merge: true }).catch(() => {});
+        // If widget & automation or hybrid: save business app settings
+        if (serviceTypeInput === 'widget_automation' || serviceTypeInput === 'hybrid' || categoryTierInput === 'business') {
+          const bizAppRef = doc(db, 'business_apps', appDocId);
+          await setDoc(bizAppRef, {
+            id: appDocId,
+            client_id: clientId,
+            app_name: finalAppName,
+            bot_username: finalBotUsername,
+            category: industryCategoryInput,
+            platform_target: platformTargetInput,
+            archetype: mappedArchetype,
+            category_tier: categoryTierInput,
+            widget_category: widgetCategoryInput || 'bubble',
+            owner_username: currentUser.username,
+            owner_id: currentUser.id || '',
+            assigned_agents: [`@${currentUser.username}`],
+            ai_enabled: true,
+            ai_model: 'gemini-2.5-flash',
+            ai_system_prompt: aiSystemPromptInput || `You are the intelligent customer concierge for ${finalAppName}. Assist customers clearly according to configured knowledge base rules. Address them respectfully by their name if available.`,
+            pre_purchase_auto_respond: true,
+            post_purchase_instant_escalate: widgetCategoryInput === 'high_priority_escalation',
+            enable_third_party_user_name: enableThirdPartyUserNameInput !== false,
+            widget_theme: {
+              primary_color: '#533afd',
+              greeting_title: `Welcome to ${finalAppName}!`,
+              greeting_subtitle: 'How can we assist you today?',
+              position: 'bottom-right'
+            },
+            updated_at: Date.now()
+          }, { merge: true }).catch(() => {});
+        }
 
-        const botUserDocRef = doc(db, 'users', finalBotUsername);
-        await setDoc(botUserDocRef, {
-          id: finalBotUsername,
-          username: finalBotUsername,
-          display_name: finalAppName,
-          name: finalAppName,
-          is_service_account: true,
-          is_business_account: true,
-          is_bot: true,
-          is_verified: true,
-          verified_type: 'purple',
-          role: 'service_account',
-          login_disabled: true,
-          owner: currentUser.username,
-          owner_id: currentUser.id || '',
-          owner_username: currentUser.username,
-          linked_user_id: currentUser.id || '',
-          environment: envInput,
-          is_live: envInput === 'live',
-          updated_at: Date.now()
-        }, { merge: true }).catch(() => {});
+        // Register Service Account Bot User if service_account or hybrid
+        if (serviceTypeInput === 'service_account' || serviceTypeInput === 'hybrid' || categoryTierInput === 'messenger') {
+          const botUserDocRef = doc(db, 'users', finalBotUsername);
+          await setDoc(botUserDocRef, {
+            id: finalBotUsername,
+            username: finalBotUsername,
+            display_name: finalAppName,
+            name: finalAppName,
+            is_service_account: true,
+            is_business_account: true,
+            is_bot: true,
+            is_verified: true,
+            verified_type: 'purple',
+            role: 'service_account',
+            login_disabled: true,
+            owner: currentUser.username,
+            owner_id: currentUser.id || '',
+            owner_username: currentUser.username,
+            linked_user_id: currentUser.id || '',
+            environment: envInput,
+            is_live: envInput === 'live',
+            updated_at: Date.now()
+          }, { merge: true }).catch(() => {});
+        }
       }
 
       setApps([newAppData]);
       setSelectedAppId(appDocId);
       setEnvironment(envInput);
       setNewlyGeneratedSecret({ clientId, clientSecret, appName: finalAppName, botUsername: finalBotUsername });
-      showToast(`Service account @${finalBotUsername} (${finalAppName}) saved successfully.`);
+      
+      // Navigate to appropriate tab based on service type
+      if (serviceTypeInput === 'widget_automation') {
+        setActiveTab('automation');
+      } else {
+        setActiveTab('apps');
+      }
+
+      showToast(`${serviceTypeInput === 'service_account' ? 'Service account' : 'Widget & Automation service'} @${finalBotUsername} (${finalAppName}) saved successfully.`);
     } catch (err: any) {
       showToast('Error: ' + err.message);
       throw err;
@@ -461,24 +506,25 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
     });
   };
 
-  const handleGettingStartedCreate = async (data: {
-    appName: string;
-    botUsername: string;
-    categoryTier: DeveloperCategoryTier;
-    industryCategory: string;
-    environment: 'test' | 'live';
-    apiKeyName?: string;
-    customApiKey?: string;
-  }) => {
+  const handleGettingStartedCreate = async (data: DeveloperGettingStartedData) => {
     await createServiceAccountCore({
       appNameInput: data.appName,
       botUsernameInput: data.botUsername,
+      serviceTypeInput: data.serviceType,
       categoryTierInput: data.categoryTier,
       industryCategoryInput: data.industryCategory,
       platformTargetInput: 'hybrid',
       envInput: data.environment,
       apiKeyNameInput: data.apiKeyName,
-      customApiKeyInput: data.customApiKey
+      customApiKeyInput: data.customApiKey,
+      serviceCategoryInput: data.serviceCategory,
+      selectedScopesInput: data.selectedScopes,
+      webhookUrlInput: data.webhookUrl,
+      widgetCategoryInput: data.widgetCategory,
+      assistantNameInput: data.assistantName,
+      enableThirdPartyUserNameInput: data.enableThirdPartyUserName,
+      aiSystemPromptInput: data.aiSystemPrompt,
+      organizationNameInput: data.organizationName
     });
   };
 
@@ -677,6 +723,54 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
     showToast(`Category updated to ${newTier.toUpperCase()}. Features unlocked.`);
   };
 
+  // Business API Service Account Management State
+  const [saName, setSaName] = useState('');
+  const [saBotHandle, setSaBotHandle] = useState('');
+  const [saCategory, setSaCategory] = useState('System');
+  const [isUpdatingSa, setIsUpdatingSa] = useState(false);
+
+  useEffect(() => {
+    if (selectedApp) {
+      setSaName(selectedApp.service_account_name || `${selectedApp.app_name} Bot`);
+      setSaBotHandle(selectedApp.bot_username ? selectedApp.bot_username.replace(/^@/, '') : currentUser.username);
+      setSaCategory(selectedApp.service_category || 'System');
+    }
+  }, [selectedApp?.id, selectedApp?.bot_username, selectedApp?.service_account_name, selectedApp?.service_category]);
+
+  const handleSaveServiceAccount = async () => {
+    if (!selectedApp) return;
+    setIsUpdatingSa(true);
+    try {
+      const cleanHandle = saBotHandle.trim().toLowerCase().replace(/^@/, '').replace(/[^a-z0-9._]/g, '');
+      const finalBotUsername = cleanHandle || `sa_${currentUser.username}`;
+      
+      await handleUpdateApp({
+        service_account_name: saName.trim(),
+        bot_username: finalBotUsername,
+        service_category: saCategory
+      });
+      
+      if (db) {
+        const botUserRef = doc(db, 'users', finalBotUsername);
+        await setDoc(botUserRef, {
+          id: finalBotUsername,
+          username: finalBotUsername,
+          display_name: saName.trim() || selectedApp.app_name,
+          is_service_account: true,
+          role: 'service_account',
+          owner: currentUser.username,
+          service_category: saCategory,
+          updated_at: Date.now()
+        }, { merge: true }).catch(() => {});
+      }
+      showToast('Service account updated successfully.');
+    } catch (e: any) {
+      showToast('Error saving service account: ' + (e.message || 'Failed'));
+    } finally {
+      setIsUpdatingSa(false);
+    }
+  };
+
   const getGeneratedCode = (): string => {
     if (!selectedApp) return '';
     switch (selectedLanguage) {
@@ -717,10 +811,10 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
 
   return (
     <div className={`flex h-screen font-sans overflow-hidden transition-colors ${
-      isDark ? 'dark bg-[#0c1024] text-white selection:bg-[#533afd] selection:text-white' : 'bg-[#f6f9fc] text-[#0d253d] selection:bg-[#533afd]/20 selection:text-[#533afd]'
+      isDark ? 'dark bg-[#181d26] text-white selection:bg-white selection:text-[#181d26]' : 'bg-white text-[#181d26] selection:bg-[#181d26] selection:text-white'
     }`}>
       {notification && (
-        <div className="fixed top-4 right-4 z-50 bg-[#0d253d] text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 text-sm font-medium animate-in slide-in-from-top-2 border border-[#273951]">
+        <div className="fixed top-4 right-4 z-50 bg-[#181d26] text-white px-5 py-3 rounded-xl shadow-xl flex items-center gap-3 text-sm font-medium animate-in slide-in-from-top-2 border border-[#2d333f]">
           <ShieldCheck className="h-5 w-5 text-emerald-400" />
           <span>{notification}</span>
         </div>
@@ -728,10 +822,10 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
 
       {/* Sidebar - Desktop */}
       <aside className={`hidden md:flex flex-col w-64 border-r shrink-0 transition-colors ${
-        isDark ? 'border-[#273951] bg-[#0d1326]' : 'border-[#e3e8ee] bg-white'
+        isDark ? 'border-[#2d333f] bg-[#181d26]' : 'border-[#dddddd] bg-[#f8fafc]'
       }`}>
         <div className={`p-4 border-b flex items-center justify-between ${
-          isDark ? 'border-[#273951]' : 'border-[#e3e8ee]'
+          isDark ? 'border-[#2d333f]' : 'border-[#dddddd]'
         }`}>
           <div className="flex items-center gap-3">
             <BrandLogo
@@ -740,21 +834,35 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
               size="sm"
             />
             <div>
-              <h1 className="text-xs font-bold tracking-tight text-[#0d253d] dark:text-white">{branding.app_name || 'Zenoa'} Developer Console</h1>
-              <p className="text-[10px] text-[#64748d] dark:text-[#94a3b8] font-medium">Inolas Nexus &bull; APIs & Bots</p>
+              <h1 className="text-xs font-semibold tracking-tight text-[#181d26] dark:text-white">{branding.app_name || 'Zenoa'} Developer</h1>
+              <p className="text-[10px] text-[#333840] dark:text-zinc-400 font-normal">Console &amp; Service Gateway</p>
             </div>
           </div>
         </div>
         
         <div className="flex-1 p-3 space-y-4 overflow-y-auto">
+          {/* Quick link to Developer Landing Page */}
+          <button
+            onClick={onHome}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+              isDark 
+                ? 'bg-[#1d1f25] text-zinc-300 border-[#2d333f] hover:text-white' 
+                : 'bg-white text-[#181d26] border-[#dddddd] hover:bg-[#e0e2e6]'
+            }`}
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            <span>Developer Landing</span>
+          </button>
+
           {/* Main Navigation */}
           <div>
-            <div className="px-3 pb-1 text-[10px] uppercase font-bold tracking-wider text-zinc-400 dark:text-zinc-500">Core</div>
+            <div className="px-3 pb-1.5 text-[10px] uppercase font-medium tracking-wider text-[#333840] dark:text-zinc-400">Platform</div>
             <div className="space-y-0.5">
               {[
                 { id: 'overview', icon: LayoutDashboard, label: 'Overview' },
-                { id: 'apps', icon: Key, label: 'API Credentials' },
-                { id: 'analytics', icon: BarChart3, label: 'Analytics', locked: currentCategoryTier === 'messenger' },
+                { id: 'automation', icon: Sparkles, label: 'Web Widget & Automation' },
+                { id: 'apps', icon: Terminal, label: 'Business API & Service Accounts' },
+                { id: 'analytics', icon: BarChart3, label: 'Analytics' },
                 { id: 'docs', icon: FileText, label: 'Documentation' },
               ].map(tab => (
                 <button
@@ -762,50 +870,32 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                   onClick={() => setActiveTab(tab.id as TabType)}
                   className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer truncate whitespace-nowrap ${
                     activeTab === tab.id 
-                      ? 'bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 font-semibold' 
-                      : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-white'
+                      ? isDark 
+                        ? 'bg-white text-[#181d26] font-medium' 
+                        : 'bg-[#181d26] text-white font-medium shadow-xs' 
+                      : 'text-[#333840] dark:text-zinc-400 hover:bg-[#e0e2e6]/60 dark:hover:bg-[#222834] hover:text-[#181d26] dark:hover:text-white'
                   }`}
                 >
                   <div className="flex items-center gap-2.5 truncate">
-                    <tab.icon className={`h-4 w-4 shrink-0 ${activeTab === tab.id ? 'text-[#533afd] dark:text-[#818cf8]' : 'text-zinc-500 dark:text-zinc-400'}`} />
+                    <tab.icon className={`h-4 w-4 shrink-0 ${activeTab === tab.id ? (isDark ? 'text-[#181d26]' : 'text-white') : 'text-[#333840] dark:text-zinc-400'}`} />
                     <span className="truncate">{tab.label}</span>
                   </div>
-                  {tab.locked && (
-                    <Lock className="h-3.5 w-3.5 text-zinc-400 dark:text-zinc-500 shrink-0 ml-1.5" />
-                  )}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Business Suite & AI */}
+          {/* Business Workspace */}
           <div>
-            <div className="px-3 pb-1 text-[10px] uppercase font-bold tracking-wider text-zinc-400 dark:text-zinc-500">Business & AI</div>
+            <div className="px-3 pb-1.5 text-[10px] uppercase font-medium tracking-wider text-[#333840] dark:text-zinc-400">Workspace</div>
             <div className="space-y-0.5">
-              <button
-                onClick={() => setActiveTab('automation')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer truncate whitespace-nowrap ${
-                  activeTab === 'automation' 
-                    ? 'bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 font-semibold' 
-                    : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-white'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 truncate">
-                  <Sparkles className={`h-4 w-4 shrink-0 ${activeTab === 'automation' ? 'text-[#533afd] dark:text-[#818cf8]' : 'text-zinc-500 dark:text-zinc-400'}`} />
-                  <span className="truncate">Automation and AI Studio</span>
-                </div>
-                {currentCategoryTier === 'messenger' && (
-                  <Lock className="h-3.5 w-3.5 text-zinc-400 dark:text-zinc-500 shrink-0 ml-1.5" />
-                )}
-              </button>
-
               <a
                 href="/business"
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-white cursor-pointer truncate whitespace-nowrap"
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors text-[#333840] dark:text-zinc-400 hover:bg-[#e0e2e6]/60 dark:hover:bg-[#222834] hover:text-[#181d26] dark:hover:text-white cursor-pointer truncate whitespace-nowrap"
               >
                 <div className="flex items-center gap-2.5 truncate">
-                  <Building2 className="h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
-                  <span className="truncate">Business Console</span>
+                  <Building2 className="h-4 w-4 shrink-0 text-[#333840] dark:text-zinc-400" />
+                  <span className="truncate">Merchant Inbox</span>
                 </div>
               </a>
             </div>
@@ -813,7 +903,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
 
           {/* Tools & Testing */}
           <div>
-            <div className="px-3 pb-1 text-[10px] uppercase font-bold tracking-wider text-zinc-400 dark:text-zinc-500">Developer Tools</div>
+            <div className="px-3 pb-1.5 text-[10px] uppercase font-medium tracking-wider text-[#333840] dark:text-zinc-400">Developer Tools</div>
             <div className="space-y-0.5">
               {[
                 { id: 'otp', icon: Zap, label: 'OTP Simulator', locked: currentCategoryTier === 'business' },
@@ -825,12 +915,14 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                   onClick={() => setActiveTab(tab.id as TabType)}
                   className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer truncate whitespace-nowrap ${
                     activeTab === tab.id 
-                      ? 'bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 font-semibold' 
-                      : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-white'
+                      ? isDark 
+                        ? 'bg-white text-[#181d26] font-medium' 
+                        : 'bg-[#181d26] text-white font-medium shadow-xs' 
+                      : 'text-[#333840] dark:text-zinc-400 hover:bg-[#e0e2e6]/60 dark:hover:bg-[#222834] hover:text-[#181d26] dark:hover:text-white'
                   }`}
                 >
                   <div className="flex items-center gap-2.5 truncate">
-                    <tab.icon className={`h-4 w-4 shrink-0 ${activeTab === tab.id ? 'text-[#533afd] dark:text-[#818cf8]' : 'text-zinc-500 dark:text-zinc-400'}`} />
+                    <tab.icon className={`h-4 w-4 shrink-0 ${activeTab === tab.id ? (isDark ? 'text-[#181d26]' : 'text-white') : 'text-[#333840] dark:text-zinc-400'}`} />
                     <span className="truncate">{tab.label}</span>
                   </div>
                   {tab.locked && (
@@ -843,7 +935,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
 
           {/* Management & Quotas */}
           <div>
-            <div className="px-3 pb-1 text-[10px] uppercase font-bold tracking-wider text-zinc-400 dark:text-zinc-500">Account</div>
+            <div className="px-3 pb-1.5 text-[10px] uppercase font-medium tracking-wider text-[#333840] dark:text-zinc-400">Account</div>
             <div className="space-y-0.5">
               {[
                 { id: 'templates', icon: FileCode, label: 'Message Templates', locked: currentCategoryTier === 'messenger' },
@@ -856,12 +948,14 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                   onClick={() => setActiveTab(tab.id as TabType)}
                   className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer truncate whitespace-nowrap ${
                     activeTab === tab.id 
-                      ? 'bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] dark:bg-[#533afd]/20 font-semibold' 
-                      : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-white'
+                      ? isDark 
+                        ? 'bg-white text-[#181d26] font-medium' 
+                        : 'bg-[#181d26] text-white font-medium shadow-xs' 
+                      : 'text-[#333840] dark:text-zinc-400 hover:bg-[#e0e2e6]/60 dark:hover:bg-[#222834] hover:text-[#181d26] dark:hover:text-white'
                   }`}
                 >
                   <div className="flex items-center gap-2.5 truncate">
-                    <tab.icon className={`h-4 w-4 shrink-0 ${activeTab === tab.id ? 'text-[#533afd] dark:text-[#818cf8]' : 'text-zinc-500 dark:text-zinc-400'}`} />
+                    <tab.icon className={`h-4 w-4 shrink-0 ${activeTab === tab.id ? (isDark ? 'text-[#181d26]' : 'text-white') : 'text-[#333840] dark:text-zinc-400'}`} />
                     <span className="truncate">{tab.label}</span>
                   </div>
                   {tab.locked && (
@@ -875,28 +969,28 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
 
         {/* Footer with User info & Theme preference */}
         <div className={`p-3 border-t space-y-2.5 ${
-          isDark ? 'border-[#273951] bg-[#0c1024]/60' : 'border-[#e3e8ee] bg-[#f6f9fc]/80'
+          isDark ? 'border-[#2d333f] bg-[#1d1f25]' : 'border-[#dddddd] bg-white'
         }`}>
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
-              <div className="h-7 w-7 rounded-full bg-[#533afd] text-white flex items-center justify-center text-xs font-semibold uppercase shrink-0">
+              <div className="h-7 w-7 rounded-full bg-[#181d26] dark:bg-white text-white dark:text-[#181d26] flex items-center justify-center text-xs font-semibold uppercase shrink-0">
                 {currentUser.username.slice(0, 2)}
               </div>
               <div className="overflow-hidden min-w-0">
-                <p className="text-xs font-semibold truncate text-[#0d253d] dark:text-white">{currentUser.display_name || currentUser.username}</p>
-                <p className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate">@{currentUser.username}</p>
+                <p className="text-xs font-medium truncate text-[#181d26] dark:text-white">{currentUser.display_name || currentUser.username}</p>
+                <p className="text-[11px] text-[#333840] dark:text-zinc-400 truncate">@{currentUser.username}</p>
               </div>
             </div>
 
-            {/* Theme switcher preference directly next to user name */}
+            {/* Theme switcher preference */}
             {onToggleTheme && (
               <button
                 type="button"
                 onClick={onToggleTheme}
                 className={`p-1.5 rounded-lg border transition-colors cursor-pointer shrink-0 ${
                   isDark 
-                    ? 'border-[#273951] hover:bg-[#1c1e54] text-amber-400' 
-                    : 'border-[#e3e8ee] hover:bg-[#f6f9fc] text-zinc-600'
+                    ? 'border-[#2d333f] hover:bg-[#222834] text-amber-400' 
+                    : 'border-[#dddddd] hover:bg-[#f8fafc] text-zinc-600'
                 }`}
                 title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
               >
@@ -906,7 +1000,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
           </div>
 
           <button onClick={() => setShowLogoutConfirm(true)} className={`w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border cursor-pointer ${
-            isDark ? 'bg-[#121624] hover:bg-[#1c1e54] text-[#cbd5e1] border-[#273951]' : 'bg-white hover:bg-[#f6f9fc] text-[#273951] border-[#e3e8ee]'
+            isDark ? 'bg-[#181d26] hover:bg-[#222834] text-zinc-300 border-[#2d333f]' : 'bg-white hover:bg-[#f8fafc] text-[#181d26] border-[#dddddd]'
           }`}>
             <LogOut className="h-3.5 w-3.5" /> Sign Out
           </button>
@@ -915,11 +1009,11 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
 
       {/* Main Content */}
       <main className={`flex-1 flex flex-col min-w-0 overflow-y-auto ${
-        isDark ? 'bg-[#0c1024]' : 'bg-[#f6f9fc]'
+        isDark ? 'bg-[#181d26]' : 'bg-white'
       }`}>
         {/* Top Header - Clean, Minimal & Professional */}
-        <header className={`border-b px-6 py-3 flex items-center justify-between sticky top-0 z-20 backdrop-blur-md ${
-          isDark ? 'border-[#273951] bg-[#0c1024]/90' : 'border-[#e3e8ee] bg-white/90 shadow-[0_1px_3px_rgba(0,55,112,0.04)]'
+        <header className={`border-b px-6 py-3.5 flex items-center justify-between sticky top-0 z-20 backdrop-blur-md ${
+          isDark ? 'border-[#2d333f] bg-[#181d26]/95' : 'border-[#dddddd] bg-white/95 shadow-[0_1px_2px_rgba(24,29,38,0.03)]'
         }`}>
           <div className="flex items-center gap-3">
             <button 
@@ -928,33 +1022,58 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
             >
               <Menu className="h-5 w-5" />
             </button>
-            <h1 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+            <h1 className="text-sm font-medium tracking-tight text-[#181d26] dark:text-white">
               Developer Console
             </h1>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {/* Quick Switch / New Service Button */}
+            <button
+              type="button"
+              onClick={() => setIsCreating(true)}
+              className="text-xs font-medium px-3.5 py-1.5 rounded-lg bg-[#181d26] text-white hover:bg-[#0d1218] dark:bg-white dark:text-[#181d26] dark:hover:bg-zinc-100 transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+              title="Create another Service Account or Widget"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">New Service</span>
+            </button>
+
             {/* Minimal Plan Indicator */}
             {selectedApp && (
               <button
                 type="button"
                 onClick={() => setShowCategoryUpgradeModal(true)}
-                className="text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors flex items-center gap-1.5 cursor-pointer"
+                className="text-xs font-normal text-[#333840] dark:text-zinc-400 hover:text-[#181d26] dark:hover:text-white transition-colors flex items-center gap-1.5 cursor-pointer"
                 title="Change or Upgrade Plan"
               >
                 <span>Plan:</span>
-                <span className="font-semibold text-zinc-900 dark:text-zinc-100 capitalize">
+                <span className="font-medium text-[#181d26] dark:text-white capitalize">
                   {currentCategoryTier === 'messenger' ? 'Messenger' : currentCategoryTier === 'business' ? 'Business' : 'Hybrid'}
                 </span>
               </button>
             )}
+
+            {/* Landing Page Link */}
+            <button
+              onClick={onHome}
+              className={`hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+                isDark 
+                  ? 'border-[#2d333f] text-zinc-300 hover:bg-[#222834]' 
+                  : 'border-[#dddddd] text-[#181d26] hover:bg-[#f8fafc]'
+              }`}
+              title="Return to Main Developer Landing Page"
+            >
+              <Globe className="h-3.5 w-3.5" />
+              <span>Landing Page</span>
+            </button>
 
             {/* Profile Avatar with Account Dropdown */}
             <div className="relative" ref={profileDropdownRef}>
               <button
                 type="button"
                 onClick={() => setShowProfileMenu(prev => !prev)}
-                className="h-8 w-8 rounded-full bg-[#533afd] text-white flex items-center justify-center text-xs font-semibold uppercase hover:ring-2 hover:ring-[#533afd]/30 transition-all cursor-pointer shadow-2xs"
+                className="h-8 w-8 rounded-full bg-[#181d26] dark:bg-white text-white dark:text-[#181d26] flex items-center justify-center text-xs font-medium uppercase hover:ring-2 hover:ring-zinc-400 transition-all cursor-pointer shadow-xs"
                 aria-label="User and Service Account Menu"
               >
                 {currentUser.username.slice(0, 2)}
@@ -962,18 +1081,18 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
 
               {/* Floating Profile & Account Dropdown */}
               {showProfileMenu && (
-                <div className="absolute right-0 mt-2 w-72 rounded-2xl border p-2 shadow-2xl animate-in fade-in zoom-in-95 duration-150 z-50 bg-white dark:bg-[#0d1326] border-zinc-200 dark:border-[#273951] text-zinc-900 dark:text-zinc-100">
+                <div className="absolute right-0 mt-2 w-72 rounded-xl border p-2 shadow-xl animate-in fade-in zoom-in-95 duration-150 z-50 bg-white dark:bg-[#1d1f25] border-[#dddddd] dark:border-[#2d333f] text-[#181d26] dark:text-white">
                   {/* User Profile Info */}
                   <div className="px-3 py-2.5">
                     <div className="flex items-center gap-2.5">
-                      <div className="h-8 w-8 rounded-full bg-[#533afd] text-white flex items-center justify-center text-xs font-bold uppercase shrink-0">
+                      <div className="h-8 w-8 rounded-full bg-[#181d26] dark:bg-white text-white dark:text-[#181d26] flex items-center justify-center text-xs font-medium uppercase shrink-0">
                         {currentUser.username.slice(0, 2)}
                       </div>
                       <div className="overflow-hidden min-w-0">
-                        <p className="text-xs font-bold truncate text-zinc-900 dark:text-zinc-100">
+                        <p className="text-xs font-medium truncate text-[#181d26] dark:text-white">
                           {currentUser.display_name || currentUser.username}
                         </p>
-                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
+                        <p className="text-[11px] text-[#333840] dark:text-zinc-400 truncate">
                           @{currentUser.username}
                         </p>
                       </div>
@@ -985,24 +1104,24 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                     )}
                   </div>
 
-                  <div className="h-px bg-zinc-100 dark:bg-zinc-800 my-1" />
+                  <div className="h-px bg-[#dddddd] dark:bg-[#2d333f] my-1" />
 
                   {/* Service Account Details */}
                   <div className="px-3 py-2 space-y-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-[#333840] dark:text-zinc-400">
                       Service Account
                     </span>
-                    <div className="p-2 rounded-xl bg-zinc-50 dark:bg-[#121624] border border-zinc-200/60 dark:border-zinc-800 space-y-1">
-                      <div className="flex items-center justify-between text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                    <div className="p-2 rounded-lg bg-[#f8fafc] dark:bg-[#181d26] border border-[#dddddd] dark:border-[#2d333f] space-y-1">
+                      <div className="flex items-center justify-between text-xs font-medium text-[#181d26] dark:text-white">
                         <span className="truncate">{selectedApp?.app_name || 'Active Service Account'}</span>
                         <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 capitalize shrink-0">
                           {environment}
                         </span>
                       </div>
-                      <div className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 truncate">
+                      <div className="text-[11px] font-mono text-[#333840] dark:text-zinc-400 truncate">
                         @{selectedApp?.bot_username || currentUser.username}
                       </div>
-                      <div className="text-[10px] text-zinc-400 dark:text-zinc-500 flex items-center justify-between pt-1 border-t border-zinc-200/50 dark:border-zinc-800/50">
+                      <div className="text-[10px] text-zinc-400 dark:text-zinc-500 flex items-center justify-between pt-1 border-t border-[#dddddd] dark:border-[#2d333f]">
                         <span className="capitalize">{currentCategoryTier} Plan</span>
                         <button
                           type="button"
@@ -1010,7 +1129,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                             setShowProfileMenu(false);
                             setShowCategoryUpgradeModal(true);
                           }}
-                          className="text-[#533afd] dark:text-[#818cf8] font-semibold hover:underline cursor-pointer"
+                          className="text-[#181d26] dark:text-white font-medium hover:underline cursor-pointer"
                         >
                           Change Plan
                         </button>
@@ -1018,7 +1137,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                     </div>
                   </div>
 
-                  <div className="h-px bg-zinc-100 dark:bg-zinc-800 my-1" />
+                  <div className="h-px bg-[#dddddd] dark:bg-[#2d333f] my-1" />
 
                   {/* Navigation Links */}
                   <div className="space-y-0.5">
@@ -1028,7 +1147,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                         setShowProfileMenu(false);
                         setActiveTab('settings');
                       }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-[#333840] dark:text-zinc-300 hover:bg-[#f8fafc] dark:hover:bg-[#222834] transition-colors cursor-pointer"
                     >
                       <Sliders className="h-3.5 w-3.5 text-zinc-400" />
                       <span>Settings &amp; Preferences</span>
@@ -1040,7 +1159,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                         setShowProfileMenu(false);
                         setActiveTab('apps');
                       }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-[#333840] dark:text-zinc-300 hover:bg-[#f8fafc] dark:hover:bg-[#222834] transition-colors cursor-pointer"
                     >
                       <Key className="h-3.5 w-3.5 text-zinc-400" />
                       <span>API Credentials</span>
@@ -1050,7 +1169,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                       <button
                         type="button"
                         onClick={onToggleTheme}
-                        className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer"
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-[#333840] dark:text-zinc-300 hover:bg-[#f8fafc] dark:hover:bg-[#222834] transition-colors cursor-pointer"
                       >
                         <div className="flex items-center gap-2.5">
                           {isDark ? <Sun className="h-3.5 w-3.5 text-amber-400" /> : <Moon className="h-3.5 w-3.5 text-zinc-500" />}
@@ -1119,9 +1238,9 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
               <div className="flex-1 p-3 space-y-1 overflow-y-auto">
                 {[
                   { id: 'overview', label: 'Overview' },
-                  { id: 'apps', label: 'API Credentials' },
+                  { id: 'automation', label: 'Web Widget & Automation' },
+                  { id: 'apps', label: 'Business API & Service Accounts' },
                   { id: 'analytics', label: 'Analytics' },
-                  { id: 'automation', label: 'Automation & AI Studio' },
                   { id: 'docs', label: 'API Reference' },
                   { id: 'otp', label: 'OTP Simulator' },
                   { id: 'webhooks', label: 'Webhooks' },
@@ -1170,132 +1289,181 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                 />
               )}
 
-              {/* 2. APPS & CREDENTIALS TAB */}
+              {/* 3. BUSINESS API & SERVICE ACCOUNTS TAB */}
               {activeTab === 'apps' && (
-                <div className="space-y-6">
+                <div className="space-y-8 animate-in fade-in duration-200">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
-                      <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-                        <Key className="h-6 w-6 text-[#533afd] dark:text-[#818cf8]" />
-                        <span>API Credentials and Key Manager</span>
+                      <h2 className="text-2xl sm:text-3xl font-normal tracking-tight flex items-center gap-2.5 text-[#181d26] dark:text-white">
+                        <Terminal className="h-6 w-6 text-[#181d26] dark:text-white" />
+                        <span>Business API &amp; Service Accounts</span>
                       </h2>
-                      <p className="text-sm text-[#64748d] dark:text-[#94a3b8] mt-1">
-                        Manage your {environment === 'test' ? 'Sandbox' : 'Production'} authentication keys securely.
+                      <p className="text-sm font-normal text-[#333840] dark:text-zinc-400 mt-1">
+                        Configure backend Service Accounts, generate scoped API credentials, and integrate server-to-server messaging.
                       </p>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className={`px-3 py-1 text-xs font-bold rounded-full border ${
+                      <span className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${
                         environment === 'test'
-                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/40'
+                          : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/40'
                       }`}>
                         {environment === 'test' ? 'Sandbox Keys Active' : 'Live Production Keys Active'}
                       </span>
                     </div>
                   </div>
 
-                  <div className="space-y-6">
-                    {/* Zenoa Business Live Chat & Command Center Card */}
-                    <div className={`rounded-xl p-5 border flex flex-col md:flex-row items-start md:items-center justify-between gap-5 transition-colors ${
-                      isDark 
-                        ? 'bg-[#121624] border-[#273951]' 
-                        : 'bg-[#f8fafc] border-[#e2e8f0]'
+                  <div className="space-y-8">
+                    {/* Dedicated Service Account Management Card */}
+                    <div className={`rounded-xl p-6 sm:p-8 border transition-colors ${
+                      isDark ? 'bg-[#181d26] border-[#2d333f] text-white' : 'bg-white border-[#dddddd] text-[#181d26] shadow-[0_1px_3px_rgba(24,29,38,0.04)]'
                     }`}>
-                      <div className="flex items-start gap-3.5">
-                        <div className="p-2.5 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 shrink-0">
-                          <Building2 className="h-5 w-5" />
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-semibold text-sm text-[#0d253d] dark:text-white">
-                              Zenoa Business and Live Support
-                            </h4>
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
-                              Dual Track Ready
-                            </span>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-[#dddddd] dark:border-[#2d333f]">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-3 rounded-xl border ${
+                            isDark ? 'bg-[#1d1f25] border-[#2d333f] text-white' : 'bg-[#f8fafc] border-[#dddddd] text-[#181d26]'
+                          }`}>
+                            <Bot className="h-5 w-5" />
                           </div>
-                          <p className="text-xs text-[#64748d] dark:text-[#94a3b8] max-w-xl leading-relaxed">
-                            Embed live customer support into websites or storefronts. Automated assistance manages product discovery, while order issues route directly to human support with session context.
-                          </p>
+                          <div>
+                            <h3 className="text-base font-medium text-[#181d26] dark:text-white">
+                              Service Account Identity &amp; Bot Handle
+                            </h3>
+                            <p className="text-xs text-[#333840] dark:text-zinc-400 mt-0.5">
+                              Define the programmatic bot name and handle used for backend API and carrier OTP transmissions.
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleSaveServiceAccount}
+                          disabled={isUpdatingSa}
+                          className="px-5 py-2.5 rounded-xl bg-[#181d26] hover:bg-[#0d1218] dark:bg-white dark:text-[#181d26] dark:hover:bg-zinc-100 text-white text-xs font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer shrink-0 disabled:opacity-50 shadow-xs"
+                        >
+                          {isUpdatingSa ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                          <span>{isUpdatingSa ? 'Saving...' : 'Save Service Account'}</span>
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-[#181d26] dark:text-white">
+                            Service Account Name
+                          </label>
+                          <input
+                            type="text"
+                            value={saName}
+                            onChange={e => setSaName(e.target.value)}
+                            placeholder="e.g. Order Fulfillment Service"
+                            className={`w-full px-3.5 py-2 rounded-md border text-xs outline-none transition-colors ${
+                              isDark 
+                                ? 'bg-[#1d1f25] border-[#2d333f] text-white focus:border-white' 
+                                : 'bg-white border-[#dddddd] text-[#181d26] focus:border-[#181d26]'
+                            }`}
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-[#181d26] dark:text-white">
+                            Bot Handle (@sa_handle)
+                          </label>
+                          <div className="flex items-center">
+                            <span className={`px-3 py-2 rounded-l-md border-y border-l text-xs font-mono select-none ${
+                              isDark ? 'bg-[#181d26] border-[#2d333f] text-zinc-400' : 'bg-[#f8fafc] border-[#dddddd] text-[#333840]'
+                            }`}>
+                              @
+                            </span>
+                            <input
+                              type="text"
+                              value={saBotHandle}
+                              onChange={e => setSaBotHandle(e.target.value.replace(/^@/, ''))}
+                              placeholder="sa_fulfillment"
+                              className={`w-full px-3.5 py-2 rounded-r-md border text-xs font-mono outline-none transition-colors ${
+                                isDark 
+                                  ? 'bg-[#1d1f25] border-[#2d333f] text-white focus:border-white' 
+                                  : 'bg-white border-[#dddddd] text-[#181d26] focus:border-[#181d26]'
+                              }`}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-[#181d26] dark:text-white">
+                            Service Category
+                          </label>
+                          <select
+                            value={saCategory}
+                            onChange={e => setSaCategory(e.target.value)}
+                            className={`w-full px-3.5 py-2 rounded-md border text-xs outline-none cursor-pointer ${
+                              isDark ? 'bg-[#1d1f25] border-[#2d333f] text-white' : 'bg-white border-[#dddddd] text-[#181d26]'
+                            }`}
+                          >
+                            <option value="System">System &amp; Infrastructure</option>
+                            <option value="Security">Security &amp; Auth Verification</option>
+                            <option value="Support">Customer Support CRM</option>
+                            <option value="Updates">Transactional Updates</option>
+                            <option value="Ecommerce">E-Commerce &amp; Retail</option>
+                            <option value="Fintech">Fintech &amp; Banking</option>
+                          </select>
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2.5 shrink-0 w-full md:w-auto">
-                        <a
-                          href="/business"
-                          className="flex-1 md:flex-none px-3.5 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-zinc-900 font-medium text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                        >
-                          <Building2 className="h-3.5 w-3.5" />
-                          <span>Business Console</span>
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab('automation')}
-                          className="flex-1 md:flex-none px-3.5 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 font-medium text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                        >
-                          <Sparkles className="h-3.5 w-3.5" />
-                          <span>AI Automation Studio</span>
-                        </button>
+                      <div className="mt-6 pt-4 border-t border-[#dddddd] dark:border-[#2d333f] flex flex-wrap items-center justify-between gap-3 text-xs">
+                        <div className="flex flex-wrap items-center gap-2 text-[#333840] dark:text-zinc-400">
+                          <span className="font-medium text-[#181d26] dark:text-white">Active Scopes:</span>
+                          {['messages:send', 'otp:dispatch', 'webhooks:receive', 'users:verify'].map(scope => (
+                            <span key={scope} className="px-2.5 py-1 rounded-md bg-[#f8fafc] dark:bg-[#1d1f25] border border-[#dddddd] dark:border-[#2d333f] text-[11px] font-mono text-[#181d26] dark:text-zinc-300">
+                              {scope}
+                            </span>
+                          ))}
+                        </div>
+
+                        <div className="text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 font-normal">
+                          <CheckCircle2 className="h-4 w-4" />
+                          <span>Service Account Active in Directory</span>
+                        </div>
                       </div>
                     </div>
 
                     {/* Credentials & Key Master Panel */}
-                    <div className={`rounded-2xl shadow-xs overflow-hidden border ${
-                      isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+                    <div className={`rounded-xl overflow-hidden border ${
+                      isDark ? 'bg-[#181d26] border-[#2d333f]' : 'bg-white border-[#dddddd] shadow-[0_1px_3px_rgba(24,29,38,0.04)]'
                     }`}>
-                      <div className={`p-6 border-b flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                        isDark ? 'border-[#273951] bg-[#121624]/60' : 'border-[#e3e8ee] bg-[#f6f9fc]/80'
+                      <div className={`p-6 sm:p-8 border-b flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                        isDark ? 'border-[#2d333f] bg-[#1d1f25]' : 'border-[#dddddd] bg-[#f8fafc]'
                       }`}>
                         <div>
-                          <div className="flex items-center gap-2.5">
-                            <h3 className="text-lg font-bold text-[#0d253d] dark:text-white">{selectedApp.app_name}</h3>
-                            <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border ${
+                          <div className="flex flex-wrap items-center gap-3">
+                            <h3 className="text-xl font-normal text-[#181d26] dark:text-white">{selectedApp.app_name}</h3>
+                            <span className={`px-2.5 py-0.5 text-xs font-medium rounded-md border ${
                               environment === 'test'
-                                ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
-                                : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
+                                ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/40'
+                                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/40'
                             }`}>
                               {environment === 'test' ? 'Sandbox Environment' : 'Live Production'}
                             </span>
-                            <span className="px-2.5 py-0.5 text-[11px] font-bold rounded-full bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] border border-[#533afd]/20 capitalize">
+                            <span className="px-2.5 py-0.5 text-xs font-medium rounded-md bg-zinc-100 dark:bg-zinc-800 text-[#181d26] dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 capitalize">
                               {currentCategoryTier} Plan
                             </span>
                           </div>
-                          <p className="text-xs font-mono text-[#64748d] dark:text-[#94a3b8] mt-1 flex items-center gap-2">
+                          <p className="text-xs text-[#333840] dark:text-zinc-400 mt-1 flex items-center gap-2">
                             <span>Handle: @{selectedApp.bot_username || selectedApp.owner}</span>
-                            <span>&bull;</span>
+                            <span aria-hidden="true">·</span>
                             <span>Account ID: sa_{selectedApp.owner.toLowerCase()}</span>
                           </p>
                         </div>
-
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border uppercase tracking-wider ${
-                            environment === 'test' 
-                              ? 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400' 
-                              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
-                          }`}>
-                            {environment === 'test' ? 'Sandbox Environment' : 'Production Live'}
-                          </span>
-                          <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border uppercase tracking-wider ${
-                            currentCategoryTier === 'hybrid'
-                              ? 'bg-purple-500/10 border-purple-500/30 text-purple-600 dark:text-purple-400'
-                              : currentCategoryTier === 'business'
-                              ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-600 dark:text-indigo-400'
-                              : 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400'
-                          }`}>
-                            {currentCategoryTier === 'hybrid' ? 'Hybrid Gateway' : currentCategoryTier === 'business' ? 'Business Suite' : 'Messenger Plan'}
-                          </span>
-                        </div>
                       </div>
 
-                      <div className="p-6 space-y-6">
+                      <div className="p-6 sm:p-8 space-y-6">
                         {/* 1. Primary Unified API Key Card */}
-                        <div className={`p-4 rounded-xl border ${
-                          isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'
+                        <div className={`p-5 rounded-xl border ${
+                          isDark ? 'bg-[#1d1f25] border-[#2d333f]' : 'bg-[#f8fafc] border-[#dddddd]'
                         }`}>
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                            <label className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-[#0d253d] dark:text-white">
-                              <Key className="h-4 w-4 text-[#533afd] dark:text-[#818cf8]" />
+                            <label className="text-xs font-medium uppercase tracking-wider flex items-center gap-1.5 text-[#181d26] dark:text-white">
+                              <Key className="h-4 w-4 text-[#181d26] dark:text-white" />
                               <span>{environment === 'test' ? 'Sandbox API Key (Test Key)' : 'Production API Key (Live Key)'}</span>
                             </label>
 
@@ -1303,8 +1471,8 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                               <button
                                 type="button"
                                 onClick={() => setRevealApiKey(!revealApiKey)}
-                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1 cursor-pointer ${
-                                  isDark ? 'border-[#273951] hover:bg-[#1e293b] text-zinc-300' : 'border-zinc-200 hover:bg-zinc-100 text-zinc-700'
+                                className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors flex items-center gap-1 cursor-pointer ${
+                                  isDark ? 'border-[#2d333f] hover:bg-[#222834] text-zinc-300' : 'border-[#dddddd] hover:bg-white text-[#181d26]'
                                 }`}
                               >
                                 {revealApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -1314,18 +1482,16 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleCopy(selectedApp.active_api_key, "API Key")}
-                                className="px-3 py-1 bg-[#533afd] hover:bg-[#432ec4] text-white text-xs font-bold rounded-lg flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                                className="px-3.5 py-1.5 bg-[#181d26] hover:bg-[#0d1218] dark:bg-white dark:text-[#181d26] dark:hover:bg-zinc-100 text-white text-xs font-medium rounded-md flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                               >
-                                {copiedKey === selectedApp.active_api_key ? <Check className="h-3.5 w-3.5 text-emerald-300" /> : <Copy className="h-3.5 w-3.5" />}
+                                {copiedKey === selectedApp.active_api_key ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
                                 <span>{copiedKey === selectedApp.active_api_key ? 'Copied' : 'Copy API Key'}</span>
                               </button>
 
                               <button
                                 type="button"
                                 onClick={() => setShowRotateModal(true)}
-                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1 cursor-pointer ${
-                                  isDark ? 'border-rose-900/40 text-rose-400 hover:bg-rose-950/40' : 'border-rose-200 text-rose-600 hover:bg-rose-50'
-                                }`}
+                                className="px-3 py-1.5 text-xs font-medium rounded-md border border-rose-200 dark:border-rose-900/40 text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors flex items-center gap-1 cursor-pointer"
                               >
                                 <RefreshCw className="h-3.5 w-3.5" />
                                 <span>Rotate Key</span>
@@ -1333,65 +1499,65 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                             </div>
                           </div>
 
-                          <div className={`p-3 rounded-lg border font-mono text-xs select-all flex items-center justify-between ${
-                            isDark ? 'bg-[#0a0d1a] border-[#273951] text-emerald-400' : 'bg-white border-[#e3e8ee] text-[#0d253d]'
+                          <div className={`p-3.5 rounded-md border font-mono text-xs select-all flex items-center justify-between ${
+                            isDark ? 'bg-[#181d26] border-[#2d333f] text-emerald-400' : 'bg-white border-[#dddddd] text-[#181d26]'
                           }`}>
                             <span className="truncate tracking-wide font-mono">
                               {revealApiKey 
                                 ? selectedApp.active_api_key 
                                 : `${selectedApp.active_api_key.substring(0, 10)}••••••••••••••••••••••••••••`}
                             </span>
-                            <span className="text-[10px] uppercase font-sans font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded ml-2 shrink-0">
-                              Active & Ready
+                            <span className="text-[11px] font-sans font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 px-2 py-0.5 rounded ml-2 shrink-0">
+                              Active &amp; Ready
                             </span>
                           </div>
                         </div>
 
                         {/* 2. Standard REST API Authentication Headers */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className={`p-4 rounded-xl border ${
-                            isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'
+                          <div className={`p-5 rounded-xl border ${
+                            isDark ? 'bg-[#1d1f25] border-[#2d333f]' : 'bg-[#f8fafc] border-[#dddddd]'
                           }`}>
                             <div className="flex items-center justify-between mb-2">
-                              <label className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-[#0d253d] dark:text-white">
-                                <Terminal className="h-3.5 w-3.5 text-[#533afd] dark:text-[#818cf8]" />
+                              <label className="text-xs font-medium uppercase tracking-wider flex items-center gap-1.5 text-[#181d26] dark:text-white">
+                                <Terminal className="h-3.5 w-3.5" />
                                 <span>Bearer Token Header</span>
                               </label>
                               <button
                                 type="button"
                                 onClick={() => handleCopy(`Authorization: Bearer ${selectedApp.active_api_key}`, "Authorization Header")}
-                                className="text-xs font-bold text-[#533afd] dark:text-[#818cf8] hover:underline flex items-center gap-1 cursor-pointer"
+                                className="text-xs font-medium text-[#181d26] dark:text-white hover:underline flex items-center gap-1 cursor-pointer"
                               >
                                 <Copy className="h-3.5 w-3.5" />
                                 <span>Copy Header</span>
                               </button>
                             </div>
-                            <div className="bg-[#0c1024] text-slate-200 p-3 rounded-lg font-mono text-xs flex items-center justify-between overflow-x-auto border border-[#273951]">
-                              <code className="text-[#818cf8]">
-                                Authorization: <span className="text-emerald-400">Bearer</span> <span className="text-[#94a3b8] font-mono">{selectedApp.active_api_key.substring(0, 8)}...</span>
+                            <div className="bg-[#181d26] text-white p-3.5 rounded-md font-mono text-xs flex items-center justify-between overflow-x-auto border border-[#2d333f]">
+                              <code>
+                                Authorization: <span className="text-emerald-400">Bearer</span> <span className="text-zinc-400 font-mono">{selectedApp.active_api_key.substring(0, 8)}...</span>
                               </code>
                             </div>
                           </div>
 
-                          <div className={`p-4 rounded-xl border ${
-                            isDark ? 'bg-[#121624] border-[#273951]' : 'bg-[#f6f9fc] border-[#e3e8ee]'
+                          <div className={`p-5 rounded-xl border ${
+                            isDark ? 'bg-[#1d1f25] border-[#2d333f]' : 'bg-[#f8fafc] border-[#dddddd]'
                           }`}>
                             <div className="flex items-center justify-between mb-2">
-                              <label className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-[#0d253d] dark:text-white">
-                                <Key className="h-3.5 w-3.5 text-indigo-400" />
+                              <label className="text-xs font-medium uppercase tracking-wider flex items-center gap-1.5 text-[#181d26] dark:text-white">
+                                <Key className="h-3.5 w-3.5" />
                                 <span>Custom API Key Header</span>
                               </label>
                               <button
                                 type="button"
                                 onClick={() => handleCopy(`X-Zenoa-Api-Key: ${selectedApp.active_api_key}`, "API Key Header")}
-                                className="text-xs font-bold text-[#533afd] dark:text-[#818cf8] hover:underline flex items-center gap-1 cursor-pointer"
+                                className="text-xs font-medium text-[#181d26] dark:text-white hover:underline flex items-center gap-1 cursor-pointer"
                               >
                                 <Copy className="h-3.5 w-3.5" />
                                 <span>Copy Header</span>
                               </button>
                             </div>
-                            <div className="bg-[#0c1024] text-slate-200 p-3 rounded-lg font-mono text-xs flex items-center justify-between overflow-x-auto border border-[#273951]">
-                              <code className="text-[#818cf8]">
+                            <div className="bg-[#181d26] text-white p-3.5 rounded-md font-mono text-xs flex items-center justify-between overflow-x-auto border border-[#2d333f]">
+                              <code>
                                 X-Zenoa-Api-Key: <span className="text-amber-400 font-mono">{selectedApp.active_api_key.substring(0, 8)}...</span>
                               </code>
                             </div>
@@ -1400,24 +1566,24 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                       </div>
                     </div>
 
-                    {/* SDK Quickstart (Collapsed by default) */}
-                    <div className={`rounded-2xl shadow-xs overflow-hidden border transition-all ${
-                      isDark ? 'bg-[#0d1326] border-[#273951]' : 'bg-white border-[#e3e8ee]'
+                    {/* SDK Quickstart */}
+                    <div className={`rounded-xl border transition-all relative z-20 overflow-hidden ${
+                      isDark ? 'bg-[#181d26] border-[#2d333f]' : 'bg-white border-[#dddddd] shadow-[0_1px_3px_rgba(24,29,38,0.04)]'
                     }`}>
-                      <div className={`p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                        isDark ? 'bg-[#121624]/70' : 'bg-[#f6f9fc]/80'
-                      } ${showSnippetCode ? 'border-b border-[#273951]' : ''}`}>
+                      <div className={`p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                        isDark ? 'bg-[#1d1f25]' : 'bg-[#f8fafc]'
+                      } ${showSnippetCode ? 'border-b border-[#dddddd] dark:border-[#2d333f]' : ''}`}>
                         <div>
                           <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-semibold flex items-center gap-2 text-[#0d253d] dark:text-white">
-                              <FileCode className="h-4 w-4 text-[#533afd] dark:text-[#818cf8]" />
+                            <h3 className="text-base font-medium flex items-center gap-2 text-[#181d26] dark:text-white">
+                              <FileCode className="h-4 w-4" />
                               <span>SDK Quickstart</span>
                             </h3>
-                            <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-[#533afd]/10 text-[#533afd] dark:text-[#818cf8] border border-[#533afd]/20 capitalize">
+                            <span className="text-xs font-medium px-2 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 text-[#181d26] dark:text-zinc-300 capitalize">
                               {currentCategoryTier} Plan
                             </span>
                           </div>
-                          <p className="text-xs text-[#64748d] dark:text-[#94a3b8] mt-1">
+                          <p className="text-xs text-[#333840] dark:text-zinc-400 mt-1">
                             Production SDK code examples customized for your active application category.
                           </p>
                         </div>
@@ -1447,7 +1613,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                           <button
                             type="button"
                             onClick={() => setShowSnippetCode(!showSnippetCode)}
-                            className="px-4 py-2 bg-[#533afd] hover:bg-[#432ec4] text-white text-xs font-medium rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
+                            className="px-5 py-2.5 bg-[#181d26] hover:bg-[#0d1218] dark:bg-white dark:text-[#181d26] dark:hover:bg-zinc-100 text-white text-xs font-medium rounded-xl flex items-center gap-2 shadow-xs transition-colors cursor-pointer shrink-0"
                           >
                             <span>{showSnippetCode ? 'Hide SDK Code' : 'View SDK Code'}</span>
                           </button>
@@ -1456,14 +1622,14 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
 
                       {showSnippetCode && (
                         <div className="p-0 animate-in fade-in duration-200">
-                          <div className="p-3 border-b border-[#273951] bg-[#0c1024] flex items-center justify-between text-xs px-4">
+                          <div className="p-3 border-b border-[#2d333f] bg-[#181d26] flex items-center justify-between text-xs px-5">
                             <span className="text-zinc-400 font-mono text-[11px]">
                               {selectedLanguage.toUpperCase()} SDK Integration Code
                             </span>
                             <button
                               type="button"
                               onClick={() => handleCopy(getGeneratedCode(), `${selectedLanguage.toUpperCase()} SDK Code`)}
-                              className="text-xs font-medium text-[#818cf8] hover:underline flex items-center gap-1 cursor-pointer"
+                              className="text-xs font-medium text-white hover:underline flex items-center gap-1.5 cursor-pointer"
                             >
                               {copiedKey === getGeneratedCode() ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
                               <span>{copiedKey === getGeneratedCode() ? 'Copied' : 'Copy Code'}</span>

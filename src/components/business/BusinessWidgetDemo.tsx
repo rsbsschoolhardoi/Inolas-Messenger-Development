@@ -23,6 +23,10 @@ export const BusinessWidgetDemo: React.FC<BusinessWidgetDemoProps> = ({
   const [copiedScript, setCopiedScript] = useState(false);
   const [selectedSize, setSelectedSize] = useState('UK 9');
 
+  const queryParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const effectiveAppId = queryParams?.get('app_id') || appId;
+  const effectiveMode = (queryParams?.get('mode') as any) || undefined;
+
   // Customer Context for live telemetry
   const [customerContext] = useState<CustomerContext>({
     customer_name: 'Rohit Verma',
@@ -47,7 +51,7 @@ export const BusinessWidgetDemo: React.FC<BusinessWidgetDemoProps> = ({
   const handleCopyEmbedCode = () => {
     const code = `<script 
   src="${typeof window !== 'undefined' ? window.location.origin : ''}/widget/live-chat.js" 
-  data-app-id="${appId}" 
+  data-app-id="${effectiveAppId}" 
   data-primary-color="#18181b" 
   data-position="bottom-right"
   async>
@@ -62,7 +66,8 @@ export const BusinessWidgetDemo: React.FC<BusinessWidgetDemoProps> = ({
     return (
       <div className="h-screen w-screen bg-transparent">
         <ZenoaChatWidget
-          appId={appId}
+          appId={effectiveAppId}
+          widgetMode={effectiveMode}
           initialCustomerContext={customerContext}
           themeMode={themeMode}
         />
@@ -305,7 +310,8 @@ export const BusinessWidgetDemo: React.FC<BusinessWidgetDemoProps> = ({
       {isWidgetOpen && (
         <div className="fixed inset-x-3 bottom-3 top-16 sm:inset-auto sm:bottom-5 sm:right-5 z-50 sm:w-[380px] sm:h-[580px] rounded-2xl overflow-hidden shadow-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0f0f12] animate-in fade-in slide-in-from-bottom-3 duration-150">
           <ZenoaChatWidget
-            appId={appId}
+            appId={effectiveAppId}
+            widgetMode={effectiveMode}
             initialCustomerContext={customerContext}
             themeMode={themeMode}
             onClose={() => setIsWidgetOpen(false)}

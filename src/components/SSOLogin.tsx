@@ -1174,8 +1174,11 @@ export const SSOLogin: React.FC<SSOLoginProps> = ({
           purgeGhostAccount(targetUser);
           return;
         }
-      } catch (dbErr) {
-        console.warn('Real-time SSO user verification warning:', dbErr);
+      } catch (dbErr: any) {
+        console.warn('Real-time SSO user verification error:', dbErr);
+        setIsAuthorizing(false);
+        setError(`Database Security Verification Failed: ${dbErr?.message || 'Unable to verify account integrity in real-time. Access denied.'}`);
+        return;
       }
     }
 
