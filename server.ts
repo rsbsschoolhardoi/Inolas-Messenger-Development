@@ -275,7 +275,7 @@ const PORT = 3000;
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-API-Key', 'X-Client-Id', 'X-Client-Secret', 'X-SA-Client-Id', 'X-SA-Client-Secret', 'Accept', '*']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-API-Key', 'X-Zenoa-Public-Key', 'X-Zenoa-Secret-Key', 'X-Zenoa-Api-Key', 'X-Client-Id', 'X-Client-Secret', 'X-SA-Client-Id', 'X-SA-Client-Secret', 'Accept', '*']
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));

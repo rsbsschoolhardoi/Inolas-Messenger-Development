@@ -686,19 +686,30 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
 
   const rawSelectedApp = apps.find(a => a.id === selectedAppId) || apps[0];
   
-  // Dynamic App projection depending on active environment
-  const selectedApp = rawSelectedApp ? {
-    ...rawSelectedApp,
-    active_api_key: environment === 'test'
-      ? (rawSelectedApp.test_api_key || rawSelectedApp.test_client_secret || rawSelectedApp.test_client_id || `zen_test_98a72f0b4c81e2d93e`)
-      : (rawSelectedApp.api_key || rawSelectedApp.client_secret || rawSelectedApp.client_id || 'zen_live_98a72f0b4c81e2d93e'),
-    active_client_id: environment === 'test' 
-      ? (rawSelectedApp.test_client_id || `zen_test_${rawSelectedApp.client_id?.replace('zen_client_', '') || 'dev'}`)
-      : (rawSelectedApp.client_id || rawSelectedApp.api_key),
-    active_client_secret: environment === 'test'
-      ? (rawSelectedApp.test_client_secret || `zen_sa_test_sandbox_key`)
-      : (rawSelectedApp.client_secret || 'zen_sa_production_key')
-  } : null;
+  // Dynamic Two-Tier App Key projection depending on active environment
+  const selectedApp = rawSelectedApp ? (() => {
+    const isTest = environment === 'test';
+    const baseId = (rawSelectedApp.id || 'dev').replace(/^sa_/, '');
+    
+    // 1. Public Storefront / Widget API Key (Safe for frontend browsers & HTML buttons)
+    const public_widget_key = isTest
+      ? (rawSelectedApp.test_public_key || rawSelectedApp.test_widget_key || `zen_pub_test_${baseId}_98a72f0b4c81`)
+      : (rawSelectedApp.public_key || rawSelectedApp.widget_key || `zen_pub_live_${baseId}_98a72f0b4c81`);
+
+    // 2. Secret Business API & Service Account Key (For secure backend server-to-server operations)
+    const secret_business_key = isTest
+      ? (rawSelectedApp.test_secret_key || rawSelectedApp.test_api_key || `zen_sec_test_${baseId}_41c09e3a7b5d`)
+      : (rawSelectedApp.secret_key || rawSelectedApp.api_key || `zen_sec_live_${baseId}_41c09e3a7b5d`);
+
+    return {
+      ...rawSelectedApp,
+      public_widget_key,
+      secret_business_key,
+      active_api_key: secret_business_key,
+      active_client_id: public_widget_key,
+      active_client_secret: secret_business_key
+    };
+  })() : null;
 
   const currentCategoryTier: DeveloperCategoryTier = (() => {
     const rawTier = selectedApp?.category_tier || selectedApp?.tier;
@@ -1457,59 +1468,114 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                       </div>
 
                       <div className="p-6 sm:p-8 space-y-6">
-                        {/* 1. Primary Unified API Key Card */}
-                        <div className={`p-5 rounded-xl border ${
-                          isDark ? 'bg-[#1d1f25] border-[#2d333f]' : 'bg-[#f8fafc] border-[#dddddd]'
-                        }`}>
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                            <label className="text-xs font-medium uppercase tracking-wider flex items-center gap-1.5 text-[#181d26] dark:text-white">
-                              <Key className="h-4 w-4 text-[#181d26] dark:text-white" />
-                              <span>{environment === 'test' ? 'Sandbox API Key (Test Key)' : 'Production API Key (Live Key)'}</span>
-                            </label>
+                        {/* 1. TWO DEDICATED API KEY CARDS (PUBLIC WIDGET VS SECRET BUSINESS) */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          
+                          {/* CARD A: PUBLIC STOREFRONT / WIDGET API KEY */}
+                          <div className={`p-5 rounded-xl border flex flex-col justify-between space-y-4 ${
+                            isDark ? 'bg-[#1d1f25] border-[#2d333f]' : 'bg-[#f8fafc] border-[#dddddd]'
+                          }`}>
+                            <div>
+                              <div className="flex items-center justify-between gap-2 mb-1.5">
+                                <label className="text-xs font-medium uppercase tracking-wider flex items-center gap-1.5 text-[#181d26] dark:text-white">
+                                  <Layers className="h-4 w-4 text-[#181d26] dark:text-white" />
+                                  <span>Public Storefront &amp; Widget Key</span>
+                                </label>
+                                <span className="text-[10px] font-sans font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 px-2 py-0.5 rounded">
+                                  Safe for Frontend
+                                </span>
+                              </div>
+                              <p className="text-xs text-[#333840] dark:text-zinc-400">
+                                Use in client-side HTML, React storefronts, and in-context product assistant buttons.
+                              </p>
+                            </div>
 
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setRevealApiKey(!revealApiKey)}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors flex items-center gap-1 cursor-pointer ${
-                                  isDark ? 'border-[#2d333f] hover:bg-[#222834] text-zinc-300' : 'border-[#dddddd] hover:bg-white text-[#181d26]'
-                                }`}
-                              >
-                                {revealApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                                <span>{revealApiKey ? 'Hide Key' : 'Reveal Key'}</span>
-                              </button>
+                            <div className="space-y-3">
+                              <div className={`p-3 rounded-md border font-mono text-xs select-all flex items-center justify-between ${
+                                isDark ? 'bg-[#181d26] border-[#2d333f] text-emerald-400' : 'bg-white border-[#dddddd] text-[#181d26]'
+                              }`}>
+                                <span className="truncate font-mono tracking-wide">
+                                  {selectedApp.public_widget_key}
+                                </span>
+                              </div>
 
-                              <button
-                                type="button"
-                                onClick={() => handleCopy(selectedApp.active_api_key, "API Key")}
-                                className="px-3.5 py-1.5 bg-[#181d26] hover:bg-[#0d1218] dark:bg-white dark:text-[#181d26] dark:hover:bg-zinc-100 text-white text-xs font-medium rounded-md flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                              >
-                                {copiedKey === selectedApp.active_api_key ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-                                <span>{copiedKey === selectedApp.active_api_key ? 'Copied' : 'Copy API Key'}</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => setShowRotateModal(true)}
-                                className="px-3 py-1.5 text-xs font-medium rounded-md border border-rose-200 dark:border-rose-900/40 text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors flex items-center gap-1 cursor-pointer"
-                              >
-                                <RefreshCw className="h-3.5 w-3.5" />
-                                <span>Rotate Key</span>
-                              </button>
+                              <div className="flex items-center justify-between gap-2 pt-1">
+                                <span className="text-[11px] font-mono text-zinc-500">
+                                  data-zenoa-key=&quot;{selectedApp.public_widget_key.substring(0, 16)}...&quot;
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(selectedApp.public_widget_key, "Public Widget Key")}
+                                  className="px-3.5 py-1.5 bg-[#181d26] hover:bg-[#0d1218] dark:bg-white dark:text-[#181d26] dark:hover:bg-zinc-100 text-white text-xs font-medium rounded-md flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                                >
+                                  {copiedKey === selectedApp.public_widget_key ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                                  <span>{copiedKey === selectedApp.public_widget_key ? 'Copied' : 'Copy Public Key'}</span>
+                                </button>
+                              </div>
                             </div>
                           </div>
 
-                          <div className={`p-3.5 rounded-md border font-mono text-xs select-all flex items-center justify-between ${
-                            isDark ? 'bg-[#181d26] border-[#2d333f] text-emerald-400' : 'bg-white border-[#dddddd] text-[#181d26]'
+                          {/* CARD B: SECRET BUSINESS API & SERVICE ACCOUNT KEY */}
+                          <div className={`p-5 rounded-xl border flex flex-col justify-between space-y-4 ${
+                            isDark ? 'bg-[#1d1f25] border-[#2d333f]' : 'bg-[#f8fafc] border-[#dddddd]'
                           }`}>
-                            <span className="truncate tracking-wide font-mono">
-                              {revealApiKey 
-                                ? selectedApp.active_api_key 
-                                : `${selectedApp.active_api_key.substring(0, 10)}••••••••••••••••••••••••••••`}
-                            </span>
-                            <span className="text-[11px] font-sans font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 px-2 py-0.5 rounded ml-2 shrink-0">
-                              Active &amp; Ready
-                            </span>
+                            <div>
+                              <div className="flex items-center justify-between gap-2 mb-1.5">
+                                <label className="text-xs font-medium uppercase tracking-wider flex items-center gap-1.5 text-[#181d26] dark:text-white">
+                                  <Lock className="h-4 w-4 text-[#181d26] dark:text-white" />
+                                  <span>Secret Business API Key</span>
+                                </label>
+                                <span className="text-[10px] font-sans font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/40 px-2 py-0.5 rounded">
+                                  Server-Side Confidential
+                                </span>
+                              </div>
+                              <p className="text-xs text-[#333840] dark:text-zinc-400">
+                                Use on backend servers for carrier OTP dispatch, bot messaging, and admin sync.
+                              </p>
+                            </div>
+
+                            <div className="space-y-3">
+                              <div className={`p-3 rounded-md border font-mono text-xs select-all flex items-center justify-between ${
+                                isDark ? 'bg-[#181d26] border-[#2d333f] text-amber-400' : 'bg-white border-[#dddddd] text-[#181d26]'
+                              }`}>
+                                <span className="truncate font-mono tracking-wide">
+                                  {revealApiKey 
+                                    ? selectedApp.secret_business_key 
+                                    : `${selectedApp.secret_business_key.substring(0, 12)}••••••••••••••••••••••••••••`}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center justify-end gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setRevealApiKey(!revealApiKey)}
+                                  className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors flex items-center gap-1 cursor-pointer ${
+                                    isDark ? 'border-[#2d333f] hover:bg-[#222834] text-zinc-300' : 'border-[#dddddd] hover:bg-white text-[#181d26]'
+                                  }`}
+                                >
+                                  {revealApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                  <span>{revealApiKey ? 'Hide' : 'Reveal'}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(selectedApp.secret_business_key, "Secret API Key")}
+                                  className="px-3.5 py-1.5 bg-[#181d26] hover:bg-[#0d1218] dark:bg-white dark:text-[#181d26] dark:hover:bg-zinc-100 text-white text-xs font-medium rounded-md flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                                >
+                                  {copiedKey === selectedApp.secret_business_key ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                                  <span>{copiedKey === selectedApp.secret_business_key ? 'Copied' : 'Copy Secret Key'}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setShowRotateModal(true)}
+                                  className="px-3 py-1.5 text-xs font-medium rounded-md border border-rose-200 dark:border-rose-900/40 text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors flex items-center gap-1 cursor-pointer"
+                                >
+                                  <RefreshCw className="h-3.5 w-3.5" />
+                                  <span>Rotate</span>
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         </div>
 
@@ -1521,11 +1587,11 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                             <div className="flex items-center justify-between mb-2">
                               <label className="text-xs font-medium uppercase tracking-wider flex items-center gap-1.5 text-[#181d26] dark:text-white">
                                 <Terminal className="h-3.5 w-3.5" />
-                                <span>Bearer Token Header</span>
+                                <span>Server Authorization Header (Secret Key)</span>
                               </label>
                               <button
                                 type="button"
-                                onClick={() => handleCopy(`Authorization: Bearer ${selectedApp.active_api_key}`, "Authorization Header")}
+                                onClick={() => handleCopy(`Authorization: Bearer ${selectedApp.secret_business_key}`, "Authorization Header")}
                                 className="text-xs font-medium text-[#181d26] dark:text-white hover:underline flex items-center gap-1 cursor-pointer"
                               >
                                 <Copy className="h-3.5 w-3.5" />
@@ -1534,7 +1600,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                             </div>
                             <div className="bg-[#181d26] text-white p-3.5 rounded-md font-mono text-xs flex items-center justify-between overflow-x-auto border border-[#2d333f]">
                               <code>
-                                Authorization: <span className="text-emerald-400">Bearer</span> <span className="text-zinc-400 font-mono">{selectedApp.active_api_key.substring(0, 8)}...</span>
+                                Authorization: <span className="text-emerald-400">Bearer</span> <span className="text-amber-400 font-mono">{selectedApp.secret_business_key.substring(0, 16)}...</span>
                               </code>
                             </div>
                           </div>
@@ -1545,11 +1611,11 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                             <div className="flex items-center justify-between mb-2">
                               <label className="text-xs font-medium uppercase tracking-wider flex items-center gap-1.5 text-[#181d26] dark:text-white">
                                 <Key className="h-3.5 w-3.5" />
-                                <span>Custom API Key Header</span>
+                                <span>Frontend Storefront Header (Public Key)</span>
                               </label>
                               <button
                                 type="button"
-                                onClick={() => handleCopy(`X-Zenoa-Api-Key: ${selectedApp.active_api_key}`, "API Key Header")}
+                                onClick={() => handleCopy(`X-Zenoa-Public-Key: ${selectedApp.public_widget_key}`, "Public API Key Header")}
                                 className="text-xs font-medium text-[#181d26] dark:text-white hover:underline flex items-center gap-1 cursor-pointer"
                               >
                                 <Copy className="h-3.5 w-3.5" />
@@ -1558,7 +1624,7 @@ export const PortalDashboard: React.FC<PortalDashboardProps> = ({
                             </div>
                             <div className="bg-[#181d26] text-white p-3.5 rounded-md font-mono text-xs flex items-center justify-between overflow-x-auto border border-[#2d333f]">
                               <code>
-                                X-Zenoa-Api-Key: <span className="text-amber-400 font-mono">{selectedApp.active_api_key.substring(0, 8)}...</span>
+                                X-Zenoa-Public-Key: <span className="text-emerald-400 font-mono">{selectedApp.public_widget_key.substring(0, 16)}...</span>
                               </code>
                             </div>
                           </div>

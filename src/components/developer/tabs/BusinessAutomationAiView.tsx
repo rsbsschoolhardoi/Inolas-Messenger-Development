@@ -1189,149 +1189,151 @@ export const BusinessAutomationAiView: React.FC<BusinessAutomationAiViewProps> =
       )}
 
       {/* TAB 2: SDK GENERATOR & HEADLESS API */}
-      {activeSubTab === 'widget_sdk' && (
-        <div className="space-y-8 animate-in fade-in duration-200">
-          
-          {/* SDK Selection Mode Tabs */}
-          <div className="flex items-center gap-2 border-b border-[#dddddd] dark:border-[#2d333f] pb-3">
-            {[
-              { id: 'turnkey', label: '1. Turnkey Drop-in Script & Drawer', icon: Layers },
-              { id: 'headless', label: '2. Headless SDK (Build Custom UI in your app)', icon: Code2 },
-              { id: 'react', label: '3. React / Next.js Component', icon: Terminal }
-            ].map(t => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setActiveSdkCodeTab(t.id as any)}
-                className={`px-4 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer flex items-center gap-2 ${
-                  activeSdkCodeTab === t.id
-                    ? 'bg-[#181d26] text-white dark:bg-white dark:text-[#181d26]'
-                    : 'text-[#333840] dark:text-zinc-400 hover:bg-[#f8fafc] dark:hover:bg-[#222834]'
-                }`}
-              >
-                <t.icon className="h-3.5 w-3.5" />
-                <span>{t.label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* 1. TURNKEY DROP-IN SCRIPT & DRAWER */}
-          {activeSdkCodeTab === 'turnkey' && (
-            <div className={`rounded-xl border p-6 sm:p-8 space-y-6 transition-colors ${
-              isDark ? 'bg-[#181d26] border-[#2d333f] text-white' : 'bg-white border-[#dddddd] text-[#181d26] shadow-[0_1px_3px_rgba(24,29,38,0.04)]'
-            }`}>
-              <div className="flex items-start justify-between gap-4 pb-4 border-b border-[#dddddd] dark:border-[#2d333f]">
-                <div>
-                  <h3 className="text-xl font-normal tracking-tight text-[#181d26] dark:text-white">
-                    Turnkey Drop-in Script &amp; Bottom-Sheet
-                  </h3>
-                  <p className="text-sm font-normal text-[#333840] dark:text-zinc-400 mt-1 max-w-2xl">
-                    Add the script tag to your HTML and place the button attribute beside any product or item. Zenoa automatically reads nearby specs and opens the half-screen drawer when clicked.
-                  </p>
-                </div>
-                <span className="text-xs font-medium px-2.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-[#181d26] dark:text-zinc-300 border border-[#dddddd] dark:border-[#2d333f]">
-                  Zero Setup Required
-                </span>
-              </div>
-
-              {/* Step A: Global Script */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-[#181d26] dark:text-white">
-                    Step 1: Embed Script in <code>&lt;head&gt;</code> or before <code>&lt;/body&gt;</code>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const snippet = `<script src="${window.location.origin}/widget/v2/zenoa-widget.js" data-project-id="${app.id || 'project_dev'}" data-theme="${actionButtonStyle}" async></script>`;
-                      navigator.clipboard.writeText(snippet);
-                      showToast('Embed script tag copied!');
-                    }}
-                    className="text-xs font-medium text-[#181d26] dark:text-white hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                    <span>Copy Script Tag</span>
-                  </button>
-                </div>
-                <div className={`p-3.5 rounded-md border font-mono text-xs overflow-x-auto ${
-                  isDark ? 'bg-[#181d26] border-[#2d333f] text-emerald-400' : 'bg-[#f8fafc] border-[#dddddd] text-[#181d26]'
-                }`}>
-                  <code>{`<script src="${window.location.origin}/widget/v2/zenoa-widget.js" data-project-id="${app.id || 'project_dev'}" data-theme="${actionButtonStyle}" async></script>`}</code>
-                </div>
-              </div>
-
-              {/* Step B: Button Tag */}
-              <div className="space-y-2 pt-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-[#181d26] dark:text-white">
-                    Step 2: Place Button on any Item / Product Page
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const snippet = `<button class="zenoa-assistant-btn" data-zenoa-assistant data-zenoa-project="${app.id || 'project_dev'}" data-zenoa-label="${actionButtonLabel}">${actionButtonLabel}</button>`;
-                      navigator.clipboard.writeText(snippet);
-                      showToast('HTML button tag copied!');
-                    }}
-                    className="text-xs font-medium text-[#181d26] dark:text-white hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                    <span>Copy Button Tag</span>
-                  </button>
-                </div>
-                <div className={`p-3.5 rounded-md border font-mono text-xs overflow-x-auto ${
-                  isDark ? 'bg-[#181d26] border-[#2d333f] text-zinc-300' : 'bg-[#f8fafc] border-[#dddddd] text-[#181d26]'
-                }`}>
-                  <code>{`<button class="zenoa-assistant-btn" data-zenoa-assistant data-zenoa-project="${app.id || 'project_dev'}" data-zenoa-label="${actionButtonLabel}">${actionButtonLabel}</button>`}</code>
-                </div>
-              </div>
+      {activeSubTab === 'widget_sdk' && (() => {
+        const publicApiKey = app?.public_widget_key || app?.public_key || app?.widget_key || (app?.api_key ? `zen_pub_live_${String(app.api_key).replace(/[^a-zA-Z0-9]/g, '').substring(0, 20)}` : 'zen_pub_live_98a72f0b4c81e2d93e');
+        return (
+          <div className="space-y-8 animate-in fade-in duration-200">
+            
+            {/* SDK Selection Mode Tabs */}
+            <div className="flex items-center gap-2 border-b border-[#dddddd] dark:border-[#2d333f] pb-3">
+              {[
+                { id: 'turnkey', label: '1. Turnkey Drop-in Script & Drawer', icon: Layers },
+                { id: 'headless', label: '2. Headless SDK (Build Custom UI in your app)', icon: Code2 },
+                { id: 'react', label: '3. React / Next.js Component', icon: Terminal }
+              ].map(t => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setActiveSdkCodeTab(t.id as any)}
+                  className={`px-4 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer flex items-center gap-2 ${
+                    activeSdkCodeTab === t.id
+                      ? 'bg-[#181d26] text-white dark:bg-white dark:text-[#181d26]'
+                      : 'text-[#333840] dark:text-zinc-400 hover:bg-[#f8fafc] dark:hover:bg-[#222834]'
+                  }`}
+                >
+                  <t.icon className="h-3.5 w-3.5" />
+                  <span>{t.label}</span>
+                </button>
+              ))}
             </div>
-          )}
 
-          {/* 2. HEADLESS SDK (DEVELOPER BUILDS OWN CUSTOM UI) */}
-          {activeSdkCodeTab === 'headless' && (
-            <div className={`rounded-xl border p-6 sm:p-8 space-y-6 transition-colors ${
-              isDark ? 'bg-[#181d26] border-[#2d333f] text-white' : 'bg-white border-[#dddddd] text-[#181d26] shadow-[0_1px_3px_rgba(24,29,38,0.04)]'
-            }`}>
-              <div className="flex items-start justify-between gap-4 pb-4 border-b border-[#dddddd] dark:border-[#2d333f]">
-                <div>
-                  <h3 className="text-xl font-normal tracking-tight text-[#181d26] dark:text-white">
-                    Headless SDK &amp; Direct Query API
-                  </h3>
-                  <p className="text-sm font-normal text-[#333840] dark:text-zinc-400 mt-1 max-w-2xl">
-                    Design your own completely custom modal, drawer, or inline assistant inside your application. Zenoa handles the backend LLM routing, rate limiting, and factual grounding behind the scenes.
-                  </p>
-                </div>
-                <span className="text-xs font-medium px-2.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-[#181d26] dark:text-zinc-300 border border-[#dddddd] dark:border-[#2d333f]">
-                  Complete UI Control
-                </span>
-              </div>
-
-              {/* Headless TypeScript / JavaScript */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-[#181d26] dark:text-white">
-                    JavaScript / TypeScript SDK Call
+            {/* 1. TURNKEY DROP-IN SCRIPT & DRAWER */}
+            {activeSdkCodeTab === 'turnkey' && (
+              <div className={`rounded-xl border p-6 sm:p-8 space-y-6 transition-colors ${
+                isDark ? 'bg-[#181d26] border-[#2d333f] text-white' : 'bg-white border-[#dddddd] text-[#181d26] shadow-[0_1px_3px_rgba(24,29,38,0.04)]'
+              }`}>
+                <div className="flex items-start justify-between gap-4 pb-4 border-b border-[#dddddd] dark:border-[#2d333f]">
+                  <div>
+                    <h3 className="text-xl font-normal tracking-tight text-[#181d26] dark:text-white">
+                      Turnkey Drop-in Script &amp; Bottom-Sheet
+                    </h3>
+                    <p className="text-sm font-normal text-[#333840] dark:text-zinc-400 mt-1 max-w-2xl">
+                      Add the script tag to your HTML with your Public Key (<code>{publicApiKey.substring(0, 16)}...</code>). Place the button attribute beside any product or item to trigger the half-screen drawer.
+                    </p>
+                  </div>
+                  <span className="text-xs font-medium px-2.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40">
+                    Public Key Active
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const headlessSnippet = `import { ZenoaClient } from '@zenoa/sdk';\n\nconst zenoa = new ZenoaClient({ projectId: '${app.id || 'project_dev'}' });\n\n// Call inside your custom button click handler or React state:\nconst response = await zenoa.askAssistant({\n  question: 'Is this room air conditioned?',\n  itemSpecs: {\n    title: 'Deluxe King Suite',\n    amenities: ['AC', 'Balcony', 'Breakfast'],\n    price: 4499\n  },\n  locale: 'en' // supports 'hi', 'hi-Latn', 'en', 'auto'\n});\n\nconsole.log(response.answer); // Verified factual answer`;
-                      navigator.clipboard.writeText(headlessSnippet);
-                      showToast('Headless SDK snippet copied!');
-                    }}
-                    className="text-xs font-medium text-[#181d26] dark:text-white hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                    <span>Copy SDK Code</span>
-                  </button>
                 </div>
-                <div className={`p-3.5 rounded-md border font-mono text-xs overflow-x-auto ${
-                  isDark ? 'bg-[#181d26] border-[#2d333f] text-zinc-300' : 'bg-[#f8fafc] border-[#dddddd] text-[#181d26]'
-                }`}>
-                  <pre>{`import { ZenoaClient } from '@zenoa/sdk';
 
-const zenoa = new ZenoaClient({ projectId: '${app.id || 'project_dev'}' });
+                {/* Step A: Global Script */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-[#181d26] dark:text-white">
+                      Step 1: Embed Script in <code>&lt;head&gt;</code> or before <code>&lt;/body&gt;</code>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const snippet = `<script src="${window.location.origin}/widget/v2/zenoa-widget.js" data-zenoa-key="${publicApiKey}" data-project-id="${app.id || 'project_dev'}" async></script>`;
+                        navigator.clipboard.writeText(snippet);
+                        showToast('Embed script tag copied!');
+                      }}
+                      className="text-xs font-medium text-[#181d26] dark:text-white hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      <span>Copy Script Tag</span>
+                    </button>
+                  </div>
+                  <div className={`p-3.5 rounded-md border font-mono text-xs overflow-x-auto ${
+                    isDark ? 'bg-[#181d26] border-[#2d333f] text-emerald-400' : 'bg-[#f8fafc] border-[#dddddd] text-[#181d26]'
+                  }`}>
+                    <code>{`<script src="${window.location.origin}/widget/v2/zenoa-widget.js" data-zenoa-key="${publicApiKey}" data-project-id="${app.id || 'project_dev'}" async></script>`}</code>
+                  </div>
+                </div>
+
+                {/* Step B: Button Tag */}
+                <div className="space-y-2 pt-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-[#181d26] dark:text-white">
+                      Step 2: Place Button on any Item / Product Page
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const snippet = `<button class="zenoa-assistant-btn" data-zenoa-assistant data-zenoa-key="${publicApiKey}" data-zenoa-label="${actionButtonLabel}">${actionButtonLabel}</button>`;
+                        navigator.clipboard.writeText(snippet);
+                        showToast('HTML button tag copied!');
+                      }}
+                      className="text-xs font-medium text-[#181d26] dark:text-white hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      <span>Copy Button Tag</span>
+                    </button>
+                  </div>
+                  <div className={`p-3.5 rounded-md border font-mono text-xs overflow-x-auto ${
+                    isDark ? 'bg-[#181d26] border-[#2d333f] text-zinc-300' : 'bg-[#f8fafc] border-[#dddddd] text-[#181d26]'
+                  }`}>
+                    <code>{`<button class="zenoa-assistant-btn" data-zenoa-assistant data-zenoa-key="${publicApiKey}" data-zenoa-label="${actionButtonLabel}">${actionButtonLabel}</button>`}</code>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 2. HEADLESS SDK (DEVELOPER BUILDS OWN CUSTOM UI) */}
+            {activeSdkCodeTab === 'headless' && (
+              <div className={`rounded-xl border p-6 sm:p-8 space-y-6 transition-colors ${
+                isDark ? 'bg-[#181d26] border-[#2d333f] text-white' : 'bg-white border-[#dddddd] text-[#181d26] shadow-[0_1px_3px_rgba(24,29,38,0.04)]'
+              }`}>
+                <div className="flex items-start justify-between gap-4 pb-4 border-b border-[#dddddd] dark:border-[#2d333f]">
+                  <div>
+                    <h3 className="text-xl font-normal tracking-tight text-[#181d26] dark:text-white">
+                      Headless SDK &amp; Direct Query API
+                    </h3>
+                    <p className="text-sm font-normal text-[#333840] dark:text-zinc-400 mt-1 max-w-2xl">
+                      Build your own completely custom modal, drawer, or inline assistant inside your application using your Public Key (<code>{publicApiKey.substring(0, 16)}...</code>).
+                    </p>
+                  </div>
+                  <span className="text-xs font-medium px-2.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-[#181d26] dark:text-zinc-300 border border-[#dddddd] dark:border-[#2d333f]">
+                    Complete UI Control
+                  </span>
+                </div>
+
+                {/* Headless TypeScript / JavaScript */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-[#181d26] dark:text-white">
+                      JavaScript / TypeScript SDK Call
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const headlessSnippet = `import { ZenoaClient } from '@zenoa/sdk';\n\nconst zenoa = new ZenoaClient({ apiKey: '${publicApiKey}' });\n\n// Call inside your custom button click handler or React state:\nconst response = await zenoa.askAssistant({\n  question: 'Is this room air conditioned?',\n  itemSpecs: {\n    title: 'Deluxe King Suite',\n    amenities: ['AC', 'Balcony', 'Breakfast'],\n    price: 4499\n  },\n  locale: 'auto' // Supports Hindi, Hinglish, English, etc.\n});\n\nconsole.log(response.answer); // Verified factual answer`;
+                        navigator.clipboard.writeText(headlessSnippet);
+                        showToast('Headless SDK snippet copied!');
+                      }}
+                      className="text-xs font-medium text-[#181d26] dark:text-white hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      <span>Copy SDK Code</span>
+                    </button>
+                  </div>
+                  <div className={`p-3.5 rounded-md border font-mono text-xs overflow-x-auto ${
+                    isDark ? 'bg-[#181d26] border-[#2d333f] text-zinc-300' : 'bg-[#f8fafc] border-[#dddddd] text-[#181d26]'
+                  }`}>
+                    <pre>{`import { ZenoaClient } from '@zenoa/sdk';
+
+const zenoa = new ZenoaClient({ apiKey: '${publicApiKey}' });
 
 // Call inside your custom button or state handler:
 const response = await zenoa.askAssistant({
@@ -1345,49 +1347,49 @@ const response = await zenoa.askAssistant({
 });
 
 console.log(response.answer); // Grounded factual response`}</pre>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* 3. REACT / NEXT.JS COMPONENT */}
-          {activeSdkCodeTab === 'react' && (
-            <div className={`rounded-xl border p-6 sm:p-8 space-y-6 transition-colors ${
-              isDark ? 'bg-[#181d26] border-[#2d333f] text-white' : 'bg-white border-[#dddddd] text-[#181d26] shadow-[0_1px_3px_rgba(24,29,38,0.04)]'
-            }`}>
-              <div className="flex items-start justify-between gap-4 pb-4 border-b border-[#dddddd] dark:border-[#2d333f]">
-                <div>
-                  <h3 className="text-xl font-normal tracking-tight text-[#181d26] dark:text-white">
-                    React &amp; Next.js Drop-in Component
-                  </h3>
-                  <p className="text-sm font-normal text-[#333840] dark:text-zinc-400 mt-1 max-w-2xl">
-                    Import the ready-to-use React component with built-in slide-up drawer support or headless mode.
-                  </p>
+            {/* 3. REACT / NEXT.JS COMPONENT */}
+            {activeSdkCodeTab === 'react' && (
+              <div className={`rounded-xl border p-6 sm:p-8 space-y-6 transition-colors ${
+                isDark ? 'bg-[#181d26] border-[#2d333f] text-white' : 'bg-white border-[#dddddd] text-[#181d26] shadow-[0_1px_3px_rgba(24,29,38,0.04)]'
+              }`}>
+                <div className="flex items-start justify-between gap-4 pb-4 border-b border-[#dddddd] dark:border-[#2d333f]">
+                  <div>
+                    <h3 className="text-xl font-normal tracking-tight text-[#181d26] dark:text-white">
+                      React &amp; Next.js Drop-in Component
+                    </h3>
+                    <p className="text-sm font-normal text-[#333840] dark:text-zinc-400 mt-1 max-w-2xl">
+                      Import the ready-to-use React component configured with your Public Key.
+                    </p>
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-[#181d26] dark:text-white">
-                    React Component Integration
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const reactSnippet = `import { ZenoaAssistantButton } from '@zenoa/react';\n\nexport function ProductCard({ item }) {\n  return (\n    <div className="border rounded-xl p-4">\n      <h3>{item.name}</h3>\n      <p>{item.description}</p>\n      \n      {/* Zenoa Assistant with slide-up half-screen sheet */}\n      <ZenoaAssistantButton \n        projectId="${app.id || 'project_dev'}"\n        label="${actionButtonLabel}"\n        specs={item.specifications}\n        drawerHeight="${drawerHeight}"\n      />\n    </div>\n  );\n}`;
-                      navigator.clipboard.writeText(reactSnippet);
-                      showToast('React component snippet copied!');
-                    }}
-                    className="text-xs font-medium text-[#181d26] dark:text-white hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                    <span>Copy React Snippet</span>
-                  </button>
-                </div>
-                <div className={`p-3.5 rounded-md border font-mono text-xs overflow-x-auto ${
-                  isDark ? 'bg-[#181d26] border-[#2d333f] text-zinc-300' : 'bg-[#f8fafc] border-[#dddddd] text-[#181d26]'
-                }`}>
-                  <pre>{`import { ZenoaAssistantButton } from '@zenoa/react';
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-[#181d26] dark:text-white">
+                      React Component Integration
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const reactSnippet = `import { ZenoaAssistantButton } from '@zenoa/react';\n\nexport function ProductCard({ item }) {\n  return (\n    <div className="border rounded-xl p-4">\n      <h3>{item.name}</h3>\n      <p>{item.description}</p>\n      \n      {/* Zenoa Assistant with slide-up half-screen sheet */}\n      <ZenoaAssistantButton \n        apiKey="${publicApiKey}"\n        label="${actionButtonLabel}"\n        specs={item.specifications}\n        drawerHeight="${drawerHeight}"\n      />\n    </div>\n  );\n}`;
+                        navigator.clipboard.writeText(reactSnippet);
+                        showToast('React component snippet copied!');
+                      }}
+                      className="text-xs font-medium text-[#181d26] dark:text-white hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      <span>Copy React Snippet</span>
+                    </button>
+                  </div>
+                  <div className={`p-3.5 rounded-md border font-mono text-xs overflow-x-auto ${
+                    isDark ? 'bg-[#181d26] border-[#2d333f] text-zinc-300' : 'bg-[#f8fafc] border-[#dddddd] text-[#181d26]'
+                  }`}>
+                    <pre>{`import { ZenoaAssistantButton } from '@zenoa/react';
 
 export function ProductCard({ item }) {
   return (
@@ -1397,7 +1399,7 @@ export function ProductCard({ item }) {
       
       {/* Zenoa Assistant with slide-up half-screen sheet */}
       <ZenoaAssistantButton 
-        projectId="${app.id || 'project_dev'}"
+        apiKey="${publicApiKey}"
         label="${actionButtonLabel}"
         specs={item.specifications}
         drawerHeight="${drawerHeight}"
@@ -1405,12 +1407,13 @@ export function ProductCard({ item }) {
     </div>
   );
 }`}</pre>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        );
+      })()}
 
       {/* TAB 3: AI ENGINE & BRING YOUR OWN KEY (BYOK) */}
       {activeSubTab === 'ai_model' && (

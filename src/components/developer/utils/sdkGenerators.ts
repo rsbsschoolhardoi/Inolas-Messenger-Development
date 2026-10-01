@@ -1,15 +1,9 @@
 /**
- * Production-ready Multi-Language SDK Generators for Zenoa Developer Console
+ * Production-ready Multi-Language SDK & Key Generators for Zenoa Developer Console
  * 
- * Security Directives:
- * - API keys are NEVER exposed directly in client/server snippet bodies.
- * - Developers configure their keys via Environment Variables (ZENOA_API_KEY)
- *   or pass standard placeholders ("YOUR_ZENOA_API_KEY").
- * 
- * Category-Aware Generation Architecture:
- * - Messenger Plan: Direct Bot DMs (/api/v1/bot/send), Carrier OTPs (/api/v1/otp/send), Webhooks
- * - Business Suite: Autonomous AI Customer Copilot (/api/business/chat), Live Storefront Chat Widget, Canned Replies
- * - Hybrid Enterprise: Unified Omnichannel Gateway (Carrier OTP + Bot DMs + Business AI Copilot)
+ * Two-Tier Key Architecture:
+ * 1. Public Widget API Key (zen_pub_...): For browser storefronts, HTML buttons & slide-up drawers.
+ * 2. Secret Business API Key (zen_sec_...): For server-to-server backend API, carrier OTPs & bot messaging.
  */
 
 import { DeveloperCategoryTier } from '../../../types';
@@ -20,8 +14,22 @@ export const resolveBotHandle = (app: any): string => {
   return `@${clean}`;
 };
 
+export const resolveKeys = (app: any, env: 'test' | 'live' = 'test') => {
+  const isTest = env === 'test' || app?.environment === 'test';
+  
+  const pubKey = isTest
+    ? (app?.test_widget_key || app?.test_public_key || (app?.test_api_key ? `zen_pub_test_${app.test_api_key.replace(/^z(sa|wg)_(test|live)_/, '').replace(/^zen_(test|live)_/, '').substring(0, 24)}` : 'zen_pub_test_88f9a2b1c4e6d7a0912'))
+    : (app?.widget_key || app?.public_key || (app?.api_key ? `zen_pub_live_${app.api_key.replace(/^z(sa|wg)_(test|live)_/, '').replace(/^zen_(test|live)_/, '').substring(0, 24)}` : 'zen_pub_live_88f9a2b1c4e6d7a0912'));
+
+  const secKey = isTest
+    ? (app?.test_secret_key || app?.test_api_key || 'zen_sec_test_41c09e3a7b5d8f1e290a')
+    : (app?.secret_key || app?.api_key || 'zen_sec_live_41c09e3a7b5d8f1e290a');
+
+  return { pubKey, secKey };
+};
+
 // ============================================================================
-// 1. TYPESCRIPT SDK GENERATOR
+// 1. TYPESCRIPT SDK GENERATOR (Backend Server-to-Server)
 // ============================================================================
 export const generateTsSdk = (app: any, categoryTier: DeveloperCategoryTier = 'business'): string => {
   const botHandle = resolveBotHandle(app);
@@ -33,7 +41,7 @@ export const generateTsSdk = (app: any, categoryTier: DeveloperCategoryTier = 'b
  * Zenoa Messenger & Bot TypeScript SDK
  * Tier: Messenger Plan (Carrier OTP & Direct Bot Messaging)
  * Registered Service Account: ${botHandle} (${appName})
- * Authentication: Configured via ZENOA_API_KEY environment variable
+ * Authentication: Secret Key (ZENOA_SECRET_KEY / zen_sec_...)
  */
 
 export interface ZenoaConfig {
@@ -55,18 +63,18 @@ export interface SendMessageOptions {
 }
 
 export class ZenoaMessengerClient {
-  private readonly apiKey: string;
+  private readonly secretKey: string;
   private readonly baseUrl: string;
 
   constructor(config?: ZenoaConfig) {
-    this.apiKey = config?.apiKey || (typeof process !== 'undefined' ? process.env.ZENOA_API_KEY : '') || "YOUR_ZENOA_API_KEY";
+    this.secretKey = config?.apiKey || (typeof process !== 'undefined' ? process.env.ZENOA_SECRET_KEY : '') || "zen_sec_live_your_key";
     this.baseUrl = (config?.baseUrl || "${origin}").replace(/\\/$/, '');
   }
 
   private getHeaders(): Record<string, string> {
     return {
-      "Authorization": \`Bearer \${this.apiKey}\`,
-      "X-Zenoa-Api-Key": this.apiKey,
+      "Authorization": \`Bearer \${this.secretKey}\`,
+      "X-Zenoa-Secret-Key": this.secretKey,
       "Content-Type": "application/json"
     };
   }
@@ -122,19 +130,15 @@ export class ZenoaMessengerClient {
 }
 
 export default ZenoaMessengerClient;
-
-// Usage Example:
-// const zenoa = new ZenoaMessengerClient({ apiKey: process.env.ZENOA_API_KEY });
-// await zenoa.sendOtp({ recipient: "+919876543210", templateType: "standard_otp" });
 `;
   }
 
   if (categoryTier === 'business') {
     return `/**
  * Zenoa Business & AI Copilot TypeScript SDK
- * Tier: Business Suite (Autonomous AI Concierge & Storefront Support)
+ * Tier: Business Suite (Autonomous AI Assistant & Storefront Support)
  * Registered Service Account: ${botHandle} (${appName})
- * Authentication: Configured via ZENOA_API_KEY environment variable
+ * Authentication: Secret Key (ZENOA_SECRET_KEY / zen_sec_...)
  */
 
 export interface ZenoaBusinessConfig {
@@ -149,7 +153,7 @@ export interface CustomerContext {
   order_id?: string;
   order_status?: string;
   cart_value?: string;
-  cart_items?: Array<{ name: string; qty: number; price: number }>;
+  product_specs?: any;
 }
 
 export interface ChatRequestOptions {
@@ -159,24 +163,24 @@ export interface ChatRequestOptions {
 }
 
 export class ZenoaBusinessClient {
-  private readonly apiKey: string;
+  private readonly secretKey: string;
   private readonly baseUrl: string;
 
   constructor(config?: ZenoaBusinessConfig) {
-    this.apiKey = config?.apiKey || (typeof process !== 'undefined' ? process.env.ZENOA_API_KEY : '') || "YOUR_ZENOA_API_KEY";
+    this.secretKey = config?.apiKey || (typeof process !== 'undefined' ? process.env.ZENOA_SECRET_KEY : '') || "zen_sec_live_your_key";
     this.baseUrl = (config?.baseUrl || "${origin}").replace(/\\/$/, '');
   }
 
   private getHeaders(): Record<string, string> {
     return {
-      "Authorization": \`Bearer \${this.apiKey}\`,
-      "X-Zenoa-Api-Key": this.apiKey,
+      "Authorization": \`Bearer \${this.secretKey}\`,
+      "X-Zenoa-Secret-Key": this.secretKey,
       "Content-Type": "application/json"
     };
   }
 
   /**
-   * Sends customer message to Autonomous AI Concierge with full live cart/order context.
+   * Sends customer message or spec question to Autonomous AI with full live context.
    */
   async chat(options: ChatRequestOptions) {
     const res = await fetch(\`\${this.baseUrl}/api/business/chat\`, {
@@ -201,39 +205,17 @@ export class ZenoaBusinessClient {
     });
     return await res.json();
   }
-
-  /**
-   * Dispatches pre-approved canned reply or agent handover.
-   */
-  async sendCannedReply(conversationId: string, cannedId: string) {
-    const res = await fetch(\`\${this.baseUrl}/api/business/conversations/\${conversationId}/canned\`, {
-      method: "POST",
-      headers: this.getHeaders(),
-      body: JSON.stringify({ canned_id: cannedId })
-    });
-    return await res.json();
-  }
 }
 
 export default ZenoaBusinessClient;
-
-// Usage Example:
-// const zenoa = new ZenoaBusinessClient();
-// const reply = await zenoa.chat({
-//   sessionId: "cust_98210",
-//   message: "Where is my package #ORD-88219?",
-//   customerContext: { customer_name: "Rohit Verma", order_id: "#ORD-88219" }
-// });
-// console.log("AI Concierge:", reply.reply);
 `;
   }
 
   // Hybrid Enterprise
   return `/**
  * Zenoa Unified Omnichannel Enterprise SDK
- * Tier: Hybrid Enterprise (Messaging Gateway + Autonomous Business AI)
- * Registered Service Account: ${botHandle} (${appName})
- * Authentication: Configured via ZENOA_API_KEY environment variable
+ * Tier: Hybrid Enterprise (Carrier Messaging + Business Assistant)
+ * Authentication: Secret Key (ZENOA_SECRET_KEY / zen_sec_...)
  */
 
 export interface ZenoaEnterpriseConfig {
@@ -242,23 +224,22 @@ export interface ZenoaEnterpriseConfig {
 }
 
 export class ZenoaClient {
-  private readonly apiKey: string;
+  private readonly secretKey: string;
   private readonly baseUrl: string;
 
   constructor(config?: ZenoaEnterpriseConfig) {
-    this.apiKey = config?.apiKey || (typeof process !== 'undefined' ? process.env.ZENOA_API_KEY : '') || "YOUR_ZENOA_API_KEY";
+    this.secretKey = config?.apiKey || (typeof process !== 'undefined' ? process.env.ZENOA_SECRET_KEY : '') || "zen_sec_live_your_key";
     this.baseUrl = (config?.baseUrl || "${origin}").replace(/\\/$/, '');
   }
 
   private getHeaders(): Record<string, string> {
     return {
-      "Authorization": \`Bearer \${this.apiKey}\`,
-      "X-Zenoa-Api-Key": this.apiKey,
+      "Authorization": \`Bearer \${this.secretKey}\`,
+      "X-Zenoa-Secret-Key": this.secretKey,
       "Content-Type": "application/json"
     };
   }
 
-  // === 1. Messaging & OTP Endpoints ===
   async sendOtp(recipient: string, templateType = "standard_otp") {
     const res = await fetch(\`\${this.baseUrl}/api/v1/otp/send\`, {
       method: "POST",
@@ -268,38 +249,11 @@ export class ZenoaClient {
     return await res.json();
   }
 
-  async verifyOtp(recipient: string, code: string) {
-    const res = await fetch(\`\${this.baseUrl}/api/v1/otp/verify\`, {
-      method: "POST",
-      headers: this.getHeaders(),
-      body: JSON.stringify({ recipient, code })
-    });
-    return await res.json();
-  }
-
-  async sendBotMessage(recipient: string, message: string) {
+  async sendMessage(recipient: string, message: string) {
     const res = await fetch(\`\${this.baseUrl}/api/v1/bot/send\`, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify({ recipient, message })
-    });
-    return await res.json();
-  }
-
-  // === 2. Business Suite & AI Copilot ===
-  async businessChat(sessionId: string, message: string, context?: Record<string, any>) {
-    const res = await fetch(\`\${this.baseUrl}/api/business/chat\`, {
-      method: "POST",
-      headers: this.getHeaders(),
-      body: JSON.stringify({ session_id: sessionId, message, customer_context: context })
-    });
-    return await res.json();
-  }
-
-  async getConversation(conversationId: string) {
-    const res = await fetch(\`\${this.baseUrl}/api/business/conversations/\${conversationId}\`, {
-      method: "GET",
-      headers: this.getHeaders()
     });
     return await res.json();
   }
@@ -310,789 +264,265 @@ export default ZenoaClient;
 };
 
 // ============================================================================
-// 2. NODE.JS SDK GENERATOR
+// 2. NODE.JS SDK
 // ============================================================================
 export const generateNodeSdk = (app: any, categoryTier: DeveloperCategoryTier = 'business'): string => {
   const botHandle = resolveBotHandle(app);
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
 
-  if (categoryTier === 'messenger') {
-    return `/**
- * Zenoa Messenger Node.js SDK (CommonJS / ESM)
- * Tier: Messenger Plan
- * Service Account: ${botHandle}
- * Authentication: Reads process.env.ZENOA_API_KEY
- */
+  return `// Zenoa Node.js Backend Service Account SDK
+// Install: npm install axios
+// Authentication: Secret Key (ZENOA_SECRET_KEY / zen_sec_...)
 
-class ZenoaMessenger {
-  constructor(apiKey = process.env.ZENOA_API_KEY || "YOUR_ZENOA_API_KEY") {
-    this.apiKey = apiKey;
-    this.baseUrl = "${origin}";
-  }
+const axios = require('axios');
 
-  _headers() {
-    return {
-      "Authorization": \`Bearer \${this.apiKey}\`,
-      "X-Zenoa-Api-Key": this.apiKey,
-      "Content-Type": "application/json"
-    };
-  }
-
-  async sendOtp(recipient, templateType = "standard_otp", expiryMins = 10) {
-    const res = await fetch(\`\${this.baseUrl}/api/v1/otp/send\`, {
-      method: "POST",
-      headers: this._headers(),
-      body: JSON.stringify({ recipient, template_type: templateType, expiry_mins: expiryMins })
+class ZenoaService {
+  constructor(secretKey) {
+    this.secretKey = secretKey || process.env.ZENOA_SECRET_KEY || 'zen_sec_live_your_key';
+    this.baseUrl = '${origin}';
+    this.client = axios.create({
+      baseURL: this.baseUrl,
+      headers: {
+        'Authorization': \`Bearer \${this.secretKey}\`,
+        'X-Zenoa-Secret-Key': this.secretKey,
+        'Content-Type': 'application/json'
+      },
+      timeout: 10000
     });
-    return await res.json();
   }
 
-  async verifyOtp(recipient, code) {
-    const res = await fetch(\`\${this.baseUrl}/api/v1/otp/verify\`, {
-      method: "POST",
-      headers: this._headers(),
-      body: JSON.stringify({ recipient, code })
-    });
-    return await res.json();
+  // 1. Send Carrier OTP
+  async sendOtp(recipient, templateType = 'standard_otp') {
+    const resp = await this.client.post('/api/v1/otp/send', { recipient, template_type: templateType });
+    return resp.data;
   }
 
+  // 2. Send Bot Direct Message
   async sendMessage(recipient, message) {
-    const res = await fetch(\`\${this.baseUrl}/api/v1/bot/send\`, {
-      method: "POST",
-      headers: this._headers(),
-      body: JSON.stringify({ recipient, message })
-    });
-    return await res.json();
-  }
-}
-
-module.exports = ZenoaMessenger;
-`;
+    const resp = await this.client.post('/api/v1/bot/send', { recipient, message });
+    return resp.data;
   }
 
-  if (categoryTier === 'business') {
-    return `/**
- * Zenoa Business AI Node.js SDK
- * Tier: Business Suite
- * Service Account: ${botHandle}
- * Authentication: Reads process.env.ZENOA_API_KEY
- */
-
-class ZenoaBusiness {
-  constructor(apiKey = process.env.ZENOA_API_KEY || "YOUR_ZENOA_API_KEY") {
-    this.apiKey = apiKey;
-    this.baseUrl = "${origin}";
-  }
-
-  _headers() {
-    return {
-      "Authorization": \`Bearer \${this.apiKey}\`,
-      "X-Zenoa-Api-Key": this.apiKey,
-      "Content-Type": "application/json"
-    };
-  }
-
+  // 3. Dispatch AI Business Chat
   async chat(sessionId, message, customerContext = {}) {
-    const res = await fetch(\`\${this.baseUrl}/api/business/chat\`, {
-      method: "POST",
-      headers: this._headers(),
-      body: JSON.stringify({ session_id: sessionId, message, customer_context: customerContext })
+    const resp = await this.client.post('/api/business/chat', {
+      session_id: sessionId,
+      message,
+      customer_context: customerContext
     });
-    return await res.json();
-  }
-
-  async getConversation(conversationId) {
-    const res = await fetch(\`\${this.baseUrl}/api/business/conversations/\${conversationId}\`, {
-      method: "GET",
-      headers: this._headers()
-    });
-    return await res.json();
+    return resp.data;
   }
 }
 
-module.exports = ZenoaBusiness;
-`;
-  }
-
-  // Hybrid Enterprise
-  return `/**
- * Zenoa Omnichannel Hybrid Node.js SDK
- * Tier: Hybrid Enterprise
- * Service Account: ${botHandle}
- * Authentication: Reads process.env.ZENOA_API_KEY
- */
-
-class ZenoaOmnichannel {
-  constructor(apiKey = process.env.ZENOA_API_KEY || "YOUR_ZENOA_API_KEY") {
-    this.apiKey = apiKey;
-    this.baseUrl = "${origin}";
-  }
-
-  _headers() {
-    return {
-      "Authorization": \`Bearer \${this.apiKey}\`,
-      "X-Zenoa-Api-Key": this.apiKey,
-      "Content-Type": "application/json"
-    };
-  }
-
-  // 1. Messaging & OTP Gateway
-  async sendOtp(recipient, templateType = "standard_otp") {
-    const res = await fetch(\`\${this.baseUrl}/api/v1/otp/send\`, {
-      method: "POST",
-      headers: this._headers(),
-      body: JSON.stringify({ recipient, template_type: templateType })
-    });
-    return await res.json();
-  }
-
-  async verifyOtp(recipient, code) {
-    const res = await fetch(\`\${this.baseUrl}/api/v1/otp/verify\`, {
-      method: "POST",
-      headers: this._headers(),
-      body: JSON.stringify({ recipient, code })
-    });
-    return await res.json();
-  }
-
-  async sendMessage(recipient, message) {
-    const res = await fetch(\`\${this.baseUrl}/api/v1/bot/send\`, {
-      method: "POST",
-      headers: this._headers(),
-      body: JSON.stringify({ recipient, message })
-    });
-    return await res.json();
-  }
-
-  // 2. Autonomous AI Business Copilot
-  async chat(sessionId, message, customerContext = {}) {
-    const res = await fetch(\`\${this.baseUrl}/api/business/chat\`, {
-      method: "POST",
-      headers: this._headers(),
-      body: JSON.stringify({ session_id: sessionId, message, customer_context: customerContext })
-    });
-    return await res.json();
-  }
-}
-
-module.exports = ZenoaOmnichannel;
+module.exports = ZenoaService;
 `;
 };
 
 // ============================================================================
-// 3. PYTHON SDK GENERATOR
+// 3. PYTHON SDK
 // ============================================================================
 export const generatePythonSdk = (app: any, categoryTier: DeveloperCategoryTier = 'business'): string => {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
 
-  if (categoryTier === 'messenger') {
-    return `# Zenoa Messenger Python SDK
-# Tier: Messenger Plan
-# pip install requests
+  return `# Zenoa Python Backend SDK
+# Install: pip install requests
+# Authentication: Secret Key (ZENOA_SECRET_KEY / zen_sec_...)
 
 import os
 import requests
 
-class ZenoaMessenger:
-    def __init__(self, api_key: str = None):
-        self.api_key = api_key or os.getenv("ZENOA_API_KEY", "YOUR_ZENOA_API_KEY")
-        self.base_url = "${origin}"
-
-    def _headers(self):
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "X-Zenoa-Api-Key": self.api_key,
+class ZenoaClient:
+    def __init__(self, secret_key=None, base_url="${origin}"):
+        self.secret_key = secret_key or os.getenv("ZENOA_SECRET_KEY", "zen_sec_live_your_key")
+        self.base_url = base_url.rstrip("/")
+        self.headers = {
+            "Authorization": f"Bearer {self.secret_key}",
+            "X-Zenoa-Secret-Key": self.secret_key,
             "Content-Type": "application/json"
         }
 
-    def send_otp(self, recipient: str, template_type: str = "standard_otp", expiry_mins: int = 10):
+    def send_otp(self, recipient: str, template_type: str = "standard_otp"):
         url = f"{self.base_url}/api/v1/otp/send"
-        payload = {"recipient": recipient, "template_type": template_type, "expiry_mins": expiry_mins}
-        return requests.post(url, json=payload, headers=self._headers()).json()
-
-    def verify_otp(self, recipient: str, code: str):
-        url = f"{self.base_url}/api/v1/otp/verify"
-        payload = {"recipient": recipient, "code": code}
-        return requests.post(url, json=payload, headers=self._headers()).json()
+        payload = {"recipient": recipient, "template_type": template_type}
+        return requests.post(url, json=payload, headers=self.headers, timeout=10).json()
 
     def send_message(self, recipient: str, message: str):
         url = f"{self.base_url}/api/v1/bot/send"
         payload = {"recipient": recipient, "message": message}
-        return requests.post(url, json=payload, headers=self._headers()).json()
+        return requests.post(url, json=payload, headers=self.headers, timeout=10).json()
 
-# Example Usage:
-# client = ZenoaMessenger()
-# client.send_otp("+919876543210")
-`;
-  }
-
-  if (categoryTier === 'business') {
-    return `# Zenoa Business & AI Copilot Python SDK
-# Tier: Business Suite
-# pip install requests
-
-import os
-import requests
-
-class ZenoaBusiness:
-    def __init__(self, api_key: str = None):
-        self.api_key = api_key or os.getenv("ZENOA_API_KEY", "YOUR_ZENOA_API_KEY")
-        self.base_url = "${origin}"
-
-    def _headers(self):
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "X-Zenoa-Api-Key": self.api_key,
-            "Content-Type": "application/json"
-        }
-
-    def chat(self, session_id: str, message: str, customer_context: dict = None):
+    def chat_assistant(self, session_id: str, message: str, customer_context: dict = None):
         url = f"{self.base_url}/api/business/chat"
         payload = {
             "session_id": session_id,
             "message": message,
             "customer_context": customer_context or {}
         }
-        return requests.post(url, json=payload, headers=self._headers()).json()
-
-    def get_conversation(self, conversation_id: str):
-        url = f"{self.base_url}/api/business/conversations/{conversation_id}"
-        return requests.get(url, headers=self._headers()).json()
-
-# Example Usage:
-# client = ZenoaBusiness()
-# res = client.chat("session_123", "Where is my order #ORD-88219?", {"order_id": "#ORD-88219"})
-# print(res.get("reply"))
-`;
-  }
-
-  // Hybrid Enterprise
-  return `# Zenoa Unified Omnichannel Python SDK
-# Tier: Hybrid Enterprise
-# pip install requests
-
-import os
-import requests
-
-class ZenoaOmnichannel:
-    def __init__(self, api_key: str = None):
-        self.api_key = api_key or os.getenv("ZENOA_API_KEY", "YOUR_ZENOA_API_KEY")
-        self.base_url = "${origin}"
-
-    def _headers(self):
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "X-Zenoa-Api-Key": self.api_key,
-            "Content-Type": "application/json"
-        }
-
-    # 1. Messaging & OTP Gateway
-    def send_otp(self, recipient: str, template_type: str = "standard_otp"):
-        return requests.post(
-            f"{self.base_url}/api/v1/otp/send",
-            json={"recipient": recipient, "template_type": template_type},
-            headers=self._headers()
-        ).json()
-
-    def send_message(self, recipient: str, message: str):
-        return requests.post(
-            f"{self.base_url}/api/v1/bot/send",
-            json={"recipient": recipient, "message": message},
-            headers=self._headers()
-        ).json()
-
-    # 2. Autonomous Business AI
-    def business_chat(self, session_id: str, message: str, customer_context: dict = None):
-        return requests.post(
-            f"{self.base_url}/api/business/chat",
-            json={"session_id": session_id, "message": message, "customer_context": customer_context or {}},
-            headers=self._headers()
-        ).json()
+        return requests.post(url, json=payload, headers=self.headers, timeout=10).json()
 `;
 };
 
 // ============================================================================
-// 4. GO SDK GENERATOR
-// ============================================================================
-export const generateGoSdk = (app: any, categoryTier: DeveloperCategoryTier = 'business'): string => {
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
-
-  if (categoryTier === 'messenger') {
-    return `// Zenoa Messenger Go SDK (Go 1.18+)
-// Tier: Messenger Plan
-package main
-
-import (
-	"bytes"
-	"encoding/json"
-	"net/http"
-	"os"
-)
-
-type ZenoaMessenger struct {
-	ApiKey  string
-	BaseUrl string
-	Client  *http.Client
-}
-
-func NewZenoaMessenger() *ZenoaMessenger {
-	apiKey := os.Getenv("ZENOA_API_KEY")
-	if apiKey == "" {
-		apiKey = "YOUR_ZENOA_API_KEY"
-	}
-	return &ZenoaMessenger{
-		ApiKey:  apiKey,
-		BaseUrl: "${origin}",
-		Client:  &http.Client{},
-	}
-}
-
-func (z *ZenoaMessenger) SendOtp(recipient, templateType string) (map[string]interface{}, error) {
-	payload := map[string]interface{}{
-		"recipient":     recipient,
-		"template_type": templateType,
-		"expiry_mins":   10,
-	}
-	data, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", z.BaseUrl+"/api/v1/otp/send", bytes.NewBuffer(data))
-	req.Header.Set("Authorization", "Bearer "+z.ApiKey)
-	req.Header.Set("X-Zenoa-Api-Key", z.ApiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := z.Client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
-	return result, nil
-}
-`;
-  }
-
-  if (categoryTier === 'business') {
-    return `// Zenoa Business & AI Copilot Go SDK
-// Tier: Business Suite
-package main
-
-import (
-	"bytes"
-	"encoding/json"
-	"net/http"
-	"os"
-)
-
-type ZenoaBusiness struct {
-	ApiKey  string
-	BaseUrl string
-	Client  *http.Client
-}
-
-func NewZenoaBusiness() *ZenoaBusiness {
-	apiKey := os.Getenv("ZENOA_API_KEY")
-	if apiKey == "" {
-		apiKey = "YOUR_ZENOA_API_KEY"
-	}
-	return &ZenoaBusiness{
-		ApiKey:  apiKey,
-		BaseUrl: "${origin}",
-		Client:  &http.Client{},
-	}
-}
-
-func (z *ZenoaBusiness) Chat(sessionId, message string, context map[string]interface{}) (map[string]interface{}, error) {
-	payload := map[string]interface{}{
-		"session_id":       sessionId,
-		"message":          message,
-		"customer_context": context,
-	}
-	data, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", z.BaseUrl+"/api/business/chat", bytes.NewBuffer(data))
-	req.Header.Set("Authorization", "Bearer "+z.ApiKey)
-	req.Header.Set("X-Zenoa-Api-Key", z.ApiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := z.Client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
-	return result, nil
-}
-`;
-  }
-
-  // Hybrid Enterprise
-  return `// Zenoa Unified Omnichannel Go SDK
-// Tier: Hybrid Enterprise
-package main
-
-import (
-	"bytes"
-	"encoding/json"
-	"net/http"
-	"os"
-)
-
-type ZenoaOmnichannel struct {
-	ApiKey  string
-	BaseUrl string
-	Client  *http.Client
-}
-
-func NewZenoaOmnichannel() *ZenoaOmnichannel {
-	apiKey := os.Getenv("ZENOA_API_KEY")
-	if apiKey == "" {
-		apiKey = "YOUR_ZENOA_API_KEY"
-	}
-	return &ZenoaOmnichannel{
-		ApiKey:  apiKey,
-		BaseUrl: "${origin}",
-		Client:  &http.Client{},
-	}
-}
-
-func (z *ZenoaOmnichannel) SendOtp(recipient, templateType string) (map[string]interface{}, error) {
-	payload := map[string]interface{}{"recipient": recipient, "template_type": templateType}
-	data, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", z.BaseUrl+"/api/v1/otp/send", bytes.NewBuffer(data))
-	req.Header.Set("Authorization", "Bearer "+z.ApiKey)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := z.Client.Do(req)
-	if err != nil { return nil, err }
-	defer resp.Body.Close()
-	var res map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&res)
-	return res, nil
-}
-
-func (z *ZenoaOmnichannel) BusinessChat(sessionId, message string, context map[string]interface{}) (map[string]interface{}, error) {
-	payload := map[string]interface{}{"session_id": sessionId, "message": message, "customer_context": context}
-	data, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", z.BaseUrl+"/api/business/chat", bytes.NewBuffer(data))
-	req.Header.Set("Authorization", "Bearer "+z.ApiKey)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := z.Client.Do(req)
-	if err != nil { return nil, err }
-	defer resp.Body.Close()
-	var res map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&res)
-	return res, nil
-}
-`;
-};
-
-// ============================================================================
-// 5. PHP SDK GENERATOR
+// 4. PHP SDK
 // ============================================================================
 export const generatePhpSdk = (app: any, categoryTier: DeveloperCategoryTier = 'business'): string => {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
 
-  if (categoryTier === 'messenger') {
-    return `<?php
-// Zenoa Messenger PHP SDK
-// Tier: Messenger Plan
-
-class ZenoaMessenger {
-    private $apiKey;
-    private $baseUrl = "${origin}";
-
-    public function __construct($apiKey = null) {
-        $this->apiKey = $apiKey ?: (getenv('ZENOA_API_KEY') ?: "YOUR_ZENOA_API_KEY");
-    }
-
-    public function sendOtp($recipient, $templateType = "standard_otp") {
-        $ch = curl_init($this->baseUrl . "/api/v1/otp/send");
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-            "recipient" => $recipient,
-            "template_type" => $templateType
-        ]));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            "Authorization: Bearer " . $this->apiKey,
-            "X-Zenoa-Api-Key: " . $this->apiKey,
-            "Content-Type: application/json"
-        ]);
-        $response = curl_exec($ch);
-        curl_close($ch);
-        return json_decode($response, true);
-    }
-}
-`;
-  }
-
-  if (categoryTier === 'business') {
-    return `<?php
-// Zenoa Business & AI Copilot PHP SDK
-// Tier: Business Suite
-
-class ZenoaBusiness {
-    private $apiKey;
-    private $baseUrl = "${origin}";
-
-    public function __construct($apiKey = null) {
-        $this->apiKey = $apiKey ?: (getenv('ZENOA_API_KEY') ?: "YOUR_ZENOA_API_KEY");
-    }
-
-    public function chat($sessionId, $message, $context = []) {
-        $ch = curl_init($this->baseUrl . "/api/business/chat");
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-            "session_id" => $sessionId,
-            "message" => $message,
-            "customer_context" => $context
-        ]));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            "Authorization: Bearer " . $this->apiKey,
-            "X-Zenoa-Api-Key: " . $this->apiKey,
-            "Content-Type: application/json"
-        ]);
-        $response = curl_exec($ch);
-        curl_close($ch);
-        return json_decode($response, true);
-    }
-}
-`;
-  }
-
-  // Hybrid Enterprise
   return `<?php
-// Zenoa Unified Omnichannel Enterprise PHP SDK
-// Tier: Hybrid Enterprise
+// Zenoa PHP Backend SDK
+// Authentication: Secret Key (ZENOA_SECRET_KEY / zen_sec_...)
 
-class ZenoaOmnichannel {
-    private $apiKey;
-    private $baseUrl = "${origin}";
+class ZenoaClient {
+    private string $secretKey;
+    private string $baseUrl;
 
-    public function __construct($apiKey = null) {
-        $this->apiKey = $apiKey ?: (getenv('ZENOA_API_KEY') ?: "YOUR_ZENOA_API_KEY");
+    public function __construct(?string $secretKey = null, string $baseUrl = "${origin}") {
+        $this->secretKey = $secretKey ?? getenv('ZENOA_SECRET_KEY') ?: 'zen_sec_live_your_key';
+        $this->baseUrl = rtrim($baseUrl, '/');
     }
 
-    // 1. Messaging Gateway
-    public function sendOtp($recipient, $templateType = "standard_otp") {
-        $ch = curl_init($this->baseUrl . "/api/v1/otp/send");
+    private function request(string $method, string $endpoint, array $data = []): array {
+        $ch = curl_init($this->baseUrl . $endpoint);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(["recipient" => $recipient, "template_type" => $templateType]));
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            "Authorization: Bearer " . $this->apiKey,
-            "Content-Type: application/json"
+            'Authorization: Bearer ' . $this->secretKey,
+            'X-Zenoa-Secret-Key: ' . $this->secretKey,
+            'Content-Type: application/json'
         ]);
-        $res = curl_exec($ch);
+        if (!empty($data)) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+        }
+        $response = curl_exec($ch);
         curl_close($ch);
-        return json_decode($res, true);
+        return json_decode($response, true) ?? [];
     }
 
-    // 2. Autonomous Business AI
-    public function chat($sessionId, $message, $context = []) {
-        $ch = curl_init($this->baseUrl . "/api/business/chat");
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(["session_id" => $sessionId, "message" => $message, "customer_context" => $context]));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            "Authorization: Bearer " . $this->apiKey,
-            "Content-Type: application/json"
-        ]);
-        $res = curl_exec($ch);
-        curl_close($ch);
-        return json_decode($res, true);
+    public function sendOtp(string $recipient, string $template = 'standard_otp'): array {
+        return $this->request('POST', '/api/v1/otp/send', ['recipient' => $recipient, 'template_type' => $template]);
+    }
+
+    public function sendMessage(string $recipient, string $message): array {
+        return $this->request('POST', '/api/v1/bot/send', ['recipient' => $recipient, 'message' => $message]);
     }
 }
 `;
 };
 
 // ============================================================================
-// 6. JAVA SDK GENERATOR
+// 5. GO SDK
+// ============================================================================
+export const generateGoSdk = (app: any, categoryTier: DeveloperCategoryTier = 'business'): string => {
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
+
+  return `package zenoa
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"os"
+	"time"
+)
+
+type Client struct {
+	SecretKey  string
+	BaseURL    string
+	HTTPClient *http.Client
+}
+
+func NewClient(secretKey string) *Client {
+	if secretKey == "" {
+		secretKey = os.Getenv("ZENOA_SECRET_KEY")
+	}
+	return &Client{
+		SecretKey:  secretKey,
+		BaseURL:    "${origin}",
+		HTTPClient: &http.Client{Timeout: 10 * time.Second},
+	}
+}
+
+func (c *Client) SendOTP(recipient, templateType string) (*http.Response, error) {
+	payload, _ := json.Marshal(map[string]string{
+		"recipient":     recipient,
+		"template_type": templateType,
+	})
+	req, _ := http.NewRequest("POST", c.BaseURL+"/api/v1/otp/send", bytes.NewBuffer(payload))
+	req.Header.Set("Authorization", "Bearer "+c.SecretKey)
+	req.Header.Set("X-Zenoa-Secret-Key", c.SecretKey)
+	req.Header.Set("Content-Type", "application/json")
+	return c.HTTPClient.Do(req)
+}
+`;
+};
+
+// ============================================================================
+// 6. JAVA SDK
 // ============================================================================
 export const generateJavaSdk = (app: any, categoryTier: DeveloperCategoryTier = 'business'): string => {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
 
-  if (categoryTier === 'messenger') {
-    return `// Zenoa Messenger Java 11+ HttpClient SDK
-// Tier: Messenger Plan
+  return `// Zenoa Java Backend Service SDK
+// Authentication: Secret Key (ZENOA_SECRET_KEY / zen_sec_...)
+
+package in.zenoa.sdk;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 
-public class ZenoaMessengerClient {
-    private final String apiKey;
-    private final String baseUrl = "${origin}";
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+public class ZenoaClient {
+    private final String secretKey;
+    private final String baseUrl;
+    private final HttpClient httpClient;
 
-    public ZenoaMessengerClient(String apiKey) {
-        this.apiKey = (apiKey != null) ? apiKey : System.getenv().getOrDefault("ZENOA_API_KEY", "YOUR_ZENOA_API_KEY");
+    public ZenoaClient(String secretKey) {
+        this.secretKey = secretKey != null ? secretKey : System.getenv("ZENOA_SECRET_KEY");
+        this.baseUrl = "${origin}";
+        this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     }
 
     public String sendOtp(String recipient, String templateType) throws Exception {
-        String payload = String.format("{\\"recipient\\":\\"%s\\",\\"template_type\\":\\"%s\\"}", recipient, templateType);
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create(baseUrl + "/api/v1/otp/send"))
-            .header("Authorization", "Bearer " + apiKey)
-            .header("X-Zenoa-Api-Key", apiKey)
+        String json = String.format("{\"recipient\":\"%s\",\"template_type\":\"%s\"}", recipient, templateType);
+        HttpRequest req = HttpRequest.newBuilder()
+            .uri(URI.create(this.baseUrl + "/api/v1/otp/send"))
+            .header("Authorization", "Bearer " + this.secretKey)
+            .header("X-Zenoa-Secret-Key", this.secretKey)
             .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(payload))
+            .POST(HttpRequest.BodyPublishers.ofString(json))
             .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        return response.body();
-    }
-}
-`;
-  }
-
-  if (categoryTier === 'business') {
-    return `// Zenoa Business AI Java 11+ HttpClient SDK
-// Tier: Business Suite
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-
-public class ZenoaBusinessClient {
-    private final String apiKey;
-    private final String baseUrl = "${origin}";
-    private final HttpClient httpClient = HttpClient.newHttpClient();
-
-    public ZenoaBusinessClient(String apiKey) {
-        this.apiKey = (apiKey != null) ? apiKey : System.getenv().getOrDefault("ZENOA_API_KEY", "YOUR_ZENOA_API_KEY");
-    }
-
-    public String chat(String sessionId, String message) throws Exception {
-        String payload = String.format("{\\"session_id\\":\\"%s\\",\\"message\\":\\"%s\\"}", sessionId, message);
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create(baseUrl + "/api/business/chat"))
-            .header("Authorization", "Bearer " + apiKey)
-            .header("X-Zenoa-Api-Key", apiKey)
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(payload))
-            .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        return response.body();
-    }
-}
-`;
-  }
-
-  // Hybrid Enterprise
-  return `// Zenoa Omnichannel Enterprise Java 11+ SDK
-// Tier: Hybrid Enterprise
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-
-public class ZenoaOmnichannelClient {
-    private final String apiKey;
-    private final String baseUrl = "${origin}";
-    private final HttpClient httpClient = HttpClient.newHttpClient();
-
-    public ZenoaOmnichannelClient(String apiKey) {
-        this.apiKey = (apiKey != null) ? apiKey : System.getenv().getOrDefault("ZENOA_API_KEY", "YOUR_ZENOA_API_KEY");
-    }
-
-    public String sendRequest(String endpoint, String jsonPayload) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create(baseUrl + endpoint))
-            .header("Authorization", "Bearer " + apiKey)
-            .header("X-Zenoa-Api-Key", apiKey)
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
-            .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        return response.body();
+        return this.httpClient.send(req, HttpResponse.BodyHandlers.ofString()).body();
     }
 }
 `;
 };
 
 // ============================================================================
-// 7. CURL COMMAND SNIPPETS
+// 7. CURL SNIPPETS
 // ============================================================================
 export const generateCurlSnippets = (app: any, categoryTier: DeveloperCategoryTier = 'business'): string => {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
 
-  if (categoryTier === 'messenger') {
-    return `# 1. Dispatch Carrier OTP
+  return `# 1. Backend Service Account Request (Uses Secret Key: zen_sec_...)
 curl -X POST "${origin}/api/v1/otp/send" \\
-  -H "Authorization: Bearer $ZENOA_API_KEY" \\
-  -H "X-Zenoa-Api-Key: $ZENOA_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "recipient": "+919876543210",
-    "template_type": "standard_otp",
-    "expiry_mins": 10
-  }'
-
-# 2. Verify Recipient Passcode
-curl -X POST "${origin}/api/v1/otp/verify" \\
-  -H "Authorization: Bearer $ZENOA_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "recipient": "+919876543210",
-    "code": "482910"
-  }'
-
-# 3. Direct Service Account Bot Message
-curl -X POST "${origin}/api/v1/bot/send" \\
-  -H "Authorization: Bearer $ZENOA_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "recipient": "@customer_handle",
-    "message": "Hello! Your verification is complete."
-  }'`;
-  }
-
-  if (categoryTier === 'business') {
-    return `# 1. Dispatch Message to Autonomous AI Concierge
-curl -X POST "${origin}/api/business/chat" \\
-  -H "Authorization: Bearer $ZENOA_API_KEY" \\
-  -H "X-Zenoa-Api-Key: $ZENOA_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "session_id": "cust_session_8819",
-    "message": "Where is my order #ORD-88219?",
-    "customer_context": {
-      "customer_name": "Rohit Verma",
-      "customer_email": "rohit.v@example.com",
-      "order_id": "#ORD-88219",
-      "cart_value": "₹14,999.00"
-    }
-  }'
-
-# 2. Retrieve Conversation Details
-curl -X GET "${origin}/api/business/conversations/conv_8819" \\
-  -H "Authorization: Bearer $ZENOA_API_KEY"`;
-  }
-
-  // Hybrid Enterprise
-  return `# 1. Carrier OTP Dispatch (Messenger Gateway)
-curl -X POST "${origin}/api/v1/otp/send" \\
-  -H "Authorization: Bearer $ZENOA_API_KEY" \\
+  -H "Authorization: Bearer $ZENOA_SECRET_KEY" \\
+  -H "X-Zenoa-Secret-Key: $ZENOA_SECRET_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"recipient": "+919876543210", "template_type": "standard_otp"}'
 
-# 2. Autonomous AI Business Concierge
-curl -X POST "${origin}/api/business/chat" \\
-  -H "Authorization: Bearer $ZENOA_API_KEY" \\
-  -H "X-Zenoa-Api-Key: $ZENOA_API_KEY" \\
+# 2. Storefront In-Context Assistant Request (Uses Public Key: zen_pub_...)
+curl -X POST "${origin}/api/business/triage-ai" \\
+  -H "X-Zenoa-Public-Key: $ZENOA_PUBLIC_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{"session_id": "sess_912", "message": "Inquire product specifications"}'
-
-# 3. Bot DM Notification
-curl -X POST "${origin}/api/v1/bot/send" \\
-  -H "Authorization: Bearer $ZENOA_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"recipient": "@user", "message": "Omnichannel alert notification"}'`;
+  -d '{
+    "app_id": "${app?.id || 'biz_default'}",
+    "message": "Kya is hotel room me AC hai?",
+    "customer_context": {
+      "product_specs": "Room: Deluxe Suite, Split AC: Yes, Balcony: Yes"
+    }
+  }'`;
 };
 
 // ============================================================================
@@ -1102,50 +532,43 @@ export const generateEnvConfig = (app: any, categoryTier: DeveloperCategoryTier 
   const botHandle = resolveBotHandle(app);
   const appName = app?.app_name || 'Service Account';
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
+  const { pubKey, secKey } = resolveKeys(app);
 
-  return `# Zenoa Developer Environment Configuration (${appName})
-# Category Tier: ${categoryTier.toUpperCase()}
-# Note: Copy your secret API key from the Credentials tab above and paste it below
+  return `# Zenoa Two-Tier API Key Configuration (${appName})
+# 1. Public Storefront Key (Safe for frontend HTML, React & Next.js client embeds)
+ZENOA_PUBLIC_KEY=${pubKey}
 
-ZENOA_API_KEY=your_zenoa_api_key_here
-ZENOA_CATEGORY_TIER=${categoryTier}
+# 2. Secret Business API Key (For secure backend server-to-server operations, OTPs & Bot DMs)
+ZENOA_SECRET_KEY=${secKey}
+
+# Infrastructure Parameters
 ZENOA_SERVICE_ACCOUNT=${botHandle}
 ZENOA_GATEWAY_URL=${origin}
 `;
 };
 
 // ============================================================================
-// 9. HTML / CLIENT SCRIPT SNIPPET
+// 9. MODERN WIDGET SDK HTML SNIPPET (Uses Public Key)
 // ============================================================================
 export const generateHtmlSnippet = (app: any, categoryTier: DeveloperCategoryTier = 'business'): string => {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://developer.zenoa.in';
+  const { pubKey } = resolveKeys(app);
 
-  if (categoryTier === 'business' || categoryTier === 'hybrid') {
-    return `<!-- Zenoa Live Storefront Chat Widget -->
-<!-- Option A: Floating Bubble Widget (Default) -->
+  return `<!-- Zenoa Modern Web Widget & Assistant SDK (v2.4) -->
+<!-- Step 1: Embed Runtime Script (Uses Public Storefront Key) -->
 <script 
-  src="${origin}/widget/live-chat.js" 
-  data-api-key="YOUR_ZENOA_API_KEY" 
-  data-category="${categoryTier}"
-  data-mode="bubble"
-  data-position="bottom-right"
+  src="${origin}/widget/v2/zenoa-widget.js" 
+  data-zenoa-key="${pubKey}" 
+  data-project-id="${app?.id || 'biz_default'}"
   async>
 </script>
 
-<!-- Option B: Embedded Inline Tab Container -->
-<!-- <div id="zenoa-chat-container" style="width: 100%; height: 600px;"></div>
-<script 
-  src="${origin}/widget/live-chat.js" 
-  data-api-key="YOUR_ZENOA_API_KEY" 
-  data-mode="tab"
-  data-target="#zenoa-chat-container">
-</script> -->`;
-  }
-
-  return `<!-- Zenoa Messenger Client SDK -->
-<script src="${origin}/sdk/zenoa-messenger.js"></script>
-<script>
-  const zenoa = new ZenoaMessenger({ apiKey: "YOUR_ZENOA_API_KEY" });
-  // Ready to dispatch OTPs or direct bot notifications
-</script>`;
+<!-- Step 2: Attach Assistant Button on any Product or Item -->
+<button 
+  class="zenoa-assistant-btn" 
+  data-zenoa-assistant 
+  data-zenoa-key="${pubKey}" 
+  data-zenoa-label="Ask Assistant">
+  Ask Assistant
+</button>`;
 };
